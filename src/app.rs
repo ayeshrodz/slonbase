@@ -185,5 +185,6 @@ pub(crate) async fn prepare(pool: &Pool) -> Result<bool> {
         tracing::info!(?applied, "applied system migrations");
     }
     crate::collections::system::ensure(pool).await?;
+    crate::collections::store::heal_views(pool).await?;
     Ok(superusers::count(pool).await? > 0)
 }

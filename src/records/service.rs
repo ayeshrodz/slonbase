@@ -72,7 +72,7 @@ impl Core {
         let row = client
             .query_opt(
                 &format!(
-                    "SELECT {} FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = $1::text",
+                    "SELECT {} FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = $1::text LIMIT 1",
                     select_list(&fields),
                     table_ref(&c.name)
                 ),

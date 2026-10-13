@@ -565,9 +565,15 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   read-only (create/update/delete rules are null and writes are refused), have no indexes, and
   sort by `id` where tables use their insertion order. Unqualified names resolve to collections
   (`search_path = slonbase, public` in the creating transaction), so PocketBase queries work.
-- PostgreSQL tracks what views depend on: dropping a table or column a view uses fails, and the
-  error says so. Collection changes apply views last (and drop them first), as do backup
-  restores, which recreate views from their definitions (they hold no data to copy).
+- Stability: views are real PostgreSQL views, so a view can't be stale or half-broken at read
+  time. Any change to a table drops the other view collections first and recreates them from
+  their queries after it (re-inferring their fields), in the same transaction: table changes
+  never fail because of PostgreSQL's view dependencies, views follow column type changes, and a
+  change that would break a view (removing a column it reads) is refused as a whole, naming the
+  view. Collection changes apply views last (and drop them first), as do backup restores, which
+  recreate views from their definitions. Rows with a NULL id are left out, single-record reads
+  take one row (so duplicate ids can't fail them), and at startup a view collection whose
+  PostgreSQL view is missing is recreated.
 - Security: a view query runs with the role's privileges on every read, the same exposure as the
   SQL console, so creating or changing one requires `--sql-console`.
 

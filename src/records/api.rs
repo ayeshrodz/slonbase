@@ -294,7 +294,7 @@ pub async fn view(
 
     let fields = visible_fields(&c, auth.is_superuser());
     let sql = format!(
-        "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
+        "SELECT {} FROM {} {ALIAS} WHERE {where_sql} LIMIT 1",
         output_select(&fields, &email_visible),
         table_ref(&c.name)
     );
@@ -784,7 +784,7 @@ async fn current_for_hook(
     let row = client
         .query_opt(
             &format!(
-                "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
+                "SELECT {} FROM {} {ALIAS} WHERE {where_sql} LIMIT 1",
                 select_list(&fields),
                 table_ref(&c.name)
             ),

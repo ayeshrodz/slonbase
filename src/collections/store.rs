@@ -145,6 +145,71 @@ impl From<tokio_postgres::Error> for WriteError {
     }
 }
 
+/// Recreates a view collection from its query, updating its fields when the columns it
+/// returns changed.
+async fn rebuild_view(
+    tx: &deadpool_postgres::Transaction<'_>,
+    view: &mut Collection,
+) -> Result<(), WriteError> {
+    tx.batch_execute(super::view::SEARCH_PATH).await?;
+    let query = view.view_query.clone().unwrap_or_default();
+    let fields = super::view::infer_fields(tx, &query, &view.fields)
+        .await
+        .map_err(|message| {
+            WriteError::Conflict(format!(
+                "it would break the view collection {:?} ({message}); change its query first",
+                view.name
+            ))
+        })?;
+    let changed = fields != view.fields;
+    view.fields = fields;
+    for statement in schema::create(view) {
+        tx.batch_execute(&statement).await?;
+    }
+    if changed {
+        tx.execute(
+            "UPDATE _slonbase.collections SET data = $2, updated = now() WHERE id = $1",
+            &[&view.id, &stored_json(view)],
+        )
+        .await?;
+    }
+    Ok(())
+}
+
+/// Recreates view collections whose PostgreSQL view is missing (e.g. dropped by hand).
+/// Problems are logged; the collection then fails on reads until its query is fixed.
+pub async fn heal_views(pool: &Pool) -> Result<()> {
+    let mut client = pool.get().await.map_err(describe_pool_error)?;
+    let registry = load(&client).await?;
+    for view in registry.all().iter().filter(|c| c.is_view()) {
+        let exists: bool = client
+            .query_one(
+                "SELECT to_regclass($1) IS NOT NULL",
+                &[&schema::table_ref(&view.name)],
+            )
+            .await?
+            .get(0);
+        if exists {
+            continue;
+        }
+        let tx = client.transaction().await?;
+        tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
+            .await?;
+        let mut view = view.as_ref().clone();
+        match rebuild_view(&tx, &mut view).await {
+            Ok(()) => {
+                tx.commit().await?;
+                tracing::warn!(collection = %view.name, "recreated a missing view");
+            }
+            Err(err) => {
+                drop(tx);
+                tracing::error!(collection = %view.name, error = ?err, "failed to recreate a missing view");
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Stores a new collection's definition (its table must be created in the same transaction).
 pub async fn insert_metadata(
     client: &impl GenericClient,
@@ -227,8 +292,39 @@ pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Regi
     let tx = client.transaction().await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
+
+    // Table changes run with the other view collections dropped, so PostgreSQL's view
+    // dependencies never block them; the views are then recreated from their queries
+    // (and their fields re-inferred). A view the change breaks fails the whole change.
+    let touches_tables = changes.iter().any(|change| match change {
+        Change::Create(c) | Change::Delete(c) => !c.is_view(),
+        Change::Update { new, .. } => !new.is_view(),
+    });
+    let mut rebuild: Vec<Collection> = Vec::new();
+    if touches_tables {
+        let changed: Vec<&str> = changes
+            .iter()
+            .map(|change| match change {
+                Change::Create(c) | Change::Delete(c) => c.id.as_str(),
+                Change::Update { new, .. } => new.id.as_str(),
+            })
+            .collect();
+        for view in load(&tx).await?.all().iter().filter(|c| c.is_view()) {
+            if changed.contains(&view.id.as_str()) {
+                continue;
+            }
+            for statement in schema::drop(view) {
+                tx.batch_execute(&statement).await?;
+            }
+            rebuild.push(view.as_ref().clone());
+        }
+    }
+
     for change in &changes {
         apply_one(&tx, change).await?;
+    }
+    for mut view in rebuild {
+        rebuild_view(&tx, &mut view).await?;
     }
 
     let registry = load(&tx).await?;
