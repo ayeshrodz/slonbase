@@ -18,11 +18,18 @@ pub struct Migration {
     pub sql: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("../migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("../migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "collections",
+        sql: include_str!("../migrations/0002_collections.sql"),
+    },
+];
 
 /// Applies all pending migrations and returns the versions that were applied.
 pub async fn run(pool: &Pool) -> Result<Vec<i32>> {

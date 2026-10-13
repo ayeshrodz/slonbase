@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
 
 use crate::superusers::FieldErrors;
+use crate::validation::Errors;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -37,6 +38,36 @@ impl ApiError {
             );
         }
         err
+    }
+
+    /// A 400 error with nested validation details.
+    pub fn invalid_data(message: impl Into<String>, errors: &Errors) -> Self {
+        let mut err = Self::bad_request(message);
+        err.data = errors.to_json();
+        err
+    }
+
+    pub fn not_found() -> Self {
+        Self::new(
+            StatusCode::NOT_FOUND,
+            "The requested resource wasn't found.",
+        )
+    }
+
+    pub fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, message)
+    }
+
+    pub fn superusers_only() -> Self {
+        Self::forbidden("Only superusers can perform this action.")
+    }
+
+    pub fn unauthorized(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, message)
+    }
+
+    pub fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::SERVICE_UNAVAILABLE, message)
     }
 
     pub fn internal(err: anyhow::Error) -> Self {

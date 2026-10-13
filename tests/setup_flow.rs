@@ -4,119 +4,15 @@
 //! e.g. `postgres://postgres:postgres@127.0.0.1:5432/postgres`. Each test creates and
 //! drops its own database. Without the variable the tests are skipped.
 
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
+mod common;
 
-use axum::body::Body;
-use axum::http::{Request, StatusCode};
-use http_body_util::BodyExt;
-use serde_json::{Value, json};
-use tower::ServiceExt;
+use axum::http::StatusCode;
+use serde_json::json;
 
-use slonbase::app::{App, Mode};
-use slonbase::config::{self, DatabaseConfig, Overrides};
-use slonbase::{db, ids, migrations, server};
-
-struct TestDb {
-    admin_url: String,
-    name: String,
-    url: String,
-}
-
-impl TestDb {
-    async fn create() -> Option<Self> {
-        let Ok(admin_url) = std::env::var("SLONBASE_TEST_DATABASE_URL") else {
-            eprintln!("SLONBASE_TEST_DATABASE_URL not set, skipping");
-            return None;
-        };
-        let name = format!("slonbase_test_{}", ids::random_id(10));
-        admin_exec(&admin_url, &format!("CREATE DATABASE {name}")).await;
-
-        let url = with_database(&admin_url, &name);
-        Some(Self {
-            admin_url,
-            name,
-            url,
-        })
-    }
-
-    fn pool(&self) -> deadpool_postgres::Pool {
-        db::connect(&self.url, &DatabaseConfig::default()).unwrap()
-    }
-
-    async fn drop_db(self) {
-        admin_exec(
-            &self.admin_url,
-            &format!("DROP DATABASE IF EXISTS {} WITH (FORCE)", self.name),
-        )
-        .await;
-    }
-}
-
-/// Replaces the database name in the admin URL.
-fn with_database(admin_url: &str, name: &str) -> String {
-    let (base, query) = match admin_url.split_once('?') {
-        Some((b, q)) => (b, format!("?{q}")),
-        None => (admin_url, String::new()),
-    };
-    let base = match base.rfind('/') {
-        Some(i) if i > "postgres://".len() => &base[..i],
-        _ => base,
-    };
-    format!("{base}/{name}{query}")
-}
-
-async fn admin_exec(admin_url: &str, sql: &str) {
-    let (client, conn) = tokio_postgres::connect(admin_url, tokio_postgres::NoTls)
-        .await
-        .expect("connect to SLONBASE_TEST_DATABASE_URL");
-    tokio::spawn(conn);
-    client.batch_execute(sql).await.unwrap();
-}
-
-fn new_app(config_path: &Path, database_url: Option<String>) -> Arc<App> {
-    let loaded = config::load(
-        config_path,
-        Overrides {
-            database_url,
-            ..Default::default()
-        },
-    )
-    .unwrap();
-    App::new(loaded, None).unwrap()
-}
-
-async fn call(
-    app: &Arc<App>,
-    method: &str,
-    uri: &str,
-    token: Option<&str>,
-    body: Option<Value>,
-) -> (StatusCode, Value) {
-    let mut req = Request::builder().method(method).uri(uri);
-    if let Some(token) = token {
-        req = req.header("x-setup-token", token);
-    }
-    let req = match body {
-        Some(body) => req
-            .header("content-type", "application/json")
-            .body(Body::from(body.to_string())),
-        None => req.body(Body::empty()),
-    }
-    .unwrap();
-
-    let res = server::router(app.clone()).oneshot(req).await.unwrap();
-    let status = res.status();
-    let bytes = res.into_body().collect().await.unwrap().to_bytes();
-    let json = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-    (status, json)
-}
-
-fn temp_config() -> (tempfile::TempDir, PathBuf) {
-    let dir = tempfile::tempdir().unwrap();
-    let path = dir.path().join("config.toml");
-    (dir, path)
-}
+use common::*;
+use slonbase::app::Mode;
+use slonbase::config::{self, Overrides};
+use slonbase::{db, migrations};
 
 #[tokio::test]
 async fn wizard_flow_without_configured_database() {

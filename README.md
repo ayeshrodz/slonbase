@@ -4,8 +4,9 @@ A lightweight, high-performance backend in a single Rust binary, powered by **Po
 Inspired by [PocketBase](https://pocketbase.io): define collections, get a REST API, auth and an
 admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
-> **Status: early development (phase 0).** The server, first-run setup, packaging and CI are in place.
-> Collections, the REST API, auth and the admin dashboard are next. See the [roadmap](#roadmap).
+> **Status: early development (phase 1).** Collections, the records REST API with filtering and
+> API rules, and superuser auth work. User auth, realtime, files and the admin dashboard are next.
+> See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
 another machine or a managed service, and sets everything up from a first-run wizard.
@@ -96,7 +97,43 @@ Logging is controlled by `RUST_LOG` (default `info`).
 | `slonbase setup` | Set up without the web wizard. |
 | `slonbase health` | Exit 0 if the local server is healthy (used by the Docker health check). |
 
-HTTP endpoints so far: `GET /api/health`, the setup API under `/api/setup`, and the wizard at `/_/setup`.
+## API
+
+The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so far:
+
+| Endpoint | Description |
+|---|---|
+| `POST /api/collections/_superusers/auth-with-password` | Superuser login (`{"identity", "password"}`), returns `{token, record}` |
+| `POST /api/collections/_superusers/auth-refresh` | New token for a valid superuser token |
+| `GET/POST /api/collections`, `GET/PATCH/DELETE /api/collections/{idOrName}` | Manage collections (superusers) |
+| `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `fields`, `skipTotal`) and create records |
+| `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
+| `GET /api/health` | Health check |
+
+Send the token as `Authorization: Bearer <token>` (or just the token).
+
+```sh
+# create a collection anyone can read and add to
+curl -X POST localhost:8090/api/collections -H "Authorization: $TOKEN" -H 'content-type: application/json' \
+  -d '{"name": "todos", "fields": [{"name": "text", "type": "text", "required": true},
+       {"name": "done", "type": "bool"}], "listRule": "", "createRule": ""}'
+
+curl -X POST localhost:8090/api/collections/todos/records -H 'content-type: application/json' -d '{"text": "buy milk"}'
+curl "localhost:8090/api/collections/todos/records?filter=done=false&sort=-text"
+```
+
+**Field types:** `text`, `editor`, `number`, `bool`, `email`, `url`, `date`, `autodate`, `select`,
+`json` and `relation`. Each collection is a real PostgreSQL table in the `slonbase` schema
+(`TEXT`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`), so other tools can query it directly.
+
+**Filters and rules** use PocketBase's syntax: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains),
+`!~`, the `?`-prefixed "any of" variants for multi-valued fields, `&&`, `||`, parentheses,
+`@request.*`, date macros such as `@now`, JSON paths (`meta.key`) and the `:length`, `:lower`,
+`:each` and `:isset` modifiers. A rule of `null` allows superusers only, `""` allows anyone.
+
+Not supported yet (see [docs/design.md](docs/design.md#phase-1-collections-and-records)): user
+auth collections, relation paths and `expand`, `@collection` lookups, filter functions, file
+fields, multipart uploads, realtime, and view collections.
 
 ## Development
 
@@ -121,7 +158,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 ## Roadmap
 
 0. **Foundation** (done): server, config, first-run setup, system migrations, packaging, CI.
-1. **Collections**: schema management, CRUD, filtering/sorting/pagination, API rules.
+1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
 2. **Auth**: superuser and user auth, then OAuth2, OTP and MFA.
 3. **Realtime, files and relation expansion.**
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.

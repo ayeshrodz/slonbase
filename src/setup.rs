@@ -234,7 +234,10 @@ pub async fn complete(
     if let Some(loaded) = new_config {
         app.set_config(loaded);
     }
-    app.set_mode(Mode::Ready { pool });
+    let core = crate::core::Core::load(pool)
+        .await
+        .map_err(ApiError::internal)?;
+    app.set_mode(Mode::Ready { core });
     tracing::info!("setup completed");
 
     Ok(Json(json!({ "message": "Setup completed." })))

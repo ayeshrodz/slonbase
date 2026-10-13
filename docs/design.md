@@ -104,10 +104,82 @@ lock (`pg_advisory_xact_lock`). Several instances starting at once apply them ex
 a failed migration leaves the database unchanged. A database migrated by a newer slonbase is
 refused, so an accidental downgrade can't damage it.
 
-### Planned for phase 1+
+### Phase 1: collections and records
 
-- **API rules compiled to SQL**: each collection's rules are parsed once and cached as
-  parameterized `WHERE` clauses. Optional PostgreSQL row-level security later.
+**Storage.** Collection definitions are stored as PocketBase-format JSON in
+`_slonbase.collections`. Each collection is a table in the `slonbase` schema with one column per
+field, plus a hidden `_seq` identity column (indexed) that gives a stable insertion order for
+default sorting and pagination:
+
+| Field | Column |
+|---|---|
+| `text`, `editor`, `email`, `url`, single `select`/`relation` | `TEXT NOT NULL DEFAULT ''` |
+| `number` | `DOUBLE PRECISION NOT NULL DEFAULT 0` |
+| `bool` | `BOOLEAN NOT NULL DEFAULT FALSE` |
+| `date`, `autodate` | `TIMESTAMPTZ` (NULL when empty, returned as `""`) |
+| multiple `select`/`relation` | `JSONB NOT NULL DEFAULT '[]'` (array of strings) |
+| `json` | `JSONB` |
+| `id` | `TEXT PRIMARY KEY` |
+
+**Schema changes** run the DDL and the metadata update in one transaction under the schema
+advisory lock. Fields are matched by id, so renames keep the data. Renames go through temporary
+names, so two fields can swap names. Switching a select or relation between single and multiple
+values converts the column in place. Changing a field's type is rejected, as in PocketBase.
+Before validating a change, the registry is reloaded from the database, so changes made by
+other instances are seen.
+
+**Indexes** are accepted as PocketBase `CREATE INDEX` strings but parsed into a strict subset
+(plain column lists). The SQL that runs is regenerated with quoted identifiers, never passed
+through. Expressions, `COLLATE` and partial indexes are rejected for now.
+
+**Filters and rules** are parsed once into an AST and compiled per request into parameterized
+SQL. All values are bound as `text` parameters with explicit casts, never inlined. SQLite (and so
+PocketBase) compares mixed types loosely, but PostgreSQL rejects mixed-type comparisons, so the
+compiler gives each comparison one type:
+- A literal is converted to the column's type when possible: `views > '10'` compares numbers,
+  `created > '2024-01-01'` compares timestamps.
+- Otherwise both sides are compared as text.
+- JSON values compare as numbers through `_slonbase.to_num()`, which returns NULL instead of
+  failing on non-numbers.
+- Text ordering uses `COLLATE "C"`, matching SQLite's byte order.
+- Multi-valued fields follow PocketBase: plain operators must match all items, `?` operators any
+  item, and an empty list behaves like `[""]`.
+
+A test runs every combination of field type, literal kind and operator (over 12,000 filters)
+against PostgreSQL and requires that none fails with a database error.
+
+**Rules.** `null` means superusers only (403), `""` anyone, anything else a filter:
+- List requests apply it as an extra condition.
+- View, update and delete return 404 when the rule hides the record.
+- Create inserts the record, checks the rule against it in the same transaction, and rolls back
+  with 400 on failure.
+- Superusers bypass rules and see hidden fields. Others can't filter or sort by hidden fields.
+
+**Writes** run in transactions:
+- Updates lock the row (`FOR UPDATE`).
+- Relation ids are checked to exist.
+- Unique index violations become `Value must be unique.` field errors.
+
+Deleting a record handles the relation fields pointing to it:
+- `cascadeDelete` fields delete the referencing records (recursively, with cycle protection).
+- Optional fields drop the id.
+- Required fields that would become empty block the delete.
+
+**Superuser auth.** HS256 JWTs signed with the installation secret (generated once in
+`_slonbase.params`) plus the user's `token_key`, valid for one day. Invalid tokens make the
+request a guest request, as in PocketBase.
+
+**Differences from PocketBase so far:**
+- Field names can't start with `_` (reserved for internal columns).
+- `autogeneratePattern` supports only the `[charset]{n}` form.
+- Request bodies must be JSON.
+- Not yet supported:
+  - relation paths in filters (`author.name`), `expand` and `@collection`
+  - filter functions such as `geoDistance`/`strftime`
+  - auth and view collections, file fields
+
+### Planned
+
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
   instead of converting rows one by one.
 - **Realtime through `LISTEN/NOTIFY`**, so any number of stateless instances can run behind a
@@ -148,14 +220,18 @@ the file.
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
 - CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- API tests cover superuser auth, collection CRUD with real schema changes, records with
+  filtering/sorting/pagination/modifiers, API rules, relations (validation, cascades, required
+  references), and the filter type matrix.
 - Planned: running PocketBase's API test scenarios against slonbase to check compatibility, and
-  benchmarks against PocketBase from phase 1 onward.
+  benchmarks against PocketBase.
 
 ## Roadmap
 
 0. **Foundation** (done): server, config, setup mode and wizard, system migrations, packaging,
    CI and releases.
-1. **Collections**: schema management, CRUD, filter/sort/pagination, API rules.
+1. **Collections** (done): schema management, CRUD, filter/sort/pagination, API rules,
+   superuser auth.
 2. **Auth**: superusers and auth collections, password and JWT, then OAuth2, OTP and MFA.
 3. **Realtime** (`LISTEN/NOTIFY`), **files** (local/S3, thumbnails), relation expansion.
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.

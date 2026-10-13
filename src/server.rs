@@ -9,6 +9,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
+
+use crate::{auth, collections, records};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
 
@@ -26,6 +28,34 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/setup", get(setup::status))
         .route("/api/setup/database/test", post(setup::test_database))
         .route("/api/setup/complete", post(setup::complete))
+        .route(
+            "/api/collections/_superusers/auth-with-password",
+            post(auth::auth_with_password),
+        )
+        .route(
+            "/api/collections/_superusers/auth-refresh",
+            post(auth::auth_refresh),
+        )
+        .route(
+            "/api/collections",
+            get(collections::api::list).post(collections::api::create),
+        )
+        .route(
+            "/api/collections/{collection}",
+            get(collections::api::view)
+                .patch(collections::api::update)
+                .delete(collections::api::delete),
+        )
+        .route(
+            "/api/collections/{collection}/records",
+            get(records::api::list).post(records::api::create),
+        )
+        .route(
+            "/api/collections/{collection}/records/{id}",
+            get(records::api::view)
+                .patch(records::api::update)
+                .delete(records::api::delete),
+        )
         .layer(TraceLayer::new_for_http())
         .with_state(app)
 }
@@ -47,9 +77,9 @@ async fn health(State(app): State<Arc<App>>) -> Response {
             "data": { "setupRequired": true },
         }))
         .into_response(),
-        Mode::Ready { pool } => {
+        Mode::Ready { core } => {
             let check = async {
-                let client = pool.get().await.map_err(|e| e.to_string())?;
+                let client = core.pool.get().await.map_err(|e| e.to_string())?;
                 client
                     .simple_query("SELECT 1")
                     .await

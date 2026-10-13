@@ -15,6 +15,7 @@ use anyhow::Result;
 use deadpool_postgres::Pool;
 
 use crate::config::Loaded;
+use crate::core::Core;
 use crate::{db, ids, migrations, superusers};
 
 const MIN_SETUP_TOKEN_LENGTH: usize = 32;
@@ -23,7 +24,7 @@ const MIN_SETUP_TOKEN_LENGTH: usize = 32;
 pub enum Mode {
     Starting { status: String },
     Setup(SetupMode),
-    Ready { pool: Pool },
+    Ready { core: Arc<Core> },
 }
 
 #[derive(Clone)]
@@ -66,6 +67,19 @@ impl App {
         }))
     }
 
+    /// The ready state, or a 503 while starting or in setup.
+    pub fn core(&self) -> Result<Arc<Core>, crate::error::ApiError> {
+        match self.mode() {
+            Mode::Ready { core } => Ok(core),
+            Mode::Setup(_) => Err(crate::error::ApiError::unavailable(
+                "slonbase hasn't been set up yet.",
+            )),
+            Mode::Starting { .. } => Err(crate::error::ApiError::unavailable(
+                "slonbase is starting, try again shortly.",
+            )),
+        }
+    }
+
     pub fn mode(&self) -> Mode {
         self.mode.read().expect("mode lock").clone()
     }
@@ -101,13 +115,20 @@ impl App {
 
         let mut delay = Duration::from_secs(1);
         loop {
-            match prepare(&pool).await {
-                Ok(true) => {
+            let attempt = async {
+                if prepare(&pool).await? {
+                    Ok(Some(Core::load(pool.clone()).await?))
+                } else {
+                    anyhow::Ok(None)
+                }
+            };
+            match attempt.await {
+                Ok(Some(core)) => {
                     tracing::info!("database ready");
-                    self.set_mode(Mode::Ready { pool });
+                    self.set_mode(Mode::Ready { core });
                     return Ok(());
                 }
-                Ok(false) => {
+                Ok(None) => {
                     self.enter_setup(Some(pool));
                     return Ok(());
                 }

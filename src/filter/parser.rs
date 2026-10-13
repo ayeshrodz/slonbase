@@ -1,0 +1,423 @@
+//! Parser for the PocketBase filter syntax, e.g.
+//! `title ~ 'abc' && (status = "published" || @request.auth.id != '')`.
+//!
+//! Grammar:
+//! ```text
+//! expr    := and ("||" and)*
+//! and     := primary ("&&" primary)*
+//! primary := "(" expr ")" | operand op operand
+//! operand := 'text' | "text" | number | identifier
+//! op      := = != ~ !~ < <= > >=   (each optionally prefixed with ? for "any of")
+//! ```
+//! `&&` binds tighter than `||`, as in SQL. `// comments` run to the end of the line.
+
+use std::fmt;
+
+/// Maximum number of comparisons in a single expression (same as PocketBase).
+pub const MAX_EXPRESSIONS: usize = 200;
+const MAX_DEPTH: usize = 32;
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Expr {
+    And(Box<Expr>, Box<Expr>),
+    Or(Box<Expr>, Box<Expr>),
+    Cmp(Cmp),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cmp {
+    pub left: Operand,
+    pub op: Op,
+    /// `?` prefixed operator: matches if any item of a multi-valued operand matches.
+    pub any: bool,
+    pub right: Operand,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Op {
+    Eq,
+    Neq,
+    Like,
+    NotLike,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Operand {
+    Text(String),
+    /// Kept as written so that no precision is lost before it's validated.
+    Number(String),
+    /// A field name, a `@macro` or a `@request.*` / `@collection.*` path,
+    /// possibly with `:modifiers`.
+    Ident(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseError(pub String);
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for ParseError {}
+
+fn err<T>(msg: impl Into<String>) -> Result<T, ParseError> {
+    Err(ParseError(msg.into()))
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum Token {
+    LParen,
+    RParen,
+    And,
+    Or,
+    Op(Op, bool),
+    Operand(Operand),
+}
+
+fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut tokens = Vec::new();
+    let mut i = 0;
+
+    while i < chars.len() {
+        let c = chars[i];
+        match c {
+            c if c.is_whitespace() => i += 1,
+            '/' if chars.get(i + 1) == Some(&'/') => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            }
+            '(' => {
+                tokens.push(Token::LParen);
+                i += 1;
+            }
+            ')' => {
+                tokens.push(Token::RParen);
+                i += 1;
+            }
+            '&' | '|' => {
+                if chars.get(i + 1) != Some(&c) {
+                    return err(format!("invalid operator {c:?}, expected \"{c}{c}\""));
+                }
+                tokens.push(if c == '&' { Token::And } else { Token::Or });
+                i += 2;
+            }
+            '\'' | '"' => {
+                let quote = c;
+                let mut text = String::new();
+                i += 1;
+                loop {
+                    match chars.get(i) {
+                        None => return err("unterminated text literal"),
+                        Some('\\') if chars.get(i + 1) == Some(&quote) => {
+                            text.push(quote);
+                            i += 2;
+                        }
+                        Some(&ch) if ch == quote => {
+                            i += 1;
+                            break;
+                        }
+                        Some(&ch) => {
+                            text.push(ch);
+                            i += 1;
+                        }
+                    }
+                }
+                tokens.push(Token::Operand(Operand::Text(text)));
+            }
+            '=' | '!' | '~' | '<' | '>' | '?' => {
+                let any = c == '?';
+                let start = if any { i + 1 } else { i };
+                let (op, len) = match (chars.get(start), chars.get(start + 1)) {
+                    (Some('!'), Some('=')) => (Op::Neq, 2),
+                    (Some('!'), Some('~')) => (Op::NotLike, 2),
+                    (Some('<'), Some('=')) => (Op::Lte, 2),
+                    (Some('>'), Some('=')) => (Op::Gte, 2),
+                    (Some('='), _) => (Op::Eq, 1),
+                    (Some('~'), _) => (Op::Like, 1),
+                    (Some('<'), _) => (Op::Lt, 1),
+                    (Some('>'), _) => (Op::Gt, 1),
+                    _ => return err(format!("invalid operator at position {i}")),
+                };
+                tokens.push(Token::Op(op, any));
+                i = start + len;
+            }
+            c if c.is_ascii_digit()
+                || (c == '-' && chars.get(i + 1).is_some_and(|n| n.is_ascii_digit())) =>
+            {
+                let start = i;
+                i += 1;
+                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                    i += 1;
+                }
+                let number: String = chars[start..i].iter().collect();
+                if number.parse::<f64>().is_err() || number.ends_with('.') {
+                    return err(format!("invalid number {number:?}"));
+                }
+                tokens.push(Token::Operand(Operand::Number(number)));
+            }
+            c if c == '@' || c == '_' || c.is_alphabetic() => {
+                let start = i;
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || matches!(chars[i], '_' | '.' | ':' | '@'))
+                {
+                    i += 1;
+                }
+                let ident: String = chars[start..i].iter().collect();
+                if chars.get(i) == Some(&'(') {
+                    return err(format!("functions are not supported yet ({ident})"));
+                }
+                if ident.ends_with('.') || ident.ends_with(':') || ident.contains("..") {
+                    return err(format!("invalid identifier {ident:?}"));
+                }
+                tokens.push(Token::Operand(Operand::Ident(ident)));
+            }
+            _ => return err(format!("unexpected character {c:?}")),
+        }
+    }
+
+    Ok(tokens)
+}
+
+pub fn parse(input: &str) -> Result<Expr, ParseError> {
+    let tokens = tokenize(input)?;
+    if tokens.is_empty() {
+        return err("empty expression");
+    }
+    let mut parser = Parser {
+        tokens,
+        pos: 0,
+        comparisons: 0,
+    };
+    let expr = parser.expr(0)?;
+    if parser.pos != parser.tokens.len() {
+        return err("unexpected token after the end of the expression");
+    }
+    Ok(expr)
+}
+
+struct Parser {
+    tokens: Vec<Token>,
+    pos: usize,
+    comparisons: usize,
+}
+
+impl Parser {
+    fn next(&mut self) -> Option<Token> {
+        let t = self.tokens.get(self.pos).cloned();
+        self.pos += 1;
+        t
+    }
+
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.pos)
+    }
+
+    fn expr(&mut self, depth: usize) -> Result<Expr, ParseError> {
+        let mut left = self.and(depth)?;
+        while self.peek() == Some(&Token::Or) {
+            self.pos += 1;
+            let right = self.and(depth)?;
+            left = Expr::Or(Box::new(left), Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn and(&mut self, depth: usize) -> Result<Expr, ParseError> {
+        let mut left = self.primary(depth)?;
+        while self.peek() == Some(&Token::And) {
+            self.pos += 1;
+            let right = self.primary(depth)?;
+            left = Expr::And(Box::new(left), Box::new(right));
+        }
+        Ok(left)
+    }
+
+    fn primary(&mut self, depth: usize) -> Result<Expr, ParseError> {
+        match self.next() {
+            Some(Token::LParen) => {
+                if depth >= MAX_DEPTH {
+                    return err("the expression is nested too deeply");
+                }
+                let inner = self.expr(depth + 1)?;
+                match self.next() {
+                    Some(Token::RParen) => Ok(inner),
+                    _ => err("missing closing parenthesis"),
+                }
+            }
+            Some(Token::Operand(left)) => {
+                let (op, any) = match self.next() {
+                    Some(Token::Op(op, any)) => (op, any),
+                    _ => return err("expected an operator after the left operand"),
+                };
+                let right = match self.next() {
+                    Some(Token::Operand(right)) => right,
+                    _ => return err("expected a right operand"),
+                };
+                self.comparisons += 1;
+                if self.comparisons > MAX_EXPRESSIONS {
+                    return err(format!(
+                        "too many expressions (the limit is {MAX_EXPRESSIONS})"
+                    ));
+                }
+                Ok(Expr::Cmp(Cmp {
+                    left,
+                    op,
+                    any,
+                    right,
+                }))
+            }
+            _ => err("expected an expression"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ident(s: &str) -> Operand {
+        Operand::Ident(s.into())
+    }
+    fn text(s: &str) -> Operand {
+        Operand::Text(s.into())
+    }
+    fn cmp(left: Operand, op: Op, any: bool, right: Operand) -> Expr {
+        Expr::Cmp(Cmp {
+            left,
+            op,
+            any,
+            right,
+        })
+    }
+
+    #[test]
+    fn parses_operators() {
+        let cases = [
+            ("a = 'x'", Op::Eq, false),
+            ("a != 'x'", Op::Neq, false),
+            ("a ~ 'x'", Op::Like, false),
+            ("a !~ 'x'", Op::NotLike, false),
+            ("a < 'x'", Op::Lt, false),
+            ("a <= 'x'", Op::Lte, false),
+            ("a > 'x'", Op::Gt, false),
+            ("a >= 'x'", Op::Gte, false),
+            ("a ?= 'x'", Op::Eq, true),
+            ("a ?!= 'x'", Op::Neq, true),
+            ("a ?~ 'x'", Op::Like, true),
+            ("a ?!~ 'x'", Op::NotLike, true),
+            ("a ?<= 'x'", Op::Lte, true),
+            ("a?>'x'", Op::Gt, true),
+        ];
+        for (input, op, any) in cases {
+            assert_eq!(
+                parse(input).unwrap(),
+                cmp(ident("a"), op, any, text("x")),
+                "{input}"
+            );
+        }
+    }
+
+    #[test]
+    fn parses_operands() {
+        assert_eq!(
+            parse(r#"@request.auth.id != "" "#).unwrap(),
+            cmp(ident("@request.auth.id"), Op::Neq, false, text(""))
+        );
+        assert_eq!(
+            parse("total >= -1.5").unwrap(),
+            cmp(
+                ident("total"),
+                Op::Gte,
+                false,
+                Operand::Number("-1.5".into())
+            )
+        );
+        assert_eq!(
+            parse(r"title = 'it\'s'").unwrap(),
+            cmp(ident("title"), Op::Eq, false, text("it's"))
+        );
+        assert_eq!(
+            parse("tags:length > 2").unwrap(),
+            cmp(
+                ident("tags:length"),
+                Op::Gt,
+                false,
+                Operand::Number("2".into())
+            )
+        );
+        assert_eq!(
+            parse("'a' = 'b'").unwrap(),
+            cmp(text("a"), Op::Eq, false, text("b"))
+        );
+    }
+
+    #[test]
+    fn precedence_and_grouping() {
+        let a = || cmp(ident("a"), Op::Eq, false, Operand::Number("1".into()));
+        let b = || cmp(ident("b"), Op::Eq, false, Operand::Number("2".into()));
+        let c = || cmp(ident("c"), Op::Eq, false, Operand::Number("3".into()));
+
+        // && binds tighter
+        assert_eq!(
+            parse("a = 1 || b = 2 && c = 3").unwrap(),
+            Expr::Or(
+                Box::new(a()),
+                Box::new(Expr::And(Box::new(b()), Box::new(c())))
+            )
+        );
+        assert_eq!(
+            parse("(a = 1 || b = 2) && c = 3").unwrap(),
+            Expr::And(
+                Box::new(Expr::Or(Box::new(a()), Box::new(b()))),
+                Box::new(c())
+            )
+        );
+        assert_eq!(
+            parse("a = 1 // the first\n && b = 2").unwrap(),
+            Expr::And(Box::new(a()), Box::new(b()))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_input() {
+        for input in [
+            "",
+            "   // only a comment",
+            "a",
+            "a =",
+            "= 'x'",
+            "a == 'x'",
+            "a = 'x' &&",
+            "a = 'x' & b = 1",
+            "(a = 'x'",
+            "a = 'x')",
+            "a = 'unterminated",
+            "a = 1.",
+            "a. = 1",
+            "geoDistance(1, 2, 3, 4) < 10",
+            "a = 'x' b = 1",
+            "a # 1",
+        ] {
+            assert!(parse(input).is_err(), "{input:?} should fail");
+        }
+    }
+
+    #[test]
+    fn limits() {
+        let many = vec!["a = 1"; MAX_EXPRESSIONS + 1].join(" && ");
+        assert!(parse(&many).is_err());
+        let ok = vec!["a = 1"; MAX_EXPRESSIONS].join(" || ");
+        assert!(parse(&ok).is_ok());
+
+        let deep = format!("{}a = 1{}", "(".repeat(40), ")".repeat(40));
+        assert!(parse(&deep).is_err());
+    }
+}
