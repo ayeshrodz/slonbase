@@ -105,6 +105,9 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+/// Most `@collection` lookups in one expression.
+const MAX_LOOKUPS: usize = 6;
+
 fn fail<T>(msg: impl Into<String>) -> Result<T, CompileError> {
     Err(CompileError(msg.into()))
 }
@@ -114,8 +117,45 @@ pub fn compile(expr: &Expr, scope: &Scope, params: &mut Params) -> Result<String
         scope,
         params,
         aliases: 0,
+        lookups: Vec::new(),
     };
-    compiler.expr(expr)
+    let sql = compiler.expr(expr)?;
+    if compiler.lookups.is_empty() {
+        return Ok(sql);
+    }
+    // `@collection` references share one row per (collection, alias), like PocketBase's
+    // LEFT JOIN: the condition holds when some combination of rows matches it, and
+    // parts that don't use a lookup still work when its collection is empty
+    let joins: Vec<String> = compiler
+        .lookups
+        .iter()
+        .map(|(_, sql_alias, table)| format!("LEFT JOIN {table} {sql_alias} ON TRUE"))
+        .collect();
+    Ok(format!(
+        "EXISTS (SELECT 1 FROM (SELECT 1) __one {} WHERE {sql})",
+        joins.join(" ")
+    ))
+}
+
+/// Splits `@collection.name[:alias].path[:modifier]`.
+fn collection_ref(rest: &str) -> Result<(&str, &str, &str), CompileError> {
+    let end = rest.find(['.', ':']).unwrap_or(rest.len());
+    let name = &rest[..end];
+    let mut tail = &rest[end..];
+    let mut alias = "";
+    if let Some(after) = tail.strip_prefix(':') {
+        let dot = after.find('.').unwrap_or(after.len());
+        alias = &after[..dot];
+        tail = &after[dot..];
+    }
+    let path = tail
+        .strip_prefix('.')
+        .filter(|p| !p.is_empty())
+        .ok_or_else(|| CompileError(format!("@collection.{rest} needs a field")))?;
+    if name.is_empty() {
+        return fail("@collection needs a collection name");
+    }
+    Ok((name, alias, path))
 }
 
 pub fn quote_ident(name: &str) -> String {
@@ -166,6 +206,8 @@ struct Compiler<'a, 'p> {
     scope: &'a Scope<'a>,
     params: &'p mut Params,
     aliases: usize,
+    /// `@collection` lookups: (collection name, alias) -> (SQL alias, table)
+    lookups: Vec<(String, String, String)>,
 }
 
 impl Compiler<'_, '_> {
@@ -510,6 +552,9 @@ impl Compiler<'_, '_> {
     }
 
     fn ident(&mut self, ident: &str) -> Result<Val, CompileError> {
+        if let Some(rest) = ident.strip_prefix("@collection.") {
+            return self.collection_value(rest);
+        }
         let (path, modifier) = match ident.split_once(':') {
             Some((path, modifier)) => {
                 if modifier.contains(':') {
@@ -530,9 +575,6 @@ impl Compiler<'_, '_> {
         if let Some(rest) = path.strip_prefix("@request.") {
             return self.request_value(rest, modifier);
         }
-        if path.starts_with("@collection.") {
-            return fail("@collection references are not supported yet");
-        }
         if path.starts_with('@') {
             if modifier.is_some() {
                 return fail(format!("modifiers can't be used with {path}"));
@@ -542,17 +584,70 @@ impl Compiler<'_, '_> {
         self.field_value(path, modifier)
     }
 
+    /// `@collection.name[:alias].path`: a field of another collection's rows.
+    fn collection_value(&mut self, rest: &str) -> Result<Val, CompileError> {
+        let (name, alias, path) = collection_ref(rest)?;
+        let collection = self
+            .scope
+            .request
+            .registry
+            .as_ref()
+            .and_then(|r| r.get(name).cloned())
+            .or_else(|| {
+                (self.scope.collection.name == name || self.scope.collection.id == name)
+                    .then(|| std::sync::Arc::new(self.scope.collection.clone()))
+            })
+            .ok_or_else(|| CompileError(format!("unknown collection {name:?}")))?;
+        let sql_alias = match self
+            .lookups
+            .iter()
+            .find(|(key, _, _)| *key == format!("{}:{alias}", collection.id))
+        {
+            Some((_, sql_alias, _)) => sql_alias.clone(),
+            None => {
+                if self.lookups.len() >= MAX_LOOKUPS {
+                    return fail(format!(
+                        "at most {MAX_LOOKUPS} @collection lookups are allowed"
+                    ));
+                }
+                self.aliases += 1;
+                let sql_alias = format!("__c{}", self.aliases);
+                self.lookups.push((
+                    format!("{}:{alias}", collection.id),
+                    sql_alias.clone(),
+                    table_ref(&collection.name),
+                ));
+                sql_alias
+            }
+        };
+        let (path, modifier) = match path.split_once(':') {
+            Some((path, modifier)) => (path, Some(modifier)),
+            None => (path, None),
+        };
+        self.field_value_in(&collection, &sql_alias, path, modifier)
+    }
+
     fn field_value(&mut self, path: &str, modifier: Option<&str>) -> Result<Val, CompileError> {
+        let (collection, alias) = (self.scope.collection, self.scope.alias);
+        self.field_value_in(collection, alias, path, modifier)
+    }
+
+    fn field_value_in(
+        &mut self,
+        collection: &Collection,
+        base_alias: &str,
+        path: &str,
+        modifier: Option<&str>,
+    ) -> Result<Val, CompileError> {
         let mut parts = path.split('.');
         let name = parts.next().unwrap_or_default();
         let rest: Vec<&str> = parts.collect();
 
-        let collection = self.scope.collection;
         let field = match collection.field(name) {
             Some(f) if !f.is_secret() && (!f.hidden || self.scope.allow_hidden) => f,
             _ => return fail(format!("unknown field {name:?}")),
         };
-        let column = format!("{}.{}", self.scope.alias, quote_ident(&field.name));
+        let column = format!("{base_alias}.{}", quote_ident(&field.name));
 
         if !rest.is_empty() {
             return match field.kind {
@@ -573,7 +668,7 @@ impl Compiler<'_, '_> {
                         modifier,
                     )
                 }
-                FieldKind::Relation(_) => self.relation_path(field, &rest, modifier),
+                FieldKind::Relation(_) => self.relation_path(field, base_alias, &rest, modifier),
                 FieldKind::GeoPoint(_) => match rest.as_slice() {
                     [key @ ("lon" | "lat")] => self.apply_modifier(
                         Val::Scalar {
@@ -652,6 +747,7 @@ impl Compiler<'_, '_> {
     fn relation_path(
         &mut self,
         first: &Field,
+        base_alias: &str,
         rest: &[&str],
         modifier: Option<&str>,
     ) -> Result<Val, CompileError> {
@@ -672,7 +768,7 @@ impl Compiler<'_, '_> {
             .ok_or_else(|| missing(&first.name))?;
         self.aliases += 1;
         let mut alias = format!("__r{}", self.aliases);
-        let first_column = format!("{}.{}", self.scope.alias, quote_ident(&first.name));
+        let first_column = format!("{base_alias}.{}", quote_ident(&first.name));
         let from = format!("{} {alias}", table_ref(&collection.name));
         let condition = link(&alias, &first_column, first.is_multi());
         let mut joins = Vec::new();

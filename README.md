@@ -278,6 +278,10 @@ each checked against the related collection's rules.
 `geoDistance(lonA, latA, lonB, latB)` (kilometers), e.g.
 `geoDistance(loc.lon, loc.lat, 23.32, 42.69) < 25`.
 
+Rules and filters can look at other collections with `@collection.name[:alias].field`, e.g.
+`@collection.members.post = id && @collection.members.user = @request.auth.id` (true when some
+row of `members` matches; each alias is a separate row, up to 6 per expression).
+
 **View collections** are read-only records from a SQL query, e.g.
 `SELECT author AS id, count(*) AS posts FROM posts GROUP BY author` (collections are tables by
 their names). Their fields come from the query's columns, and list/view rules, filters, sorting
@@ -285,8 +289,8 @@ and expand work as usual. Because the query runs with the database role's privil
 `SELECT` can call any function the role may use), creating or changing one needs the SQL
 console to be enabled (`--sql-console`); existing views keep working without it.
 
-Not supported yet (see [docs/design.md](docs/design.md)): auth alerts, `@collection` lookups,
-and request hooks inside batch requests.
+Not supported yet (see [docs/design.md](docs/design.md)): auth alerts and request hooks
+inside batch requests.
 
 ## Extending slonbase
 
