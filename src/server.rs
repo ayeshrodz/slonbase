@@ -11,7 +11,7 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
 use crate::records::auth_api;
-use crate::{collections, records, settings};
+use crate::{collections, realtime, records, settings};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
 
@@ -30,6 +30,10 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/setup/database/test", post(setup::test_database))
         .route("/api/setup/complete", post(setup::complete))
         .route("/api/settings", get(settings::get).patch(settings::update))
+        .route(
+            "/api/realtime",
+            get(realtime::connect).post(realtime::subscribe),
+        )
         .route(
             "/api/collections/{collection}/auth-with-password",
             post(auth_api::auth_with_password),

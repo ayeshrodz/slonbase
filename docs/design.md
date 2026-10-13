@@ -234,13 +234,56 @@ Mail goes through `lettre` with rustls (no OpenSSL), or to the log when SMTP is 
 - built-in confirmation pages: the email links point to PocketBase's admin UI routes
   (`/_/#/auth/...`), which will work once the dashboard is embedded
 
+### Phase 3: realtime and multi-instance sync
+
+**Protocol.** `GET /api/realtime` opens a Server-Sent Events stream whose first event is
+`PB_CONNECT` with a client id. `POST /api/realtime` sets that client's subscriptions:
+- Topics are `collection/*` (or the legacy `collection`) and `collection/{id}`, optionally with
+  `?options={"query": {...}, "headers": {...}}`.
+- `query` can hold `filter` and `fields`.
+- Events are named after the subscription string and carry `{"action", "record"}`, so
+  PocketBase's SDK `subscribe()` works unchanged.
+- The subscribe request's auth becomes the client's auth. A guest client may become
+  authenticated, but switching to another user is rejected (403).
+
+**Outbox.** Every record create, update and delete through the API also inserts a row into
+`_slonbase.events` and calls `pg_notify('slonbase', 'event:<id>')` in the same transaction.
+- Rolled-back changes are never announced.
+- Notifications arrive in commit order.
+- Cascading deletes and the reference updates they cause are announced too.
+- Secret fields are stripped from stored events.
+- Events are pruned after five minutes.
+
+**Listener.** Every instance holds one dedicated connection that runs `LISTEN slonbase`. For an
+event it loads the outbox row and delivers it to its own subscribers, so changes made through
+any instance reach every subscriber. The same channel carries `collections` and `settings`
+notifications (sent when those change), so all instances reload them. This replaces the
+stale-registry limitation of phase 1.
+
+If the connection drops, the listener reconnects with backoff, reloads collections and
+settings, and replays outbox rows created since it disconnected. Recently delivered ids are
+remembered, so nothing is delivered twice. A test kills the listener's backend mid-stream to
+check this.
+
+**Access checks.** Each subscriber is checked against:
+- the `listRule` (collection topics) or `viewRule` (record topics)
+- the topic's `filter`
+- email visibility (auth collections)
+
+All checks for an event run in one SQL query against a one-row table built from the event's
+record values, so delete events can be checked after the row is gone. The query covers up to
+50 subscribers.
+
+Hidden fields go only to superusers, and secrets go to no one. A client whose buffer (512
+events) fills up is disconnected.
+
+**Not yet:** `expand` in events, `@collection` rules, and events for changes made outside the
+records API (auth flows that set `verified` or the password, or direct SQL).
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
   instead of converting rows one by one.
-- **Realtime through `LISTEN/NOTIFY`**, so any number of stateless instances can run behind a
-  load balancer and every subscriber sees every change. pgbase propagates only schema and
-  settings changes, not realtime events.
 - **Backups** with `pg_dump`, or the provider's own backups. pgbase has none.
 
 ## Configuration
@@ -276,6 +319,9 @@ the file.
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
 - CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
+  writes, single-record topics, auth subscriptions, delivery across two instances (events,
+  collections and settings), and catching up after the listener connection is killed.
 - Auth tests cover auth collection definitions, sign-up/sign-in, rules with `@request.auth`,
   email visibility, password and email changes with managers, the verification, password reset
   and email change flows (with a capturing mailer), impersonation and settings.
@@ -293,6 +339,7 @@ the file.
    superuser auth.
 2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
    reset, email change, impersonation, settings and mail. OAuth2, OTP and MFA follow.
-3. **Realtime** (`LISTEN/NOTIFY`), **files** (local/S3, thumbnails), relation expansion.
+3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **files** (local/S3,
+   thumbnails), relation expansion.
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
 5. **Extensibility**: Rust library API and JS hooks.

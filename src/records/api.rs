@@ -18,14 +18,15 @@ use deadpool_postgres::{GenericClient, Transaction};
 use serde_json::{Map, Value, json};
 use tokio_postgres::Row;
 
+use super::access::{email_visible_sql, manage_rule_sql, pick_fields, rule_sql};
 use super::store::{ALIAS, all_fields, record_json, row_values, select_list, visible_fields};
 use super::values::{self, Changes, Values};
 use crate::app::App;
 use crate::auth::RequestAuth;
 use crate::collections::indexes::Index;
 use crate::collections::model::{
-    Collection, FIELD_EMAIL, FIELD_EMAIL_VISIBILITY, FIELD_PASSWORD, FIELD_TOKEN_KEY,
-    FIELD_VERIFIED, Field, FieldKind, RuleAction,
+    Collection, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED, Field, FieldKind,
+    RuleAction,
 };
 use crate::collections::schema::table_ref;
 use crate::collections::store::Registry;
@@ -33,6 +34,7 @@ use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, quote_ident, to_sql};
+use crate::realtime::{self, Action};
 use crate::validation::Errors;
 
 const DEFAULT_PER_PAGE: i64 = 30;
@@ -73,34 +75,6 @@ fn request_info(
     info
 }
 
-/// The rule condition for an action, `None` when nothing needs checking.
-fn rule_sql(
-    c: &Collection,
-    action: RuleAction,
-    auth: &RequestAuth,
-    request: &RequestInfo,
-    params: &mut Params,
-) -> Result<Option<String>, ApiError> {
-    if auth.is_superuser() {
-        return Ok(None);
-    }
-    match c.rule(action) {
-        None => Err(ApiError::superusers_only()),
-        Some(rule) if rule.trim().is_empty() => Ok(None),
-        Some(rule) => {
-            let scope = Scope {
-                collection: c,
-                alias: ALIAS,
-                request,
-                allow_hidden: true,
-            };
-            to_sql(rule, &scope, params)
-                .map(Some)
-                .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored rule: {e}")))
-        }
-    }
-}
-
 /// Checks only that the action is allowed at all (non-null rule or superuser).
 fn ensure_allowed(c: &Collection, action: RuleAction, auth: &RequestAuth) -> Result<(), ApiError> {
     if !auth.is_superuser() && c.rule(action).is_none() {
@@ -109,78 +83,12 @@ fn ensure_allowed(c: &Collection, action: RuleAction, auth: &RequestAuth) -> Res
     Ok(())
 }
 
-/// Applies the `fields` query parameter (`id,title`; `*` keeps everything).
-fn pick_fields(record: Value, fields: Option<&String>) -> Value {
-    let Some(raw) = fields.map(|f| f.trim()).filter(|f| !f.is_empty()) else {
-        return record;
-    };
-    let wanted: HashSet<&str> = raw.split(',').map(str::trim).collect();
-    if wanted.contains("*") {
-        return record;
-    }
-    match record {
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .filter(|(k, _)| wanted.contains(k.as_str()))
-                .collect(),
-        ),
-        other => other,
-    }
-}
-
 fn db_error(err: tokio_postgres::Error) -> ApiError {
     ApiError::internal(err.into())
 }
 
 fn bad_filter(e: impl std::fmt::Display) -> ApiError {
     ApiError::bad_request(format!("Invalid filter parameters: {e}."))
-}
-
-/// The `manageRule` condition of an auth collection: `None` when nobody manages it.
-fn manage_rule_sql(
-    c: &Collection,
-    request: &RequestInfo,
-    params: &mut Params,
-) -> Result<Option<String>, ApiError> {
-    let Some(rule) = c.auth_options().and_then(|a| a.manage_rule.as_deref()) else {
-        return Ok(None);
-    };
-    if rule.trim().is_empty() {
-        return Ok(Some("TRUE".into()));
-    }
-    let scope = Scope {
-        collection: c,
-        alias: ALIAS,
-        request,
-        allow_hidden: true,
-    };
-    to_sql(rule, &scope, params)
-        .map(Some)
-        .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored manage rule: {e}")))
-}
-
-/// For auth collections, a boolean SQL expression telling whether the caller may see a
-/// record's email: superusers, the record itself, managers, or `emailVisibility`.
-fn email_visible_sql(
-    c: &Collection,
-    auth: &RequestAuth,
-    request: &RequestInfo,
-    params: &mut Params,
-) -> Result<Option<String>, ApiError> {
-    if !c.is_auth() {
-        return Ok(None);
-    }
-    if auth.is_superuser() {
-        return Ok(Some("TRUE".into()));
-    }
-    let mut parts = vec![format!("{ALIAS}.{}", quote_ident(FIELD_EMAIL_VISIBILITY))];
-    if let Some(record) = auth.record.as_ref().filter(|r| r.collection.id == c.id) {
-        parts.push(format!("{ALIAS}.\"id\" = {}", params.push(record.id())));
-    }
-    if let Some(manage) = manage_rule_sql(c, request, params)? {
-        parts.push(manage);
-    }
-    Ok(Some(format!("({})", parts.join(" OR "))))
 }
 
 /// Select list for client responses: the visible fields, then the email visibility flag.
@@ -505,6 +413,9 @@ pub async fn create(
             return Err(ApiError::bad_request(failed));
         }
     }
+    realtime::record_event(&tx, &c, Action::Create, &values)
+        .await
+        .map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
 
     Ok(Json(output_record(&c, &fields, &row, &email_visible)))
@@ -659,6 +570,9 @@ pub async fn update(
         .query_one(&sql, &params.as_refs())
         .await
         .map_err(|e| write_error(e, &c, failed))?;
+    realtime::record_event(&tx, &c, Action::Update, &values)
+        .await
+        .map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
 
     Ok(Json(output_record(&c, &fields, &row, &email_visible)))
@@ -785,20 +699,42 @@ fn delete_with_references<'b>(
                     return Err(blocked());
                 }
             }
+            let other_fields = all_fields(&other);
+            let returning = select_list(&other_fields);
             let update = if field.is_multi() {
-                format!("UPDATE {table} SET {column} = {column} - $1::text WHERE {matches}")
+                format!(
+                    "UPDATE {table} AS {ALIAS} SET {column} = {column} - $1::text WHERE {matches} RETURNING {returning}"
+                )
             } else {
-                format!("UPDATE {table} SET {column} = '' WHERE {matches}")
+                format!(
+                    "UPDATE {table} AS {ALIAS} SET {column} = '' WHERE {matches} RETURNING {returning}"
+                )
             };
-            tx.execute(&update, &[&id]).await.map_err(db_error)?;
+            for row in tx.query(&update, &[&id]).await.map_err(db_error)? {
+                let values = row_values(&other_fields, &row);
+                realtime::record_event(tx, &other, Action::Update, &values)
+                    .await
+                    .map_err(db_error)?;
+            }
         }
 
-        tx.execute(
-            &format!("DELETE FROM {} WHERE id = $1::text", table_ref(&c.name)),
-            &[&id],
-        )
-        .await
-        .map_err(db_error)?;
+        let fields = all_fields(&c);
+        let deleted = tx
+            .query_opt(
+                &format!(
+                    "DELETE FROM {} AS {ALIAS} WHERE {ALIAS}.\"id\" = $1::text RETURNING {}",
+                    table_ref(&c.name),
+                    select_list(&fields)
+                ),
+                &[&id],
+            )
+            .await
+            .map_err(db_error)?;
+        if let Some(row) = deleted {
+            realtime::record_event(tx, &c, Action::Delete, &row_values(&fields, &row))
+                .await
+                .map_err(db_error)?;
+        }
         Ok(())
     })
 }

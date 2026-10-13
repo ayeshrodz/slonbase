@@ -181,6 +181,9 @@ pub async fn update(
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
     settings.save(&client).await.map_err(ApiError::internal)?;
+    crate::realtime::notify(&client, "settings")
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(settings.clone());
     Ok(Json(settings.public_json()))
 }

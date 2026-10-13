@@ -234,7 +234,9 @@ pub async fn complete(
     if let Some(loaded) = new_config {
         app.set_config(loaded);
     }
-    let core = crate::core::Core::load(pool)
+    let config = app.config();
+    let url = config.effective.database.url.clone().unwrap_or_default();
+    let core = crate::core::Core::start(pool, &url, &config.effective.database)
         .await
         .map_err(ApiError::internal)?;
     app.set_mode(Mode::Ready { core });

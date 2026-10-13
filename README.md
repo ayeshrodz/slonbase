@@ -6,7 +6,8 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
 > **Status: early development (phase 2).** Collections, the records REST API with filtering and
 > API rules, and auth (superusers and auth collections with sign-up, login, verification, password
-> reset and email change) work. Realtime, files and the admin dashboard are next.
+> reset and email change) and realtime subscriptions work. Files, relation expansion and the
+> admin dashboard are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -112,6 +113,7 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
 | `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
 | `GET/PATCH /api/settings` | App name/URL and SMTP settings (superusers) |
+| `GET /api/realtime`, `POST /api/realtime` | Realtime: an SSE stream, and setting its subscriptions (`posts/*`, `posts/{id}`) |
 | `GET/POST /api/collections`, `GET/PATCH/DELETE /api/collections/{idOrName}` | Manage collections (superusers) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
@@ -143,12 +145,17 @@ with `password` and `passwordConfirm`.
 `@request.*` (including `@request.auth.*`, the signed-in record's fields), date macros such as `@now`, JSON paths (`meta.key`) and the `:length`, `:lower`,
 `:each` and `:isset` modifiers. A rule of `null` allows superusers only, `""` allows anyone.
 
+**Realtime** follows PocketBase's protocol, so `pb.collection('posts').subscribe('*', ...)` works.
+Events respect the collection's list/view rules for each subscriber. Changes are announced
+through PostgreSQL `LISTEN/NOTIFY`, so you can run several slonbase instances on one database
+behind a load balancer: realtime events, collection changes and settings reach all of them.
+
 Emails (verification, password reset, email change) are sent through the SMTP server in the
 settings; while SMTP is disabled they're written to the log.
 
 Not supported yet (see [docs/design.md](docs/design.md)): OAuth2, OTP and MFA, relation paths and
-`expand`, `@collection` lookups, filter functions, file fields, multipart uploads, realtime, and
-view collections.
+`expand`, `@collection` lookups, filter functions, file fields, multipart uploads, and view
+collections.
 
 ## Development
 
@@ -176,7 +183,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
 2. **Auth** (done): superusers and auth collections with password sign-in, verification, password
    reset and email change. OAuth2, OTP and MFA follow.
-3. **Realtime, files and relation expansion.**
+3. **Realtime** (done), **files and relation expansion.**
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 

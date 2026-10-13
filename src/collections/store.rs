@@ -181,6 +181,8 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
     }
 
     let registry = load(&tx).await?;
+    // other instances reload their collections when this commits
+    crate::realtime::notify(&tx, "collections").await?;
     tx.commit().await?;
     Ok(registry)
 }

@@ -19,9 +19,7 @@ pub const MIN_SERVER_VERSION_NUM: i32 = 140_000;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const POOL_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Builds a connection pool. Connections are opened lazily,
-/// so call [`check_server`] to verify the database is reachable.
-pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
+fn parse_url(url: &str) -> Result<tokio_postgres::Config> {
     let mut pg: tokio_postgres::Config = url
         .parse()
         .map_err(|e| anyhow::anyhow!("invalid database URL: {e}"))?;
@@ -31,7 +29,13 @@ pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
     if pg.get_connect_timeout().is_none() {
         pg.connect_timeout(CONNECT_TIMEOUT);
     }
+    Ok(pg)
+}
 
+/// Builds a connection pool. Connections are opened lazily,
+/// so call [`check_server`] to verify the database is reachable.
+pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
+    let pg = parse_url(url)?;
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let manager = Manager::from_config(
         pg,
@@ -49,6 +53,43 @@ pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
         .recycle_timeout(Some(POOL_TIMEOUT))
         .build()
         .context("failed to build the connection pool")
+}
+
+/// Opens a dedicated (non-pooled) connection that `LISTEN`s on `channel`. Notifications
+/// are forwarded to the returned receiver, which closes when the connection is lost.
+pub async fn listen(
+    url: &str,
+    cfg: &DatabaseConfig,
+    channel: &str,
+) -> Result<(
+    tokio_postgres::Client,
+    tokio::sync::mpsc::UnboundedReceiver<tokio_postgres::Notification>,
+)> {
+    let pg = parse_url(url)?;
+    let tls = tls_connector(cfg.ca_file.as_deref())?;
+    let (client, mut connection) = pg.connect(tls).await?;
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        loop {
+            match std::future::poll_fn(|cx| connection.poll_message(cx)).await {
+                Some(Ok(tokio_postgres::AsyncMessage::Notification(n))) => {
+                    if tx.send(n).is_err() {
+                        break;
+                    }
+                }
+                Some(Ok(_)) => {}
+                Some(Err(err)) => {
+                    tracing::warn!(error = %err, "listener connection lost");
+                    break;
+                }
+                None => break,
+            }
+        }
+    });
+
+    client.batch_execute(&format!("LISTEN {channel}")).await?;
+    Ok((client, rx))
 }
 
 fn tls_connector(ca_file: Option<&Path>) -> Result<MakeRustlsConnect> {
