@@ -1,4 +1,4 @@
-//! App settings (PocketBase's `meta` and `smtp` sections), stored in `_slonbase.params`.
+//! App settings (PocketBase's `meta`, `smtp` and `s3` sections), stored in `_slonbase.params`.
 
 use std::sync::Arc;
 
@@ -20,6 +20,35 @@ const PARAMS_KEY: &str = "settings";
 pub struct Settings {
     pub meta: Meta,
     pub smtp: Smtp,
+    /// File storage in an S3 bucket instead of the local storage directory.
+    pub s3: S3,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct S3 {
+    pub enabled: bool,
+    pub bucket: String,
+    pub region: String,
+    /// e.g. `https://s3.eu-west-1.amazonaws.com` or `http://minio:9000`.
+    pub endpoint: String,
+    pub access_key: String,
+    /// Never returned by the API; an empty value on update keeps the stored one.
+    pub secret: String,
+    pub force_path_style: bool,
+}
+
+impl S3 {
+    pub fn config(&self) -> crate::s3::Config {
+        crate::s3::Config {
+            endpoint: self.endpoint.trim().to_string(),
+            bucket: self.bucket.trim().to_string(),
+            region: self.region.trim().to_string(),
+            access_key: self.access_key.trim().to_string(),
+            secret: self.secret.clone(),
+            force_path_style: self.force_path_style,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -95,10 +124,11 @@ impl Settings {
         Ok(())
     }
 
-    /// The representation returned by the API (the SMTP password is never sent back).
+    /// The representation returned by the API (passwords and secrets are never sent back).
     fn public_json(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("settings serialize");
         value["smtp"]["password"] = Value::String(String::new());
+        value["s3"]["secret"] = Value::String(String::new());
         value
     }
 }
@@ -123,6 +153,24 @@ fn validate(s: &Settings) -> crate::validation::Errors {
             errors.invalid("smtp.port", "Must be a valid port.");
         }
     }
+    if s.s3.enabled {
+        for (key, value) in [
+            ("s3.bucket", &s.s3.bucket),
+            ("s3.region", &s.s3.region),
+            ("s3.endpoint", &s.s3.endpoint),
+            ("s3.accessKey", &s.s3.access_key),
+            ("s3.secret", &s.s3.secret),
+        ] {
+            if value.trim().is_empty() {
+                errors.add(key, "validation_required", "Cannot be blank.");
+            }
+        }
+        if !s.s3.endpoint.trim().is_empty() && !s.s3.bucket.trim().is_empty() {
+            if let Err(err) = crate::s3::Client::new(s.s3.config()) {
+                errors.invalid("s3.endpoint", format!("{err:#}."));
+            }
+        }
+    }
     errors
 }
 
@@ -134,7 +182,7 @@ pub async fn get(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json<
 }
 
 /// `PATCH /api/settings`. Sections are merged key by key; an empty or missing SMTP
-/// password keeps the stored one.
+/// password or S3 secret keeps the stored one.
 pub async fn update(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
@@ -149,9 +197,11 @@ pub async fn update(
         match (merged.get_mut(&section), value) {
             (Some(Value::Object(target)), Value::Object(patch)) => {
                 for (k, v) in patch {
-                    let keep_password = section == "smtp"
-                        && k == "password"
-                        && v.as_str().is_none_or(str::is_empty);
+                    let secret = matches!(
+                        (section.as_str(), k.as_str()),
+                        ("smtp", "password") | ("s3", "secret")
+                    );
+                    let keep_password = secret && v.as_str().is_none_or(str::is_empty);
                     if !keep_password {
                         target.insert(k, v);
                     }
@@ -186,4 +236,39 @@ pub async fn update(
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(settings.clone());
     Ok(Json(settings.public_json()))
+}
+
+/// `POST /api/settings/test/s3` (`{"filesystem": "storage"}`): writes, reads and deletes a
+/// test file with the saved S3 settings.
+pub async fn test_s3(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    JsonObject(body): JsonObject,
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+
+    let core = app.core()?;
+    auth.require_superuser()?;
+    match body.get("filesystem").and_then(Value::as_str) {
+        None | Some("storage") => {}
+        Some(_) => {
+            let mut errors = crate::validation::Errors::new();
+            errors.invalid("filesystem", "Must be \"storage\".");
+            return Err(ApiError::invalid_data(
+                "An error occurred while validating the submitted data.",
+                &errors,
+            ));
+        }
+    }
+    let settings = core.settings();
+    if !settings.s3.enabled {
+        return Err(ApiError::bad_request("S3 storage is not enabled."));
+    }
+    let storage = crate::storage::Storage::s3(settings.s3.config());
+    if let Err(err) = storage.check().await {
+        return Err(ApiError::bad_request(format!(
+            "Failed to initialize the S3 storage. Raw error: {err:#}."
+        )));
+    }
+    Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }

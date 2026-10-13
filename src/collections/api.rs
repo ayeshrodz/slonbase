@@ -211,7 +211,7 @@ pub async fn delete(
         .await
         .map_err(|e| write_error(e, failed))?;
     core.set_registry(registry);
-    if let Err(err) = core.storage.delete_prefix(&c.id).await {
+    if let Err(err) = core.storage().delete_prefix(&c.id).await {
         tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
     }
     tracing::info!(collection = %c.name, "deleted collection");

@@ -7,7 +7,7 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 > **Status: early development (phase 3).** Collections, the records REST API with filtering and
 > API rules, auth (superusers and auth collections with password, OAuth2 and one-time password
 > sign-in, MFA, verification, password reset and email change), realtime subscriptions, relation
-> paths, `expand` and file fields work. S3 storage and the admin dashboard are next.
+> paths, `expand`, and file fields (stored locally or in S3) work. The admin dashboard is next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -117,7 +117,8 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `POST /api/collections/{collection}/request-password-reset`, `confirm-password-reset` | Password reset by email |
 | `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
 | `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
-| `GET/PATCH /api/settings` | App name/URL and SMTP settings (superusers) |
+| `GET/PATCH /api/settings` | App name/URL, SMTP and S3 settings (superusers) |
+| `POST /api/settings/test/s3` | Check the S3 settings by writing, reading and deleting a test file |
 | `GET /api/files/{collection}/{record}/{filename}` | Download a file (`thumb=100x100`, `download=1`, `token=` for protected files) |
 | `POST /api/files/token` | A short-lived token for protected files |
 | `GET /api/realtime`, `POST /api/realtime` | Realtime: an SSE stream, and setting its subscriptions (`posts/*`, `posts/{id}`) |
@@ -161,9 +162,25 @@ by creating a record with `password` and `passwordConfirm`, or with OAuth2.
 - Other fields are sent as form values, or as JSON in `@jsonPayload`.
 - Types are detected from the content (never the name) and checked against `mimeTypes`.
 - Thumbnails (`100x100`, `0x300`, `200x100t`/`b`/`f`) are generated on first request.
-- Files are stored under `--storage-path`. Several instances need a shared directory until S3
-  support lands. Each collection is a real PostgreSQL table in the `slonbase` schema
-(`TEXT`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`), so other tools can query it directly.
+- Files are stored under `--storage-path`, or in an S3 bucket (see below).
+
+**S3 storage.** Enable it in the settings, like in PocketBase, and every instance switches to the
+bucket (useful when you run several instances behind a load balancer):
+
+```sh
+curl -X PATCH localhost:8090/api/settings -H "Authorization: $TOKEN" -H 'content-type: application/json' \
+  -d '{"s3": {"enabled": true, "bucket": "my-files", "region": "eu-west-1",
+       "endpoint": "https://s3.eu-west-1.amazonaws.com", "accessKey": "...", "secret": "...",
+       "forcePathStyle": false}}'
+curl -X POST localhost:8090/api/settings/test/s3 -H "Authorization: $TOKEN" -d '{}'   # 204 when it works
+```
+
+Any S3-compatible service works (MinIO, Cloudflare R2, Backblaze B2, Wasabi, DigitalOcean Spaces;
+use `forcePathStyle: true` for MinIO and other servers addressed by IP or a single host name). The
+secret is never returned by the API. Existing files aren't moved when you switch storage.
+
+**Collections** are real PostgreSQL tables in the `slonbase` schema (`TEXT`,
+`DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`), so other tools can query them directly.
 
 **Filters and rules** use PocketBase's syntax: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains),
 `!~`, the `?`-prefixed "any of" variants for multi-valued fields, `&&`, `||`, parentheses,
@@ -184,7 +201,7 @@ settings; while SMTP is disabled they're written to the log.
 each checked against the related collection's rules.
 
 Not supported yet (see [docs/design.md](docs/design.md)): auth alerts, `@collection` lookups,
-filter functions, S3 storage, and view collections.
+filter functions, and view collections.
 
 ## Development
 
@@ -192,6 +209,8 @@ filter functions, S3 storage, and view collections.
 cargo test                     # unit tests
 # integration tests need a PostgreSQL role that can create databases:
 SLONBASE_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable' cargo test
+# S3 tests also need an S3-compatible server (path-style), e.g. MinIO:
+SLONBASE_TEST_S3_ENDPOINT=http://127.0.0.1:9000 SLONBASE_TEST_S3_ACCESS_KEY=... SLONBASE_TEST_S3_SECRET=... cargo test
 ```
 
 Packages are built with [nfpm](https://nfpm.goreleaser.com):
@@ -212,7 +231,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
 2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
    verification, password reset and email change.
-3. **Realtime, relation expansion and files** (done). S3 storage follows.
+3. **Realtime, relation expansion and files** (done), with local or S3 storage.
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 

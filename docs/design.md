@@ -42,8 +42,8 @@ guarantees, and small static binaries.
 | Passwords | `bcrypt` (cost 12), compatible with PocketBase hashes for migrations |
 | Config | TOML file + env vars + flags (`clap`) |
 
-Later phases add `object_store` (local/S3 files), `image` (thumbnails), `lettre` (mail) and an
-embedded JS engine (`rquickjs`) for hooks.
+Later phases added `image` (thumbnails), `lettre` (mail) and `reqwest` (OAuth2 and a small
+built-in S3 client); an embedded JS engine (`rquickjs`) for hooks is planned.
 
 ## PocketBase API compatibility
 
@@ -371,13 +371,9 @@ the generated SQL is always accepted.
 
 **File fields** (`maxSelect`, `maxSize`, `mimeTypes`, `thumbs`, `protected`) store file names
 (`{snake_case_name}_{random}.{ext}`). The files live at `{collectionId}/{recordId}/{name}` in
-storage, and thumbnails at `{collectionId}/{recordId}/thumbs_{name}/{size}_{name}`. Storage is the
-local filesystem for now:
-- Writes are atomic (temp file + rename).
-- Keys are validated part by part, so path traversal is impossible.
-
-S3-compatible storage is next. Its TLS setup must work in the `scratch` image, which has no
-system CA store.
+storage, and thumbnails at `{collectionId}/{recordId}/thumbs_{name}/{size}_{name}`. Keys are
+validated part by part, so path traversal is impossible. Storage is the local filesystem (atomic
+writes with a temp file and rename) or an S3 bucket (see below).
 
 **Uploads** are multipart. JSON bodies are capped at 2 MiB and multipart requests at 128 MiB.
 Each file is checked against `maxSize` (default 5 MiB) and `mimeTypes`. The MIME type comes from
@@ -402,7 +398,35 @@ between text formats, so a text file named `x.png` is rejected by an `image/png`
   once, off the async threads, with decoding limits (12,000 px, 256 MiB) against decompression
   bombs.
 
-**Not yet:** S3 storage, HTTP range requests, and deleting the files of a removed file field.
+**Not yet:** HTTP range requests, and deleting the files of a removed file field.
+
+### Phase 3: S3 storage
+
+**Configuration** is PocketBase's `s3` settings section (`enabled`, `bucket`, `region`,
+`endpoint`, `accessKey`, `secret`, `forcePathStyle`), stored with the other settings in the
+database. Changing it switches the storage of every instance: they reload settings on the
+`settings` notification. The secret is masked like the SMTP password. Enabling S3 doesn't move
+existing files (neither does PocketBase). `POST /api/settings/test/s3` writes, reads and deletes a
+test object with the saved settings and reports the S3 error.
+
+**The client** is built in (`src/s3.rs`, a few hundred lines) instead of the AWS SDK, which would
+add many dependencies and megabytes: AWS Signature Version 4 over the shared `reqwest`/rustls
+client, so it works in the `scratch` image.
+- Operations: PutObject (with the payload's SHA-256 signed; hashed off the async threads above
+  1 MiB), GetObject streamed to the client, HeadObject for thumbnails, DeleteObject,
+  ListObjectsV2 with pagination and DeleteObjects in batches of 1,000 for record and collection
+  deletes.
+- Virtual-hosted (`{bucket}.{host}`) or path-style (`{endpoint}/{bucket}`) URLs.
+- One retry after a connection error, timeout or 5xx (every request is idempotent).
+- Connect and read timeouts, and a 5-minute total limit except for downloads, which stream.
+- Signing is tested against AWS's published examples; the client and the file flows are tested
+  against MinIO (in CI) and s3s-fs.
+
+A misconfigured S3 storage fails every file operation with its error rather than falling back to
+the local directory, so files never end up somewhere unexpected.
+
+**Not yet:** a custom CA for S3 servers with private certificates, multipart uploads (files are
+limited to 128 MiB anyway), and presigned URLs.
 
 ### Planned
 
@@ -443,6 +467,10 @@ the file.
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
 - CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- S3 tests run against an S3-compatible server when `SLONBASE_TEST_S3_ENDPOINT` is set (MinIO in
+  CI): the client (pagination, batch deletes, bad credentials), and files through the API with S3
+  enabled in the settings (serving from a second instance, thumbnails, replacement and delete
+  cleanup, the test endpoint, failed uploads that save nothing, switching back to local).
 - File tests cover multipart uploads with form and JSON values, serving headers, thumbnails,
   traversal attempts, size/type/count validation with nothing left behind, append/remove/replace
   with cleanup, and protected files with file tokens.
@@ -472,6 +500,6 @@ the file.
 2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
-   expand** (done), **files** (done: local storage, thumbnails, protected files; S3 next).
+   expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
 5. **Extensibility**: Rust library API and JS hooks.

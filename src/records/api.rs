@@ -706,7 +706,7 @@ pub async fn delete(
     // the files of every deleted record (including cascades)
     for (collection_id, record_id) in &visited {
         if let Err(err) = core
-            .storage
+            .storage()
             .delete_prefix(&files::record_prefix(collection_id, record_id))
             .await
         {

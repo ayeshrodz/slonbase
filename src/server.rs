@@ -36,6 +36,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/setup/database/test", post(setup::test_database))
         .route("/api/setup/complete", post(setup::complete))
         .route("/api/settings", get(settings::get).patch(settings::update))
+        .route("/api/settings/test/s3", post(settings::test_s3))
         .route(
             "/api/realtime",
             get(realtime::connect).post(realtime::subscribe),

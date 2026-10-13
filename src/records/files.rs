@@ -460,7 +460,7 @@ pub fn apply(
 /// Writes new files; on failure, already written ones are removed.
 pub async fn write(core: &Core, plan: &FilePlan) -> Result<(), ApiError> {
     for (i, file) in plan.new.iter().enumerate() {
-        if let Err(err) = core.storage.put(&file.key, &file.data).await {
+        if let Err(err) = core.storage().put(&file.key, file.data.clone()).await {
             discard(core, &plan.new[..i]).await;
             return Err(ApiError::internal(err));
         }
@@ -471,7 +471,7 @@ pub async fn write(core: &Core, plan: &FilePlan) -> Result<(), ApiError> {
 /// Removes written files after a failed save.
 pub async fn discard(core: &Core, files: &[NewFile]) {
     for file in files {
-        if let Err(err) = core.storage.delete(&file.key).await {
+        if let Err(err) = core.storage().delete(&file.key).await {
             tracing::warn!(key = %file.key, error = %format!("{err:#}"), "failed to remove a file");
         }
     }
@@ -481,10 +481,10 @@ pub async fn discard(core: &Core, files: &[NewFile]) {
 pub async fn remove_replaced(core: &Core, collection_id: &str, record_id: &str, names: &[String]) {
     for name in names {
         let results = [
-            core.storage
+            core.storage()
                 .delete(&file_key(collection_id, record_id, name))
                 .await,
-            core.storage
+            core.storage()
                 .delete_prefix(&thumbs_prefix(collection_id, record_id, name))
                 .await,
         ];
@@ -668,21 +668,26 @@ pub async fn serve(
         }
     }
 
-    let (mut file, size) = core
-        .storage
+    let object = core
+        .storage()
         .open(&served_key)
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(ApiError::not_found)?;
+    let size = object.size;
+    // fused: the head may already have read to the end
+    let mut stream = object.stream.fuse();
 
     // detect the type from the first bytes, then stream the rest
-    use tokio::io::AsyncReadExt;
-    let mut head = vec![0u8; 8192];
-    let n = file
-        .read(&mut head)
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
-    head.truncate(n);
+    let mut head = Vec::new();
+    while head.len() < 8192 {
+        match stream.next().await {
+            Some(chunk) => {
+                head.extend_from_slice(&chunk.map_err(|e| ApiError::internal(e.into()))?)
+            }
+            None => break,
+        }
+    }
     let content_type = detect_mime(&head, &served_name);
 
     let download = query
@@ -695,7 +700,7 @@ pub async fn serve(
     };
     let stream =
         futures_util::stream::once(async move { Ok::<_, std::io::Error>(Bytes::from(head)) })
-            .chain(file_chunks(file));
+            .chain(stream);
 
     let mut response = Body::from_stream(stream).into_response();
     let headers = response.headers_mut();
@@ -731,24 +736,6 @@ pub async fn serve(
 
 use futures_util::StreamExt;
 
-/// Streams a file in 64 KiB chunks.
-fn file_chunks(
-    file: tokio::fs::File,
-) -> impl futures_util::Stream<Item = Result<Bytes, std::io::Error>> {
-    futures_util::stream::unfold(file, |mut file| async move {
-        use tokio::io::AsyncReadExt;
-        let mut buf = vec![0u8; 64 * 1024];
-        match file.read(&mut buf).await {
-            Ok(0) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some((Ok(Bytes::from(buf)), file))
-            }
-            Err(e) => Some((Err(e), file)),
-        }
-    })
-}
-
 fn file_field_with<'c>(c: &'c Collection, record: &Values, filename: &str) -> Option<&'c Field> {
     c.fields.iter().find(|f| {
         matches!(f.kind, FieldKind::File(_))
@@ -770,16 +757,15 @@ async fn ensure_thumb(
 ) -> Result<Option<String>, ApiError> {
     let key = thumb_key(collection_id, record_id, filename, raw_size);
     if core
-        .storage
-        .open(&key)
+        .storage()
+        .exists(&key)
         .await
         .map_err(ApiError::internal)?
-        .is_some()
     {
         return Ok(Some(key));
     }
     let Some(original) = core
-        .storage
+        .storage()
         .read(&file_key(collection_id, record_id, filename))
         .await
         .map_err(ApiError::internal)?
@@ -794,8 +780,8 @@ async fn ensure_thumb(
         .map_err(|e| ApiError::internal(e.into()))?;
     match thumb {
         Ok(data) => {
-            core.storage
-                .put(&key, &data)
+            core.storage()
+                .put(&key, Bytes::from(data))
                 .await
                 .map_err(ApiError::internal)?;
             Ok(Some(key))

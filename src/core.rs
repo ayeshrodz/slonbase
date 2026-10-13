@@ -1,5 +1,6 @@
 //! State shared by request handlers once the app is ready.
 
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 
 use anyhow::Result;
@@ -22,22 +23,32 @@ pub struct Core {
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
-    pub storage: Storage,
+    /// The storage directory used unless S3 is enabled in the settings.
+    local_storage: PathBuf,
+    storage: RwLock<Arc<Storage>>,
     /// Serializes collection changes within this instance (the database
     /// advisory lock serializes them across instances).
     pub(crate) schema_lock: tokio::sync::Mutex<()>,
+}
+
+fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
+    if settings.s3.enabled {
+        Storage::s3(settings.s3.config())
+    } else {
+        Storage::local(local)
+    }
 }
 
 impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
     /// collections and settings in sync with other instances.
     pub async fn start(pool: Pool, url: &str, config: &Config) -> Result<Arc<Self>> {
-        let core = Self::load(pool, Storage::local(&config.storage.path)).await?;
+        let core = Self::load(pool, config.storage.path.clone()).await?;
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         Ok(core)
     }
 
-    pub async fn load(pool: Pool, storage: Storage) -> Result<Arc<Self>> {
+    pub async fn load(pool: Pool, local_storage: PathBuf) -> Result<Arc<Self>> {
         let client = pool.get().await.map_err(describe_pool_error)?;
 
         // created once per installation and shared by all instances
@@ -60,6 +71,8 @@ impl Core {
         let settings = Settings::load(&client).await?;
         drop(client);
 
+        let storage = storage_for(&settings, &local_storage);
+        tracing::info!(storage = %storage.describe(), "file storage");
         Ok(Arc::new(Self {
             pool,
             registry: RwLock::new(Arc::new(registry)),
@@ -67,7 +80,8 @@ impl Core {
             settings: RwLock::new(Arc::new(settings)),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
-            storage,
+            local_storage,
+            storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),
         }))
     }
@@ -88,8 +102,22 @@ impl Core {
         self.settings.read().expect("settings lock").clone()
     }
 
+    /// Replaces the settings (switching the file storage when its settings changed).
     pub(crate) fn set_settings(&self, settings: Settings) {
+        let previous = self.settings();
+        let storage_changed = previous.s3 != settings.s3;
+        if storage_changed {
+            let storage = storage_for(&settings, &self.local_storage);
+            tracing::info!(storage = %storage.describe(), "file storage changed");
+            *self.storage.write().expect("storage lock") = Arc::new(storage);
+        }
         *self.settings.write().expect("settings lock") = Arc::new(settings);
+    }
+
+    /// The file storage. Hold on to the returned value for one operation only, so a
+    /// settings change takes effect for the next one.
+    pub fn storage(&self) -> Arc<Storage> {
+        self.storage.read().expect("storage lock").clone()
     }
 
     /// Replaces the mailer (tests use [`mail::MemoryMailer`]).

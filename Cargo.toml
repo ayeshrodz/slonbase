@@ -24,9 +24,10 @@ hmac = "0.13.0"
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 infer = "0.22.0"
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls", "ring", "webpki-roots", "hostname"] }
+md-5 = "0.11.0"
 rand = "0.10.3"
 regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "form"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "form", "stream"] }
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }

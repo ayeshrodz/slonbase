@@ -4,7 +4,6 @@
 //! Only emails the provider reports as verified are used, since an email links the
 //! provider's account to an existing record with that email.
 
-use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -241,6 +240,7 @@ impl Provider {
         }
         let response = client()
             .post(&self.token_url)
+            .timeout(TIMEOUT)
             .header("accept", "application/json")
             .form(&form)
             .send()
@@ -426,24 +426,7 @@ fn extract(kind: Kind, raw: &Value) -> AuthUser {
 }
 
 fn client() -> &'static reqwest::Client {
-    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
-        let mut roots = rustls::RootCertStore::empty();
-        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-        let tls = rustls::ClientConfig::builder_with_provider(Arc::new(
-            rustls::crypto::ring::default_provider(),
-        ))
-        .with_safe_default_protocol_versions()
-        .expect("ring supports the default protocol versions")
-        .with_root_certificates(roots)
-        .with_no_client_auth();
-        reqwest::Client::builder()
-            .tls_backend_preconfigured(tls)
-            .timeout(TIMEOUT)
-            .user_agent(concat!("slonbase/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .expect("valid HTTP client configuration")
-    });
-    &CLIENT
+    crate::http::client()
 }
 
 async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<Vec<u8>> {
@@ -460,6 +443,7 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
 async fn get_json(url: &str, access_token: &str) -> Result<Value> {
     let response = client()
         .get(url)
+        .timeout(TIMEOUT)
         .bearer_auth(access_token)
         .header("accept", "application/json")
         .send()
@@ -478,7 +462,7 @@ pub async fn download(url: &str) -> Option<Vec<u8>> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return None;
     }
-    let response = client().get(url).send().await.ok()?;
+    let response = client().get(url).timeout(TIMEOUT).send().await.ok()?;
     if !response.status().is_success() {
         return None;
     }
