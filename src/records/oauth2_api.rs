@@ -2,7 +2,7 @@
 //! flow (`/api/oauth2-redirect`) and the accounts linked to a record, compatible with
 //! PocketBase.
 //!
-//! The provider's account is linked to a record in `_slonbase.external_auths`. Without a
+//! The provider's account is linked to a record in the `_externalAuths` collection. Without a
 //! link, the signed-in record (if any) is linked, else the record with the provider's
 //! verified email, else a new record is created (subject to the collection's create
 //! rule).
@@ -31,6 +31,7 @@ use crate::collections::model::{
     Collection, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED, FieldKind,
 };
 use crate::collections::schema::table_ref;
+use crate::collections::system::EXTERNAL_AUTHS_TABLE;
 use crate::core::Core;
 use crate::datetime;
 use crate::error::ApiError;
@@ -126,8 +127,10 @@ pub async fn auth_with_oauth2(
     let mut linked = false;
     if let Some(row) = client
         .query_opt(
-            "SELECT record_id FROM _slonbase.external_auths
-             WHERE collection_id = $1 AND provider = $2 AND provider_id = $3",
+            &format!(
+                r#"SELECT "recordRef" FROM {EXTERNAL_AUTHS_TABLE}
+                   WHERE "collectionRef" = $1 AND provider = $2 AND "providerId" = $3"#
+            ),
             &[&c.id, &provider.name, &user.id],
         )
         .await
@@ -140,7 +143,10 @@ pub async fn auth_with_oauth2(
         linked = found.is_some();
     }
     drop(client);
-    let signed_in = auth.record.filter(|r| r.collection.id == c.id);
+    let signed_in = auth
+        .any_record()
+        .cloned()
+        .filter(|r| r.collection.id == c.id);
     if found.is_none() {
         if let Some(record) = &signed_in {
             found = Some(record.values.clone());
@@ -167,8 +173,11 @@ pub async fn auth_with_oauth2(
         let client = core.pool.get().await.map_err(pool_error)?;
         client
             .execute(
-                "INSERT INTO _slonbase.external_auths (id, collection_id, record_id, provider, provider_id)
-                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING",
+                &format!(
+                    r#"INSERT INTO {EXTERNAL_AUTHS_TABLE}
+                           (id, "collectionRef", "recordRef", provider, "providerId", created, updated)
+                       VALUES ($1, $2, $3, $4, $5, now(), now()) ON CONFLICT DO NOTHING"#
+                ),
                 &[
                     &ids::random_id(ids::DEFAULT_ID_LENGTH),
                     &c.id,
@@ -181,8 +190,10 @@ pub async fn auth_with_oauth2(
             .map_err(db_error)?;
         let owner: Option<String> = client
             .query_opt(
-                "SELECT record_id FROM _slonbase.external_auths
-                 WHERE collection_id = $1 AND provider = $2 AND provider_id = $3",
+                &format!(
+                    r#"SELECT "recordRef" FROM {EXTERNAL_AUTHS_TABLE}
+                       WHERE "collectionRef" = $1 AND provider = $2 AND "providerId" = $3"#
+                ),
                 &[&c.id, &provider.name, &user.id],
             )
             .await
@@ -484,8 +495,8 @@ pub async fn list_external_auths(
     let rows = client
         .query(
             &format!(
-                "SELECT id, provider, provider_id, {}, {} FROM _slonbase.external_auths
-                 WHERE collection_id = $1 AND record_id = $2 ORDER BY created",
+                r#"SELECT id, provider, "providerId", {}, {} FROM {EXTERNAL_AUTHS_TABLE}
+                   WHERE "collectionRef" = $1 AND "recordRef" = $2 ORDER BY created"#,
                 datetime::sql_format("created"),
                 datetime::sql_format("updated")
             ),
@@ -522,7 +533,10 @@ pub async fn unlink_external_auth(
     let client = core.pool.get().await.map_err(pool_error)?;
     let deleted = client
         .execute(
-            "DELETE FROM _slonbase.external_auths WHERE collection_id = $1 AND record_id = $2 AND provider = $3",
+            &format!(
+                r#"DELETE FROM {EXTERNAL_AUTHS_TABLE}
+                   WHERE "collectionRef" = $1 AND "recordRef" = $2 AND provider = $3"#
+            ),
             &[&c.id, &id, &provider],
         )
         .await

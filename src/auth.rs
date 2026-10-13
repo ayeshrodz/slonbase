@@ -1,5 +1,5 @@
-//! Authentication: HS256 JWTs for superusers and auth collection records, and the
-//! request extractor that resolves the caller.
+//! Authentication: HS256 JWTs for records of auth collections (including `_superusers`),
+//! and the request extractor that resolves the caller.
 //!
 //! Each token is signed with a key derived from the installation secret, the collection,
 //! the token type and the record's `token_key`. A token of one type can't be used as
@@ -14,22 +14,18 @@ use axum::http::request::Parts;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD as B64;
 use hmac::{Hmac, KeyInit, Mac};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 use sha2::Sha256;
 
 use crate::app::App;
 use crate::collections::model::{
-    Collection, FIELD_EMAIL, FIELD_TOKEN_KEY, SUPERUSERS_COLLECTION_ID, SUPERUSERS_COLLECTION_NAME,
+    Collection, FIELD_EMAIL, FIELD_TOKEN_KEY, SUPERUSERS_COLLECTION_ID,
 };
 use crate::core::Core;
-use crate::datetime;
 use crate::error::ApiError;
 use crate::filter::compile::AuthInfo;
 use crate::records::store;
 use crate::records::values::Values;
-
-/// Superuser tokens are valid for 1 day (PocketBase's default).
-pub const SUPERUSER_TOKEN_DURATION_SECS: i64 = 86_400;
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -139,77 +135,6 @@ fn verify_signature(
     )
     .verify_slice(&signature)
     .is_ok()
-}
-
-// ---------------------------------------------------------------------------
-// superusers
-
-#[derive(Debug, Clone)]
-pub struct Superuser {
-    pub id: String,
-    pub email: String,
-    pub created: String,
-    pub updated: String,
-    token_key: String,
-}
-
-impl Superuser {
-    pub fn to_json(&self) -> Value {
-        json!({
-            "collectionId": SUPERUSERS_COLLECTION_ID,
-            "collectionName": SUPERUSERS_COLLECTION_NAME,
-            "id": self.id,
-            "email": self.email,
-            "emailVisibility": false,
-            "verified": true,
-            "created": self.created,
-            "updated": self.updated,
-        })
-    }
-
-    /// A short-lived token for protected files.
-    pub fn issue_file_token(&self, core: &Core) -> String {
-        let mut claims = Map::new();
-        claims.insert("id".into(), Value::String(self.id.clone()));
-        claims.insert("collectionId".into(), SUPERUSERS_COLLECTION_ID.into());
-        sign(core, TokenType::File, &self.token_key, claims, 180)
-    }
-
-    pub fn issue_token(&self, core: &Core) -> String {
-        let mut claims = Map::new();
-        claims.insert("id".into(), Value::String(self.id.clone()));
-        claims.insert("collectionId".into(), SUPERUSERS_COLLECTION_ID.into());
-        claims.insert("refreshable".into(), Value::Bool(true));
-        sign(
-            core,
-            TokenType::Auth,
-            &self.token_key,
-            claims,
-            SUPERUSER_TOKEN_DURATION_SECS,
-        )
-    }
-}
-
-pub async fn find_superuser(core: &Core, condition: &str, value: &str) -> Option<Superuser> {
-    let client = core.pool.get().await.ok()?;
-    let row = client
-        .query_opt(
-            &format!(
-                "SELECT id, email, token_key, {}, {} FROM _slonbase.superusers WHERE {condition}",
-                datetime::sql_format("created"),
-                datetime::sql_format("updated"),
-            ),
-            &[&value],
-        )
-        .await
-        .ok()??;
-    Some(Superuser {
-        id: row.get(0),
-        email: row.get(1),
-        token_key: row.get(2),
-        created: row.get(3),
-        updated: row.get(4),
-    })
 }
 
 // ---------------------------------------------------------------------------
@@ -324,46 +249,51 @@ pub async fn verify_record_token(
 // the request extractor
 
 /// The authenticated caller. Invalid or expired tokens make the request a guest
-/// request (like PocketBase), rather than failing it.
+/// request (like PocketBase), rather than failing it. A record of `_superusers` is a
+/// superuser; any other record is in `record`.
 #[derive(Debug, Clone, Default)]
 pub struct RequestAuth {
-    pub superuser: Option<Superuser>,
+    pub superuser: Option<AuthRecord>,
     pub record: Option<AuthRecord>,
 }
 
 impl RequestAuth {
+    fn from_record(record: Option<AuthRecord>) -> Self {
+        match record {
+            Some(r) if r.collection.id == SUPERUSERS_COLLECTION_ID => Self {
+                superuser: Some(r),
+                record: None,
+            },
+            record => Self {
+                superuser: None,
+                record,
+            },
+        }
+    }
+
     pub fn is_superuser(&self) -> bool {
         self.superuser.is_some()
     }
 
-    pub fn require_superuser(&self) -> Result<&Superuser, ApiError> {
+    pub fn require_superuser(&self) -> Result<&AuthRecord, ApiError> {
         self.superuser.as_ref().ok_or_else(|| {
             ApiError::unauthorized("The request requires valid superuser authorization token.")
         })
     }
 
+    /// The signed-in record, superuser or not.
+    pub fn any_record(&self) -> Option<&AuthRecord> {
+        self.record.as_ref().or(self.superuser.as_ref())
+    }
+
     /// The caller as seen by rules (`@request.auth.*`).
     pub fn info(&self) -> Option<AuthInfo> {
-        if let Some(record) = &self.record {
-            return Some(record.info());
-        }
-        self.superuser.as_ref().map(|s| {
-            let mut values = Map::new();
-            values.insert("id".into(), Value::String(s.id.clone()));
-            values.insert("email".into(), Value::String(s.email.clone()));
-            AuthInfo {
-                id: s.id.clone(),
-                collection_id: SUPERUSERS_COLLECTION_ID.into(),
-                collection_name: SUPERUSERS_COLLECTION_NAME.into(),
-                values,
-            }
-        })
+        self.any_record().map(AuthRecord::info)
     }
 
     /// Whether the caller is this record of this collection.
     pub fn is_record(&self, collection_id: &str, id: &str) -> bool {
-        self.record
-            .as_ref()
+        self.any_record()
             .is_some_and(|r| r.collection.id == collection_id && r.id() == id)
     }
 }
@@ -375,32 +305,11 @@ pub async fn authenticate(core: &Core, token: &str) -> RequestAuth {
 
 /// Resolves a token of the given type (`auth` or `file`) of a superuser or a record.
 pub async fn authenticate_as(core: &Core, token: &str, kind: TokenType) -> RequestAuth {
-    let Some(claims) = unverified_claims(token, kind) else {
-        return RequestAuth::default();
-    };
-    let Some(collection_id) = claims.get("collectionId").and_then(Value::as_str) else {
-        return RequestAuth::default();
-    };
-
-    if collection_id == SUPERUSERS_COLLECTION_ID {
-        let Some(id) = claims.get("id").and_then(Value::as_str) else {
-            return RequestAuth::default();
-        };
-        let superuser = find_superuser(core, "id = $1", id).await.filter(|s| {
-            verify_signature(core, token, SUPERUSERS_COLLECTION_ID, kind, &s.token_key)
-        });
-        return RequestAuth {
-            superuser,
-            record: None,
-        };
-    }
-
-    RequestAuth {
-        superuser: None,
-        record: verify_record_token(core, token, kind)
+    RequestAuth::from_record(
+        verify_record_token(core, token, kind)
             .await
             .map(|(record, _)| record),
-    }
+    )
 }
 
 /// Extracts the token from an `Authorization` header value (`Bearer` prefix optional).

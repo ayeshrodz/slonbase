@@ -17,10 +17,9 @@ use serde_json::{Map, Value, json};
 use super::store::{self, ALIAS, record_json, visible_fields};
 use super::values::{self, Values};
 use crate::app::App;
-use crate::auth::{AuthRecord, RequestAuth, TokenType, find_superuser, verify_record_token};
+use crate::auth::{AuthRecord, RequestAuth, TokenType, verify_record_token};
 use crate::collections::model::{
     Collection, EmailTemplate, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED,
-    SUPERUSERS_COLLECTION_ID, SUPERUSERS_COLLECTION_NAME,
 };
 use crate::collections::schema::table_ref;
 use crate::core::Core;
@@ -28,16 +27,25 @@ use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
+use crate::mail;
 use crate::validation::Errors;
-use crate::{mail, superusers};
 
-/// A real bcrypt hash (default cost) to compare against when no record matched,
-/// so that unknown identities take as long to reject as wrong passwords.
-static DUMMY_HASH: LazyLock<String> =
-    LazyLock::new(|| bcrypt::hash(crate::ids::random_secret(16), 10).expect("bcrypt hash"));
+/// Real bcrypt hashes (by cost) to compare against when no record matched, so that
+/// unknown identities take as long to reject as wrong passwords.
+static DUMMY_HASHES: LazyLock<std::sync::Mutex<HashMap<u32, String>>> =
+    LazyLock::new(Default::default);
 
-pub(super) fn is_superusers(name: &str) -> bool {
-    name == SUPERUSERS_COLLECTION_NAME || name == SUPERUSERS_COLLECTION_ID
+fn dummy_hash(c: &Collection) -> String {
+    let cost = match c.field(FIELD_PASSWORD).map(|f| &f.kind) {
+        Some(crate::collections::model::FieldKind::Password(o)) if o.cost != 0 => o.cost,
+        _ => 10,
+    };
+    DUMMY_HASHES
+        .lock()
+        .expect("dummy hashes lock")
+        .entry(cost)
+        .or_insert_with(|| bcrypt::hash(crate::ids::random_secret(16), cost).expect("bcrypt hash"))
+        .clone()
 }
 
 pub(super) fn auth_collection(core: &Core, name: &str) -> Result<Arc<Collection>, ApiError> {
@@ -283,23 +291,6 @@ pub async fn auth_with_password(
         return Err(failed());
     }
 
-    if is_superusers(&collection) {
-        if !superusers::verify(&core.pool, &identity, &password)
-            .await
-            .map_err(ApiError::internal)?
-        {
-            return Err(failed());
-        }
-        let superuser = find_superuser(&core, "lower(email) = lower($1)", &identity)
-            .await
-            .ok_or_else(failed)?;
-        return Ok(Json(json!({
-            "token": superuser.issue_token(&core),
-            "record": superuser.to_json(),
-        }))
-        .into_response());
-    }
-
     let c = auth_collection(&core, &collection)?;
     let options = c.auth_options().expect("auth collection");
     if !options.password_auth.enabled {
@@ -348,7 +339,7 @@ pub async fn auth_with_password(
         .and_then(|v| v.get(FIELD_PASSWORD))
         .and_then(Value::as_str)
         .map(str::to_string)
-        .unwrap_or_else(|| DUMMY_HASH.clone());
+        .unwrap_or_else(|| dummy_hash(&c));
     let valid = values::verify_password(password, hash).await;
     let Some(values) = found.filter(|_| valid) else {
         return Err(failed());
@@ -374,17 +365,10 @@ pub async fn auth_refresh(
     auth: RequestAuth,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
-    if is_superusers(&collection) {
-        let superuser = auth.require_superuser()?;
-        return Ok(Json(json!({
-            "token": superuser.issue_token(&core),
-            "record": superuser.to_json(),
-        })));
-    }
-
     let c = auth_collection(&core, &collection)?;
     let record = auth
-        .record
+        .any_record()
+        .cloned()
         .filter(|r| r.collection.id == c.id)
         .ok_or_else(|| {
             ApiError::unauthorized("The request requires valid record authorization token.")
@@ -408,14 +392,6 @@ pub async fn auth_methods(
     Path(collection): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
-    if is_superusers(&collection) {
-        return Ok(Json(json!({
-            "password": { "enabled": true, "identityFields": ["email"] },
-            "oauth2": { "enabled": false, "providers": [] },
-            "mfa": { "enabled": false, "duration": 0 },
-            "otp": { "enabled": false, "duration": 0 },
-        })));
-    }
     let c = auth_collection(&core, &collection)?;
     let o = c.auth_options().expect("auth collection");
     let providers: Vec<Value> = if o.oauth2.enabled {
@@ -674,7 +650,8 @@ pub async fn request_email_change(
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     let record = auth
-        .record
+        .any_record()
+        .cloned()
         .filter(|r| r.collection.id == c.id)
         .ok_or_else(|| {
             ApiError::unauthorized("The request requires valid record authorization token.")

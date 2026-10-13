@@ -1,4 +1,6 @@
-//! Superuser accounts.
+//! Superuser accounts: records of the `_superusers` system collection. Setup uses these
+//! helpers before the app is running; once it is, superusers are managed like any other
+//! auth records.
 
 use std::collections::BTreeMap;
 use std::sync::LazyLock;
@@ -15,6 +17,7 @@ pub const MIN_PASSWORD_LENGTH: usize = 10;
 pub const MAX_PASSWORD_BYTES: usize = 72;
 const MAX_EMAIL_LENGTH: usize = 255;
 const BCRYPT_COST: u32 = 12;
+const TABLE: &str = r#"slonbase."_superusers""#;
 
 /// Hash compared against when an email doesn't exist,
 /// so failed logins take the same time either way.
@@ -70,7 +73,7 @@ async fn verify_password(password: String, hash: String) -> bool {
 pub async fn count(pool: &Pool) -> Result<i64> {
     let client = pool.get().await.map_err(describe_pool_error)?;
     let row = client
-        .query_one("SELECT count(*) FROM _slonbase.superusers", &[])
+        .query_one(&format!("SELECT count(*) FROM {TABLE}"), &[])
         .await?;
     Ok(row.get(0))
 }
@@ -92,7 +95,7 @@ pub async fn create_first(pool: &Pool, email: &str, password: &str) -> Result<Cr
         .await?;
 
     let existing: i64 = tx
-        .query_one("SELECT count(*) FROM _slonbase.superusers", &[])
+        .query_one(&format!("SELECT count(*) FROM {TABLE}"), &[])
         .await?
         .get(0);
     if existing > 0 {
@@ -100,13 +103,15 @@ pub async fn create_first(pool: &Pool, email: &str, password: &str) -> Result<Cr
     }
 
     tx.execute(
-        "INSERT INTO _slonbase.superusers (id, email, password_hash, token_key)
-         VALUES ($1, $2, $3, $4)",
+        &format!(
+            r#"INSERT INTO {TABLE} (id, email, password, "tokenKey", "emailVisibility", verified, created, updated)
+               VALUES ($1, $2, $3, $4, FALSE, TRUE, now(), now())"#
+        ),
         &[
             &ids::random_id(ids::DEFAULT_ID_LENGTH),
             &email.trim(),
             &hash,
-            &ids::random_secret(32),
+            &ids::generate_from_pattern("[a-zA-Z0-9]{50}").expect("valid pattern"),
         ],
     )
     .await?;
@@ -120,7 +125,7 @@ pub async fn verify(pool: &Pool, email: &str, password: &str) -> Result<bool> {
     let client = pool.get().await.map_err(describe_pool_error)?;
     let row = client
         .query_opt(
-            "SELECT password_hash FROM _slonbase.superusers WHERE lower(email) = lower($1)",
+            &format!("SELECT password FROM {TABLE} WHERE lower(email) = lower($1)"),
             &[&email.trim()],
         )
         .await?;

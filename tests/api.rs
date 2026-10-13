@@ -170,7 +170,7 @@ async fn superuser_auth() {
         .get()
         .await
         .unwrap()
-        .batch_execute("UPDATE _slonbase.superusers SET token_key = 'rotated'")
+        .batch_execute(r#"UPDATE slonbase."_superusers" SET "tokenKey" = 'rotated'"#)
         .await
         .unwrap();
     let (status, _) = client.superuser("GET", "/api/collections", None).await;
@@ -235,8 +235,9 @@ async fn collections_crud_and_schema_changes() {
         .superuser("GET", &format!("/api/collections/{id}"), None)
         .await;
     assert_eq!(status, StatusCode::OK);
+    // plus the system collections
     let (_, list) = client.superuser("GET", "/api/collections", None).await;
-    assert_eq!(list["totalItems"], 1);
+    assert_eq!(list["totalItems"], 3);
 
     client
         .create_record("posts", json!({ "title": "first", "tag": "a" }))
@@ -869,5 +870,208 @@ async fn filter_type_matrix_never_errors_in_postgres() {
     assert_eq!(checked, operands.len() * operands.len() * operators.len());
 
     drop(client);
+    tdb.drop_db().await;
+}
+
+#[tokio::test]
+async fn superusers_are_a_system_collection() {
+    let Some((tdb, client, _dir)) = setup().await else {
+        return;
+    };
+
+    let (_, c) = client
+        .superuser("GET", "/api/collections/_superusers", None)
+        .await;
+    assert_eq!(c["id"], "pbc_3142635823");
+    assert_eq!(c["system"], true);
+    assert_eq!(c["type"], "auth");
+    let (_, external) = client
+        .superuser("GET", "/api/collections/_externalAuths", None)
+        .await;
+    assert_eq!(external["system"], true);
+
+    // system collections can't be renamed or deleted
+    let (status, _) = client
+        .superuser(
+            "PATCH",
+            "/api/collections/_superusers",
+            Some(json!({ "name": "admins" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, _) = client
+        .superuser("DELETE", "/api/collections/_externalAuths", None)
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // but their options can change
+    let (status, res) = client
+        .superuser(
+            "PATCH",
+            "/api/collections/_superusers",
+            Some(json!({ "authToken": { "duration": 3600 } })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // superusers are managed with the records API, by superusers only
+    let (_, list) = client
+        .superuser("GET", "/api/collections/_superusers/records", None)
+        .await;
+    assert_eq!(list["totalItems"], 1);
+    assert_eq!(list["items"][0]["email"], ADMIN_EMAIL);
+    assert!(list["items"][0].get("password").is_none());
+    let first_id = list["items"][0]["id"].as_str().unwrap().to_string();
+    let (status, _) = client
+        .guest("GET", "/api/collections/_superusers/records", None)
+        .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    // passwords need at least 10 characters
+    let (status, _) = client
+        .superuser(
+            "POST",
+            "/api/collections/_superusers/records",
+            Some(json!({ "email": "second@example.com", "password": "short123", "passwordConfirm": "short123" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let created = client
+        .create_record(
+            "_superusers",
+            json!({ "email": "second@example.com", "password": "second-password", "passwordConfirm": "second-password" }),
+        )
+        .await;
+    let (status, login) = client
+        .guest(
+            "POST",
+            "/api/collections/_superusers/auth-with-password",
+            Some(json!({ "identity": "second@example.com", "password": "second-password" })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{login}");
+    assert_eq!(login["record"]["collectionName"], "_superusers");
+    let second = Client {
+        app: client.app.clone(),
+        token: login["token"].as_str().unwrap().to_string(),
+    };
+    let (status, _) = second.superuser("GET", "/api/collections", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, refreshed) = second
+        .superuser("POST", "/api/collections/_superusers/auth-refresh", None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{refreshed}");
+
+    // the last superuser can't be deleted
+    let (status, _) = second
+        .superuser(
+            "DELETE",
+            &format!("/api/collections/_superusers/records/{first_id}"),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, res) = second
+        .superuser(
+            "DELETE",
+            &format!(
+                "/api/collections/_superusers/records/{}",
+                created["id"].as_str().unwrap()
+            ),
+            None,
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    // the deleted superuser's token stopped working
+    let (status, _) = client.superuser("GET", "/api/collections", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+    drop((client, second));
+    tdb.drop_db().await;
+}
+
+/// Installations from before the system collections kept superusers and linked accounts
+/// in private tables; they're moved into the collections.
+#[tokio::test]
+async fn legacy_tables_move_into_system_collections() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let pool = tdb.pool();
+    slonbase::migrations::run(&pool).await.unwrap();
+    let hash = bcrypt::hash("legacy-password", 4).unwrap();
+    {
+        let client = pool.get().await.unwrap();
+        client
+            .execute(
+                "INSERT INTO _slonbase.superusers (id, email, password_hash, token_key)
+                 VALUES ('legacyadmin0001', 'old@example.com', $1, 'k')",
+                &[&hash],
+            )
+            .await
+            .unwrap();
+        client
+            .batch_execute(
+                // a stand-in for the linked record's collection (the legacy table's foreign key)
+                "INSERT INTO _slonbase.collections (id, name, data)
+                     VALUES ('pbc_users00001', 'people', '{}');
+                 INSERT INTO _slonbase.external_auths (id, collection_id, record_id, provider, provider_id)
+                     VALUES ('link00000000001', 'pbc_users00001', 'rec', 'github', '42');",
+            )
+            .await
+            .unwrap();
+    }
+
+    slonbase::collections::system::ensure(&pool).await.unwrap();
+    let client = pool.get().await.unwrap();
+    let row = client
+        .query_one(
+            r#"SELECT email, password, length("tokenKey"), verified FROM slonbase."_superusers""#,
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "old@example.com");
+    assert_eq!(row.get::<_, String>(1), hash);
+    assert_eq!(row.get::<_, i32>(2), 50);
+    assert!(row.get::<_, bool>(3));
+    let link = client
+        .query_one(
+            r#"SELECT "collectionRef", "recordRef", provider, "providerId" FROM slonbase."_externalAuths""#,
+            &[],
+        )
+        .await
+        .unwrap();
+    assert_eq!(link.get::<_, String>(3), "42");
+    for table in ["_slonbase.superusers", "_slonbase.external_auths"] {
+        let exists: bool = client
+            .query_one("SELECT to_regclass($1) IS NOT NULL", &[&table])
+            .await
+            .unwrap()
+            .get(0);
+        assert!(!exists, "{table} was dropped");
+    }
+    // idempotent
+    slonbase::collections::system::ensure(&pool).await.unwrap();
+    client
+        .batch_execute("DELETE FROM _slonbase.collections WHERE id = 'pbc_users00001'")
+        .await
+        .unwrap();
+    drop(client);
+
+    // and the migrated superuser can sign in
+    let (_dir, config) = temp_config();
+    let app = new_app(&config, Some(tdb.url.clone()));
+    app.bootstrap().await.unwrap();
+    let (status, body) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": "old@example.com", "password": "legacy-password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    drop(app);
     tdb.drop_db().await;
 }

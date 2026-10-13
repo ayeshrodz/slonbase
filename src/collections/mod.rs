@@ -5,4 +5,5 @@ pub mod indexes;
 pub mod model;
 pub mod schema;
 pub mod store;
+pub mod system;
 pub mod validate;

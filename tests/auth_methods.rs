@@ -819,7 +819,7 @@ async fn oauth2_sign_in() {
     .await;
     assert_eq!(
         env.count(&format!(
-            "SELECT count(*) FROM _slonbase.external_auths WHERE record_id = '{ann_id}'"
+            r#"SELECT count(*) FROM slonbase."_externalAuths" WHERE "recordRef" = '{ann_id}'"#
         ))
         .await,
         0

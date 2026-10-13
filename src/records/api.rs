@@ -699,6 +699,26 @@ pub async fn delete(
     .map_err(db_error)?
     .ok_or_else(ApiError::not_found)?;
 
+    if c.id == crate::collections::model::SUPERUSERS_COLLECTION_ID {
+        // serializes concurrent deletes, so two can't remove the last two superusers
+        tx.batch_execute(&format!(
+            "LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE",
+            table_ref(&c.name)
+        ))
+        .await
+        .map_err(db_error)?;
+        let count: i64 = tx
+            .query_one(&format!("SELECT count(*) FROM {}", table_ref(&c.name)), &[])
+            .await
+            .map_err(db_error)?
+            .get(0);
+        if count <= 1 {
+            return Err(ApiError::bad_request(
+                "You can't delete the only existing superuser.",
+            ));
+        }
+    }
+
     let mut visited = HashSet::new();
     delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited).await?;
     tx.commit().await.map_err(db_error)?;
@@ -830,7 +850,10 @@ fn delete_with_references<'b>(
                 .map_err(db_error)?;
             if c.is_auth() {
                 tx.execute(
-                    "DELETE FROM _slonbase.external_auths WHERE collection_id = $1 AND record_id = $2",
+                    &format!(
+                        r#"DELETE FROM {} WHERE "collectionRef" = $1 AND "recordRef" = $2"#,
+                        crate::collections::system::EXTERNAL_AUTHS_TABLE
+                    ),
                     &[&c.id, &id],
                 )
                 .await

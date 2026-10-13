@@ -166,16 +166,23 @@ pub async fn check_server(pool: &Pool) -> Result<ServerInfo> {
         );
     }
 
-    let has_superusers = existing_install
-        && client
-            .query_one(
-                "SELECT to_regclass('_slonbase.superusers') IS NOT NULL
-                    AND EXISTS (SELECT 1 FROM _slonbase.superusers)",
-                &[],
-            )
-            .await
-            .map(|r| r.get::<_, Option<bool>>(0).unwrap_or(false))
-            .unwrap_or(false);
+    // the `_superusers` collection, or the table older versions used
+    let mut has_superusers = false;
+    if existing_install {
+        for table in [r#"slonbase."_superusers""#, "_slonbase.superusers"] {
+            let exists = client
+                .query_one("SELECT to_regclass($1) IS NOT NULL", &[&table])
+                .await
+                .is_ok_and(|r| r.get::<_, bool>(0));
+            if exists {
+                has_superusers = client
+                    .query_one(&format!("SELECT EXISTS (SELECT 1 FROM {table})"), &[])
+                    .await
+                    .is_ok_and(|r| r.get::<_, bool>(0));
+                break;
+            }
+        }
+    }
 
     Ok(ServerInfo {
         server_version,

@@ -192,7 +192,7 @@ async fn reconnecting_requires_existing_superuser_credentials() {
         .get()
         .await
         .unwrap()
-        .query_one("SELECT count(*) FROM _slonbase.superusers", &[])
+        .query_one(r#"SELECT count(*) FROM slonbase."_superusers""#, &[])
         .await
         .unwrap()
         .get::<_, i64>(0);

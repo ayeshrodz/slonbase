@@ -290,7 +290,7 @@ pub async fn connect(
 
 fn same_auth(a: &RequestAuth, b: &RequestAuth) -> bool {
     match (&a.superuser, &b.superuser, &a.record, &b.record) {
-        (Some(x), Some(y), _, _) => x.id == y.id,
+        (Some(x), Some(y), _, _) => x.id() == y.id(),
         (None, None, Some(x), Some(y)) => x.collection.id == y.collection.id && x.id() == y.id(),
         (None, None, None, None) => true,
         _ => false,

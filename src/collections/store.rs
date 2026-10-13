@@ -133,6 +133,20 @@ impl From<tokio_postgres::Error> for WriteError {
     }
 }
 
+/// Stores a new collection's definition (its table must be created in the same transaction).
+pub async fn insert_metadata(
+    client: &impl GenericClient,
+    c: &Collection,
+) -> Result<(), tokio_postgres::Error> {
+    client
+        .execute(
+            "INSERT INTO _slonbase.collections (id, name, data) VALUES ($1, $2, $3)",
+            &[&c.id, &c.name, &stored_json(c)],
+        )
+        .await?;
+    Ok(())
+}
+
 pub enum Change<'a> {
     Create(&'a Collection),
     Update {
@@ -160,13 +174,7 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
     }
 
     match &change {
-        Change::Create(c) => {
-            tx.execute(
-                "INSERT INTO _slonbase.collections (id, name, data) VALUES ($1, $2, $3)",
-                &[&c.id, &c.name, &stored_json(c)],
-            )
-            .await?;
-        }
+        Change::Create(c) => insert_metadata(&tx, c).await?,
         Change::Update { new, .. } => {
             tx.execute(
                 "UPDATE _slonbase.collections SET name = $2, data = $3, updated = now() WHERE id = $1",
@@ -177,6 +185,16 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
         Change::Delete(c) => {
             tx.execute("DELETE FROM _slonbase.collections WHERE id = $1", &[&c.id])
                 .await?;
+            // OTPs and MFA sessions go with the collection (foreign keys); linked accounts
+            // are rows of a collection
+            tx.execute(
+                &format!(
+                    r#"DELETE FROM {} WHERE "collectionRef" = $1"#,
+                    super::system::EXTERNAL_AUTHS_TABLE
+                ),
+                &[&c.id],
+            )
+            .await?;
         }
     }
 

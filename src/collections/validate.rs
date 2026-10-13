@@ -38,6 +38,20 @@ fn valid_name(name: &str) -> bool {
 /// Normalizes `c` (ids, defaults, canonical indexes) and validates it.
 /// `old` is the stored version when updating.
 pub fn prepare(c: &mut Collection, old: Option<&Collection>, registry: &Registry) -> Errors {
+    prepare_inner(c, old, registry, false)
+}
+
+/// Like [`prepare`], for a new system collection (whose name starts with `_`).
+pub fn prepare_system(c: &mut Collection, registry: &Registry) -> Errors {
+    prepare_inner(c, None, registry, true)
+}
+
+fn prepare_inner(
+    c: &mut Collection,
+    old: Option<&Collection>,
+    registry: &Registry,
+    new_system: bool,
+) -> Errors {
     let mut errors = Errors::new();
 
     // identity
@@ -60,14 +74,17 @@ pub fn prepare(c: &mut Collection, old: Option<&Collection>, registry: &Registry
             } else if registry.by_id(&c.id).is_some() {
                 errors.invalid("id", "The collection id is already in use.");
             }
-            c.system = false;
+            c.system = new_system;
         }
     }
 
     c.name = c.name.trim().to_string();
-    if c.name.is_empty() {
+    let system_name = c.system && old.is_none_or(|old| old.name == c.name);
+    if old.is_some_and(|old| old.system && old.name != c.name) {
+        errors.invalid("name", "System collections can't be renamed.");
+    } else if c.name.is_empty() {
         errors.add("name", "validation_required", "Cannot be blank.");
-    } else if !valid_name(&c.name) {
+    } else if !system_name && !valid_name(&c.name) {
         errors.invalid(
             "name",
             format!(

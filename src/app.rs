@@ -160,5 +160,6 @@ pub(crate) async fn prepare(pool: &Pool) -> Result<bool> {
     if !applied.is_empty() {
         tracing::info!(?applied, "applied system migrations");
     }
+    crate::collections::system::ensure(pool).await?;
     Ok(superusers::count(pool).await? > 0)
 }

@@ -800,9 +800,7 @@ pub async fn token(
     auth: RequestAuth,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
-    let token = if let Some(superuser) = &auth.superuser {
-        superuser.issue_file_token(&core)
-    } else if let Some(record) = &auth.record {
+    let token = if let Some(record) = auth.any_record() {
         let duration = record
             .collection
             .auth_options()
