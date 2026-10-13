@@ -6,12 +6,13 @@ use anyhow::Result;
 use deadpool_postgres::Pool;
 
 use crate::collections::store::{self, Registry};
-use crate::config::DatabaseConfig;
+use crate::config::Config;
 use crate::db::describe_pool_error;
 use crate::ids;
 use crate::mail::{self, Mailer, SmtpMailer};
 use crate::realtime::{self, Hub};
 use crate::settings::Settings;
+use crate::storage::Storage;
 
 pub struct Core {
     pub pool: Pool,
@@ -21,6 +22,7 @@ pub struct Core {
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
+    pub storage: Storage,
     /// Serializes collection changes within this instance (the database
     /// advisory lock serializes them across instances).
     pub(crate) schema_lock: tokio::sync::Mutex<()>,
@@ -29,13 +31,13 @@ pub struct Core {
 impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
     /// collections and settings in sync with other instances.
-    pub async fn start(pool: Pool, url: &str, cfg: &DatabaseConfig) -> Result<Arc<Self>> {
-        let core = Self::load(pool).await?;
-        realtime::spawn_listener(&core, url.to_string(), cfg.clone());
+    pub async fn start(pool: Pool, url: &str, config: &Config) -> Result<Arc<Self>> {
+        let core = Self::load(pool, Storage::local(&config.storage.path)).await?;
+        realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         Ok(core)
     }
 
-    pub async fn load(pool: Pool) -> Result<Arc<Self>> {
+    pub async fn load(pool: Pool, storage: Storage) -> Result<Arc<Self>> {
         let client = pool.get().await.map_err(describe_pool_error)?;
 
         // created once per installation and shared by all instances
@@ -65,6 +67,7 @@ impl Core {
             settings: RwLock::new(Arc::new(settings)),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
+            storage,
             schema_lock: tokio::sync::Mutex::new(()),
         }))
     }

@@ -18,5 +18,6 @@ pub mod records;
 pub mod server;
 pub mod settings;
 pub mod setup;
+pub mod storage;
 pub mod superusers;
 pub mod validation;

@@ -506,6 +506,27 @@ fn validate_options(
                 errors.invalid(path("pattern"), "Invalid regular expression.");
             }
         }
+        FieldKind::File(o) => {
+            if o.max_select == 0 {
+                o.max_select = 1;
+            }
+            if o.max_size < 0 {
+                errors.invalid(path("maxSize"), "Must be 0 or more.");
+            }
+            if o.mime_types.iter().any(|m| !m.contains('/')) {
+                errors.invalid(path("mimeTypes"), "Must be MIME types like image/png.");
+            }
+            if let Some(bad) = o
+                .thumbs
+                .iter()
+                .find(|t| crate::records::files::ThumbSize::parse(t).is_none())
+            {
+                errors.invalid(
+                    path("thumbs"),
+                    format!("Invalid thumb size {bad:?} (e.g. 100x100, 0x300, 200x100f)."),
+                );
+            }
+        }
         FieldKind::Bool(_) | FieldKind::Autodate(_) => {}
     }
 }

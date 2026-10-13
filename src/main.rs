@@ -47,6 +47,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_DATABASE_CA_FILE")]
     database_ca_file: Option<PathBuf>,
 
+    /// Directory for uploaded files [default: slonbase_data/storage].
+    #[arg(long, global = true, env = "SLONBASE_STORAGE_PATH")]
+    storage_path: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -103,6 +107,7 @@ async fn run() -> Result<()> {
         database_url: cli.database_url,
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
+        storage_path: cli.storage_path,
     };
 
     match cli.command.unwrap_or(Command::Serve { setup_token: None }) {

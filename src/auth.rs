@@ -39,6 +39,7 @@ pub enum TokenType {
     Verification,
     PasswordReset,
     EmailChange,
+    File,
 }
 
 impl TokenType {
@@ -48,6 +49,7 @@ impl TokenType {
             TokenType::Verification => "verification",
             TokenType::PasswordReset => "passwordReset",
             TokenType::EmailChange => "emailChange",
+            TokenType::File => "file",
         }
     }
 }
@@ -163,6 +165,14 @@ impl Superuser {
             "created": self.created,
             "updated": self.updated,
         })
+    }
+
+    /// A short-lived token for protected files.
+    pub fn issue_file_token(&self, core: &Core) -> String {
+        let mut claims = Map::new();
+        claims.insert("id".into(), Value::String(self.id.clone()));
+        claims.insert("collectionId".into(), SUPERUSERS_COLLECTION_ID.into());
+        sign(core, TokenType::File, &self.token_key, claims, 180)
     }
 
     pub fn issue_token(&self, core: &Core) -> String {
@@ -360,7 +370,12 @@ impl RequestAuth {
 
 /// Resolves an auth token of a superuser or of an auth collection record.
 pub async fn authenticate(core: &Core, token: &str) -> RequestAuth {
-    let Some(claims) = unverified_claims(token, TokenType::Auth) else {
+    authenticate_as(core, token, TokenType::Auth).await
+}
+
+/// Resolves a token of the given type (`auth` or `file`) of a superuser or a record.
+pub async fn authenticate_as(core: &Core, token: &str, kind: TokenType) -> RequestAuth {
+    let Some(claims) = unverified_claims(token, kind) else {
         return RequestAuth::default();
     };
     let Some(collection_id) = claims.get("collectionId").and_then(Value::as_str) else {
@@ -372,13 +387,7 @@ pub async fn authenticate(core: &Core, token: &str) -> RequestAuth {
             return RequestAuth::default();
         };
         let superuser = find_superuser(core, "id = $1", id).await.filter(|s| {
-            verify_signature(
-                core,
-                token,
-                SUPERUSERS_COLLECTION_ID,
-                TokenType::Auth,
-                &s.token_key,
-            )
+            verify_signature(core, token, SUPERUSERS_COLLECTION_ID, kind, &s.token_key)
         });
         return RequestAuth {
             superuser,
@@ -388,7 +397,7 @@ pub async fn authenticate(core: &Core, token: &str) -> RequestAuth {
 
     RequestAuth {
         superuser: None,
-        record: verify_record_token(core, token, TokenType::Auth)
+        record: verify_record_token(core, token, kind)
             .await
             .map(|(record, _)| record),
     }

@@ -6,8 +6,8 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
 > **Status: early development (phase 2).** Collections, the records REST API with filtering and
 > API rules, and auth (superusers and auth collections with sign-up, login, verification, password
-> reset and email change), realtime subscriptions, relation paths and `expand` work. File fields
-> and the admin dashboard are next.
+> reset and email change), realtime subscriptions, relation paths, `expand` and file fields work.
+> The admin dashboard, S3 storage and OAuth2 are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -83,6 +83,7 @@ file, then defaults.
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
+| `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
 Database URLs use the standard libpq format, e.g.
@@ -113,6 +114,8 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
 | `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
 | `GET/PATCH /api/settings` | App name/URL and SMTP settings (superusers) |
+| `GET /api/files/{collection}/{record}/{filename}` | Download a file (`thumb=100x100`, `download=1`, `token=` for protected files) |
+| `POST /api/files/token` | A short-lived token for protected files |
 | `GET /api/realtime`, `POST /api/realtime` | Realtime: an SSE stream, and setting its subscriptions (`posts/*`, `posts/{id}`) |
 | `GET/POST /api/collections`, `GET/PATCH/DELETE /api/collections/{idOrName}` | Manage collections (superusers) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
@@ -137,7 +140,16 @@ curl "localhost:8090/api/collections/todos/records?filter=done=false&sort=-text"
 with `password` and `passwordConfirm`.
 
 **Field types:** `text`, `editor`, `number`, `bool`, `email`, `url`, `date`, `autodate`, `select`,
-`json`, `relation` and `password` (auth collections). Each collection is a real PostgreSQL table in the `slonbase` schema
+`json`, `relation`, `file` and `password` (auth collections).
+
+**Files** are uploaded with `multipart/form-data` on create and update:
+- `avatar` replaces a field's files, `files+` appends, and `files-` (or a list of kept names)
+  removes.
+- Other fields are sent as form values, or as JSON in `@jsonPayload`.
+- Types are detected from the content (never the name) and checked against `mimeTypes`.
+- Thumbnails (`100x100`, `0x300`, `200x100t`/`b`/`f`) are generated on first request.
+- Files are stored under `--storage-path`. Several instances need a shared directory until S3
+  support lands. Each collection is a real PostgreSQL table in the `slonbase` schema
 (`TEXT`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`), so other tools can query it directly.
 
 **Filters and rules** use PocketBase's syntax: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains),
@@ -159,7 +171,7 @@ settings; while SMTP is disabled they're written to the log.
 each checked against the related collection's rules.
 
 Not supported yet (see [docs/design.md](docs/design.md)): OAuth2, OTP and MFA, `@collection`
-lookups, filter functions, file fields, multipart uploads, and view collections.
+lookups, filter functions, S3 storage, and view collections.
 
 ## Development
 
@@ -187,7 +199,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
 2. **Auth** (done): superusers and auth collections with password sign-in, verification, password
    reset and email change. OAuth2, OTP and MFA follow.
-3. **Realtime and relation expansion** (done), **files**.
+3. **Realtime, relation expansion and files** (done). S3 storage follows.
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 

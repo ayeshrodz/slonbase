@@ -118,7 +118,7 @@ impl App {
             let attempt = async {
                 if prepare(&pool).await? {
                     Ok(Some(
-                        Core::start(pool.clone(), &url, &config.effective.database).await?,
+                        Core::start(pool.clone(), &url, &config.effective).await?,
                     ))
                 } else {
                     anyhow::Ok(None)

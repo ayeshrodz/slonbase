@@ -19,6 +19,22 @@ pub const DEFAULT_MAX_CONNECTIONS: usize = 16;
 pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
+    pub storage: StorageConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct StorageConfig {
+    /// Directory for uploaded files. Instances sharing a database must share it too.
+    pub path: PathBuf,
+}
+
+impl Default for StorageConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("slonbase_data/storage"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,6 +82,7 @@ pub struct Overrides {
     pub database_url: Option<String>,
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
+    pub storage_path: Option<PathBuf>,
 }
 
 /// The result of loading the configuration.
@@ -106,6 +123,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(ca_file) = overrides.ca_file {
         effective.database.ca_file = Some(ca_file);
+    }
+    if let Some(path) = overrides.storage_path {
+        effective.storage.path = path;
     }
 
     if effective.database.max_connections == 0 {

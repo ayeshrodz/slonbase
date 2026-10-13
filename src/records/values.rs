@@ -90,6 +90,10 @@ pub fn apply_body(
         if field.is_secret() && !matches!(field.kind, FieldKind::Password(_)) {
             continue;
         }
+        // file fields are changed through `records::files`
+        if let FieldKind::File(_) = field.kind {
+            continue;
+        }
         if let FieldKind::Password(_) = field.kind {
             match raw {
                 Value::String(plain) if !plain.is_empty() => {
@@ -432,6 +436,19 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
             Ok(())
         }
         FieldKind::Autodate(_) | FieldKind::Password(_) => Ok(()),
+        FieldKind::File(o) => {
+            let items = as_strings(value);
+            if items.is_empty() {
+                return if o.required { Err(required()) } else { Ok(()) };
+            }
+            if items.len() > o.max_select.max(1) {
+                return Err(invalid(format!(
+                    "Select no more than {} file(s).",
+                    o.max_select.max(1)
+                )));
+            }
+            Ok(())
+        }
         FieldKind::Select(o) => {
             let items = as_strings(value);
             if items.is_empty() {

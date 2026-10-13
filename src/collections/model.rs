@@ -309,6 +309,23 @@ pub enum FieldKind {
     Json(JsonOptions),
     Relation(RelationOptions),
     Password(PasswordOptions),
+    File(FileOptions),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct FileOptions {
+    pub max_select: usize,
+    /// Max size per file in bytes, 0 means the default (5 MiB).
+    pub max_size: i64,
+    /// Allowed MIME types (detected from the content); empty allows any.
+    pub mime_types: Vec<String>,
+    /// Thumbnail sizes that may be requested: `WxH`, `WxHt` (top), `WxHb` (bottom),
+    /// `WxHf` (fit), `0xH` / `Wx0` (keep the aspect ratio).
+    pub thumbs: Vec<String>,
+    /// Protected files need a file token and the record's view rule.
+    pub protected: bool,
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -442,6 +459,7 @@ impl Field {
             FieldKind::Json(_) => "json",
             FieldKind::Relation(_) => "relation",
             FieldKind::Password(_) => "password",
+            FieldKind::File(_) => "file",
         }
     }
 
@@ -453,6 +471,7 @@ impl Field {
         match &self.kind {
             FieldKind::Select(o) => o.max_select > 1,
             FieldKind::Relation(o) => o.max_select > 1,
+            FieldKind::File(o) => o.max_select > 1,
             _ => false,
         }
     }
@@ -467,7 +486,7 @@ impl Field {
             FieldKind::Number(_) => Storage::Number,
             FieldKind::Bool(_) => Storage::Bool,
             FieldKind::Date(_) | FieldKind::Autodate(_) => Storage::Date,
-            FieldKind::Select(_) | FieldKind::Relation(_) => {
+            FieldKind::Select(_) | FieldKind::Relation(_) | FieldKind::File(_) => {
                 if self.is_multi() {
                     Storage::Multi
                 } else {
@@ -508,6 +527,7 @@ impl Field {
             FieldKind::Json(o) => o.required,
             FieldKind::Relation(o) => o.required,
             FieldKind::Password(o) => o.required,
+            FieldKind::File(o) => o.required,
         }
     }
 }

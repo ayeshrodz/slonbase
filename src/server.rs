@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::Router;
+use axum::extract::DefaultBodyLimit;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
@@ -19,6 +20,11 @@ use crate::app::{App, Mode};
 use crate::setup;
 
 const HEALTH_DB_TIMEOUT: Duration = Duration::from_secs(3);
+
+/// Record writes may carry file uploads (JSON bodies have their own, smaller limit).
+fn upload_limit() -> DefaultBodyLimit {
+    DefaultBodyLimit::max(records::files::MAX_MULTIPART_SIZE)
+}
 
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
@@ -86,13 +92,21 @@ pub fn router(app: Arc<App>) -> Router {
         )
         .route(
             "/api/collections/{collection}/records",
-            get(records::api::list).post(records::api::create),
+            get(records::api::list)
+                .post(records::api::create)
+                .layer(upload_limit()),
         )
         .route(
             "/api/collections/{collection}/records/{id}",
             get(records::api::view)
                 .patch(records::api::update)
-                .delete(records::api::delete),
+                .delete(records::api::delete)
+                .layer(upload_limit()),
+        )
+        .route("/api/files/token", post(records::files::token))
+        .route(
+            "/api/files/{collection}/{record}/{filename}",
+            get(records::files::serve),
         )
         .layer(TraceLayer::new_for_http())
         .with_state(app)

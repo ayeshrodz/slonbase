@@ -16,7 +16,8 @@ COPY --from=build /slonbase /slonbase
 COPY --from=build --chown=65532:65532 /data /data
 USER 65532:65532
 ENV SLONBASE_BIND=0.0.0.0:8090 \
-    SLONBASE_CONFIG=/data/slonbase.toml
+    SLONBASE_CONFIG=/data/slonbase.toml \
+    SLONBASE_STORAGE_PATH=/data/storage
 VOLUME /data
 EXPOSE 8090
 HEALTHCHECK --interval=10s --timeout=6s --start-period=5s CMD ["/slonbase", "health"]

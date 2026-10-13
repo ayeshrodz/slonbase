@@ -7,7 +7,7 @@ decision changes.
 
 - **PocketBase's developer experience on PostgreSQL**: collections defined at runtime, an
   auto-generated REST API, filtering and access rules, auth, realtime, files, an admin dashboard.
-- **A single small binary** (currently ~5 MB static, ~8 MB image) with low memory use and
+- **A single small binary** (currently ~10 MB static) with low memory use and
   predictable latency.
 - **Rock-solid operation**: safe startup ordering, safe concurrent instances, no data-loss paths,
   clear errors.
@@ -307,6 +307,43 @@ over the related tables, never JOINs, so they can't duplicate rows or skew count
 A sweep runs relation-path operands against every operator and value kind in PostgreSQL to check
 the generated SQL is always accepted.
 
+### Phase 3: files
+
+**File fields** (`maxSelect`, `maxSize`, `mimeTypes`, `thumbs`, `protected`) store file names
+(`{snake_case_name}_{random}.{ext}`). The files live at `{collectionId}/{recordId}/{name}` in
+storage, and thumbnails at `{collectionId}/{recordId}/thumbs_{name}/{size}_{name}`. Storage is the
+local filesystem for now:
+- Writes are atomic (temp file + rename).
+- Keys are validated part by part, so path traversal is impossible.
+
+S3-compatible storage is next. Its TLS setup must work in the `scratch` image, which has no
+system CA store.
+
+**Uploads** are multipart. JSON bodies are capped at 2 MiB and multipart requests at 128 MiB.
+Each file is checked against `maxSize` (default 5 MiB) and `mimeTypes`. The MIME type comes from
+the content: magic bytes, SVG sniffing, then text vs binary. The file name only refines the type
+between text formats, so a text file named `x.png` is rejected by an `image/png` field.
+
+**Files stay consistent with the database:**
+- New files are written before the database transaction, and removed again if it fails.
+- Files replaced or removed by an update are deleted only after commit, with their thumbnails.
+- Deleting a record deletes the files of every deleted record, cascades included.
+- Deleting a collection deletes its files.
+
+**Serving** (`/api/files/...`):
+- Images, video, audio and PDF are served inline. Everything else is an attachment (as in
+  PocketBase).
+- Every file gets `Content-Security-Policy: default-src 'none'; ...; sandbox` and `nosniff`, so an
+  uploaded HTML or SVG file can't run scripts.
+- Public files are cached for 30 days.
+- Protected files need a file token (`POST /api/files/token`, a separate token type) and the
+  record's `viewRule`. They're served with `private, no-store`.
+- Thumbnails are allowed for `100x100` and the field's `thumbs` sizes only. They're generated
+  once, off the async threads, with decoding limits (12,000 px, 256 MiB) against decompression
+  bombs.
+
+**Not yet:** S3 storage, HTTP range requests, and deleting the files of a removed file field.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -346,6 +383,9 @@ the file.
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
 - CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- File tests cover multipart uploads with form and JSON values, serving headers, thumbnails,
+  traversal attempts, size/type/count validation with nothing left behind, append/remove/replace
+  with cleanup, and protected files with file tokens.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
@@ -367,6 +407,6 @@ the file.
 2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
    reset, email change, impersonation, settings and mail. OAuth2, OTP and MFA follow.
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
-   expand** (done), **files** (local/S3, thumbnails).
+   expand** (done), **files** (done: local storage, thumbnails, protected files; S3 next).
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
 5. **Extensibility**: Rust library API and JS hooks.
