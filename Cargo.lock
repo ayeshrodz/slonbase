@@ -1940,6 +1940,7 @@ dependencies = [
  "chrono",
  "clap",
  "deadpool-postgres",
+ "flate2",
  "form_urlencoded",
  "futures-util",
  "hex",

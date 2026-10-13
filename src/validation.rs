@@ -35,6 +35,13 @@ impl Errors {
         self.0.is_empty()
     }
 
+    /// Adds another set of errors under `prefix` (e.g. `collections.2`).
+    pub fn extend_prefixed(&mut self, prefix: &str, other: Errors) {
+        for (path, issue) in other.0 {
+            self.0.entry(format!("{prefix}.{path}")).or_insert(issue);
+        }
+    }
+
     pub fn contains(&self, path: &str) -> bool {
         self.0.contains_key(path)
     }

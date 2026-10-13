@@ -42,12 +42,16 @@ impl Default for StorageConfig {
 pub struct ServerConfig {
     /// Address the HTTP server listens on.
     pub bind: String,
+    /// Enables the dashboard's SQL console, which runs any SQL a superuser enters with the
+    /// database role's privileges (off by default, see the README).
+    pub sql_console: bool,
 }
 
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: DEFAULT_BIND.to_string(),
+            sql_console: false,
         }
     }
 }
@@ -83,6 +87,7 @@ pub struct Overrides {
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
     pub storage_path: Option<PathBuf>,
+    pub sql_console: Option<bool>,
 }
 
 /// The result of loading the configuration.
@@ -126,6 +131,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(path) = overrides.storage_path {
         effective.storage.path = path;
+    }
+    if let Some(enabled) = overrides.sql_console {
+        effective.server.sql_console = enabled;
     }
 
     if effective.database.max_connections == 0 {

@@ -8,7 +8,7 @@ use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
 use crate::records::{auth_api, oauth2_api};
@@ -29,14 +29,35 @@ fn upload_limit() -> DefaultBodyLimit {
 pub fn router(app: Arc<App>) -> Router {
     Router::new()
         .route("/", get(|| async { Redirect::temporary("/_/") }))
-        .route("/_/", get(dashboard))
+        .route("/_/", get(crate::ui::index))
         .route("/_/setup", get(setup::page))
+        .route("/_/{*path}", get(crate::ui::asset))
         .route("/api/health", get(health))
         .route("/api/setup", get(setup::status))
         .route("/api/setup/database/test", post(setup::test_database))
         .route("/api/setup/complete", post(setup::complete))
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/settings/test/s3", post(settings::test_s3))
+        .route("/api/settings/test/email", post(settings::test_email))
+        .route("/api/sql", post(crate::sql_console::run))
+        .route("/api/crons", get(crate::sql_console::crons))
+        .route("/api/crons/{id}", post(crate::sql_console::run_cron))
+        .route(
+            "/api/collections/meta/scaffolds",
+            get(collections::api::scaffolds),
+        )
+        .route(
+            "/api/collections/meta/oauth2-providers",
+            get(collections::api::oauth2_providers),
+        )
+        .route(
+            "/api/collections/import",
+            axum::routing::put(collections::api::import),
+        )
+        .route(
+            "/api/collections/{collection}/truncate",
+            axum::routing::delete(records::api::truncate),
+        )
         .route(
             "/api/realtime",
             get(realtime::connect).post(realtime::subscribe),
@@ -174,18 +195,6 @@ async fn health(State(app): State<Arc<App>>) -> Response {
                 Err(_) => unhealthy("Database unavailable: timed out".into()),
             }
         }
-    }
-}
-
-async fn dashboard(State(app): State<Arc<App>>) -> Response {
-    match app.mode() {
-        Mode::Setup(_) => Redirect::temporary("/_/setup").into_response(),
-        _ => Html(
-            "<!doctype html><meta charset=utf-8><title>slonbase</title>\
-             <p style=\"font-family:system-ui;margin:3rem\">slonbase is running. \
-             The admin dashboard arrives in a later release.</p>",
-        )
-        .into_response(),
     }
 }
 

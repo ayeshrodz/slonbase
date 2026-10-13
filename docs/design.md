@@ -428,6 +428,38 @@ the local directory, so files never end up somewhere unexpected.
 **Not yet:** a custom CA for S3 servers with private certificates, multipart uploads (files are
 limited to 128 MiB anyway), and presigned URLs.
 
+### Phase 4a: admin dashboard
+
+**The UI** is PocketBase's admin dashboard (`ui/dist`, MIT), embedded unchanged rather than
+writing a new one: it's mature and familiar, and keeping slonbase's API compatible enough to run
+it is also the best test of that compatibility. `build.rs` gzips the text files at build time
+(3.3 MB of files, about 1.2 MB embedded); they're served gzipped, or decompressed for the rare
+client that doesn't accept gzip. Hashed assets are cached for a year, `index.html` is revalidated,
+and pages carry PocketBase's Content-Security-Policy. The UI was checked in headless Chromium:
+signing in, creating collections of every supported field type, records with uploads, editing,
+search, settings, the test email, the SQL console, auth collections and superusers.
+
+**System collections.** The UI manages superusers and linked accounts through the records API,
+so like PocketBase they're collections: `_superusers` (auth) and `_externalAuths` (base). They're
+created after the SQL migrations; rows of the private tables earlier versions used are moved in
+the same transaction (superusers get new token keys, signing them out once). Superuser auth is
+ordinary record auth, so OTP, MFA and password reset work for superusers too.
+
+**API added for the UI:** the full settings model (merged recursively like PocketBase, with the
+SMTP password and both S3 secrets masked and kept when left empty), `test/email` (sent
+synchronously so SMTP errors are reported), scaffolds (without the auth email index, which
+slonbase manages itself), the OAuth2 provider list, collection import (validated against the
+registry as it will be, applied in one transaction), truncate, and crons (none yet).
+
+**The SQL console** is off by default: on SQLite PocketBase's console can only touch its own
+database file, but on PostgreSQL it runs with the role's privileges, which for a superuser role
+include reading server files and running programs. When enabled (`--sql-console`), read queries
+run in read-only transactions, and every query has a 3 minute statement timeout and returns at
+most 1,000 rows.
+
+**Not yet:** logs and backups (next), the Geo Point field and view collections, the Apple client
+secret generator, and rebranding the UI.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -477,6 +509,10 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Dashboard tests cover serving the UI (compression, caching, CSP), scaffolds, providers, the
+  settings model (recursive merge, kept secrets, validation), the test email, the SQL console
+  (off by default; read-only reads, committed writes), import (cross-references, deleteMissing,
+  atomic failure) and truncate.
 - Auth method tests run a mock OAuth2 provider (code exchange, user info, avatar) and cover
   sign-up with mapped fields and avatars, linking by provider id, signed-in record and verified
   email, the unverified-record takeover protection, the create rule, linked accounts, masked
@@ -501,5 +537,6 @@ the file.
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
-4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
+4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), then logs, rate
+   limiting, backups and the batch API.
 5. **Extensibility**: Rust library API and JS hooks.

@@ -957,3 +957,54 @@ fn write_error(err: tokio_postgres::Error, c: &Collection, message: &str) -> Api
     }
     ApiError::invalid_data(message, &errors)
 }
+
+/// `DELETE /api/collections/{collection}/truncate` (superusers): deletes every record,
+/// with the same cascades, realtime events and file cleanup as deleting them one by one.
+pub async fn truncate(
+    State(app): State<Arc<App>>,
+    Path(collection): Path<String>,
+    auth: RequestAuth,
+) -> Result<Response, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let registry = core.registry();
+    let c = find_collection(&registry, &collection)?;
+    if c.id == crate::collections::model::SUPERUSERS_COLLECTION_ID {
+        return Err(ApiError::bad_request(
+            "The superusers collection can't be truncated.",
+        ));
+    }
+
+    let mut client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
+    let tx = client.transaction().await.map_err(db_error)?;
+    let ids: Vec<String> = tx
+        .query(
+            &format!("SELECT id FROM {} FOR UPDATE", table_ref(&c.name)),
+            &[],
+        )
+        .await
+        .map_err(db_error)?
+        .iter()
+        .map(|row| row.get(0))
+        .collect();
+    let mut visited = HashSet::new();
+    for id in ids {
+        delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited).await?;
+    }
+    tx.commit().await.map_err(db_error)?;
+
+    for (collection_id, record_id) in &visited {
+        if let Err(err) = core
+            .storage()
+            .delete_prefix(&files::record_prefix(collection_id, record_id))
+            .await
+        {
+            tracing::warn!(error = %format!("{err:#}"), "failed to delete record files");
+        }
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
+}

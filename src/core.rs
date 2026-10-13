@@ -23,6 +23,8 @@ pub struct Core {
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
+    /// Whether the dashboard's SQL console may run queries.
+    pub sql_console: bool,
     /// The storage directory used unless S3 is enabled in the settings.
     local_storage: PathBuf,
     storage: RwLock<Arc<Storage>>,
@@ -43,12 +45,13 @@ impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
     /// collections and settings in sync with other instances.
     pub async fn start(pool: Pool, url: &str, config: &Config) -> Result<Arc<Self>> {
-        let core = Self::load(pool, config.storage.path.clone()).await?;
+        let core = Self::load(pool, config).await?;
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         Ok(core)
     }
 
-    pub async fn load(pool: Pool, local_storage: PathBuf) -> Result<Arc<Self>> {
+    pub async fn load(pool: Pool, config: &Config) -> Result<Arc<Self>> {
+        let local_storage = config.storage.path.clone();
         let client = pool.get().await.map_err(describe_pool_error)?;
 
         // created once per installation and shared by all instances
@@ -80,6 +83,7 @@ impl Core {
             settings: RwLock::new(Arc::new(settings)),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
+            sql_console: config.server.sql_console,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),
@@ -123,6 +127,13 @@ impl Core {
     /// Replaces the mailer (tests use [`mail::MemoryMailer`]).
     pub fn set_mailer(&self, mailer: Arc<dyn Mailer>) {
         *self.mailer.write().expect("mailer lock") = mailer;
+    }
+
+    /// Sends an email and waits for the result (the settings' test email).
+    pub async fn send_mail_now(&self, message: mail::Message) -> Result<()> {
+        let mailer = self.mailer.read().expect("mailer lock").clone();
+        let settings = self.settings();
+        mailer.send(&settings, message).await
     }
 
     /// Sends an email in the background; failures are logged. Sending in the background

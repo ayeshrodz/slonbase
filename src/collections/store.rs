@@ -147,23 +147,11 @@ pub async fn insert_metadata(
     Ok(())
 }
 
-pub enum Change<'a> {
-    Create(&'a Collection),
-    Update {
-        old: &'a Collection,
-        new: &'a Collection,
-    },
-    Delete(&'a Collection),
-}
-
-/// Applies a validated change and returns the reloaded registry.
-pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteError> {
-    let mut client = pool.get().await.map_err(describe_pool_error)?;
-    let tx = client.transaction().await?;
-    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
-        .await?;
-
-    let statements = match &change {
+async fn apply_one(
+    tx: &deadpool_postgres::Transaction<'_>,
+    change: &Change<'_>,
+) -> Result<(), WriteError> {
+    let statements = match change {
         Change::Create(c) => schema::create(c),
         Change::Update { old, new } => schema::update(old, new),
         Change::Delete(c) => schema::drop(c),
@@ -173,8 +161,8 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
         tx.batch_execute(statement).await?;
     }
 
-    match &change {
-        Change::Create(c) => insert_metadata(&tx, c).await?,
+    match change {
+        Change::Create(c) => insert_metadata(tx, c).await?,
         Change::Update { new, .. } => {
             tx.execute(
                 "UPDATE _slonbase.collections SET name = $2, data = $3, updated = now() WHERE id = $1",
@@ -196,6 +184,32 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
             )
             .await?;
         }
+    }
+    Ok(())
+}
+
+pub enum Change<'a> {
+    Create(&'a Collection),
+    Update {
+        old: &'a Collection,
+        new: &'a Collection,
+    },
+    Delete(&'a Collection),
+}
+
+/// Applies a validated change and returns the reloaded registry.
+pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteError> {
+    apply_all(pool, vec![change]).await
+}
+
+/// Applies validated changes in one transaction and returns the reloaded registry.
+pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+    let mut client = pool.get().await.map_err(describe_pool_error)?;
+    let tx = client.transaction().await?;
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
+        .await?;
+    for change in &changes {
+        apply_one(&tx, change).await?;
     }
 
     let registry = load(&tx).await?;

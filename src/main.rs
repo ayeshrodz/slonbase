@@ -51,6 +51,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_STORAGE_PATH")]
     storage_path: Option<PathBuf>,
 
+    /// Enable the dashboard's SQL console (runs any SQL with the database role's privileges).
+    #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
+    sql_console: bool,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -108,6 +112,7 @@ async fn run() -> Result<()> {
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
         storage_path: cli.storage_path,
+        sql_console: cli.sql_console.then_some(true),
     };
 
     match cli.command.unwrap_or(Command::Serve { setup_token: None }) {

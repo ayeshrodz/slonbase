@@ -218,3 +218,171 @@ pub async fn delete(
 
     Ok(StatusCode::NO_CONTENT.into_response())
 }
+
+/// `GET /api/collections/meta/scaffolds`: the default definition of each collection type
+/// (used by the dashboard for new collections).
+pub async fn scaffolds(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+) -> Result<Json<Value>, ApiError> {
+    app.core()?;
+    auth.require_superuser()?;
+    let scaffold = |kind: &str| {
+        let mut c =
+            parse(Map::from_iter([("type".to_string(), json!(kind))])).expect("valid scaffold");
+        // the only errors are about the empty name
+        let _ = validate::prepare(&mut c, None, &Registry::default());
+        c.id.clear();
+        c.name.clear();
+        to_json(&c)
+    };
+    Ok(Json(json!({
+        "base": scaffold("base"),
+        "auth": scaffold("auth"),
+        // view collections aren't supported yet; creating one fails with an error
+        "view": {
+            "id": "", "name": "", "type": "view", "system": false, "fields": [], "indexes": [],
+            "listRule": null, "viewRule": null, "createRule": null, "updateRule": null,
+            "deleteRule": null, "viewQuery": "", "created": "", "updated": "",
+        },
+    })))
+}
+
+/// `GET /api/collections/meta/oauth2-providers`: the supported OAuth2 providers.
+pub async fn oauth2_providers(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+) -> Result<Json<Value>, ApiError> {
+    app.core()?;
+    auth.require_superuser()?;
+    static PROVIDERS: std::sync::LazyLock<Value> = std::sync::LazyLock::new(|| {
+        serde_json::from_str(include_str!("../../assets/oauth2-providers.json"))
+            .expect("valid providers file")
+    });
+    Ok(Json(PROVIDERS.clone()))
+}
+
+/// `PUT /api/collections/import` (`{"collections": [...], "deleteMissing": bool}`): creates
+/// and updates collections (matched by id, then name) in one transaction, and with
+/// `deleteMissing` deletes the non-system collections that aren't in the list.
+pub async fn import(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    JsonObject(body): JsonObject,
+) -> Result<Response, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let failed = "Failed to import collections.";
+    let delete_missing = body
+        .get("deleteMissing")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let items = match body.get("collections") {
+        Some(Value::Array(items)) if !items.is_empty() => items.clone(),
+        _ => {
+            let mut errors = crate::validation::Errors::new();
+            errors.add("collections", "validation_required", "Cannot be blank.");
+            return Err(ApiError::invalid_data(failed, &errors));
+        }
+    };
+
+    let _guard = core.schema_lock.lock().await;
+    let registry = fresh_registry(&core).await?;
+
+    // the imported definitions, merged over the stored ones they match
+    let mut pairs: Vec<(Option<Arc<Collection>>, Collection)> = Vec::new();
+    for (i, item) in items.into_iter().enumerate() {
+        let Value::Object(map) = item else {
+            return Err(ApiError::bad_request(format!(
+                "{failed} Collection {i} must be an object."
+            )));
+        };
+        let id = map.get("id").and_then(Value::as_str).unwrap_or_default();
+        let name = map.get("name").and_then(Value::as_str).unwrap_or_default();
+        let old = registry
+            .by_id(id)
+            .or_else(|| {
+                registry
+                    .get(name)
+                    .filter(|_| id.is_empty() || registry.by_id(id).is_none())
+            })
+            .cloned();
+        let mut merged = match &old {
+            Some(old) => match serde_json::to_value(old.as_ref()).expect("serializes") {
+                Value::Object(m) => m,
+                _ => unreachable!(),
+            },
+            None => Map::new(),
+        };
+        merged.extend(map);
+        let mut c = parse(merged).map_err(|e| {
+            ApiError::bad_request(format!("{failed} Collection {i}: {}", e.message))
+        })?;
+        match &old {
+            Some(old) => c.id = old.id.clone(),
+            // new collections get their ids now, so others can be validated against them
+            None if c.id.is_empty() => {
+                c.id = format!("pbc_{}", crate::ids::random_id(10));
+            }
+            None => {}
+        }
+        pairs.push((old, c));
+    }
+
+    // validate everything against the registry as it will be after the import
+    let imported_ids: Vec<String> = pairs.iter().map(|(_, c)| c.id.clone()).collect();
+    let deleted: Vec<Arc<Collection>> = if delete_missing {
+        registry
+            .all()
+            .iter()
+            .filter(|c| !c.system && !imported_ids.contains(&c.id))
+            .cloned()
+            .collect()
+    } else {
+        vec![]
+    };
+    let mut target: Vec<Collection> = registry
+        .all()
+        .iter()
+        .filter(|c| !deleted.iter().any(|d| d.id == c.id))
+        .filter(|c| !imported_ids.contains(&c.id))
+        .map(|c| c.as_ref().clone())
+        .collect();
+    target.extend(pairs.iter().map(|(_, c)| c.clone()));
+    let mut errors = crate::validation::Errors::new();
+    for (i, (old, c)) in pairs.iter_mut().enumerate() {
+        // checked against every other collection (its own id and name aren't taken)
+        let others = Registry::new(target.iter().filter(|o| o.id != c.id).cloned().collect());
+        errors.extend_prefixed(
+            &format!("collections.{i}"),
+            validate::prepare(c, old.as_deref(), &others),
+        );
+    }
+    if !errors.is_empty() {
+        return Err(ApiError::invalid_data(failed, &errors));
+    }
+
+    let mut changes: Vec<Change> = deleted.iter().map(|c| Change::Delete(c)).collect();
+    for (old, new) in &pairs {
+        changes.push(match old {
+            Some(old) if old.as_ref() == new => continue,
+            Some(old) => Change::Update { old, new },
+            None => Change::Create(new),
+        });
+    }
+    let registry = store::apply_all(&core.pool, changes)
+        .await
+        .map_err(|e| write_error(e, failed))?;
+    core.set_registry(registry);
+    for c in &deleted {
+        if let Err(err) = core.storage().delete_prefix(&c.id).await {
+            tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
+        }
+    }
+    tracing::info!(
+        imported = pairs.len(),
+        deleted = deleted.len(),
+        "imported collections"
+    );
+    Ok(StatusCode::NO_CONTENT.into_response())
+}

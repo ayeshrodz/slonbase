@@ -6,8 +6,9 @@ use std::sync::Mutex;
 
 use anyhow::{Context, Result};
 use lettre::message::{Mailbox, header::ContentType};
-use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::authentication::{Credentials, Mechanism};
 use lettre::transport::smtp::client::{Tls, TlsParameters};
+use lettre::transport::smtp::extension::ClientId;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Tokio1Executor};
 
 use crate::settings::Settings;
@@ -70,6 +71,15 @@ impl Mailer for SmtpMailer {
                     smtp.username.clone(),
                     smtp.password.clone(),
                 ));
+            }
+            match smtp.auth_method.as_str() {
+                "PLAIN" => transport = transport.authentication(vec![Mechanism::Plain]),
+                "LOGIN" => transport = transport.authentication(vec![Mechanism::Login]),
+                _ => {}
+            }
+            if !smtp.local_name.trim().is_empty() {
+                transport =
+                    transport.hello_name(ClientId::Domain(smtp.local_name.trim().to_string()));
             }
             transport
                 .build()

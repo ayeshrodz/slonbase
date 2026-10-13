@@ -21,6 +21,8 @@ pub mod s3;
 pub mod server;
 pub mod settings;
 pub mod setup;
+pub mod sql_console;
 pub mod storage;
 pub mod superusers;
+pub mod ui;
 pub mod validation;

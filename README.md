@@ -4,10 +4,11 @@ A lightweight, high-performance backend in a single Rust binary, powered by **Po
 Inspired by [PocketBase](https://pocketbase.io): define collections, get a REST API, auth and an
 admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
-> **Status: early development (phase 3).** Collections, the records REST API with filtering and
-> API rules, auth (superusers and auth collections with password, OAuth2 and one-time password
-> sign-in, MFA, verification, password reset and email change), realtime subscriptions, relation
-> paths, `expand`, and file fields (stored locally or in S3) work. The admin dashboard is next.
+> **Status: early development (phase 4).** The admin dashboard, collections, the records REST API
+> with filtering and API rules, auth (superusers and auth collections with password, OAuth2 and
+> one-time password sign-in, MFA, verification, password reset and email change), realtime
+> subscriptions, relation paths, `expand`, and file fields (stored locally or in S3) work. Request
+> logs, rate limiting, backups and batch requests are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -84,6 +85,7 @@ file, then defaults.
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
+| `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
 Database URLs use the standard libpq format, e.g.
@@ -91,6 +93,21 @@ Database URLs use the standard libpq format, e.g.
 add `--database-ca-file` for providers with their own CA (such as Amazon RDS).
 
 Logging is controlled by `RUST_LOG` (default `info`).
+
+## Admin dashboard
+
+The dashboard is at `/_/` (e.g. `http://localhost:8090/_/`). It's
+[PocketBase](https://pocketbase.io)'s admin UI, embedded unchanged under its MIT license (see
+[ui/README.md](ui/README.md)), so it still shows PocketBase's name and logo. slonbase implements
+the API it uses: collections and records (including files and realtime), superusers,
+settings, the test email, collection import and export, and the SQL console. Logs and backups
+are coming next; the Geo Point field type isn't supported yet.
+
+The **SQL console** runs any SQL a superuser enters with the database role's privileges. With
+PostgreSQL that can reach outside slonbase's data (a superuser role can read server files or run
+programs with `COPY ... PROGRAM`), so it's off unless you start slonbase with `--sql-console`.
+Queries starting with `SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `VALUES` or `TABLE` run read-only;
+everything has a 3 minute timeout.
 
 ## Commands
 
@@ -117,12 +134,17 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `POST /api/collections/{collection}/request-password-reset`, `confirm-password-reset` | Password reset by email |
 | `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
 | `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
-| `GET/PATCH /api/settings` | App name/URL, SMTP and S3 settings (superusers) |
+| `GET/PATCH /api/settings` | Settings (superusers): app, SMTP, S3, backups, logs, batch, rate limits, trusted proxy, superuser IPs |
+| `POST /api/settings/test/email` | Send a test email of a template |
 | `POST /api/settings/test/s3` | Check the S3 settings by writing, reading and deleting a test file |
 | `GET /api/files/{collection}/{record}/{filename}` | Download a file (`thumb=100x100`, `download=1`, `token=` for protected files) |
 | `POST /api/files/token` | A short-lived token for protected files |
 | `GET /api/realtime`, `POST /api/realtime` | Realtime: an SSE stream, and setting its subscriptions (`posts/*`, `posts/{id}`) |
 | `GET/POST /api/collections`, `GET/PATCH/DELETE /api/collections/{idOrName}` | Manage collections (superusers) |
+| `PUT /api/collections/import` | Create, update (and with `deleteMissing`, delete) collections in one transaction |
+| `DELETE /api/collections/{collection}/truncate` | Delete every record of a collection |
+| `GET /api/collections/meta/scaffolds`, `meta/oauth2-providers` | Defaults and providers for the dashboard |
+| `POST /api/sql` | The SQL console (when enabled) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
 | `GET /api/health` | Health check |
@@ -138,6 +160,11 @@ curl -X POST localhost:8090/api/collections -H "Authorization: $TOKEN" -H 'conte
 curl -X POST localhost:8090/api/collections/todos/records -H 'content-type: application/json' -d '{"text": "buy milk"}'
 curl "localhost:8090/api/collections/todos/records?filter=done=false&sort=-text"
 ```
+
+**System collections:** superusers are records of the `_superusers` auth collection and linked
+OAuth2 accounts are records of `_externalAuths`, as in PocketBase, so both are managed with the
+records API. System collections can't be renamed or deleted, and the last superuser can't be
+deleted.
 
 **Collections** are `base` or `auth`. Auth collections add the `password`, `tokenKey`, `email`,
 `emailVisibility` and `verified` system fields and PocketBase's auth options (`authRule`,
@@ -232,10 +259,12 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
    verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done), with local or S3 storage.
-4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
+4. **Admin dashboard** (done: PocketBase's UI), then request logs, rate limiting, backups and
+   batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 
 ## License
 
-[MIT](LICENSE). slonbase is an independent project inspired by PocketBase (also MIT) and is not
+[MIT](LICENSE). The embedded admin UI is PocketBase's (MIT, [ui/LICENSE.md](ui/LICENSE.md)).
+slonbase is an independent project inspired by PocketBase (also MIT) and is not
 affiliated with it.
