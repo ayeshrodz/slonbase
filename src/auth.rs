@@ -340,6 +340,10 @@ impl FromRequestParts<Arc<App>> for RequestAuth {
         let Ok(core) = app.core() else {
             return Ok(Self::default());
         };
-        Ok(authenticate(&core, token).await)
+        let auth = authenticate(&core, token).await;
+        if let Some(context) = parts.extensions.get::<crate::logs::LogContext>() {
+            context.set_auth(&auth);
+        }
+        Ok(auth)
     }
 }

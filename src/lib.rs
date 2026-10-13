@@ -12,6 +12,8 @@ pub mod extract;
 pub mod filter;
 pub mod http;
 pub mod ids;
+pub mod ip;
+pub mod logs;
 pub mod mail;
 pub mod migrations;
 pub mod oauth2;

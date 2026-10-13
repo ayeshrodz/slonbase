@@ -14,6 +14,15 @@ pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
     pub data: Map<String, Value>,
+    /// The internal cause (logged, never returned; boxed to keep errors small).
+    pub details: Option<Box<String>>,
+}
+
+/// Attached to error responses for the request log.
+#[derive(Debug, Clone)]
+pub struct ErrorInfo {
+    pub message: String,
+    pub details: Option<String>,
 }
 
 impl ApiError {
@@ -22,6 +31,7 @@ impl ApiError {
             status,
             message: message.into(),
             data: Map::new(),
+            details: None,
         }
     }
 
@@ -71,11 +81,14 @@ impl ApiError {
     }
 
     pub fn internal(err: anyhow::Error) -> Self {
-        tracing::error!(error = %format!("{err:#}"), "internal error");
-        Self::new(
+        let details = format!("{err:#}");
+        tracing::error!(error = %details, "internal error");
+        let mut error = Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "Something went wrong while processing your request.",
-        )
+        );
+        error.details = Some(Box::new(details));
+        error
     }
 }
 
@@ -83,9 +96,14 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let body = json!({
             "status": self.status.as_u16(),
-            "message": self.message,
+            "message": &self.message,
             "data": self.data,
         });
-        (self.status, Json(body)).into_response()
+        let mut response = (self.status, Json(body)).into_response();
+        response.extensions_mut().insert(ErrorInfo {
+            message: self.message,
+            details: self.details.map(|d| *d),
+        });
+        response
     }
 }

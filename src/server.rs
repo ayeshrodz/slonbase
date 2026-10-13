@@ -12,7 +12,7 @@ use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
 use crate::records::{auth_api, oauth2_api};
-use crate::{collections, realtime, records, settings};
+use crate::{collections, logs, realtime, records, settings};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
 
@@ -154,6 +154,13 @@ pub fn router(app: Arc<App>) -> Router {
             "/api/files/{collection}/{record}/{filename}",
             get(records::files::serve),
         )
+        .route("/api/logs", get(logs::list).delete(logs::truncate))
+        .route("/api/logs/stats", get(logs::stats))
+        .route("/api/logs/{id}", get(logs::view))
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            logs::middleware,
+        ))
         .layer(TraceLayer::new_for_http())
         .with_state(app)
 }

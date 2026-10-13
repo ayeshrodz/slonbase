@@ -23,6 +23,8 @@ pub struct Core {
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
+    /// The request and app logs queue.
+    pub logs: crate::logs::Logger,
     /// Whether the dashboard's SQL console may run queries.
     pub sql_console: bool,
     /// The storage directory used unless S3 is enabled in the settings.
@@ -46,6 +48,7 @@ impl Core {
     /// collections and settings in sync with other instances.
     pub async fn start(pool: Pool, url: &str, config: &Config) -> Result<Arc<Self>> {
         let core = Self::load(pool, config).await?;
+        crate::logs::capture_app_logs(&core.logs);
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         Ok(core)
     }
@@ -74,6 +77,7 @@ impl Core {
         let settings = Settings::load(&client).await?;
         drop(client);
 
+        let logs = crate::logs::Logger::start(pool.clone());
         let storage = storage_for(&settings, &local_storage);
         tracing::info!(storage = %storage.describe(), "file storage");
         Ok(Arc::new(Self {
@@ -83,6 +87,7 @@ impl Core {
             settings: RwLock::new(Arc::new(settings)),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
+            logs,
             sql_console: config.server.sql_console,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),

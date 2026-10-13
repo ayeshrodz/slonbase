@@ -4,7 +4,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::parser::ValueSource;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, Layer};
 
 use slonbase::app::{App, Mode};
 use slonbase::config::{self, Overrides};
@@ -83,10 +83,14 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+    tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer().with_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
+        ))
+        // warnings and errors also go to the logs shown in the dashboard
+        .with(slonbase::logs::AppLogsLayer)
         .init();
 
     match run().await {
@@ -212,10 +216,13 @@ async fn serve(loaded: config::Loaded, setup_token: Option<String>) -> Result<()
         }
     };
 
-    axum::serve(listener, server::router(app))
-        .with_graceful_shutdown(shutdown)
-        .await
-        .context("server error")?;
+    axum::serve(
+        listener,
+        server::router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
+    .context("server error")?;
 
     match fatal.lock().expect("fatal lock").take() {
         Some(err) => Err(err),

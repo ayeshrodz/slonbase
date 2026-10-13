@@ -460,6 +460,31 @@ most 1,000 rows.
 **Not yet:** logs and backups (next), the Geo Point field and view collections, the Apple client
 secret generator, and rebranding the UI.
 
+### Phase 4b: logs
+
+PocketBase keeps logs in a second SQLite database so writing them doesn't contend with the data.
+slonbase keeps them in `_slonbase.logs`, an **unlogged** table (no write-ahead log, so cheap
+writes; emptied after a database crash and not replicated, which is acceptable for logs), and
+never writes them on the request path:
+- A middleware builds the entry after the response is ready (method, URL, status, execution time,
+  user agent, referer, the caller's auth collection, optionally its id, and IPs) and queues it.
+  The auth extractor fills in the caller through a request extension; error responses carry
+  their message and internal details in a response extension.
+- A background task writes the queue in batches (up to 500 entries or every 500 ms) with one
+  `INSERT ... SELECT unnest(...)`. A full queue (10,000 entries, e.g. while the database is down)
+  drops new entries rather than slowing requests.
+- A `tracing` layer installed by the binary forwards warnings (level 4) and errors (level 8),
+  with their fields, to the same queue.
+- Levels and fields follow PocketBase (`data.status`, `data.auth`, `data.execTime`, ...), so the
+  dashboard's views and filters work. Filters and sorts compile with the records' compiler,
+  against the table described as a collection; `@rowid` sorts by an identity column.
+- Settings: `maxDays` (0 disables logging; older entries are deleted every minute), `minLevel`,
+  `logIP`, `logAuthId`. Dashboard files and successful health checks aren't logged.
+- `remoteIP` is the connection's address; `userIP` comes from the first `trustedProxy` header
+  with an address (rightmost of a list, or leftmost with `useLeftmostIP`).
+
+**Not yet:** `maxDataSize` (request bodies aren't logged, so entries stay small anyway).
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -509,6 +534,9 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Log tests cover request entries (errors, auth, user agent, referer, proxy IPs, auth ids),
+  what isn't logged, filters, sort, stats, settings (minimum level, IPs, off), cleanup and
+  truncation.
 - Dashboard tests cover serving the UI (compression, caching, CSP), scaffolds, providers, the
   settings model (recursive merge, kept secrets, validation), the test email, the SQL console
   (off by default; read-only reads, committed writes), import (cross-references, deleteMissing,
@@ -537,6 +565,6 @@ the file.
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
-4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), then logs, rate
-   limiting, backups and the batch API.
+4. **Admin dashboard** (done: PocketBase's UI, system collections, settings) and **logs** (done),
+   then rate limiting, backups and the batch API.
 5. **Extensibility**: Rust library API and JS hooks.

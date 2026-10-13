@@ -368,7 +368,7 @@ fn validate(s: &Settings) -> Errors {
         ("superuserIPs", &s.superuser_ips),
     ] {
         for (i, ip) in list.iter().enumerate() {
-            if !valid_ip_or_range(ip) {
+            if crate::ip::Range::parse(ip).is_none() {
                 errors.invalid(
                     format!("{key}.{i}"),
                     "Must be an IP address or a CIDR range.",
@@ -382,19 +382,6 @@ fn validate(s: &Settings) -> Errors {
         }
     }
     errors
-}
-
-/// `1.2.3.4`, `::1`, `10.0.0.0/8`, `fd00::/8`.
-fn valid_ip_or_range(value: &str) -> bool {
-    let (ip, bits) = match value.trim().split_once('/') {
-        Some((ip, bits)) => (ip, Some(bits)),
-        None => (value.trim(), None),
-    };
-    let Ok(ip) = ip.parse::<std::net::IpAddr>() else {
-        return false;
-    };
-    let max = if ip.is_ipv4() { 32 } else { 128 };
-    bits.is_none_or(|b| b.parse::<u8>().is_ok_and(|b| b <= max))
 }
 
 /// Merges `patch` into `target` like PocketBase does: objects key by key (recursively),
@@ -606,15 +593,5 @@ mod tests {
             target,
             json!({ "a": { "b": 1, "c": { "d": 9, "e": 3 } }, "list": [3] })
         );
-    }
-
-    #[test]
-    fn ip_ranges() {
-        for ok in ["1.2.3.4", "10.0.0.0/8", "::1", "fd00::/8", " 127.0.0.1 "] {
-            assert!(valid_ip_or_range(ok), "{ok}");
-        }
-        for bad in ["", "1.2.3", "10.0.0.0/33", "x", "::1/129"] {
-            assert!(!valid_ip_or_range(bad), "{bad}");
-        }
     }
 }
