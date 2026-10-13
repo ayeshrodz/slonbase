@@ -1,0 +1,3 @@
+*
+!dist/linux-*/slonbase
+!packaging/docker-data

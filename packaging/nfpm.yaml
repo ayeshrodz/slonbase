@@ -1,0 +1,59 @@
+# Builds .deb and .rpm packages:
+#   cp target/<target>/release/slonbase dist/slonbase
+#   VERSION=0.1.0 ARCH=amd64 nfpm package -f packaging/nfpm.yaml -p deb -t dist/
+name: slonbase
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+section: web
+priority: optional
+maintainer: "slonbase maintainers <ayeshrodz@users.noreply.github.com>"
+description: |
+  Lightweight, high-performance backend powered by PostgreSQL.
+  A single binary that provides a REST API, auth and an admin dashboard on top of
+  your own PostgreSQL database. PostgreSQL is not bundled: point slonbase at a
+  local or remote server from the first-run setup wizard.
+vendor: slonbase
+homepage: https://github.com/ayeshrodz/slonbase
+license: MIT
+
+overrides:
+  deb:
+    recommends:
+      - postgresql
+  rpm:
+    recommends:
+      - postgresql-server
+
+contents:
+  - src: dist/slonbase
+    dst: /usr/bin/slonbase
+    file_info:
+      mode: 0755
+  - src: packaging/slonbase.service
+    dst: /usr/lib/systemd/system/slonbase.service
+    file_info:
+      mode: 0644
+  - src: packaging/default
+    dst: /etc/default/slonbase
+    type: config|noreplace
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/slonbase/copyright
+    file_info:
+      mode: 0644
+  # owned by the slonbase user (set in postinstall, the user doesn't exist yet at unpack time)
+  - dst: /etc/slonbase
+    type: dir
+    file_info:
+      mode: 0750
+  - dst: /var/lib/slonbase
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: packaging/scripts/postinstall.sh
+  preremove: packaging/scripts/preremove.sh
+  postremove: packaging/scripts/postremove.sh

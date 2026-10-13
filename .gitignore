@@ -1,0 +1,6 @@
+/target
+/dist
+*.toml.tmp-*
+/slonbase.toml
+/slonbase_data
+.env

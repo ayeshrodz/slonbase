@@ -1,0 +1,44 @@
+# slonbase + PostgreSQL.
+#
+#   cp .env.example .env    # then set POSTGRES_PASSWORD
+#   docker compose up -d
+#   docker compose logs slonbase   # prints the one-time setup link
+#
+# The database URL is passed in through the environment, so the setup wizard
+# only asks for the first superuser. To use a database running elsewhere,
+# run only the slonbase service and enter the connection in the wizard instead.
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-slonbase}
+      POSTGRES_USER: ${POSTGRES_USER:-slonbase}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  slonbase:
+    build: .
+    image: slonbase:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SLONBASE_DATABASE_URL: postgres://${POSTGRES_USER:-slonbase}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-slonbase}?sslmode=disable
+      RUST_LOG: ${RUST_LOG:-info}
+    ports:
+      - "${SLONBASE_PORT:-8090}:8090"
+    volumes:
+      - slonbase_data:/data
+
+volumes:
+  pgdata:
+  slonbase_data:

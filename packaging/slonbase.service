@@ -1,0 +1,43 @@
+[Unit]
+Description=slonbase backend
+Documentation=https://github.com/ayeshrodz/slonbase
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=slonbase
+Group=slonbase
+EnvironmentFile=-/etc/default/slonbase
+ExecStart=/usr/bin/slonbase serve --config /etc/slonbase/config.toml
+WorkingDirectory=/var/lib/slonbase
+Restart=on-failure
+RestartSec=2
+TimeoutStopSec=30
+UMask=0077
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/etc/slonbase /var/lib/slonbase
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+# Release image built from binaries produced by scripts/package.sh,
+# so multi-arch images need no compilation (or emulation) in Docker.
+#   docker buildx build -f packaging/Dockerfile.release --platform linux/amd64,linux/arm64 .
+FROM scratch
+ARG TARGETARCH
+# --chmod: artifact downloads drop the executable bit
+COPY --chmod=0755 dist/linux-${TARGETARCH}/slonbase /slonbase
+COPY --chown=65532:65532 packaging/docker-data/ /data/
+USER 65532:65532
+ENV SLONBASE_BIND=0.0.0.0:8090 \
+    SLONBASE_CONFIG=/data/slonbase.toml
+VOLUME /data
+EXPOSE 8090
+HEALTHCHECK --interval=10s --timeout=6s --start-period=5s CMD ["/slonbase", "health"]
+ENTRYPOINT ["/slonbase"]
+CMD ["serve"]

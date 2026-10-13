@@ -1,0 +1,9 @@
+# Environment for the slonbase service (read by systemd).
+# Changes take effect after: sudo systemctl restart slonbase
+
+# Listen address. The default only accepts local connections; use 0.0.0.0:8090
+# to open the server (and its setup wizard) to the network.
+#SLONBASE_BIND=127.0.0.1:8090
+
+# Log level: error, warn, info, debug, trace
+RUST_LOG=info

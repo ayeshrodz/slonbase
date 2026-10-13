@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>slonbase setup</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #5d6677;
+    --border: #d9dde5; --accent: #2f6fdd; --accent-text: #ffffff;
+    --ok-bg: #e7f6ec; --ok-text: #1d6b3a; --err-bg: #fdecec; --err-text: #a12828;
+    --info-bg: #eaf1fd; --info-text: #234e9a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2;
+      --border: #2f3542; --accent: #5b8ff0; --accent-text: #0d1117;
+      --ok-bg: #16301f; --ok-text: #8bd8a5; --err-bg: #3a1b1b; --err-text: #f2a3a3;
+      --info-bg: #182640; --info-text: #9fc0f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px;
+  }
+  main { width: 100%; max-width: 480px; }
+  .brand { font-weight: 700; font-size: 22px; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
+  h2 { font-size: 17px; margin: 0 0 4px; }
+  .step { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  input, select {
+    width: 100%; padding: 9px 11px; font: inherit; color: var(--text); background: var(--bg);
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .row { display: grid; grid-template-columns: 1fr 110px; gap: 12px; }
+  .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; flex-wrap: wrap; }
+  button {
+    font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border); background: transparent; color: var(--text);
+  }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button:disabled { opacity: .55; cursor: default; }
+  .link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 500; font-size: 13px; margin-top: 10px; }
+  .msg { border-radius: 8px; padding: 10px 12px; margin-top: 16px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+  .msg.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .msg.err { background: var(--err-bg); color: var(--err-text); }
+  .msg.info { background: var(--info-bg); color: var(--info-text); }
+  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <p class="brand">slonbase</p>
+  <p class="sub">First-time setup</p>
+
+  <div class="card" id="loading"><p>Loading…</p></div>
+
+  <div class="card" id="fatal" hidden><h2>Can't continue</h2><div class="msg err" id="fatal-msg"></div></div>
+
+  <form class="card" id="db-step" hidden novalidate>
+    <h2>Connect your PostgreSQL database</h2>
+    <p class="step" id="db-step-label">Step 1 of 2</p>
+
+    <div id="db-fields">
+      <div class="row">
+        <div><label for="host">Host</label><input id="host" value="127.0.0.1" required></div>
+        <div><label for="port">Port</label><input id="port" value="5432" inputmode="numeric" required></div>
+      </div>
+      <label for="dbname">Database</label><input id="dbname" value="slonbase" required>
+      <label for="user">User</label><input id="user" value="slonbase" autocomplete="username" required>
+      <label for="dbpass">Password</label><input id="dbpass" type="password" autocomplete="current-password">
+      <label for="sslmode">TLS</label>
+      <select id="sslmode">
+        <option value="prefer">Prefer (use TLS when the server offers it)</option>
+        <option value="require">Require</option>
+        <option value="disable">Disable</option>
+      </select>
+    </div>
+    <div id="db-url-wrap" hidden>
+      <label for="dburl">Connection URL</label>
+      <input id="dburl" placeholder="postgres://user:password@host:5432/database?sslmode=require">
+    </div>
+    <button type="button" class="link" id="toggle-url">Paste a connection URL instead</button>
+    <p class="hint">slonbase stores its own tables in a <code>_slonbase</code> schema, so the database can be shared with other apps.</p>
+
+    <div id="db-msg" class="msg" hidden></div>
+    <div class="actions">
+      <button type="button" id="test-btn">Test connection</button>
+      <button type="submit" class="primary" id="db-next" disabled>Continue</button>
+    </div>
+  </form>
+
+  <form class="card" id="admin-step" hidden novalidate>
+    <h2 id="admin-title">Create your superuser</h2>
+    <p class="step" id="admin-step-label">Step 2 of 2</p>
+    <div id="reconnect-msg" class="msg info" hidden>This database already has a slonbase installation. Sign in with one of its superusers to reconnect to it.</div>
+    <label for="email">Email</label><input id="email" type="email" autocomplete="username" required>
+    <label for="password">Password</label><input id="password" type="password" autocomplete="new-password" minlength="10" required>
+    <div id="confirm-wrap"><label for="password2">Confirm password</label><input id="password2" type="password" autocomplete="new-password" required></div>
+    <p class="hint" id="password-hint">At least 10 characters.</p>
+    <div id="admin-msg" class="msg err" hidden></div>
+    <div class="actions">
+      <button type="button" id="back-btn">Back</button>
+      <button type="submit" class="primary" id="finish-btn">Finish setup</button>
+    </div>
+  </form>
+
+  <div class="card" id="done" hidden>
+    <h2>You're all set</h2>
+    <div class="msg ok">slonbase is connected and ready. This setup page is now disabled.</div>
+    <div class="actions"><a href="/_/"><button type="button" class="primary">Open slonbase</button></a></div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const token = new URLSearchParams(location.search).get("token") || "";
+  // keep the token out of the address bar and browser history
+  if (token) history.replaceState(null, "", location.pathname);
+
+  const state = { needsDatabase: false, databaseUrl: "", tested: false, useUrl: false, reconnect: false };
+
+  const show = (id) => {
+    for (const el of ["loading", "fatal", "db-step", "admin-step", "done"]) $(el).hidden = el !== id;
+  };
+  const fatal = (text) => { $("fatal-msg").textContent = text; show("fatal"); };
+  const message = (el, kind, text) => {
+    el.className = "msg " + kind; el.textContent = text; el.hidden = !text;
+  };
+
+  async function api(method, path, body) {
+    const res = await fetch(path, {
+      method,
+      headers: { "content-type": "application/json", "x-setup-token": token },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const fields = Object.values(data.data || {}).map((f) => f.message).filter(Boolean);
+      const err = new Error([data.message, ...fields].filter(Boolean).join("\n") || `Request failed (${res.status})`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function buildUrl() {
+    if (state.useUrl) return $("dburl").value.trim();
+    const enc = encodeURIComponent;
+    const pass = $("dbpass").value;
+    const auth = enc($("user").value.trim()) + (pass ? ":" + enc(pass) : "");
+    let host = $("host").value.trim();
+    if (host.includes(":") && !host.startsWith("[")) host = `[${host}]`; // IPv6
+    return `postgres://${auth}@${host}:${enc($("port").value.trim())}/${enc($("dbname").value.trim())}?sslmode=${$("sslmode").value}`;
+  }
+
+  // any edit invalidates the previous test
+  $("db-step").addEventListener("input", () => {
+    state.tested = false;
+    $("db-next").disabled = true;
+  });
+
+  $("toggle-url").onclick = () => {
+    state.useUrl = !state.useUrl;
+    $("db-fields").hidden = state.useUrl;
+    $("db-url-wrap").hidden = !state.useUrl;
+    $("toggle-url").textContent = state.useUrl ? "Enter connection details instead" : "Paste a connection URL instead";
+    state.tested = false;
+    $("db-next").disabled = true;
+  };
+
+  $("test-btn").onclick = async () => {
+    const msg = $("db-msg");
+    const url = buildUrl();
+    $("test-btn").disabled = true;
+    message(msg, "info", "Connecting…");
+    try {
+      const info = await api("POST", "/api/setup/database/test", { url });
+      state.databaseUrl = url;
+      state.tested = true;
+      state.reconnect = info.hasSuperusers;
+      const summary = `Connected to ${info.database} as ${info.user} (PostgreSQL ${info.serverVersion}).`;
+      message(msg, "ok", info.hasSuperusers ? summary + "\nAn existing slonbase installation was found." : summary);
+      $("db-next").disabled = false;
+    } catch (e) {
+      message(msg, "err", e.message);
+    } finally {
+      $("test-btn").disabled = false;
+    }
+  };
+
+  function showAdminStep() {
+    $("reconnect-msg").hidden = !state.reconnect;
+    $("confirm-wrap").hidden = state.reconnect;
+    $("password-hint").hidden = state.reconnect;
+    $("admin-title").textContent = state.reconnect ? "Sign in to reconnect" : "Create your superuser";
+    $("password").autocomplete = state.reconnect ? "current-password" : "new-password";
+    $("back-btn").hidden = !state.needsDatabase;
+    $("admin-step-label").hidden = !state.needsDatabase;
+    message($("admin-msg"), "err", "");
+    show("admin-step");
+    $("email").focus();
+  }
+
+  $("db-step").onsubmit = (e) => {
+    e.preventDefault();
+    if (state.tested) showAdminStep();
+  };
+  $("back-btn").onclick = () => show("db-step");
+
+  $("admin-step").onsubmit = async (e) => {
+    e.preventDefault();
+    const msg = $("admin-msg");
+    if (!state.reconnect && $("password").value !== $("password2").value) {
+      message(msg, "err", "The passwords don't match.");
+      return;
+    }
+    $("finish-btn").disabled = true;
+    message(msg, "err", "");
+    try {
+      await api("POST", "/api/setup/complete", {
+        databaseUrl: state.needsDatabase ? state.databaseUrl : null,
+        email: $("email").value.trim(),
+        password: $("password").value,
+      });
+      show("done");
+    } catch (e) {
+      message(msg, "err", e.message);
+    } finally {
+      $("finish-btn").disabled = false;
+    }
+  };
+
+  (async () => {
+    if (!token) {
+      fatal("This page needs the setup link printed in the slonbase server logs (it contains a one-time token).");
+      return;
+    }
+    try {
+      const status = await api("GET", "/api/setup");
+      state.needsDatabase = status.needsDatabase;
+      if (state.needsDatabase) {
+        show("db-step");
+      } else {
+        showAdminStep();
+      }
+    } catch (e) {
+      if (e.status === 404) {
+        fatal("Setup has already been completed.");
+      } else {
+        fatal(e.message);
+      }
+    }
+  })();
+})();
+</script>
+</body>
+</html>
