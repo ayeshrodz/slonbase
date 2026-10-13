@@ -179,7 +179,6 @@ async fn dashboard_endpoints() {
             "backups": { "s3": { "secret": "backup-secret" } },
             "rateLimits": { "enabled": true, "rules": [{ "label": "/api/", "duration": 1, "maxRequests": 10 }] },
             "trustedProxy": { "headers": ["X-Forwarded-For"] },
-            "superuserIPs": ["127.0.0.1", "10.0.0.0/8"],
         })),
     )
     .await;

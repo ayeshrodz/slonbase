@@ -23,6 +23,8 @@ pub struct Core {
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
+    /// Rate limit counters of this instance.
+    pub rate_limiter: crate::guard::RateLimiter,
     /// The request and app logs queue.
     pub logs: crate::logs::Logger,
     /// Whether the dashboard's SQL console may run queries.
@@ -88,6 +90,7 @@ impl Core {
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
             logs,
+            rate_limiter: Default::default(),
             sql_console: config.server.sql_console,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
@@ -115,6 +118,9 @@ impl Core {
     pub(crate) fn set_settings(&self, settings: Settings) {
         let previous = self.settings();
         let storage_changed = previous.s3 != settings.s3;
+        if previous.rate_limits != settings.rate_limits {
+            self.rate_limiter.reset();
+        }
         if storage_changed {
             let storage = storage_for(&settings, &self.local_storage);
             tracing::info!(storage = %storage.describe(), "file storage changed");

@@ -597,6 +597,7 @@ pub async fn serve(
     State(app): State<Arc<App>>,
     Path((collection, record_id, filename)): Path<(String, String, String)>,
     Query(query): Query<HashMap<String, String>>,
+    client_ip: Option<axum::Extension<crate::guard::ClientIp>>,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = core
@@ -621,11 +622,18 @@ pub async fn serve(
 
     if protected {
         let token = query.get("token").map(String::as_str).unwrap_or_default();
-        let auth = if token.is_empty() {
+        let mut auth = if token.is_empty() {
             RequestAuth::default()
         } else {
             authenticate_as(&core, token, TokenType::File).await
         };
+        // a superuser's file token from outside the superuser IPs counts as a guest's
+        let ip = client_ip.and_then(|e| e.0.0);
+        if auth.is_superuser()
+            && !crate::guard::superuser_ip_allowed(&core.settings().superuser_ips, ip)
+        {
+            auth = RequestAuth::default();
+        }
         let mut request = RequestInfo::new("GET");
         request.auth = auth.info();
         request.registry = Some(core.registry());

@@ -157,6 +157,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/logs", get(logs::list).delete(logs::truncate))
         .route("/api/logs/stats", get(logs::stats))
         .route("/api/logs/{id}", get(logs::view))
+        // inner layers run last: the guard runs inside the logger, so rejections are logged
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::guard::middleware,
+        ))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             logs::middleware,

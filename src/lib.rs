@@ -10,6 +10,7 @@ pub mod db;
 pub mod error;
 pub mod extract;
 pub mod filter;
+pub mod guard;
 pub mod http;
 pub mod ids;
 pub mod ip;

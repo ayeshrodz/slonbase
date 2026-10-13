@@ -329,6 +329,14 @@ impl FromRequestParts<Arc<App>> for RequestAuth {
         parts: &mut Parts,
         app: &Arc<App>,
     ) -> Result<Self, Self::Rejection> {
+        // already resolved by the guard middleware
+        if let Some(resolved) = parts.extensions.get::<crate::guard::ResolvedAuth>() {
+            let auth = resolved.0.clone();
+            if let Some(context) = parts.extensions.get::<crate::logs::LogContext>() {
+                context.set_auth(&auth);
+            }
+            return Ok(auth);
+        }
         let Some(token) = parts
             .headers
             .get(header::AUTHORIZATION)

@@ -485,6 +485,29 @@ never writes them on the request path:
 
 **Not yet:** `maxDataSize` (request bodies aren't logged, so entries stay small anyway).
 
+### Phase 4c: rate limits and superuser IPs
+
+One middleware applies both, inside the logger (so rejections are logged). It resolves the
+caller once and leaves it in a request extension for the auth extractor, so enabling it doesn't
+verify tokens twice.
+
+**Rate limits** match PocketBase:
+- Labels, most specific first: `{collection}:{action}` and `*:{action}` for collection endpoints
+  (the action names are PocketBase's, derived from the method and path rather than per-route
+  bindings), then `METHOD /path` and `/path`. Rules match exactly, or as path prefixes when their
+  label ends in `/`; the audience (`""`, `@guest`, `@auth`) must fit the caller.
+- Fixed windows per rule and client IP; collection rules count per collection and endpoint.
+- Superusers and `excludedIPs` aren't limited; changing the rules resets the counters, and idle
+  counters are pruned by the listener.
+- Counters are in memory, per instance (like PocketBase, which runs as one). A shared limit
+  across instances would need a round trip to PostgreSQL per request, which defeats the purpose;
+  put a shared limiter in the load balancer if you need one.
+
+**Superuser IPs:** with a non-empty `superuserIPs`, requests with a superuser token and any
+request to the `_superusers` collection (sign-in, OTP, password reset, records) get `403` from
+other addresses, and a superuser's file token from them counts as a guest's. The client address
+is the trusted proxy header's when configured, else the connection's.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -534,6 +557,8 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Guard tests cover rate limit labels and audiences, per-client windows, excluded IPs,
+  superusers, resets, and the superuser IP allowlist (requests, sign-in, file tokens).
 - Log tests cover request entries (errors, auth, user agent, referer, proxy IPs, auth ids),
   what isn't logged, filters, sort, stats, settings (minimum level, IPs, off), cleanup and
   truncation.
@@ -565,6 +590,6 @@ the file.
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
-4. **Admin dashboard** (done: PocketBase's UI, system collections, settings) and **logs** (done),
-   then rate limiting, backups and the batch API.
+4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs** and
+   **rate limits** (done), then backups and the batch API.
 5. **Extensibility**: Rust library API and JS hooks.

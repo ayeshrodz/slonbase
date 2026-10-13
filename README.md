@@ -7,8 +7,8 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 > **Status: early development (phase 4).** The admin dashboard, collections, the records REST API
 > with filtering and API rules, auth (superusers and auth collections with password, OAuth2 and
 > one-time password sign-in, MFA, verification, password reset and email change), realtime
-> subscriptions, relation paths, `expand`, file fields (stored locally or in S3) and request logs
-> work. Rate limiting, backups and batch requests are next.
+> subscriptions, relation paths, `expand`, file fields (stored locally or in S3), request logs and
+> rate limiting work. Backups and batch requests are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -108,6 +108,18 @@ files and successful health checks, and so are slonbase's own warnings and error
 for `logs.maxDays` days (5 by default, 0 turns logging off) in an unlogged PostgreSQL table, so
 writing them is cheap, and they're written in batches in the background. Client IPs come from the
 connection, or from the headers in `trustedProxy` when you run behind a proxy.
+
+**Rate limits** (`rateLimits`, off by default) follow PocketBase's rules: a label is
+`{collection}:{action}` or `*:{action}` (`list`, `view`, `create`, `update`, `delete`, `auth`,
+`authWithPassword`, `requestOTP`, `file`, ...), `METHOD /path`, or a path prefix ending in `/`,
+optionally only for `@guest` or `@auth` requests. Each allows `maxRequests` per `duration`
+seconds per client IP; over the limit, requests get `429`. Superusers and `excludedIPs` aren't
+limited. Counters are kept in memory by each instance, so with several instances the limits apply
+per instance.
+
+**Superuser IPs** (`superuserIPs`): when set, superuser requests, superuser sign-in and the
+`_superusers` endpoints only work from those addresses or ranges. Behind a proxy, set
+`trustedProxy` first, or slonbase sees the proxy's address.
 
 The **SQL console** runs any SQL a superuser enters with the database role's privileges. With
 PostgreSQL that can reach outside slonbase's data (a superuser role can read server files or run
@@ -266,7 +278,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
    verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done), with local or S3 storage.
-4. **Admin dashboard** and **logs** (done), then rate limiting, backups and batch requests.
+4. **Admin dashboard**, **logs** and **rate limiting** (done), then backups and batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 
 ## License
