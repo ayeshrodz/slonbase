@@ -5,10 +5,11 @@
 //! whether or not the email exists, and send the email in the background, so they can't
 //! be used to find out which emails are registered.
 
+use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
@@ -35,11 +36,11 @@ use crate::{mail, superusers};
 static DUMMY_HASH: LazyLock<String> =
     LazyLock::new(|| bcrypt::hash(crate::ids::random_secret(16), 10).expect("bcrypt hash"));
 
-fn is_superusers(name: &str) -> bool {
+pub(super) fn is_superusers(name: &str) -> bool {
     name == SUPERUSERS_COLLECTION_NAME || name == SUPERUSERS_COLLECTION_ID
 }
 
-fn auth_collection(core: &Core, name: &str) -> Result<Arc<Collection>, ApiError> {
+pub(super) fn auth_collection(core: &Core, name: &str) -> Result<Arc<Collection>, ApiError> {
     core.registry()
         .get(name)
         .filter(|c| c.is_auth())
@@ -52,15 +53,15 @@ fn auth_collection(core: &Core, name: &str) -> Result<Arc<Collection>, ApiError>
         })
 }
 
-fn pool_error(e: deadpool_postgres::PoolError) -> ApiError {
+pub(super) fn pool_error(e: deadpool_postgres::PoolError) -> ApiError {
     ApiError::internal(describe_pool_error(e))
 }
 
-fn db_error(e: tokio_postgres::Error) -> ApiError {
+pub(super) fn db_error(e: tokio_postgres::Error) -> ApiError {
     ApiError::internal(e.into())
 }
 
-fn body_str<'a>(body: &'a Map<String, Value>, key: &str) -> &'a str {
+pub(super) fn body_str<'a>(body: &'a Map<String, Value>, key: &str) -> &'a str {
     body.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
@@ -69,7 +70,7 @@ fn no_content() -> Response {
 }
 
 /// A record as returned to itself: visible fields, including its email.
-fn self_json(c: &Collection, values: &Values) -> Value {
+pub(super) fn self_json(c: &Collection, values: &Values) -> Value {
     let fields = visible_fields(c, false);
     let mut out = Values::new();
     for f in fields {
@@ -93,13 +94,27 @@ fn auth_response(
 }
 
 /// Whether the collection's `authRule` lets this record sign in.
-async fn auth_rule_allows(
+pub(super) async fn auth_rule_allows(
     core: &Core,
     record: &AuthRecord,
     method: &Method,
 ) -> Result<bool, ApiError> {
+    let rule = record
+        .collection
+        .auth_options()
+        .and_then(|a| a.auth_rule.clone());
+    record_matches(core, record, rule.as_deref(), method).await
+}
+
+/// Whether a record matches a rule (`None`: no record does, `""`: every record does).
+async fn record_matches(
+    core: &Core,
+    record: &AuthRecord,
+    rule: Option<&str>,
+    method: &Method,
+) -> Result<bool, ApiError> {
     let c = &record.collection;
-    let rule = match c.auth_options().and_then(|a| a.auth_rule.as_deref()) {
+    let rule = match rule {
         None => return Ok(false),
         Some(rule) if rule.trim().is_empty() => return Ok(true),
         Some(rule) => rule,
@@ -116,7 +131,7 @@ async fn auth_rule_allows(
     let mut params = Params::default();
     let id_param = params.push(record.id());
     let condition = to_sql(rule, &scope, &mut params)
-        .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored auth rule: {e}")))?;
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored rule: {e}")))?;
     let client = core.pool.get().await.map_err(pool_error)?;
     let row = client
         .query_opt(
@@ -131,7 +146,92 @@ async fn auth_rule_allows(
     Ok(row.is_some())
 }
 
-async fn find_by_email(
+// ---------------------------------------------------------------------------
+// multi-factor authentication
+
+pub(super) const METHOD_PASSWORD: &str = "password";
+pub(super) const METHOD_OTP: &str = "otp";
+pub(super) const METHOD_OAUTH2: &str = "oauth2";
+
+/// The `mfaId` of a sign-in request, from the body or the query string.
+pub(super) fn mfa_id<'a>(
+    body: &'a Map<String, Value>,
+    query: &'a HashMap<String, String>,
+) -> &'a str {
+    match body_str(body, "mfaId") {
+        "" => query.get("mfaId").map(String::as_str).unwrap_or_default(),
+        id => id,
+    }
+}
+
+/// Completes a sign-in made with `method`. When the collection requires MFA for the
+/// record, the first sign-in answers `401 {"mfaId"}` and the sign-in with another method
+/// that sends that `mfaId` gets the token.
+pub(super) async fn finish_auth(
+    core: &Core,
+    record: &AuthRecord,
+    method: &str,
+    http_method: &Method,
+    mfa_id: &str,
+    meta: Option<Value>,
+) -> Result<Response, ApiError> {
+    let c = &record.collection;
+    let mfa = &c.auth_options().expect("auth collection").mfa;
+    if mfa.enabled && record_matches(core, record, Some(&mfa.rule), http_method).await? {
+        let client = core.pool.get().await.map_err(pool_error)?;
+        if mfa_id.is_empty() {
+            let id = crate::ids::random_id(crate::ids::DEFAULT_ID_LENGTH);
+            client
+                .execute(
+                    "INSERT INTO _slonbase.mfas (id, collection_id, record_id, method) VALUES ($1, $2, $3, $4)",
+                    &[&id, &c.id, &record.id(), &method],
+                )
+                .await
+                .map_err(db_error)?;
+            return Ok((StatusCode::UNAUTHORIZED, Json(json!({ "mfaId": id }))).into_response());
+        }
+
+        let row = client
+            .query_opt(
+                "SELECT collection_id, record_id, method FROM _slonbase.mfas
+                 WHERE id = $1 AND created > now() - $2::bigint * interval '1 second'",
+                &[&mfa_id, &mfa.duration],
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(|| ApiError::bad_request("Invalid or expired MFA session."))?;
+        let (collection_id, record_id, first): (String, String, String) =
+            (row.get(0), row.get(1), row.get(2));
+        if collection_id != c.id || record_id != record.id() {
+            return Err(ApiError::bad_request("Invalid MFA session."));
+        }
+        if first == method {
+            return Err(ApiError::bad_request(
+                "A different authentication method is required.",
+            ));
+        }
+        // single use, also when two requests race
+        if client
+            .execute("DELETE FROM _slonbase.mfas WHERE id = $1", &[&mfa_id])
+            .await
+            .map_err(db_error)?
+            == 0
+        {
+            return Err(ApiError::bad_request("Invalid or expired MFA session."));
+        }
+    }
+
+    let mut out = json!({
+        "token": record.issue_auth_token(core, None, true),
+        "record": self_json(c, &record.values),
+    });
+    if let Some(meta) = meta {
+        out["meta"] = meta;
+    }
+    Ok(Json(out).into_response())
+}
+
+pub(super) async fn find_by_email(
     core: &Core,
     c: &Collection,
     email: &str,
@@ -151,7 +251,7 @@ async fn find_by_email(
     }))
 }
 
-fn send_template(core: &Core, template: &EmailTemplate, to: &str, token: &str) {
+pub(super) fn send_template(core: &Core, template: &EmailTemplate, to: &str, token: &str) {
     let settings = core.settings();
     core.send_mail(mail::Message {
         to: to.to_string(),
@@ -160,7 +260,7 @@ fn send_template(core: &Core, template: &EmailTemplate, to: &str, token: &str) {
     });
 }
 
-fn new_token_key() -> String {
+pub(super) fn new_token_key() -> String {
     crate::ids::generate_from_pattern("[a-zA-Z0-9]{50}").expect("valid pattern")
 }
 
@@ -171,9 +271,10 @@ fn new_token_key() -> String {
 pub async fn auth_with_password(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
     method: Method,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let identity = body_str(&body, "identity").trim().to_string();
     let password = body_str(&body, "password").to_string();
@@ -195,7 +296,8 @@ pub async fn auth_with_password(
         return Ok(Json(json!({
             "token": superuser.issue_token(&core),
             "record": superuser.to_json(),
-        })));
+        }))
+        .into_response());
     }
 
     let c = auth_collection(&core, &collection)?;
@@ -260,7 +362,8 @@ pub async fn auth_with_password(
     if !auth_rule_allows(&core, &record, &method).await? {
         return Err(failed());
     }
-    Ok(auth_response(&core, &record, true, None))
+    let mfa_id = mfa_id(&body, &query);
+    finish_auth(&core, &record, METHOD_PASSWORD, &method, mfa_id, None).await
 }
 
 /// `POST /api/collections/{collection}/auth-refresh`
@@ -305,21 +408,35 @@ pub async fn auth_methods(
     Path(collection): Path<String>,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
-    let (enabled, identity_fields) = if is_superusers(&collection) {
-        (true, vec!["email".to_string()])
+    if is_superusers(&collection) {
+        return Ok(Json(json!({
+            "password": { "enabled": true, "identityFields": ["email"] },
+            "oauth2": { "enabled": false, "providers": [] },
+            "mfa": { "enabled": false, "duration": 0 },
+            "otp": { "enabled": false, "duration": 0 },
+        })));
+    }
+    let c = auth_collection(&core, &collection)?;
+    let o = c.auth_options().expect("auth collection");
+    let providers: Vec<Value> = if o.oauth2.enabled {
+        o.oauth2
+            .providers
+            .iter()
+            .filter_map(crate::oauth2::Provider::new)
+            .map(|p| p.auth_method())
+            .collect()
     } else {
-        let c = auth_collection(&core, &collection)?;
-        let o = c.auth_options().expect("auth collection");
-        (
-            o.password_auth.enabled,
-            o.password_auth.identity_fields.clone(),
-        )
+        vec![]
     };
+    let duration = |enabled: bool, duration: i64| if enabled { duration } else { 0 };
     Ok(Json(json!({
-        "password": { "enabled": enabled, "identityFields": identity_fields },
-        "oauth2": { "enabled": false, "providers": [] },
-        "mfa": { "enabled": false, "duration": 0 },
-        "otp": { "enabled": false, "duration": 0 },
+        "password": {
+            "enabled": o.password_auth.enabled,
+            "identityFields": o.password_auth.identity_fields,
+        },
+        "oauth2": { "enabled": o.oauth2.enabled, "providers": providers },
+        "mfa": { "enabled": o.mfa.enabled, "duration": duration(o.mfa.enabled, o.mfa.duration) },
+        "otp": { "enabled": o.otp.enabled, "duration": duration(o.otp.enabled, o.otp.duration) },
     })))
 }
 

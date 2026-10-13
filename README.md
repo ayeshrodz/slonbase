@@ -4,10 +4,10 @@ A lightweight, high-performance backend in a single Rust binary, powered by **Po
 Inspired by [PocketBase](https://pocketbase.io): define collections, get a REST API, auth and an
 admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
-> **Status: early development (phase 2).** Collections, the records REST API with filtering and
-> API rules, and auth (superusers and auth collections with sign-up, login, verification, password
-> reset and email change), realtime subscriptions, relation paths, `expand` and file fields work.
-> The admin dashboard, S3 storage and OAuth2 are next.
+> **Status: early development (phase 3).** Collections, the records REST API with filtering and
+> API rules, auth (superusers and auth collections with password, OAuth2 and one-time password
+> sign-in, MFA, verification, password reset and email change), realtime subscriptions, relation
+> paths, `expand` and file fields work. S3 storage and the admin dashboard are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -107,6 +107,10 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | Endpoint | Description |
 |---|---|
 | `POST /api/collections/{collection}/auth-with-password` | Sign in (`{"identity", "password"}`), returns `{token, record}`; use `_superusers` for superusers |
+| `POST /api/collections/{collection}/auth-with-oauth2` | Sign in with an OAuth2 provider (`{"provider", "code", "codeVerifier", "redirectURL", "createData"}`) |
+| `POST /api/collections/{collection}/request-otp`, `auth-with-otp` | Sign in with a one-time password sent by email |
+| `GET/POST /api/oauth2-redirect` | OAuth2 redirect for the SDKs' popup flow (`authWithOAuth2({provider})`) |
+| `GET /api/collections/{collection}/records/{id}/external-auths`, `DELETE .../{provider}` | Linked OAuth2 accounts |
 | `POST /api/collections/{collection}/auth-refresh` | A new token for a valid one |
 | `GET /api/collections/{collection}/auth-methods` | Available sign-in methods |
 | `POST /api/collections/{collection}/request-verification`, `confirm-verification` | Email verification |
@@ -136,8 +140,17 @@ curl "localhost:8090/api/collections/todos/records?filter=done=false&sort=-text"
 
 **Collections** are `base` or `auth`. Auth collections add the `password`, `tokenKey`, `email`,
 `emailVisibility` and `verified` system fields and PocketBase's auth options (`authRule`,
-`manageRule`, `passwordAuth`, token durations, email templates). Sign up by creating a record
-with `password` and `passwordConfirm`.
+`manageRule`, `passwordAuth`, `oauth2`, `otp`, `mfa`, token durations, email templates). Sign up
+by creating a record with `password` and `passwordConfirm`, or with OAuth2.
+
+**Sign-in methods:**
+- **OAuth2**: Google, GitHub, GitLab, Discord, Microsoft, Facebook, and any OpenID Connect
+  provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. Only emails the provider has
+  verified are used to find existing records. Client secrets are never returned by the API.
+- **OTP**: a numeric code sent with the `otp.emailTemplate` (`{OTP}`, `{OTP_ID}`); single-use,
+  expiring, and invalidated after 5 wrong attempts.
+- **MFA**: with `mfa.enabled`, the first sign-in answers `401 {"mfaId"}`, and a sign-in with
+  another method plus that `mfaId` returns the token. `mfa.rule` limits it to some records.
 
 **Field types:** `text`, `editor`, `number`, `bool`, `email`, `url`, `date`, `autodate`, `select`,
 `json`, `relation`, `file` and `password` (auth collections).
@@ -170,8 +183,8 @@ settings; while SMTP is disabled they're written to the log.
 (`expand=author.org,editors`) and back-relations (`expand=comments_via_post`), up to 6 levels,
 each checked against the related collection's rules.
 
-Not supported yet (see [docs/design.md](docs/design.md)): OAuth2, OTP and MFA, `@collection`
-lookups, filter functions, S3 storage, and view collections.
+Not supported yet (see [docs/design.md](docs/design.md)): auth alerts, `@collection` lookups,
+filter functions, S3 storage, and view collections.
 
 ## Development
 
@@ -197,8 +210,8 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 
 0. **Foundation** (done): server, config, first-run setup, system migrations, packaging, CI.
 1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
-2. **Auth** (done): superusers and auth collections with password sign-in, verification, password
-   reset and email change. OAuth2, OTP and MFA follow.
+2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
+   verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done). S3 storage follows.
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.

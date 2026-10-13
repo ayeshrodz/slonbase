@@ -828,6 +828,26 @@ fn delete_with_references<'b>(
             realtime::record_event(tx, &c, Action::Delete, &row_values(&fields, &row))
                 .await
                 .map_err(db_error)?;
+            if c.is_auth() {
+                tx.execute(
+                    "DELETE FROM _slonbase.external_auths WHERE collection_id = $1 AND record_id = $2",
+                    &[&c.id, &id],
+                )
+                .await
+                .map_err(db_error)?;
+                tx.execute(
+                    "DELETE FROM _slonbase.otps WHERE collection_id = $1 AND record_id = $2",
+                    &[&c.id, &id],
+                )
+                .await
+                .map_err(db_error)?;
+                tx.execute(
+                    "DELETE FROM _slonbase.mfas WHERE collection_id = $1 AND record_id = $2",
+                    &[&c.id, &id],
+                )
+                .await
+                .map_err(db_error)?;
+            }
         }
         Ok(())
     })

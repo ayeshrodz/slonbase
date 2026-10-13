@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
-use crate::records::auth_api;
+use crate::records::{auth_api, oauth2_api};
 use crate::{collections, realtime, records, settings};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
@@ -43,6 +43,30 @@ pub fn router(app: Arc<App>) -> Router {
         .route(
             "/api/collections/{collection}/auth-with-password",
             post(auth_api::auth_with_password),
+        )
+        .route(
+            "/api/collections/{collection}/auth-with-otp",
+            post(records::otp::auth_with_otp),
+        )
+        .route(
+            "/api/collections/{collection}/request-otp",
+            post(records::otp::request_otp),
+        )
+        .route(
+            "/api/collections/{collection}/auth-with-oauth2",
+            post(oauth2_api::auth_with_oauth2),
+        )
+        .route(
+            "/api/oauth2-redirect",
+            get(oauth2_api::redirect_get).post(oauth2_api::redirect_post),
+        )
+        .route(
+            "/api/collections/{collection}/records/{id}/external-auths",
+            get(oauth2_api::list_external_auths),
+        )
+        .route(
+            "/api/collections/{collection}/records/{id}/external-auths/{provider}",
+            axum::routing::delete(oauth2_api::unlink_external_auth),
         )
         .route(
             "/api/collections/{collection}/auth-refresh",

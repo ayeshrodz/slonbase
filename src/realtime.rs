@@ -50,6 +50,10 @@ const MAX_TOPIC_LENGTH: usize = 2500;
 const EVENT_RETENTION_SECS: i64 = 300;
 /// Conditions evaluated per access check query.
 const CHECK_CHUNK: usize = 50;
+/// The topic of OAuth2 redirects (the SDKs' popup sign-in flow).
+pub const OAUTH2_TOPIC: &str = "@oauth2";
+/// OTPs and MFA sessions are removed this long after creation (their longest duration).
+const AUTH_RETENTION_SECS: i64 = 86_400;
 
 // ---------------------------------------------------------------------------
 // outbox
@@ -345,6 +349,28 @@ pub async fn subscribe(
     drop(subscriptions);
 
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// Sends a message to a client of this instance if it's subscribed to `topic`.
+pub fn send_to_client(core: &Core, client_id: &str, topic: &str, data: String) -> bool {
+    let Some(client) = core.realtime.get(client_id) else {
+        return false;
+    };
+    let subscribed = client
+        .subscriptions
+        .lock()
+        .expect("subscriptions lock")
+        .topics
+        .iter()
+        .any(|t| t.raw == topic);
+    subscribed
+        && client
+            .sender
+            .try_send(Message {
+                event: topic.to_string(),
+                data,
+            })
+            .is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -670,6 +696,13 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                             reload_collections(&core).await;
                         } else if payload == "settings" {
                             reload_settings(&core).await;
+                        } else if let Some(data) = payload.strip_prefix("oauth2:") {
+                            let state = serde_json::from_str::<Value>(data)
+                                .ok()
+                                .and_then(|v| v["state"].as_str().map(str::to_string));
+                            if let Some(state) = state {
+                                send_to_client(&core, &state, OAUTH2_TOPIC, data.to_string());
+                            }
                         } else if let Some(id) = payload.strip_prefix("event:").and_then(|s| s.parse().ok()) {
                             if let Err(err) = deliver_event(&core, id, &mut seen).await {
                                 tracing::error!(error = %format!("{err:#}"), "failed to deliver an event");
@@ -680,10 +713,11 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                         let Some(core) = weak.upgrade() else { return };
                         if let Ok(client) = core.pool.get().await {
                             let _ = client
-                                .execute(
-                                    &format!("DELETE FROM _slonbase.events WHERE created < now() - interval '{EVENT_RETENTION_SECS} seconds'"),
-                                    &[],
-                                )
+                                .batch_execute(&format!(
+                                    "DELETE FROM _slonbase.events WHERE created < now() - interval '{EVENT_RETENTION_SECS} seconds';
+                                     DELETE FROM _slonbase.otps WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';
+                                     DELETE FROM _slonbase.mfas WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';"
+                                ))
                                 .await;
                         }
                     }

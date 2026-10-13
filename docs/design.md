@@ -186,9 +186,9 @@ request a guest request, as in PocketBase.
 - `email`, `emailVisibility`, `verified`.
 
 They also get its auth options: `authRule`, `manageRule`, `passwordAuth`, token durations and
-email templates. The OAuth2, OTP, MFA and auth alert options are accepted and stored for
-compatibility but not implemented yet. A collection's type can't change, and system fields can't
-be removed or renamed.
+email templates, plus `oauth2`, `otp` and `mfa` (see below). The auth alert option is accepted
+and stored for compatibility but not implemented yet. A collection's type can't change, and
+system fields can't be removed or renamed.
 
 **Indexes.** PocketBase's email index is partial (`WHERE email != ''`), which slonbase's safe index
 subset doesn't allow, so auth collections get two system-managed unique indexes that aren't listed
@@ -229,10 +229,70 @@ password is never returned by the API, and an empty password in an update keeps 
 Mail goes through `lettre` with rustls (no OpenSSL), or to the log when SMTP is disabled.
 
 **Not yet:**
-- OAuth2, OTP, MFA and auth alerts
+- auth alerts (emails about sign-ins from new devices)
 - rate limiting of sign-in attempts (bcrypt's cost limits guessing for now)
 - built-in confirmation pages: the email links point to PocketBase's admin UI routes
   (`/_/#/auth/...`), which will work once the dashboard is embedded
+
+### Phase 3: OAuth2, OTP and MFA
+
+These follow PocketBase's endpoints and options, so the SDKs' `authWithOAuth2`, `requestOTP`,
+`authWithOTP` and MFA flows work. State lives in three `_slonbase` tables (`external_auths`,
+`otps`, `mfas`) that reference the collection with `ON DELETE CASCADE`; a record's rows are
+deleted with the record, and expired OTPs and MFA sessions are pruned by the listener.
+
+**OTP.** `request-otp` answers `{"otpId"}` for any email, and does the work for registered ones
+(bcrypt hash, insert, email) in the background, so neither the answer nor its timing reveals
+which emails exist. Only the hash is stored. An OTP is single-use (deleted with a `DELETE` whose
+row count decides a race), expires after `otp.duration`, and is invalidated after 5 wrong
+passwords. A record can have at most 9 active OTPs; further requests return the latest id without
+a new email. Signing in with an OTP marks the record verified when it went to its email. The
+email template gets `{OTP}` and `{OTP_ID}`.
+
+**MFA.** When `mfa.enabled` and the record matches `mfa.rule` (empty: every record), a sign-in
+with one method (`password`, `otp` or `oauth2`) answers `401 {"mfaId"}` instead of a token.
+Signing in with a *different* method and that `mfaId` (body or query string) returns the token.
+An MFA session is bound to its record, expires after `mfa.duration`, and is single-use. MFA
+requires at least two enabled methods. Token refresh and impersonation don't ask for it.
+
+**OAuth2.** Presets for Google, GitHub, GitLab, Discord, Microsoft and Facebook, and `oidc`,
+`oidc2`, `oidc3` for any OpenID Connect provider (configured URLs). Any preset's URLs can be
+overridden (e.g. self-hosted GitLab).
+- `auth-methods` lists each provider with a fresh `state` and PKCE pair (`S256`, on unless
+  `pkce: false`) and an `authURL` ending in `redirect_uri=` for the client to complete.
+- `auth-with-oauth2` exchanges the code (client secret in the form body, 15 s timeout, 1 MiB
+  response limit) and fetches the provider's user, then picks the record: the linked one, else
+  the signed-in record of the collection (linking a new provider to it), else the one with the
+  provider's email, else a new one.
+- **Only verified emails are used**, since an email links the provider account to an existing
+  record: OIDC/Google need `email_verified`, Discord `verified`, GitHub falls back to the
+  verified primary email; Microsoft's `mail` isn't verified, so it's ignored.
+- An existing **unverified** record with the provider's email may belong to someone who signed up
+  with an address they don't own: unless it's the signed-in record, its password is replaced
+  with a random one and its token key rotated (signing out every session) before it's marked
+  verified. PocketBase does the same but also verifies records whose email differs from the
+  provider's; slonbase doesn't.
+- New records are created through the records API as a guest, so the create rule, validation and
+  realtime events apply. `createData` and the `mappedFields` (`id`, `name`, `username`,
+  `avatarURL`) fill the record; an avatar mapped to a file field is downloaded (5 MiB limit) and
+  checked against the field's types. The record is verified when the provider gave an email.
+- The response adds `meta` (`id`, `name`, `username`, `email`, `avatarURL`, `isNew`, `rawUser`,
+  `accessToken`, `refreshToken`, `expiry`).
+- Client secrets are never returned by the collections API; an empty `clientSecret` in an update
+  keeps the stored secret of the provider with the same name.
+- `/api/oauth2-redirect` (GET, or POST for `form_post`) passes `{state, code, error}` to the
+  realtime client whose id is the `state` and that subscribed to `@oauth2` (the SDKs' popup
+  flow). When that client isn't connected to this instance, the message goes through
+  `pg_notify` to the others.
+- Linked accounts: `GET /api/collections/{c}/records/{id}/external-auths` and
+  `DELETE .../external-auths/{provider}` (the record itself or superusers), PocketBase's
+  pre-0.23 endpoints. PocketBase 0.23's `_externalAuths` collection isn't exposed.
+
+The HTTP client is `reqwest` with rustls and ring, using the Mozilla roots (like the database and
+SMTP connections), so the binary stays OpenSSL-free and works in a `scratch` image.
+
+**Not yet:** OTP and MFA for superusers, OIDC `id_token` validation (the user info endpoint is
+used instead), and Apple's and the other PocketBase presets.
 
 ### Phase 3: realtime and multi-instance sync
 
@@ -389,6 +449,11 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Auth method tests run a mock OAuth2 provider (code exchange, user info, avatar) and cover
+  sign-up with mapped fields and avatars, linking by provider id, signed-in record and verified
+  email, the unverified-record takeover protection, the create rule, linked accounts, masked
+  client secrets, OTP limits and single use, MFA rules and sessions, and the `@oauth2` redirect
+  over realtime.
 - Auth tests cover auth collection definitions, sign-up/sign-in, rules with `@request.auth`,
   email visibility, password and email changes with managers, the verification, password reset
   and email change flows (with a capturing mailer), impersonation and settings.
@@ -405,7 +470,7 @@ the file.
 1. **Collections** (done): schema management, CRUD, filter/sort/pagination, API rules,
    superuser auth.
 2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
-   reset, email change, impersonation, settings and mail. OAuth2, OTP and MFA follow.
+   reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local storage, thumbnails, protected files; S3 next).
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.

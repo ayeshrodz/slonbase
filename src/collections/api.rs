@@ -39,6 +39,17 @@ async fn fresh_registry(core: &Core) -> Result<Registry, ApiError> {
     Ok(registry)
 }
 
+/// A collection as returned by the API: OAuth2 client secrets are left out.
+pub fn to_json(c: &Collection) -> Value {
+    let mut value = serde_json::to_value(c).expect("serializes");
+    if let Some(Value::Array(providers)) = value.pointer_mut("/oauth2/providers") {
+        for provider in providers {
+            provider["clientSecret"] = Value::String(String::new());
+        }
+    }
+    value
+}
+
 fn parse(body: Map<String, Value>) -> Result<Collection, ApiError> {
     serde_json::from_value(Value::Object(body))
         .map_err(|e| ApiError::bad_request(format!("Invalid collection data: {e}.")))
@@ -66,11 +77,11 @@ pub async fn list(
         .filter(|p| *p >= 1)
         .unwrap_or(30)
         .min(1000);
-    let items: Vec<&Collection> = all
+    let items: Vec<Value> = all
         .iter()
         .skip((page - 1).saturating_mul(per_page))
         .take(per_page)
-        .map(|c| c.as_ref())
+        .map(|c| to_json(c))
         .collect();
 
     Ok(Json(json!({
@@ -92,7 +103,7 @@ pub async fn view(
     auth.require_superuser()?;
     let registry = core.registry();
     let c = registry.get(&id_or_name).ok_or_else(not_found)?;
-    Ok(Json(serde_json::to_value(c.as_ref()).expect("serializes")))
+    Ok(Json(to_json(c)))
 }
 
 /// `POST /api/collections`
@@ -120,9 +131,7 @@ pub async fn create(
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
 
-    Ok(Json(
-        serde_json::to_value(saved.as_ref()).expect("serializes"),
-    ))
+    Ok(Json(to_json(&saved)))
 }
 
 /// `PATCH /api/collections/{collection}`. Top-level keys in the body replace the stored ones.
@@ -164,9 +173,7 @@ pub async fn update(
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "updated collection");
 
-    Ok(Json(
-        serde_json::to_value(saved.as_ref()).expect("serializes"),
-    ))
+    Ok(Json(to_json(&saved)))
 }
 
 /// `DELETE /api/collections/{collection}`

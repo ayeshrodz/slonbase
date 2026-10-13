@@ -13,6 +13,7 @@ pub mod filter;
 pub mod ids;
 pub mod mail;
 pub mod migrations;
+pub mod oauth2;
 pub mod realtime;
 pub mod records;
 pub mod server;

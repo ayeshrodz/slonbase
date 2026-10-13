@@ -92,12 +92,33 @@ pub fn prepare(c: &mut Collection, old: Option<&Collection>, registry: &Registry
         }
     }
     prepare_auth(c, &mut errors);
+    keep_client_secrets(c, old);
     prepare_fields(c, old, registry, &mut errors);
     validate_rules(c, registry, &mut errors);
     prepare_indexes(c, old, registry, &mut errors);
     validate_auth_options(c, registry, &mut errors);
 
     errors
+}
+
+/// OAuth2 client secrets aren't returned by the API, so an empty one on update keeps the
+/// stored secret of the provider with the same name.
+fn keep_client_secrets(c: &mut Collection, old: Option<&Collection>) {
+    let (Some(auth), Some(old)) = (c.auth.as_mut(), old.and_then(|o| o.auth_options())) else {
+        return;
+    };
+    for provider in &mut auth.oauth2.providers {
+        if provider.client_secret.is_empty() {
+            if let Some(stored) = old
+                .oauth2
+                .providers
+                .iter()
+                .find(|p| p.name == provider.name)
+            {
+                provider.client_secret = stored.client_secret.clone();
+            }
+        }
+    }
 }
 
 /// Adds the auth system fields and default options to auth collections.
@@ -228,13 +249,140 @@ fn validate_auth_options(c: &Collection, registry: &Registry, errors: &mut Error
         allow_hidden: true,
     };
     for (key, rule) in [
-        ("authRule", &auth.auth_rule),
-        ("manageRule", &auth.manage_rule),
+        ("authRule", auth.auth_rule.as_deref()),
+        ("manageRule", auth.manage_rule.as_deref()),
+        ("mfa.rule", Some(auth.mfa.rule.as_str())),
     ] {
-        if let Some(rule) = rule.as_deref().filter(|r| !r.trim().is_empty()) {
+        if let Some(rule) = rule.filter(|r| !r.trim().is_empty()) {
             if let Err(e) = to_sql(rule, &scope, &mut Params::default()) {
                 errors.invalid(key, format!("Invalid rule: {e}."));
             }
+        }
+    }
+
+    validate_auth_methods(c, auth, errors);
+}
+
+const MIN_AUTH_METHOD_DURATION: i64 = 10;
+const MAX_AUTH_METHOD_DURATION: i64 = 86_400;
+
+fn valid_url(url: &str) -> bool {
+    (url.starts_with("https://") || url.starts_with("http://"))
+        && !url.contains(char::is_whitespace)
+}
+
+fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors) {
+    let duration_range = MIN_AUTH_METHOD_DURATION..=MAX_AUTH_METHOD_DURATION;
+    let duration_message = format!(
+        "Must be between {MIN_AUTH_METHOD_DURATION} and {MAX_AUTH_METHOD_DURATION} seconds."
+    );
+
+    if auth.otp.enabled {
+        if !duration_range.contains(&auth.otp.duration) {
+            errors.invalid("otp.duration", duration_message.clone());
+        }
+        if !(4..=32).contains(&auth.otp.length) {
+            errors.invalid("otp.length", "Must be between 4 and 32.");
+        }
+        if auth.otp.email_template.subject.trim().is_empty() {
+            errors.add(
+                "otp.emailTemplate.subject",
+                "validation_required",
+                "Cannot be blank.",
+            );
+        }
+        if !auth.otp.email_template.body.contains("{OTP}") {
+            errors.invalid(
+                "otp.emailTemplate.body",
+                "Must contain the {OTP} placeholder.",
+            );
+        }
+    }
+
+    if auth.mfa.enabled {
+        if !duration_range.contains(&auth.mfa.duration) {
+            errors.invalid("mfa.duration", duration_message);
+        }
+        let methods = [
+            auth.password_auth.enabled,
+            auth.oauth2.enabled,
+            auth.otp.enabled,
+        ];
+        if methods.iter().filter(|enabled| **enabled).count() < 2 {
+            errors.invalid(
+                "mfa.enabled",
+                "MFA requires at least 2 enabled authentication methods.",
+            );
+        }
+    }
+
+    let oauth2 = &auth.oauth2;
+    let mut names = HashSet::new();
+    for (i, provider) in oauth2.providers.iter().enumerate() {
+        let key = |name: &str| format!("oauth2.providers.{i}.{name}");
+        if !crate::oauth2::is_known(&provider.name) {
+            errors.invalid(
+                key("name"),
+                format!("Unknown provider {:?}.", provider.name),
+            );
+            continue;
+        }
+        if !names.insert(provider.name.as_str()) {
+            errors.invalid(key("name"), "Each provider can only be added once.");
+        }
+        if provider.client_id.trim().is_empty() {
+            errors.add(key("clientId"), "validation_required", "Cannot be blank.");
+        }
+        if provider.client_secret.trim().is_empty() {
+            errors.add(
+                key("clientSecret"),
+                "validation_required",
+                "Cannot be blank.",
+            );
+        }
+        for (name, url) in [
+            ("authURL", &provider.auth_url),
+            ("tokenURL", &provider.token_url),
+            ("userInfoURL", &provider.user_info_url),
+        ] {
+            if url.is_empty() {
+                if crate::oauth2::needs_urls(&provider.name) {
+                    errors.add(key(name), "validation_required", "Cannot be blank.");
+                }
+            } else if !valid_url(url) {
+                errors.invalid(key(name), "Must be an http(s) URL.");
+            }
+        }
+    }
+    if oauth2.enabled && oauth2.providers.is_empty() {
+        errors.add(
+            "oauth2.providers",
+            "validation_required",
+            "Cannot be blank.",
+        );
+    }
+    let mapped = &oauth2.mapped_fields;
+    for (name, field) in [
+        ("id", &mapped.id),
+        ("name", &mapped.name),
+        ("username", &mapped.username),
+        ("avatarURL", &mapped.avatar_url),
+    ] {
+        let ok = field.is_empty()
+            || c.field(field).is_some_and(|f| {
+                !f.system
+                    && match &f.kind {
+                        FieldKind::File(_) => name == "avatarURL",
+                        kind => {
+                            f.storage() == Storage::Text && !matches!(kind, FieldKind::Password(_))
+                        }
+                    }
+            });
+        if !ok {
+            errors.invalid(
+                format!("oauth2.mappedFields.{name}"),
+                format!("{field:?} must be a non-system text field of the collection."),
+            );
         }
     }
 }

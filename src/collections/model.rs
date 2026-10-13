@@ -143,11 +143,11 @@ pub struct AuthOptions {
     pub verification_template: EmailTemplate,
     pub reset_password_template: EmailTemplate,
     pub confirm_email_change_template: EmailTemplate,
+    pub oauth2: OAuth2Options,
+    pub mfa: MfaOptions,
+    pub otp: OtpOptions,
     // accepted and stored for compatibility, not implemented yet
     pub auth_alert: Value,
-    pub oauth2: Value,
-    pub mfa: Value,
-    pub otp: Value,
 }
 
 impl Default for AuthOptions {
@@ -187,9 +187,96 @@ impl Default for AuthOptions {
                     .into(),
             },
             auth_alert: json!({ "enabled": false }),
-            oauth2: json!({ "enabled": false, "providers": [], "mappedFields": {} }),
-            mfa: json!({ "enabled": false, "duration": 600, "rule": "" }),
-            otp: json!({ "enabled": false, "duration": 180, "length": 8 }),
+            oauth2: OAuth2Options::default(),
+            mfa: MfaOptions::default(),
+            otp: OtpOptions::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OAuth2Options {
+    pub enabled: bool,
+    pub providers: Vec<OAuth2Provider>,
+    /// Record fields filled from the provider's user on sign-up.
+    pub mapped_fields: OAuth2MappedFields,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OAuth2Provider {
+    /// A preset (`google`, `github`, `gitlab`, `discord`, `microsoft`, `facebook`) or
+    /// `oidc`, `oidc2`, `oidc3` for any OpenID Connect provider.
+    pub name: String,
+    pub client_id: String,
+    /// Never returned by the API; an empty value on update keeps the stored one.
+    pub client_secret: String,
+    #[serde(rename = "authURL")]
+    pub auth_url: String,
+    #[serde(rename = "tokenURL")]
+    pub token_url: String,
+    #[serde(rename = "userInfoURL")]
+    pub user_info_url: String,
+    pub display_name: String,
+    pub pkce: Option<bool>,
+    pub extra: serde_json::Map<String, Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OAuth2MappedFields {
+    pub id: String,
+    pub name: String,
+    pub username: String,
+    #[serde(rename = "avatarURL")]
+    pub avatar_url: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MfaOptions {
+    pub enabled: bool,
+    /// Seconds to complete the second method.
+    pub duration: i64,
+    /// Records that need MFA (empty: all).
+    pub rule: String,
+}
+
+impl Default for MfaOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            duration: 600,
+            rule: String::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct OtpOptions {
+    pub enabled: bool,
+    /// Seconds an OTP is valid.
+    pub duration: i64,
+    /// Number of digits.
+    pub length: usize,
+    pub email_template: EmailTemplate,
+}
+
+impl Default for OtpOptions {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            duration: 180,
+            length: 8,
+            email_template: EmailTemplate {
+                subject: "OTP for {APP_NAME}".into(),
+                body: "<p>Hello,</p>\n<p>Your one-time password is: <strong>{OTP}</strong></p>\n\
+                       <p><i>If you didn't ask for the one-time password, you can ignore this email.</i></p>\n\
+                       <p>Thanks,<br/>\n{APP_NAME} team</p>"
+                    .into(),
+            },
         }
     }
 }
