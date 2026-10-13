@@ -51,20 +51,29 @@ jobs:
       SLONBASE_TEST_S3_ENDPOINT: http://127.0.0.1:9000
       SLONBASE_TEST_S3_ACCESS_KEY: slonbase
       SLONBASE_TEST_S3_SECRET: slonbase-secret
+      MINIO_VERSION: v0.0.0-20260212201848-7aac2a2c5b7c
     steps:
       - uses: actions/checkout@v4
-      # a service container can't be given MinIO's `server` command
+      # MinIO no longer publishes images, so a pinned version is built from source once
+      - name: Cache MinIO
+        id: minio-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/minio/bin
+          key: minio-${{ env.MINIO_VERSION }}
+      - name: Build MinIO
+        if: steps.minio-cache.outputs.cache-hit != 'true'
+        run: GOBIN="$HOME/minio/bin" go install "github.com/minio/minio@$MINIO_VERSION"
       - name: Start MinIO
         run: |
-          docker run -d --name minio -p 9000:9000 \
-            -e MINIO_ROOT_USER="$SLONBASE_TEST_S3_ACCESS_KEY" \
-            -e MINIO_ROOT_PASSWORD="$SLONBASE_TEST_S3_SECRET" \
-            minio/minio:RELEASE.2025-04-22T22-12-26Z server /data
+          mkdir -p "$HOME/minio/data"
+          MINIO_ROOT_USER="$SLONBASE_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$SLONBASE_TEST_S3_SECRET" \
+            nohup "$HOME/minio/bin/minio" server "$HOME/minio/data" --address 127.0.0.1:9000 > "$HOME/minio/log" 2>&1 &
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:9000/minio/health/live && exit 0
             sleep 1
           done
-          docker logs minio
+          cat "$HOME/minio/log"
           exit 1
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
