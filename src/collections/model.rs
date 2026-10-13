@@ -1,14 +1,37 @@
 //! Collection and field definitions, (de)serialized in PocketBase's JSON format.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
 
 /// Id PocketBase uses for its superusers collection (kept for SDK compatibility).
 pub const SUPERUSERS_COLLECTION_ID: &str = "pbc_3142635823";
 pub const SUPERUSERS_COLLECTION_NAME: &str = "_superusers";
 
+/// A collection. Auth collections carry [`AuthOptions`], which PocketBase serializes
+/// as top-level keys, so (de)serialization goes through [`RawCollection`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(try_from = "RawCollection", into = "RawCollection")]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    pub kind: CollectionKind,
+    pub system: bool,
+    pub fields: Vec<Field>,
+    pub indexes: Vec<String>,
+    pub list_rule: Option<String>,
+    pub view_rule: Option<String>,
+    pub create_rule: Option<String>,
+    pub update_rule: Option<String>,
+    pub delete_rule: Option<String>,
+    pub created: String,
+    pub updated: String,
+    /// Set for auth collections (normalized by validation).
+    pub auth: Option<AuthOptions>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct Collection {
+pub struct RawCollection {
     #[serde(default)]
     pub id: String,
     #[serde(default)]
@@ -35,6 +58,63 @@ pub struct Collection {
     pub created: String,
     #[serde(default)]
     pub updated: String,
+    #[serde(flatten)]
+    pub extra: Map<String, Value>,
+}
+
+impl TryFrom<RawCollection> for Collection {
+    type Error = serde_json::Error;
+
+    fn try_from(raw: RawCollection) -> Result<Self, Self::Error> {
+        let auth = match raw.kind {
+            CollectionKind::Auth => Some(serde_json::from_value(Value::Object(raw.extra))?),
+            CollectionKind::Base => None,
+        };
+        Ok(Self {
+            id: raw.id,
+            name: raw.name,
+            kind: raw.kind,
+            system: raw.system,
+            fields: raw.fields,
+            indexes: raw.indexes,
+            list_rule: raw.list_rule,
+            view_rule: raw.view_rule,
+            create_rule: raw.create_rule,
+            update_rule: raw.update_rule,
+            delete_rule: raw.delete_rule,
+            created: raw.created,
+            updated: raw.updated,
+            auth,
+        })
+    }
+}
+
+impl From<Collection> for RawCollection {
+    fn from(c: Collection) -> Self {
+        let extra = match c.auth {
+            Some(auth) => match serde_json::to_value(auth) {
+                Ok(Value::Object(map)) => map,
+                _ => Map::new(),
+            },
+            None => Map::new(),
+        };
+        Self {
+            id: c.id,
+            name: c.name,
+            kind: c.kind,
+            system: c.system,
+            fields: c.fields,
+            indexes: c.indexes,
+            list_rule: c.list_rule,
+            view_rule: c.view_rule,
+            create_rule: c.create_rule,
+            update_rule: c.update_rule,
+            delete_rule: c.delete_rule,
+            created: c.created,
+            updated: c.updated,
+            extra,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +122,106 @@ pub struct Collection {
 pub enum CollectionKind {
     #[default]
     Base,
+    Auth,
+}
+
+/// Options of auth collections (PocketBase's names and defaults).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AuthOptions {
+    /// Extra condition for signing in: `null` disables auth, `""` allows any record.
+    pub auth_rule: Option<String>,
+    /// Who may manage other records of this collection (change their email,
+    /// password or verified state without knowing the password).
+    pub manage_rule: Option<String>,
+    pub password_auth: PasswordAuthOptions,
+    pub auth_token: TokenOptions,
+    pub password_reset_token: TokenOptions,
+    pub email_change_token: TokenOptions,
+    pub verification_token: TokenOptions,
+    pub file_token: TokenOptions,
+    pub verification_template: EmailTemplate,
+    pub reset_password_template: EmailTemplate,
+    pub confirm_email_change_template: EmailTemplate,
+    // accepted and stored for compatibility, not implemented yet
+    pub auth_alert: Value,
+    pub oauth2: Value,
+    pub mfa: Value,
+    pub otp: Value,
+}
+
+impl Default for AuthOptions {
+    fn default() -> Self {
+        let duration = |d| TokenOptions { duration: d };
+        Self {
+            auth_rule: Some(String::new()),
+            manage_rule: None,
+            password_auth: PasswordAuthOptions::default(),
+            auth_token: duration(432_000),
+            password_reset_token: duration(1800),
+            email_change_token: duration(1800),
+            verification_token: duration(86_400),
+            file_token: duration(180),
+            verification_template: EmailTemplate {
+                subject: "Verify your {APP_NAME} email".into(),
+                body: "<p>Hello,</p>\n<p>Thank you for joining us at {APP_NAME}.</p>\n\
+                       <p>Click on the link below to verify your email address.</p>\n\
+                       <p><a href=\"{APP_URL}/_/#/auth/confirm-verification/{TOKEN}\">Verify</a></p>\n\
+                       <p>Thanks,<br/>\n{APP_NAME} team</p>"
+                    .into(),
+            },
+            reset_password_template: EmailTemplate {
+                subject: "Reset your {APP_NAME} password".into(),
+                body: "<p>Hello,</p>\n<p>Click on the link below to reset your password.</p>\n\
+                       <p><a href=\"{APP_URL}/_/#/auth/confirm-password-reset/{TOKEN}\">Reset password</a></p>\n\
+                       <p><i>If you didn't ask to reset your password, you can ignore this email.</i></p>\n\
+                       <p>Thanks,<br/>\n{APP_NAME} team</p>"
+                    .into(),
+            },
+            confirm_email_change_template: EmailTemplate {
+                subject: "Confirm your {APP_NAME} new email address".into(),
+                body: "<p>Hello,</p>\n<p>Click on the link below to confirm your new email address.</p>\n\
+                       <p><a href=\"{APP_URL}/_/#/auth/confirm-email-change/{TOKEN}\">Confirm new email</a></p>\n\
+                       <p><i>If you didn't ask to change your email address, you can ignore this email.</i></p>\n\
+                       <p>Thanks,<br/>\n{APP_NAME} team</p>"
+                    .into(),
+            },
+            auth_alert: json!({ "enabled": false }),
+            oauth2: json!({ "enabled": false, "providers": [], "mappedFields": {} }),
+            mfa: json!({ "enabled": false, "duration": 600, "rule": "" }),
+            otp: json!({ "enabled": false, "duration": 180, "length": 8 }),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PasswordAuthOptions {
+    pub enabled: bool,
+    pub identity_fields: Vec<String>,
+}
+
+impl Default for PasswordAuthOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            identity_fields: vec!["email".into()],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct TokenOptions {
+    /// Validity in seconds.
+    pub duration: i64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct EmailTemplate {
+    pub subject: String,
+    pub body: String,
 }
 
 impl Collection {
@@ -128,6 +308,19 @@ pub enum FieldKind {
     Select(SelectOptions),
     Json(JsonOptions),
     Relation(RelationOptions),
+    Password(PasswordOptions),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PasswordOptions {
+    pub min: usize,
+    /// 0 means the bcrypt limit (71 bytes).
+    pub max: usize,
+    pub pattern: String,
+    /// bcrypt cost, 0 means the default (10).
+    pub cost: u32,
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -248,6 +441,7 @@ impl Field {
             FieldKind::Select(_) => "select",
             FieldKind::Json(_) => "json",
             FieldKind::Relation(_) => "relation",
+            FieldKind::Password(_) => "password",
         }
     }
 
@@ -265,9 +459,11 @@ impl Field {
 
     pub fn storage(&self) -> Storage {
         match &self.kind {
-            FieldKind::Text(_) | FieldKind::Editor(_) | FieldKind::Email(_) | FieldKind::Url(_) => {
-                Storage::Text
-            }
+            FieldKind::Text(_)
+            | FieldKind::Editor(_)
+            | FieldKind::Email(_)
+            | FieldKind::Url(_)
+            | FieldKind::Password(_) => Storage::Text,
             FieldKind::Number(_) => Storage::Number,
             FieldKind::Bool(_) => Storage::Bool,
             FieldKind::Date(_) | FieldKind::Autodate(_) => Storage::Date,
@@ -311,8 +507,86 @@ impl Field {
             FieldKind::Select(o) => o.required,
             FieldKind::Json(o) => o.required,
             FieldKind::Relation(o) => o.required,
+            FieldKind::Password(o) => o.required,
         }
     }
+}
+
+pub const FIELD_PASSWORD: &str = "password";
+pub const FIELD_TOKEN_KEY: &str = "tokenKey";
+pub const FIELD_EMAIL: &str = "email";
+pub const FIELD_EMAIL_VISIBILITY: &str = "emailVisibility";
+pub const FIELD_VERIFIED: &str = "verified";
+
+impl Collection {
+    pub fn is_auth(&self) -> bool {
+        self.kind == CollectionKind::Auth
+    }
+
+    /// The auth options, for auth collections.
+    pub fn auth_options(&self) -> Option<&AuthOptions> {
+        self.auth.as_ref().filter(|_| self.is_auth())
+    }
+}
+
+impl Field {
+    /// Never returned in API responses, whoever asks (password hashes, token keys).
+    pub fn is_secret(&self) -> bool {
+        matches!(self.kind, FieldKind::Password(_)) || (self.system && self.name == FIELD_TOKEN_KEY)
+    }
+}
+
+/// The system fields every auth collection has (PocketBase's definitions).
+pub fn default_auth_fields() -> Vec<Field> {
+    let field = |name: &str, kind: FieldKind, hidden: bool| Field {
+        id: String::new(),
+        name: name.into(),
+        system: true,
+        hidden,
+        presentable: false,
+        help: String::new(),
+        kind,
+    };
+    vec![
+        field(
+            FIELD_PASSWORD,
+            FieldKind::Password(PasswordOptions {
+                min: 8,
+                required: true,
+                ..Default::default()
+            }),
+            true,
+        ),
+        field(
+            FIELD_TOKEN_KEY,
+            FieldKind::Text(TextOptions {
+                min: 30,
+                max: 60,
+                autogenerate_pattern: "[a-zA-Z0-9]{50}".into(),
+                required: true,
+                ..Default::default()
+            }),
+            true,
+        ),
+        field(
+            FIELD_EMAIL,
+            FieldKind::Email(DomainOptions {
+                required: true,
+                ..Default::default()
+            }),
+            false,
+        ),
+        field(
+            FIELD_EMAIL_VISIBILITY,
+            FieldKind::Bool(BoolOptions::default()),
+            false,
+        ),
+        field(
+            FIELD_VERIFIED,
+            FieldKind::Bool(BoolOptions::default()),
+            false,
+        ),
+    ]
 }
 
 /// The default primary key field (matches PocketBase's).

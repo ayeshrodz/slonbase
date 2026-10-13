@@ -4,8 +4,9 @@ A lightweight, high-performance backend in a single Rust binary, powered by **Po
 Inspired by [PocketBase](https://pocketbase.io): define collections, get a REST API, auth and an
 admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
-> **Status: early development (phase 1).** Collections, the records REST API with filtering and
-> API rules, and superuser auth work. User auth, realtime, files and the admin dashboard are next.
+> **Status: early development (phase 2).** Collections, the records REST API with filtering and
+> API rules, and auth (superusers and auth collections with sign-up, login, verification, password
+> reset and email change) work. Realtime, files and the admin dashboard are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -103,8 +104,14 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 
 | Endpoint | Description |
 |---|---|
-| `POST /api/collections/_superusers/auth-with-password` | Superuser login (`{"identity", "password"}`), returns `{token, record}` |
-| `POST /api/collections/_superusers/auth-refresh` | New token for a valid superuser token |
+| `POST /api/collections/{collection}/auth-with-password` | Sign in (`{"identity", "password"}`), returns `{token, record}`; use `_superusers` for superusers |
+| `POST /api/collections/{collection}/auth-refresh` | A new token for a valid one |
+| `GET /api/collections/{collection}/auth-methods` | Available sign-in methods |
+| `POST /api/collections/{collection}/request-verification`, `confirm-verification` | Email verification |
+| `POST /api/collections/{collection}/request-password-reset`, `confirm-password-reset` | Password reset by email |
+| `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
+| `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
+| `GET/PATCH /api/settings` | App name/URL and SMTP settings (superusers) |
 | `GET/POST /api/collections`, `GET/PATCH/DELETE /api/collections/{idOrName}` | Manage collections (superusers) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
@@ -122,18 +129,26 @@ curl -X POST localhost:8090/api/collections/todos/records -H 'content-type: appl
 curl "localhost:8090/api/collections/todos/records?filter=done=false&sort=-text"
 ```
 
+**Collections** are `base` or `auth`. Auth collections add the `password`, `tokenKey`, `email`,
+`emailVisibility` and `verified` system fields and PocketBase's auth options (`authRule`,
+`manageRule`, `passwordAuth`, token durations, email templates). Sign up by creating a record
+with `password` and `passwordConfirm`.
+
 **Field types:** `text`, `editor`, `number`, `bool`, `email`, `url`, `date`, `autodate`, `select`,
-`json` and `relation`. Each collection is a real PostgreSQL table in the `slonbase` schema
+`json`, `relation` and `password` (auth collections). Each collection is a real PostgreSQL table in the `slonbase` schema
 (`TEXT`, `DOUBLE PRECISION`, `BOOLEAN`, `TIMESTAMPTZ`, `JSONB`), so other tools can query it directly.
 
 **Filters and rules** use PocketBase's syntax: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains),
 `!~`, the `?`-prefixed "any of" variants for multi-valued fields, `&&`, `||`, parentheses,
-`@request.*`, date macros such as `@now`, JSON paths (`meta.key`) and the `:length`, `:lower`,
+`@request.*` (including `@request.auth.*`, the signed-in record's fields), date macros such as `@now`, JSON paths (`meta.key`) and the `:length`, `:lower`,
 `:each` and `:isset` modifiers. A rule of `null` allows superusers only, `""` allows anyone.
 
-Not supported yet (see [docs/design.md](docs/design.md#phase-1-collections-and-records)): user
-auth collections, relation paths and `expand`, `@collection` lookups, filter functions, file
-fields, multipart uploads, realtime, and view collections.
+Emails (verification, password reset, email change) are sent through the SMTP server in the
+settings; while SMTP is disabled they're written to the log.
+
+Not supported yet (see [docs/design.md](docs/design.md)): OAuth2, OTP and MFA, relation paths and
+`expand`, `@collection` lookups, filter functions, file fields, multipart uploads, realtime, and
+view collections.
 
 ## Development
 
@@ -159,7 +174,8 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 
 0. **Foundation** (done): server, config, first-run setup, system migrations, packaging, CI.
 1. **Collections** (done): schema management, CRUD, filtering/sorting/pagination, API rules.
-2. **Auth**: superuser and user auth, then OAuth2, OTP and MFA.
+2. **Auth** (done): superusers and auth collections with password sign-in, verification, password
+   reset and email change. OAuth2, OTP and MFA follow.
 3. **Realtime, files and relation expansion.**
 4. **Admin dashboard**, mail, logs, backups, settings, batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.

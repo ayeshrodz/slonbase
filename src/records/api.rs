@@ -18,21 +18,23 @@ use deadpool_postgres::{GenericClient, Transaction};
 use serde_json::{Map, Value, json};
 use tokio_postgres::Row;
 
-use super::values::{self, Values};
+use super::store::{ALIAS, all_fields, record_json, row_values, select_list, visible_fields};
+use super::values::{self, Changes, Values};
 use crate::app::App;
 use crate::auth::RequestAuth;
 use crate::collections::indexes::Index;
-use crate::collections::model::{Collection, Field, FieldKind, RuleAction, Storage};
+use crate::collections::model::{
+    Collection, FIELD_EMAIL, FIELD_EMAIL_VISIBILITY, FIELD_PASSWORD, FIELD_TOKEN_KEY,
+    FIELD_VERIFIED, Field, FieldKind, RuleAction,
+};
 use crate::collections::schema::table_ref;
 use crate::collections::store::Registry;
-use crate::datetime;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, quote_ident, to_sql};
 use crate::validation::Errors;
 
-const ALIAS: &str = "t";
 const DEFAULT_PER_PAGE: i64 = 30;
 const MAX_PER_PAGE: i64 = 1000;
 const MAX_CASCADE_DEPTH: usize = 32;
@@ -49,8 +51,10 @@ fn request_info(
     query: &HashMap<String, String>,
     headers: &HeaderMap,
     body: Option<&Map<String, Value>>,
+    auth: &RequestAuth,
 ) -> RequestInfo {
     let mut info = RequestInfo::new(method.as_str());
+    info.auth = auth.info();
     info.query = query.clone();
     info.headers = headers
         .iter()
@@ -105,54 +109,6 @@ fn ensure_allowed(c: &Collection, action: RuleAction, auth: &RequestAuth) -> Res
     Ok(())
 }
 
-/// Columns returned to the client, in field order.
-fn visible_fields(c: &Collection, include_hidden: bool) -> Vec<&Field> {
-    c.fields
-        .iter()
-        .filter(|f| include_hidden || !f.hidden)
-        .collect()
-}
-
-fn select_list(fields: &[&Field]) -> String {
-    fields
-        .iter()
-        .map(|f| {
-            let column = format!("{ALIAS}.{}", quote_ident(&f.name));
-            let expr = match f.storage() {
-                Storage::Date => datetime::sql_format(&column),
-                _ => column,
-            };
-            format!("{expr} AS {}", quote_ident(&f.name))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// Reads normalized values from a row selected with [`select_list`].
-fn row_values(fields: &[&Field], row: &Row) -> Values {
-    let mut map = Map::with_capacity(fields.len());
-    for (i, f) in fields.iter().enumerate() {
-        let value = match f.storage() {
-            Storage::Text => Value::String(row.get(i)),
-            Storage::Number => values::number(row.get(i)),
-            Storage::Bool => Value::Bool(row.get(i)),
-            Storage::Date => Value::String(row.get::<_, Option<String>>(i).unwrap_or_default()),
-            Storage::Multi => row.get(i),
-            Storage::Json => row.get::<_, Option<Value>>(i).unwrap_or(Value::Null),
-        };
-        map.insert(f.name.clone(), value);
-    }
-    map
-}
-
-fn record_json(c: &Collection, values: Values) -> Value {
-    let mut out = Map::with_capacity(values.len() + 2);
-    out.insert("collectionId".into(), Value::String(c.id.clone()));
-    out.insert("collectionName".into(), Value::String(c.name.clone()));
-    out.extend(values);
-    Value::Object(out)
-}
-
 /// Applies the `fields` query parameter (`id,title`; `*` keeps everything).
 fn pick_fields(record: Value, fields: Option<&String>) -> Value {
     let Some(raw) = fields.map(|f| f.trim()).filter(|f| !f.is_empty()) else {
@@ -180,6 +136,75 @@ fn bad_filter(e: impl std::fmt::Display) -> ApiError {
     ApiError::bad_request(format!("Invalid filter parameters: {e}."))
 }
 
+/// The `manageRule` condition of an auth collection: `None` when nobody manages it.
+fn manage_rule_sql(
+    c: &Collection,
+    request: &RequestInfo,
+    params: &mut Params,
+) -> Result<Option<String>, ApiError> {
+    let Some(rule) = c.auth_options().and_then(|a| a.manage_rule.as_deref()) else {
+        return Ok(None);
+    };
+    if rule.trim().is_empty() {
+        return Ok(Some("TRUE".into()));
+    }
+    let scope = Scope {
+        collection: c,
+        alias: ALIAS,
+        request,
+        allow_hidden: true,
+    };
+    to_sql(rule, &scope, params)
+        .map(Some)
+        .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored manage rule: {e}")))
+}
+
+/// For auth collections, a boolean SQL expression telling whether the caller may see a
+/// record's email: superusers, the record itself, managers, or `emailVisibility`.
+fn email_visible_sql(
+    c: &Collection,
+    auth: &RequestAuth,
+    request: &RequestInfo,
+    params: &mut Params,
+) -> Result<Option<String>, ApiError> {
+    if !c.is_auth() {
+        return Ok(None);
+    }
+    if auth.is_superuser() {
+        return Ok(Some("TRUE".into()));
+    }
+    let mut parts = vec![format!("{ALIAS}.{}", quote_ident(FIELD_EMAIL_VISIBILITY))];
+    if let Some(record) = auth.record.as_ref().filter(|r| r.collection.id == c.id) {
+        parts.push(format!("{ALIAS}.\"id\" = {}", params.push(record.id())));
+    }
+    if let Some(manage) = manage_rule_sql(c, request, params)? {
+        parts.push(manage);
+    }
+    Ok(Some(format!("({})", parts.join(" OR "))))
+}
+
+/// Select list for client responses: the visible fields, then the email visibility flag.
+fn output_select(fields: &[&Field], email_visible: &Option<String>) -> String {
+    match email_visible {
+        Some(sql) => format!("{}, {sql} AS _email_visible", select_list(fields)),
+        None => select_list(fields),
+    }
+}
+
+/// Builds the response for a row selected with [`output_select`].
+fn output_record(
+    c: &Collection,
+    fields: &[&Field],
+    row: &Row,
+    email_visible: &Option<String>,
+) -> Value {
+    let mut values = row_values(fields, row);
+    if email_visible.is_some() && !row.get::<_, bool>(fields.len()) {
+        values.remove(FIELD_EMAIL);
+    }
+    record_json(c, values)
+}
+
 /// `GET /api/collections/{collection}/records`
 pub async fn list(
     State(app): State<Arc<App>>,
@@ -191,7 +216,7 @@ pub async fn list(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
-    let request = request_info(&method, &query, &headers, None);
+    let request = request_info(&method, &query, &headers, None, &auth);
     let superuser = auth.is_superuser();
 
     let page = query
@@ -237,11 +262,15 @@ pub async fn list(
     )
     .map_err(|e| ApiError::bad_request(format!("Invalid sort parameter: {e}.")))?;
 
+    // the count only uses the WHERE parameters (unused ones would fail to prepare)
+    let count_params = params.clone();
+    let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
+
     let fields = visible_fields(&c, superuser);
     let table = table_ref(&c.name);
     let items_sql = format!(
         "SELECT {} FROM {table} {ALIAS} WHERE {where_sql} ORDER BY {} LIMIT {per_page} OFFSET {offset}",
-        select_list(&fields),
+        output_select(&fields, &email_visible),
         order.join(", ")
     );
     let count_sql = format!("SELECT count(*) FROM {table} {ALIAS} WHERE {where_sql}");
@@ -252,13 +281,14 @@ pub async fn list(
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
     let refs = params.as_refs();
+    let count_refs = count_params.as_refs();
     // pipelined on the same connection
     let (rows, total) = if skip_total {
         (client.query(&items_sql, &refs).await.map_err(db_error)?, -1)
     } else {
         let (rows, count) = tokio::try_join!(
             client.query(&items_sql, &refs),
-            client.query_one(&count_sql, &refs)
+            client.query_one(&count_sql, &count_refs)
         )
         .map_err(db_error)?;
         (rows, count.get::<_, i64>(0))
@@ -268,7 +298,7 @@ pub async fn list(
         .iter()
         .map(|row| {
             pick_fields(
-                record_json(&c, row_values(&fields, row)),
+                output_record(&c, &fields, row, &email_visible),
                 query.get("fields"),
             )
         })
@@ -299,7 +329,7 @@ pub async fn view(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
-    let request = request_info(&method, &query, &headers, None);
+    let request = request_info(&method, &query, &headers, None, &auth);
 
     let mut params = Params::default();
     let id_param = params.push(id);
@@ -307,11 +337,12 @@ pub async fn view(
     if let Some(rule) = rule_sql(&c, RuleAction::View, &auth, &request, &mut params)? {
         where_sql = format!("{where_sql} AND {rule}");
     }
+    let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
 
     let fields = visible_fields(&c, auth.is_superuser());
     let sql = format!(
         "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
-        select_list(&fields),
+        output_select(&fields, &email_visible),
         table_ref(&c.name)
     );
     let client = core
@@ -326,9 +357,51 @@ pub async fn view(
         .ok_or_else(ApiError::not_found)?;
 
     Ok(Json(pick_fields(
-        record_json(&c, row_values(&fields, &row)),
+        output_record(&c, &fields, &row, &email_visible),
         query.get("fields"),
     )))
+}
+
+/// Checks `passwordConfirm` for auth collections.
+fn check_password_confirm(c: &Collection, body: &Map<String, Value>, errors: &mut Errors) {
+    if !c.is_auth() {
+        return;
+    }
+    let password = body
+        .get(FIELD_PASSWORD)
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if password.is_empty() {
+        return;
+    }
+    if body.get("passwordConfirm").and_then(Value::as_str) != Some(password) {
+        errors.invalid("passwordConfirm", "Values don't match.");
+    }
+}
+
+/// Hashes the changed passwords into `values` and rotates the token key when needed.
+async fn apply_secrets(
+    c: &Collection,
+    values: &mut Values,
+    changes: &Changes,
+    rotate_token_key: bool,
+) -> Result<(), ApiError> {
+    for (name, plain) in &changes.passwords {
+        let field = c.field(name).expect("password field exists");
+        let hash = values::hash_password(field, plain.clone())
+            .await
+            .map_err(ApiError::internal)?;
+        values.insert(name.clone(), Value::String(hash));
+    }
+    if c.is_auth() && (rotate_token_key || !changes.passwords.is_empty()) {
+        values.insert(
+            FIELD_TOKEN_KEY.into(),
+            Value::String(
+                crate::ids::generate_from_pattern("[a-zA-Z0-9]{50}").expect("valid pattern"),
+            ),
+        );
+    }
+    Ok(())
 }
 
 /// `POST /api/collections/{collection}/records`
@@ -339,23 +412,35 @@ pub async fn create(
     method: Method,
     headers: HeaderMap,
     auth: RequestAuth,
-    JsonObject(body): JsonObject,
+    JsonObject(mut body): JsonObject,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
     ensure_allowed(&c, RuleAction::Create, &auth)?;
-    let request = request_info(&method, &query, &headers, Some(&body));
+    let request = request_info(&method, &query, &headers, Some(&body), &auth);
     let failed = "Failed to create record.";
+
+    // only superusers and managers (with an empty manage rule) can create verified records
+    let manage_all = c.auth_options().is_some_and(|a| {
+        a.manage_rule
+            .as_deref()
+            .is_some_and(|r| r.trim().is_empty())
+    });
+    if c.is_auth() && !auth.is_superuser() && !manage_all {
+        body.remove(FIELD_VERIFIED);
+    }
 
     let mut values = values::defaults(&c);
     let mut errors = Errors::new();
-    values::apply_body(&c, &mut values, &body, true, &mut errors);
+    let changes = values::apply_body(&c, &mut values, &body, true, &mut errors);
     values::finalize(&c, &mut values, true, &request.now, &mut errors);
-    values::validate(&c, &values, &mut errors);
+    values::validate(&c, &values, &changes, true, &mut errors);
+    check_password_confirm(&c, &body, &mut errors);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
+    apply_secrets(&c, &mut values, &changes, false).await?;
 
     let mut client = core
         .pool
@@ -383,13 +468,14 @@ pub async fn create(
         columns.push(quote_ident(&field.name));
         placeholders.push(format!("({placeholder}){}", values::sql_cast(field)));
     }
+    let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
     let fields = visible_fields(&c, auth.is_superuser());
     let sql = format!(
         "INSERT INTO {} AS {ALIAS} ({}) VALUES ({}) RETURNING {}",
         table_ref(&c.name),
         columns.join(", "),
         placeholders.join(", "),
-        select_list(&fields)
+        output_select(&fields, &email_visible)
     );
     let row = tx
         .query_one(&sql, &params.as_refs())
@@ -421,7 +507,7 @@ pub async fn create(
     }
     tx.commit().await.map_err(db_error)?;
 
-    Ok(Json(record_json(&c, row_values(&fields, &row))))
+    Ok(Json(output_record(&c, &fields, &row, &email_visible)))
 }
 
 /// `PATCH /api/collections/{collection}/records/{id}`
@@ -433,12 +519,12 @@ pub async fn update(
     method: Method,
     headers: HeaderMap,
     auth: RequestAuth,
-    JsonObject(body): JsonObject,
+    JsonObject(mut body): JsonObject,
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, Some(&body));
+    let request = request_info(&method, &query, &headers, Some(&body), &auth);
     let failed = "Failed to update record.";
 
     // the rule is checked against the current record (with @request.body available)
@@ -449,7 +535,7 @@ pub async fn update(
         where_sql = format!("{where_sql} AND {rule}");
     }
 
-    let all_fields = visible_fields(&c, true);
+    let stored = all_fields(&c);
     let mut client = core
         .pool
         .get()
@@ -460,7 +546,7 @@ pub async fn update(
         .query_opt(
             &format!(
                 "SELECT {} FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
-                select_list(&all_fields),
+                select_list(&stored),
                 table_ref(&c.name)
             ),
             &params.as_refs(),
@@ -468,18 +554,80 @@ pub async fn update(
         .await
         .map_err(db_error)?
         .ok_or_else(ApiError::not_found)?;
-    let mut values = row_values(&all_fields, &current);
-
+    let mut values = row_values(&stored, &current);
     let mut errors = Errors::new();
-    values::apply_body(&c, &mut values, &body, false, &mut errors);
+
+    // auth records: email, verified and passwords need the right to manage the record
+    let mut email_changed = false;
+    if c.is_auth() {
+        let can_manage = auth.is_superuser() || {
+            let mut manage_params = Params::default();
+            let id_param = manage_params.push(id.clone());
+            match manage_rule_sql(&c, &request, &mut manage_params)? {
+                None => false,
+                Some(rule) => tx
+                    .query_opt(
+                        &format!(
+                            "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {rule}",
+                            table_ref(&c.name)
+                        ),
+                        &manage_params.as_refs(),
+                    )
+                    .await
+                    .map_err(db_error)?
+                    .is_some(),
+            }
+        };
+
+        let current_email = values
+            .get(FIELD_EMAIL)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if let Some(new_email) = body.get(FIELD_EMAIL).and_then(Value::as_str) {
+            email_changed = !new_email.eq_ignore_ascii_case(&current_email);
+            if email_changed && !can_manage {
+                errors.invalid(
+                    FIELD_EMAIL,
+                    "The email can only be changed with an email change request.",
+                );
+            }
+        }
+        if !can_manage {
+            body.remove(FIELD_VERIFIED);
+            let changing_password = body
+                .get(FIELD_PASSWORD)
+                .and_then(Value::as_str)
+                .is_some_and(|p| !p.is_empty());
+            if changing_password {
+                let old = body
+                    .get("oldPassword")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let hash = values
+                    .get(FIELD_PASSWORD)
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if old.is_empty() || !values::verify_password(old, hash).await {
+                    errors.invalid("oldPassword", "Missing or invalid old password.");
+                }
+            }
+        }
+    }
+
+    let changes = values::apply_body(&c, &mut values, &body, false, &mut errors);
     values::finalize(&c, &mut values, false, &request.now, &mut errors);
-    values::validate(&c, &values, &mut errors);
+    values::validate(&c, &values, &changes, false, &mut errors);
+    check_password_confirm(&c, &body, &mut errors);
     if errors.is_empty() {
         check_relations(&tx, &registry, &c, &values, &mut errors).await?;
     }
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
+    apply_secrets(&c, &mut values, &changes, email_changed).await?;
 
     let mut params = Params::default();
     let mut sets = Vec::new();
@@ -499,25 +647,21 @@ pub async fn update(
         ));
     }
     let id_param = params.push(id);
+    let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
     let fields = visible_fields(&c, auth.is_superuser());
-    let row = if sets.is_empty() {
-        current
-    } else {
-        let sql = format!(
-            "UPDATE {} AS {ALIAS} SET {} WHERE {ALIAS}.\"id\" = {id_param} RETURNING {}",
-            table_ref(&c.name),
-            sets.join(", "),
-            select_list(&all_fields)
-        );
-        tx.query_one(&sql, &params.as_refs())
-            .await
-            .map_err(|e| write_error(e, &c, failed))?
-    };
+    let sql = format!(
+        "UPDATE {} AS {ALIAS} SET {} WHERE {ALIAS}.\"id\" = {id_param} RETURNING {}",
+        table_ref(&c.name),
+        sets.join(", "),
+        output_select(&fields, &email_visible)
+    );
+    let row = tx
+        .query_one(&sql, &params.as_refs())
+        .await
+        .map_err(|e| write_error(e, &c, failed))?;
     tx.commit().await.map_err(db_error)?;
 
-    let mut output = row_values(&all_fields, &row);
-    output.retain(|name, _| fields.iter().any(|f| &f.name == name));
-    Ok(Json(record_json(&c, output)))
+    Ok(Json(output_record(&c, &fields, &row, &email_visible)))
 }
 
 /// `DELETE /api/collections/{collection}/records/{id}`
@@ -532,7 +676,7 @@ pub async fn delete(
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, None);
+    let request = request_info(&method, &query, &headers, None, &auth);
 
     let mut params = Params::default();
     let id_param = params.push(id.clone());
@@ -720,6 +864,10 @@ fn write_error(err: tokio_postgres::Error, c: &Collection, message: &str) -> Api
     let mut errors = Errors::new();
     if constraint.ends_with("_pkey") {
         errors.invalid("id", "Value must be unique.");
+    } else if constraint == crate::collections::schema::email_index_name(&c.id) {
+        errors.invalid("email", "Value must be unique.");
+    } else if constraint == crate::collections::schema::token_key_index_name(&c.id) {
+        errors.invalid("tokenKey", "Value must be unique.");
     } else {
         for raw in &c.indexes {
             if let Ok(index) = Index::parse(raw) {

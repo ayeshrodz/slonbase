@@ -178,6 +178,62 @@ request a guest request, as in PocketBase.
   - filter functions such as `geoDistance`/`strftime`
   - auth and view collections, file fields
 
+### Phase 2: auth
+
+**Auth collections** (`"type": "auth"`) get PocketBase's system fields:
+- `password`: a bcrypt hash, never returned.
+- `tokenKey`: a random 50-character key, never returned.
+- `email`, `emailVisibility`, `verified`.
+
+They also get its auth options: `authRule`, `manageRule`, `passwordAuth`, token durations and
+email templates. The OAuth2, OTP, MFA and auth alert options are accepted and stored for
+compatibility but not implemented yet. A collection's type can't change, and system fields can't
+be removed or renamed.
+
+**Indexes.** PocketBase's email index is partial (`WHERE email != ''`), which slonbase's safe index
+subset doesn't allow, so auth collections get two system-managed unique indexes that aren't listed
+in `indexes`:
+- `lower(email) WHERE email <> ''` (case-insensitive, empty emails allowed)
+- `tokenKey`
+
+**Identity fields** other than `email` must have a unique index, so a login can't match several
+records.
+
+**Tokens** are HS256 JWTs. The signing key is derived from:
+- the installation secret
+- the collection id
+- the token type (`auth`, `verification`, `passwordReset`, `emailChange`)
+- the record's `tokenKey`
+
+A verification token can't be used as an auth token. Changing the password, resetting it, or
+changing the email rotates `tokenKey`, which signs out every session and makes reset and email
+change tokens single-use. Impersonation tokens (superusers only) aren't refreshable.
+
+**Records API for auth collections:**
+- Creating a record requires `password` and `passwordConfirm`.
+- Only superusers and managers can change `verified` or `email` directly. Others must use the
+  email change flow.
+- Changing a password requires `oldPassword` unless you're a superuser or a manager.
+- Emails are returned only to superusers, to the record itself, to managers, or when
+  `emailVisibility` is on. This is evaluated in SQL per row.
+- `@request.auth.*` resolves to the signed-in record's values, except `password` and `tokenKey`,
+  which are always null. Secret fields can't be filtered or sorted by anyone.
+
+**Sign-in** compares against a real dummy bcrypt hash when no record matches, so unknown
+identities take as long to reject as wrong passwords. Requests that start a flow by email
+(verification, password reset) always return 204 and send the email in the background, so they
+don't reveal which emails exist.
+
+**Settings** (`meta`: app name, URL and sender; `smtp`) are stored in `_slonbase.params`. The SMTP
+password is never returned by the API, and an empty password in an update keeps the stored one.
+Mail goes through `lettre` with rustls (no OpenSSL), or to the log when SMTP is disabled.
+
+**Not yet:**
+- OAuth2, OTP, MFA and auth alerts
+- rate limiting of sign-in attempts (bcrypt's cost limits guessing for now)
+- built-in confirmation pages: the email links point to PocketBase's admin UI routes
+  (`/_/#/auth/...`), which will work once the dashboard is embedded
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -220,6 +276,9 @@ the file.
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
 - CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- Auth tests cover auth collection definitions, sign-up/sign-in, rules with `@request.auth`,
+  email visibility, password and email changes with managers, the verification, password reset
+  and email change flows (with a capturing mailer), impersonation and settings.
 - API tests cover superuser auth, collection CRUD with real schema changes, records with
   filtering/sorting/pagination/modifiers, API rules, relations (validation, cascades, required
   references), and the filter type matrix.
@@ -232,7 +291,8 @@ the file.
    CI and releases.
 1. **Collections** (done): schema management, CRUD, filter/sort/pagination, API rules,
    superuser auth.
-2. **Auth**: superusers and auth collections, password and JWT, then OAuth2, OTP and MFA.
+2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
+   reset, email change, impersonation, settings and mail. OAuth2, OTP and MFA follow.
 3. **Realtime** (`LISTEN/NOTIFY`), **files** (local/S3, thumbnails), relation expansion.
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
 5. **Extensibility**: Rust library API and JS hooks.

@@ -31,7 +31,7 @@ pub fn compile_sort(
             _ => {
                 let field = collection
                     .field(name)
-                    .filter(|f| !f.hidden || allow_hidden)
+                    .filter(|f| !f.is_secret() && (!f.hidden || allow_hidden))
                     .ok_or_else(|| CompileError(format!("unknown sort field {name:?}")))?;
                 if field.storage() == Storage::Json {
                     return Err(CompileError(format!(

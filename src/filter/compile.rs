@@ -22,8 +22,8 @@ use crate::datetime;
 #[derive(Debug, Clone)]
 pub struct RequestInfo {
     pub method: String,
-    /// The authenticated record id, `None` for guests.
-    pub auth_id: Option<String>,
+    /// The authenticated caller, `None` for guests.
+    pub auth: Option<AuthInfo>,
     pub query: HashMap<String, String>,
     /// Keys are lowercase with `-` replaced by `_` (`@request.headers.x_api_key`).
     pub headers: HashMap<String, String>,
@@ -35,13 +35,23 @@ impl RequestInfo {
     pub fn new(method: &str) -> Self {
         Self {
             method: method.to_string(),
-            auth_id: None,
+            auth: None,
             query: HashMap::new(),
             headers: HashMap::new(),
             body: serde_json::Map::new(),
             now: Utc::now(),
         }
     }
+}
+
+/// The caller as seen by rules: `@request.auth.id`, `.collectionId`, `.collectionName`
+/// and the record's fields.
+#[derive(Debug, Clone)]
+pub struct AuthInfo {
+    pub id: String,
+    pub collection_id: String,
+    pub collection_name: String,
+    pub values: serde_json::Map<String, Value>,
 }
 
 /// Positional query parameters. Every parameter is sent as text and cast in SQL.
@@ -447,7 +457,7 @@ impl Compiler<'_, '_> {
 
         let collection = self.scope.collection;
         let field = match collection.field(name) {
-            Some(f) if !f.hidden || self.scope.allow_hidden => f,
+            Some(f) if !f.is_secret() && (!f.hidden || self.scope.allow_hidden) => f,
             _ => return fail(format!("unknown field {name:?}")),
         };
         let column = format!("{}.{}", self.scope.alias, quote_ident(&field.name));
@@ -565,14 +575,19 @@ impl Compiler<'_, '_> {
             ("method", None) => Val::Lit(Lit::Text(req.method.clone())),
             ("context", None) => Val::Lit(Lit::Text("default".into())),
             ("auth", Some(key)) => {
-                if key == "id" {
-                    match &req.auth_id {
-                        Some(id) => Val::Lit(Lit::Text(id.clone())),
-                        None => Val::Null,
-                    }
-                } else {
-                    // auth collections arrive in phase 2: no other auth fields yet
-                    Val::Null
+                if key.contains('.') {
+                    return fail("@request.auth relation paths are not supported yet");
+                }
+                match &req.auth {
+                    None => Val::Null,
+                    Some(auth) => match key {
+                        "id" => Val::Lit(Lit::Text(auth.id.clone())),
+                        "collectionId" => Val::Lit(Lit::Text(auth.collection_id.clone())),
+                        "collectionName" => Val::Lit(Lit::Text(auth.collection_name.clone())),
+                        // secrets are never exposed to rules
+                        "password" | "tokenKey" => Val::Null,
+                        _ => json_val(auth.values.get(key)),
+                    },
                 }
             }
             ("query", Some(key)) => text_or_null(req.query.get(key)),

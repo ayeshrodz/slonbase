@@ -8,11 +8,15 @@ use deadpool_postgres::Pool;
 use crate::collections::store::{self, Registry};
 use crate::db::describe_pool_error;
 use crate::ids;
+use crate::mail::{self, Mailer, SmtpMailer};
+use crate::settings::Settings;
 
 pub struct Core {
     pub pool: Pool,
     registry: RwLock<Arc<Registry>>,
     auth_secret: Vec<u8>,
+    settings: RwLock<Arc<Settings>>,
+    mailer: RwLock<Arc<dyn Mailer>>,
     /// Serializes collection changes within this instance (the database
     /// advisory lock serializes them across instances).
     pub(crate) schema_lock: tokio::sync::Mutex<()>,
@@ -39,12 +43,15 @@ impl Core {
             .get(0);
 
         let registry = store::load(&client).await?;
+        let settings = Settings::load(&client).await?;
         drop(client);
 
         Ok(Arc::new(Self {
             pool,
             registry: RwLock::new(Arc::new(registry)),
             auth_secret: secret.into_bytes(),
+            settings: RwLock::new(Arc::new(settings)),
+            mailer: RwLock::new(Arc::new(SmtpMailer)),
             schema_lock: tokio::sync::Mutex::new(()),
         }))
     }
@@ -59,5 +66,31 @@ impl Core {
 
     pub(crate) fn auth_secret(&self) -> &[u8] {
         &self.auth_secret
+    }
+
+    pub fn settings(&self) -> Arc<Settings> {
+        self.settings.read().expect("settings lock").clone()
+    }
+
+    pub(crate) fn set_settings(&self, settings: Settings) {
+        *self.settings.write().expect("settings lock") = Arc::new(settings);
+    }
+
+    /// Replaces the mailer (tests use [`mail::MemoryMailer`]).
+    pub fn set_mailer(&self, mailer: Arc<dyn Mailer>) {
+        *self.mailer.write().expect("mailer lock") = mailer;
+    }
+
+    /// Sends an email in the background; failures are logged. Sending in the background
+    /// also keeps response times the same whether or not an email was sent.
+    pub fn send_mail(&self, message: mail::Message) {
+        let mailer = self.mailer.read().expect("mailer lock").clone();
+        let settings = self.settings();
+        tokio::spawn(async move {
+            let to = message.to.clone();
+            if let Err(err) = mailer.send(&settings, message).await {
+                tracing::error!(%to, error = %format!("{err:#}"), "failed to send an email");
+            }
+        });
     }
 }

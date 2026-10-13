@@ -19,7 +19,14 @@ const RESERVED_FIELD_NAMES: &[&str] = &[
     "null",
     "true",
     "false",
+    // request body keys of auth collections
+    "passwordconfirm",
+    "oldpassword",
 ];
+
+/// Token durations must be between 10 seconds and 1 year.
+const MIN_TOKEN_DURATION: i64 = 10;
+const MAX_TOKEN_DURATION: i64 = 365 * 86_400;
 
 fn valid_name(name: &str) -> bool {
     !name.is_empty()
@@ -79,11 +86,156 @@ pub fn prepare(c: &mut Collection, old: Option<&Collection>, registry: &Registry
         );
     }
 
+    if let Some(old) = old {
+        if old.kind != c.kind {
+            errors.invalid("type", "The collection type can't be changed.");
+        }
+    }
+    prepare_auth(c, &mut errors);
     prepare_fields(c, old, registry, &mut errors);
     validate_rules(c, &mut errors);
     prepare_indexes(c, old, registry, &mut errors);
+    validate_auth_options(c, &mut errors);
 
     errors
+}
+
+/// Adds the auth system fields and default options to auth collections.
+fn prepare_auth(c: &mut Collection, errors: &mut Errors) {
+    if !c.is_auth() {
+        c.auth = None;
+        if c.fields
+            .iter()
+            .any(|f| matches!(f.kind, FieldKind::Password(_)))
+        {
+            errors.invalid(
+                "fields",
+                "Password fields can only be used in auth collections.",
+            );
+        }
+        return;
+    }
+    if c.auth.is_none() {
+        c.auth = Some(AuthOptions::default());
+    }
+    if c.field("id").is_none() {
+        c.fields.insert(0, default_id_field());
+    }
+    for default in default_auth_fields() {
+        match c
+            .fields
+            .iter_mut()
+            .find(|f| f.name.eq_ignore_ascii_case(&default.name))
+        {
+            None => c.fields.push(default),
+            Some(existing) => {
+                if existing.type_name() != default.type_name() {
+                    errors.invalid(
+                        "fields",
+                        format!(
+                            "The {:?} field must be of type {}.",
+                            default.name,
+                            default.type_name()
+                        ),
+                    );
+                    continue;
+                }
+                existing.name = default.name.clone();
+                existing.system = true;
+                existing.hidden = default.hidden;
+                match &mut existing.kind {
+                    FieldKind::Password(o) => o.required = true,
+                    FieldKind::Text(o) if existing.name == FIELD_TOKEN_KEY => {
+                        o.required = true;
+                        if o.autogenerate_pattern.is_empty() {
+                            o.autogenerate_pattern = "[a-zA-Z0-9]{50}".into();
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+    let passwords = c
+        .fields
+        .iter()
+        .filter(|f| matches!(f.kind, FieldKind::Password(_)))
+        .count();
+    if passwords > 1 {
+        errors.invalid(
+            "fields",
+            "Auth collections can only have the system password field.",
+        );
+    }
+}
+
+fn validate_auth_options(c: &Collection, errors: &mut Errors) {
+    let Some(auth) = c.auth_options() else { return };
+
+    let tokens = [
+        ("authToken", &auth.auth_token),
+        ("passwordResetToken", &auth.password_reset_token),
+        ("emailChangeToken", &auth.email_change_token),
+        ("verificationToken", &auth.verification_token),
+        ("fileToken", &auth.file_token),
+    ];
+    for (name, token) in tokens {
+        if !(MIN_TOKEN_DURATION..=MAX_TOKEN_DURATION).contains(&token.duration) {
+            errors.invalid(
+                format!("{name}.duration"),
+                format!("Must be between {MIN_TOKEN_DURATION} and {MAX_TOKEN_DURATION} seconds."),
+            );
+        }
+    }
+
+    // identity fields must be unique, otherwise a login could match several records
+    let unique_columns: Vec<String> = c
+        .indexes
+        .iter()
+        .filter_map(|raw| Index::parse(raw).ok())
+        .filter(|i| i.unique && i.columns.len() == 1)
+        .map(|i| i.columns[0].0.to_ascii_lowercase())
+        .collect();
+    if auth.password_auth.identity_fields.is_empty() && auth.password_auth.enabled {
+        errors.add(
+            "passwordAuth.identityFields",
+            "validation_required",
+            "Cannot be blank.",
+        );
+    }
+    for name in &auth.password_auth.identity_fields {
+        let ok = match c.field(name) {
+            Some(f) if f.name == FIELD_EMAIL => true,
+            Some(f) if f.storage() == Storage::Text && !f.is_secret() => {
+                unique_columns.contains(&f.name.to_ascii_lowercase())
+            }
+            _ => false,
+        };
+        if !ok {
+            errors.invalid(
+                "passwordAuth.identityFields",
+                format!("{name:?} must be a text field with a unique index."),
+            );
+        }
+    }
+
+    let request = RequestInfo::new("GET");
+    let scope = Scope {
+        collection: c,
+        alias: "t",
+        request: &request,
+        allow_hidden: true,
+    };
+    for (key, rule) in [
+        ("authRule", &auth.auth_rule),
+        ("manageRule", &auth.manage_rule),
+    ] {
+        if let Some(rule) = rule.as_deref().filter(|r| !r.trim().is_empty()) {
+            if let Err(e) = to_sql(rule, &scope, &mut Params::default()) {
+                errors.invalid(key, format!("Invalid rule: {e}."));
+            }
+        }
+    }
 }
 
 fn prepare_fields(
@@ -337,6 +489,20 @@ fn validate_options(
                     path("collectionId"),
                     "The related collection doesn't exist.",
                 );
+            }
+        }
+        FieldKind::Password(o) => {
+            if o.max > 0 && o.min > o.max {
+                errors.invalid(path("min"), "Must be less than or equal to max.");
+            }
+            if o.max > 71 {
+                errors.invalid(path("max"), "Must be at most 71 (the bcrypt limit).");
+            }
+            if o.cost != 0 && !(4..=31).contains(&o.cost) {
+                errors.invalid(path("cost"), "Must be between 4 and 31.");
+            }
+            if !o.pattern.is_empty() && regex::Regex::new(&o.pattern).is_err() {
+                errors.invalid(path("pattern"), "Invalid regular expression.");
             }
         }
         FieldKind::Bool(_) | FieldKind::Autodate(_) => {}

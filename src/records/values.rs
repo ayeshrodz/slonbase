@@ -49,13 +49,24 @@ enum Modifier {
 
 /// Applies a request body to `values`. Unknown keys are ignored (like PocketBase).
 /// Supports the `field+` / `+field` / `field-` modifiers for multi-valued and number fields.
+/// What a request body changed, beyond the values themselves.
+#[derive(Debug, Default)]
+pub struct Changes {
+    /// Plaintext passwords by field name. They never enter [`Values`]: they're validated
+    /// here and hashed by the caller.
+    pub passwords: Vec<(String, String)>,
+    /// Names of the fields the body set.
+    pub fields: std::collections::HashSet<String>,
+}
+
 pub fn apply_body(
     c: &Collection,
     values: &mut Values,
     body: &Map<String, Value>,
     is_create: bool,
     errors: &mut Errors,
-) {
+) -> Changes {
+    let mut changes = Changes::default();
     // plain values first, then modifiers, regardless of key order
     let mut keys: Vec<(&String, &Value)> = body.iter().collect();
     keys.sort_by_key(|(k, _)| k.starts_with('+') || k.ends_with('+') || k.ends_with('-'));
@@ -75,6 +86,22 @@ pub fn apply_body(
         if matches!(field.kind, FieldKind::Autodate(_)) || (field.is_primary_key() && !is_create) {
             continue;
         }
+        // token keys are managed by slonbase
+        if field.is_secret() && !matches!(field.kind, FieldKind::Password(_)) {
+            continue;
+        }
+        if let FieldKind::Password(_) = field.kind {
+            match raw {
+                Value::String(plain) if !plain.is_empty() => {
+                    changes.passwords.push((field.name.clone(), plain.clone()));
+                    changes.fields.insert(field.name.clone());
+                }
+                Value::String(_) | Value::Null => {}
+                _ => errors.invalid(&field.name, "Must be a string."),
+            }
+            continue;
+        }
+        changes.fields.insert(field.name.clone());
 
         let incoming = match normalize(field, raw) {
             Ok(v) => v,
@@ -117,6 +144,7 @@ pub fn apply_body(
         };
         values.insert(field.name.clone(), next);
     }
+    changes
 }
 
 /// Converts loosely typed input into the field's normalized JSON form.
@@ -200,9 +228,34 @@ pub fn normalize(field: &Field, raw: &Value) -> Result<Value, String> {
 }
 
 /// Validates the final values of a record.
-pub fn validate(c: &Collection, values: &Values, errors: &mut Errors) {
+pub fn validate(
+    c: &Collection,
+    values: &Values,
+    changes: &Changes,
+    is_create: bool,
+    errors: &mut Errors,
+) {
     for field in &c.fields {
         if errors.contains(&field.name) {
+            continue;
+        }
+        if let FieldKind::Password(o) = &field.kind {
+            let plain = changes
+                .passwords
+                .iter()
+                .find(|(name, _)| name == &field.name);
+            match plain {
+                Some((_, plain)) => {
+                    if let Err((code, message)) = validate_password(o, plain) {
+                        errors.add(&field.name, code, message);
+                    }
+                }
+                // an existing record keeps its hash
+                None if is_create && o.required => {
+                    errors.add(&field.name, "validation_required", "Cannot be blank.")
+                }
+                None => {}
+            }
             continue;
         }
         let value = values
@@ -216,6 +269,56 @@ pub fn validate(c: &Collection, values: &Values, errors: &mut Errors) {
 }
 
 type Failure = (&'static str, String);
+
+/// Validates a plaintext password against a password field's rules.
+pub fn check_password(field: &Field, plain: &str) -> Result<(), String> {
+    match &field.kind {
+        FieldKind::Password(o) => validate_password(o, plain).map_err(|(_, m)| m),
+        _ => Ok(()),
+    }
+}
+
+/// Validates a single normalized value against its field's rules.
+pub fn check_value(field: &Field, value: &Value) -> Result<(), String> {
+    validate_value(field, value).map_err(|(_, m)| m)
+}
+
+fn validate_password(
+    o: &crate::collections::model::PasswordOptions,
+    plain: &str,
+) -> Result<(), Failure> {
+    let max = if o.max == 0 { 71 } else { o.max };
+    let len = plain.chars().count();
+    if len < o.min {
+        return Err(invalid(format!("Must be at least {} character(s).", o.min)));
+    }
+    if len > max || plain.len() > 71 {
+        return Err(invalid(format!("Must be no more than {max} character(s).")));
+    }
+    if !o.pattern.is_empty() && !pattern_matches(&o.pattern, plain) {
+        return Err(invalid("Invalid value format."));
+    }
+    Ok(())
+}
+
+/// Hashes a password with the field's bcrypt cost (off the async threads).
+pub async fn hash_password(field: &Field, plain: String) -> anyhow::Result<String> {
+    let cost = match &field.kind {
+        FieldKind::Password(o) if o.cost != 0 => o.cost,
+        _ => 10,
+    };
+    Ok(tokio::task::spawn_blocking(move || bcrypt::hash(plain, cost)).await??)
+}
+
+/// Checks a password against a stored hash (off the async threads).
+pub async fn verify_password(plain: String, hash: String) -> bool {
+    if hash.is_empty() {
+        return false;
+    }
+    tokio::task::spawn_blocking(move || bcrypt::verify(plain, &hash).unwrap_or(false))
+        .await
+        .unwrap_or(false)
+}
 
 fn required() -> Failure {
     ("validation_required", "Cannot be blank.".into())
@@ -328,7 +431,7 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
             }
             Ok(())
         }
-        FieldKind::Autodate(_) => Ok(()),
+        FieldKind::Autodate(_) | FieldKind::Password(_) => Ok(()),
         FieldKind::Select(o) => {
             let items = as_strings(value);
             if items.is_empty() {
@@ -553,7 +656,7 @@ mod tests {
         let is_create = existing.is_none();
         let mut values = existing.unwrap_or_else(|| defaults(&c));
         let mut errors = Errors::new();
-        apply_body(
+        let changes = apply_body(
             &c,
             &mut values,
             body.as_object().unwrap(),
@@ -561,7 +664,7 @@ mod tests {
             &mut errors,
         );
         finalize(&c, &mut values, is_create, &Utc::now(), &mut errors);
-        validate(&c, &values, &mut errors);
+        validate(&c, &values, &changes, is_create, &mut errors);
         (values, errors)
     }
 

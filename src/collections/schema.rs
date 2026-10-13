@@ -1,7 +1,7 @@
 //! DDL for collection tables, which live in the `slonbase` schema.
 
 use super::indexes::Index;
-use super::model::{Collection, Field, Storage};
+use super::model::{Collection, FIELD_EMAIL, FIELD_TOKEN_KEY, Field, Storage};
 use crate::filter::quote_ident;
 
 /// Schema holding the user collection tables.
@@ -14,6 +14,15 @@ pub fn table_ref(name: &str) -> String {
 /// Internal index on the insertion order column (stable default sort and pagination).
 fn seq_index_name(collection_id: &str) -> String {
     format!("_seq_{collection_id}")
+}
+
+/// System-managed unique index names of auth collections (not listed in `indexes`).
+pub fn email_index_name(collection_id: &str) -> String {
+    format!("_email_{collection_id}")
+}
+
+pub fn token_key_index_name(collection_id: &str) -> String {
+    format!("_tokenkey_{collection_id}")
 }
 
 fn column_def(field: &Field) -> String {
@@ -40,6 +49,19 @@ pub fn create(c: &Collection) -> Vec<String> {
             quote_ident(&seq_index_name(&c.id))
         ),
     ];
+    if c.is_auth() {
+        statements.push(format!(
+            "CREATE UNIQUE INDEX {} ON {table} ({})",
+            quote_ident(&token_key_index_name(&c.id)),
+            quote_ident(FIELD_TOKEN_KEY)
+        ));
+        // case-insensitive, and empty emails don't conflict
+        let email = quote_ident(FIELD_EMAIL);
+        statements.push(format!(
+            "CREATE UNIQUE INDEX {} ON {table} (lower({email})) WHERE {email} <> ''",
+            quote_ident(&email_index_name(&c.id))
+        ));
+    }
     statements.extend(parsed_indexes(c).iter().map(|i| i.to_postgres_sql(&table)));
     statements
 }

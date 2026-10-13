@@ -10,7 +10,8 @@ use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 
-use crate::{auth, collections, records};
+use crate::records::auth_api;
+use crate::{collections, records, settings};
 use serde_json::json;
 use tower_http::trace::TraceLayer;
 
@@ -28,13 +29,46 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/setup", get(setup::status))
         .route("/api/setup/database/test", post(setup::test_database))
         .route("/api/setup/complete", post(setup::complete))
+        .route("/api/settings", get(settings::get).patch(settings::update))
         .route(
-            "/api/collections/_superusers/auth-with-password",
-            post(auth::auth_with_password),
+            "/api/collections/{collection}/auth-with-password",
+            post(auth_api::auth_with_password),
         )
         .route(
-            "/api/collections/_superusers/auth-refresh",
-            post(auth::auth_refresh),
+            "/api/collections/{collection}/auth-refresh",
+            post(auth_api::auth_refresh),
+        )
+        .route(
+            "/api/collections/{collection}/auth-methods",
+            get(auth_api::auth_methods),
+        )
+        .route(
+            "/api/collections/{collection}/request-verification",
+            post(auth_api::request_verification),
+        )
+        .route(
+            "/api/collections/{collection}/confirm-verification",
+            post(auth_api::confirm_verification),
+        )
+        .route(
+            "/api/collections/{collection}/request-password-reset",
+            post(auth_api::request_password_reset),
+        )
+        .route(
+            "/api/collections/{collection}/confirm-password-reset",
+            post(auth_api::confirm_password_reset),
+        )
+        .route(
+            "/api/collections/{collection}/request-email-change",
+            post(auth_api::request_email_change),
+        )
+        .route(
+            "/api/collections/{collection}/confirm-email-change",
+            post(auth_api::confirm_email_change),
+        )
+        .route(
+            "/api/collections/{collection}/impersonate/{id}",
+            post(auth_api::impersonate),
         )
         .route(
             "/api/collections",
