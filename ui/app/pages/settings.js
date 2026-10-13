@@ -40,7 +40,7 @@ function clone(v) {
 function Card({ title, subtitle, icon, children, actions }) {
   return html`<div class="card enter">
     <div class="card-head">
-      ${icon && html`<span class="field-type-badge" style="background:var(--accent-soft);color:var(--accent)"><${Icon} name=${icon} size=${16} /></span>`}
+      ${icon && html`<span class="field-type-badge"><${Icon} name=${icon} size=${16} /></span>`}
       <div class="grow"><h3>${title}</h3>${subtitle && html`<div class="small muted">${subtitle}</div>`}</div>
       ${actions}
     </div>
@@ -95,7 +95,8 @@ function useSettings() {
 }
 
 export function applyAccent(color) {
-  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || color.toLowerCase() === "#1055c9") {
+  // the default (and PocketBase's default, #1055c9) keeps the theme's own accent
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || ["#1055c9", "#4a5a72"].includes(color.toLowerCase())) {
     document.documentElement.style.removeProperty("--accent");
     return;
   }
@@ -106,7 +107,8 @@ export function applyAccent(color) {
 
 function General({ s }) {
   const d = s.draft;
-  const swatches = ["#6a4cf6", "#2563eb", "#0891b2", "#059669", "#d97706", "#e11d48", "#c026d3", "#334155"];
+  // muted tones that sit well on the neutral surfaces
+  const swatches = ["#4a5a72", "#4f6b62", "#5f6b4a", "#7a6448", "#6e5560", "#5a5577", "#3f5d6b", "#3d3d43"];
   return html`<${Card} title="Application" subtitle="Name and address used in emails and links" icon="sparkle">
     <div class="grid-2">
       <${Field} label="Application name" error=${s.errors["meta.appName"]}><${Input} value=${d.meta.appName} onInput=${(v) => s.set("meta.appName", v)} /></${Field}>
@@ -118,19 +120,11 @@ function General({ s }) {
           (c) => html`<button
             type="button"
             aria-label=${c}
+            class=${"swatch" + (d.meta.accentColor === c ? " on" : "")}
+            style=${{ background: c }}
             onClick=${() => {
               s.set("meta.accentColor", c);
               applyAccent(c);
-            }}
-            style=${{
-              width: "30px",
-              height: "30px",
-              borderRadius: "50%",
-              border: d.meta.accentColor === c ? "3px solid var(--ink)" : "3px solid transparent",
-              background: c,
-              cursor: "pointer",
-              transition: "transform .2s var(--ease-spring)",
-              transform: d.meta.accentColor === c ? "scale(1.12)" : "none",
             }}
           ></button>`
         )}

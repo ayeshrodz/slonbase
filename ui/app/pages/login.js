@@ -10,26 +10,16 @@ export function AuthFrame({ children, title, subtitle }) {
   const ref = useRef();
   useAutofocus(ref);
   return html`<div class="auth-page" ref=${ref}>
-    <aside class="auth-art">
-      <div class="orbit" style="width:620px;height:620px;right:-260px;top:-180px"></div>
-      <div class="orbit" style="width:380px;height:380px;right:-120px;top:-60px;animation-duration:38s;animation-direction:reverse"></div>
-      <div class="row" style="position:relative"><${Logo} size=${38} animated /><span style="font-weight:700;font-size:19px;letter-spacing:-0.03em">slonbase</span></div>
-      <div style="position:relative">
-        <h1>Your data, rules and auth — on PostgreSQL.</h1>
-        <p class="tagline">Collections, realtime, files and hooks in one small binary, with the database you already trust.</p>
-      </div>
-      <div class="row small" style="position:relative;color:rgba(255,255,255,.5)">
-        <${Icon} name="shield" size=${16} /> Signed-in sessions stay on this device.
-      </div>
-    </aside>
-    <div class="auth-form-wrap">
-      <div class="auth-form stack loose">
+    <div class="auth-form">
+      <div class="auth-brand"><${Logo} size=${28} /><span>slonbase</span></div>
+      <div class="stack loose">
         <div class="stack tight">
           <h1>${title}</h1>
           ${subtitle && html`<p class="muted">${subtitle}</p>`}
         </div>
         ${children}
       </div>
+      <div class="auth-foot row"><${Icon} name="shield" size=${14} /> Superuser access to this slonbase installation.</div>
     </div>
   </div>`;
 }

@@ -125,7 +125,7 @@ export function Segmented({ value, onChange, options }) {
   </div>`;
 }
 
-// tabs with a sliding gradient ink
+// tabs with a sliding underline
 export function Tabs({ tabs, active, onChange }) {
   const ref = useRef();
   const [ink, setInk] = useState(null);
@@ -252,7 +252,7 @@ export function Modal({ onClose, size = "", children, dismissable = true, labell
 
 export function SheetHead({ title, subtitle, icon, onClose, children }) {
   return html`<div class="sheet-head">
-    ${icon && html`<div class="field-type-badge" style="background:var(--accent-soft);color:var(--accent)"><${Icon} name=${icon} /></div>`}
+    ${icon && html`<div class="field-type-badge"><${Icon} name=${icon} /></div>`}
     <div class="grow">
       <h2 id="sheet-title">${title}</h2>
       ${subtitle && html`<div class="small muted">${subtitle}</div>`}
@@ -349,7 +349,7 @@ export function confirmDialog({ title, message, confirm = "Confirm", danger = fa
         ${(close) => html`
           <div class="sheet-body stack">
             <div class="row top">
-              <div class="field-type-badge" style=${danger ? "background:var(--danger-soft);color:var(--danger)" : "background:var(--accent-soft);color:var(--accent)"}>
+              <div class="field-type-badge" style=${danger ? "color:var(--danger)" : ""}>
                 <${Icon} name=${danger ? "warning" : "info"} />
               </div>
               <div class="stack tight grow">
@@ -388,23 +388,12 @@ export function confirmDialog({ title, message, confirm = "Confirm", danger = fa
 
 // ------------------------------------------------------------------ collection glyphs
 
-const GLYPH_COLORS = ["#7b5cff", "#19a7c9", "#f0598a", "#f59e0b", "#10b981", "#6366f1", "#ef6a3a", "#0ea5e9", "#a855f7", "#14b8a6"];
-
-export function glyphColor(name) {
-  let h = 0;
-  for (const c of name || "") h = (h * 31 + c.charCodeAt(0)) >>> 0;
-  return GLYPH_COLORS[h % GLYPH_COLORS.length];
-}
-
 export function CollectionGlyph({ collection, size }) {
   const name = collection.name.replace(/^_/, "");
-  const style = {
-    background: `linear-gradient(135deg, ${glyphColor(collection.name)}, color-mix(in srgb, ${glyphColor(collection.name)}, #000 22%))`,
-  };
-  if (size) Object.assign(style, { width: size + "px", height: size + "px" });
+  const style = size ? { width: size + "px", height: size + "px" } : null;
   const icon = collection.type === "auth" ? "users" : collection.type === "view" ? "view" : null;
   return html`<span class="coll-glyph" style=${style}>
-    ${icon ? html`<${Icon} name=${icon} size=${size ? Math.round(size / 2) : 14} />` : name.slice(0, 1)}
+    ${icon ? html`<${Icon} name=${icon} size=${size ? Math.round(size / 2.1) : 13} />` : name.slice(0, 1)}
   </span>`;
 }
 

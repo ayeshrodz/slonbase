@@ -94,22 +94,18 @@ export function Icon({ name, size = 18, class: cls = "", title }) {
   ></svg>`;
 }
 
-// the slonbase mark: a front-facing elephant with a curled trunk
-export function Logo({ size = 28, animated = false }) {
-  return html`<svg class=${"logo" + (animated ? " logo-animated" : "")} width=${size} height=${size} viewBox="0 0 40 40" aria-label="slonbase">
-    <defs>
-      <linearGradient id="sb-grad" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="var(--brand-a)" />
-        <stop offset="1" stop-color="var(--brand-b)" />
-      </linearGradient>
-    </defs>
-    <rect x="1" y="1" width="38" height="38" rx="12" fill="url(#sb-grad)" />
-    <ellipse class="logo-ear logo-ear-l" cx="11.2" cy="16.6" rx="6.4" ry="7.4" fill="rgba(255,255,255,.5)" />
-    <ellipse class="logo-ear logo-ear-r" cx="28.8" cy="16.6" rx="6.4" ry="7.4" fill="rgba(255,255,255,.5)" />
-    <circle cx="20" cy="15.6" r="8" fill="#fff" />
-    <path class="logo-trunk" d="M20 19.5v7.2c0 2.4 1.7 3.8 3.6 3.8 1.5 0 2.6-1 2.8-2.3" fill="none" stroke="#fff" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round" />
-    <circle class="logo-eye" cx="17.1" cy="14.6" r="1.25" fill="#3f2fb8" />
-    <circle class="logo-eye" cx="22.9" cy="14.6" r="1.25" fill="#3f2fb8" />
+// the slonbase mark: a monochrome elephant, drawn in the current ink color
+export function Logo({ size = 28 }) {
+  return html`<svg class="logo" width=${size} height=${size} viewBox="0 0 40 40" aria-label="slonbase">
+    <rect x="1" y="1" width="38" height="38" rx="10" fill="var(--ink)" />
+    <g fill="var(--canvas)">
+      <ellipse cx="11.6" cy="17" rx="5.6" ry="6.6" opacity=".55" />
+      <ellipse cx="28.4" cy="17" rx="5.6" ry="6.6" opacity=".55" />
+      <circle cx="20" cy="16" r="7.4" />
+    </g>
+    <path d="M20 19.5v6.8c0 2.3 1.6 3.6 3.4 3.6 1.4 0 2.4-.9 2.6-2.2" fill="none" stroke="var(--canvas)" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" />
+    <circle cx="17.3" cy="15.2" r="1.15" fill="var(--ink)" />
+    <circle cx="22.7" cy="15.2" r="1.15" fill="var(--ink)" />
   </svg>`;
 }
 

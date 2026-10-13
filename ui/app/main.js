@@ -204,7 +204,7 @@ function Shell() {
   const isDark = document.documentElement.dataset.theme === "dark";
   return html`<div class="shell">
     <header class="topbar">
-      <a class="brand" href="#/"><${Logo} size=${30} /><span class="brand-name">slon<b>base</b></span></a>
+      <a class="brand" href="#/"><${Logo} size=${26} /><span class="brand-name">slon<b>base</b></span></a>
       <${TopNav} path=${path} />
       <span class="spacer"></span>
       <button class="search-trigger" onClick=${() => setPalette(true)} aria-label="Search">

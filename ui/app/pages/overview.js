@@ -71,7 +71,7 @@ export function Overview() {
         { label: "Server errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent("data.status >= 500"), tone: errors ? "danger" : "" },
       ].map(
         (s, i) => html`<a class="card stat" href=${"#" + s.to} style=${{ "--i": i, color: "inherit", textDecoration: "none" }}>
-          <span class="stat-icon" style=${s.tone === "danger" ? "background:var(--danger-soft);color:var(--danger)" : ""}><${Icon} name=${s.icon} /></span>
+          <span class="stat-icon" style=${s.tone === "danger" ? "color:var(--danger)" : ""}><${Icon} name=${s.icon} /></span>
           <span class="small muted">${s.label}</span>
           <span class="stat-value">${s.value === undefined ? html`<${Skeleton} width="60px" height=${28} />` : html`<${CountUp} value=${s.value} />`}</span>
         </a>`

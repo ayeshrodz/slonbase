@@ -579,17 +579,20 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 
 ### Dashboard redesign
 
-- Its own design: a top navigation bar instead of a side rail, a collections panel with grouped,
-  colored collection glyphs, collection pages with tabs (records, schema, rules, sign-in,
-  indexes, API docs, settings) that edit one draft saved from a floating save bar, records edited
-  in a centered sheet with a metadata column, a ⌘K command palette, and an overview page. Light
-  and dark themes come from design tokens in `app.css`; the accent follows `meta.accentColor`.
-- Motion: entrance animations for pages and lists (staggered), sliding indicators on the
-  navigation, tabs and segmented controls, spring switches, sheet and toast transitions, count-up
-  numbers, growing chart bars, row flashes for live updates, and a blinking, ear-flapping logo.
-  All of it respects `prefers-reduced-motion`. Entrance animations use `animation-fill-mode:
-  backwards`: a transform that stays applied would make the element the containing block of
-  `position: fixed` descendants, so overlays are also rendered into `<body>` through a portal.
+- Its own design: a top navigation bar with an underline indicator, a collections panel,
+  collection pages with tabs (records, schema, rules, sign-in, indexes, API docs, settings) that
+  edit one draft saved from a floating save bar, records edited in a centered sheet with a
+  metadata column, a ⌘K command palette, and an overview page.
+- Visual language: neutral surfaces (warm off-white or near-black), borders rather than shadows,
+  small radii, solid ink primary buttons, outlined chips, a monochrome logo and collection marks,
+  and a single muted accent (slate by default, `meta.accentColor` to change it) used only for
+  focus, links and selection. Status colors are muted and appear as text or dots. No gradients.
+- Motion is quiet: short fades and 4px rises for pages and lists, sliding underlines for the
+  navigation and tabs, a sliding thumb for segmented controls, switch transitions, and sheet and
+  toast fades. It respects `prefers-reduced-motion`. Entrance animations use
+  `animation-fill-mode: backwards`: a transform that stays applied would make the element the
+  containing block of `position: fixed` descendants, so overlays are also rendered into `<body>`
+  through a portal.
 - No build step: plain ES modules with Preact and htm vendored (~17 KB), embedded by `build.rs`
   and gzipped. Every file is revalidated with an ETag (an FNV hash computed at build time) since
   names aren't hashed. `SLONBASE_DEV_UI_DIR=ui/app` serves the files from disk while working on

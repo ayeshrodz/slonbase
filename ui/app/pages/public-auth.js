@@ -25,7 +25,7 @@ export function PublicAuth({ action, token }) {
 
 function Done({ message }) {
   return html`<div class="stack" style="align-items:flex-start">
-    <div class="empty-art" style="width:56px;height:56px;border-radius:18px;display:grid;place-items:center;background:var(--ok-soft);color:var(--ok);animation:pop .4s var(--ease-spring)">
+    <div class="empty-art" style="color:var(--ok)">
       <${Icon} name="check" size=${28} />
     </div>
     <p>${message}</p>

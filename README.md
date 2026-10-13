@@ -107,8 +107,9 @@ binary. It covers:
 - logs, the SQL console, and settings (mail, file storage, backups, rate limits, superuser IPs,
   cron jobs, import and export).
 
-Press ⌘K / Ctrl K anywhere to jump to a collection or action. It follows your system's light or
-dark theme (or pick one), uses the accent color from the settings, and works on phones. It uses
+Press ⌘K / Ctrl K anywhere to jump to a collection or action. The design is deliberately quiet:
+neutral surfaces and one muted accent (changeable in the settings), in a light or dark theme
+that follows your system, and it works on phones. It uses
 only the public API, so anything it does you can script too; see [ui/README.md](ui/README.md)
 to work on it.
 

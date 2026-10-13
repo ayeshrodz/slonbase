@@ -9,7 +9,7 @@ import { RuleCard } from "./rules.js";
 function Section({ icon, title, subtitle, enabled, onToggle, children, open = true }) {
   return html`<div class="card">
     <div class="card-head">
-      <span class="field-type-badge" style="background:var(--accent-soft);color:var(--accent)"><${Icon} name=${icon} size=${16} /></span>
+      <span class="field-type-badge"><${Icon} name=${icon} size=${16} /></span>
       <div class="grow"><h3>${title}</h3>${subtitle && html`<div class="small muted">${subtitle}</div>`}</div>
       ${onToggle && html`<${Switch} checked=${enabled} onChange=${onToggle} label=${enabled ? "On" : "Off"} />`}
     </div>
