@@ -2,9 +2,11 @@
 
 pub mod app;
 pub mod auth;
+pub mod backups;
 pub mod collections;
 pub mod config;
 pub mod core;
+pub mod cron;
 pub mod datetime;
 pub mod db;
 pub mod error;

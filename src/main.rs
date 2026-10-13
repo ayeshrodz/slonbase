@@ -51,6 +51,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_STORAGE_PATH")]
     storage_path: Option<PathBuf>,
 
+    /// Directory for backups [default: slonbase_data/backups].
+    #[arg(long, global = true, env = "SLONBASE_BACKUPS_PATH")]
+    backups_path: Option<PathBuf>,
+
     /// Enable the dashboard's SQL console (runs any SQL with the database role's privileges).
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
@@ -116,6 +120,7 @@ async fn run() -> Result<()> {
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
         storage_path: cli.storage_path,
+        backups_path: cli.backups_path,
         sql_console: cli.sql_console.then_some(true),
     };
 

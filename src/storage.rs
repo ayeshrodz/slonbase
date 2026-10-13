@@ -164,6 +164,67 @@ impl Storage {
         }
     }
 
+    /// Stores a file from disk (moved when the storage is local, streamed to S3).
+    pub async fn put_file(&self, key: &str, path: &Path) -> Result<()> {
+        check_key(key)?;
+        match self {
+            Self::Local(local) => {
+                let target = local.path(key);
+                if let Some(dir) = target.parent() {
+                    tokio::fs::create_dir_all(dir).await?;
+                }
+                if tokio::fs::rename(path, &target).await.is_err() {
+                    // another file system: copy, then remove the source
+                    let tmp = target.with_extension("tmp-copy");
+                    tokio::fs::copy(path, &tmp).await?;
+                    tokio::fs::rename(&tmp, &target).await?;
+                    let _ = tokio::fs::remove_file(path).await;
+                }
+                Ok(())
+            }
+            Self::S3(client) => client.put_file(key, path).await,
+            Self::Unavailable(message) => Err(Self::unavailable(message)),
+        }
+    }
+
+    /// The files directly under the root (local) or in the bucket's root (S3), with their
+    /// size and modification time (`YYYY-MM-DD HH:MM:SS.sssZ`).
+    pub async fn list_root(&self) -> Result<Vec<(String, u64, String)>> {
+        match self {
+            Self::Local(local) => {
+                let mut out = Vec::new();
+                let mut entries = match tokio::fs::read_dir(&local.root).await {
+                    Ok(entries) => entries,
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+                    Err(e) => return Err(e.into()),
+                };
+                while let Some(entry) = entries.next_entry().await? {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let meta = entry.metadata().await?;
+                    if !meta.is_file() || !valid_part(&name) {
+                        continue;
+                    }
+                    let modified: chrono::DateTime<chrono::Utc> = meta.modified()?.into();
+                    out.push((name, meta.len(), crate::datetime::format(&modified)));
+                }
+                Ok(out)
+            }
+            Self::S3(client) => Ok(client
+                .list_objects("")
+                .await?
+                .into_iter()
+                .filter(|o| !o.key.contains('/') && valid_part(&o.key))
+                .map(|o| {
+                    let modified = crate::datetime::parse(&o.modified)
+                        .map(|d| crate::datetime::format(&d))
+                        .unwrap_or(o.modified);
+                    (o.key, o.size, modified)
+                })
+                .collect()),
+            Self::Unavailable(message) => Err(Self::unavailable(message)),
+        }
+    }
+
     /// Checks that files can be written, read and deleted (`/api/settings/test/s3`).
     pub async fn check(&self) -> Result<()> {
         let key = format!("_slonbase_test_{}.txt", crate::ids::random_id(12));
@@ -223,7 +284,9 @@ impl Local {
 }
 
 /// Streams a file in 64 KiB chunks.
-fn file_chunks(file: tokio::fs::File) -> impl Stream<Item = std::io::Result<Bytes>> + Send {
+pub(crate) fn file_chunks(
+    file: tokio::fs::File,
+) -> impl Stream<Item = std::io::Result<Bytes>> + Send {
     futures_util::stream::unfold(file, |mut file| async move {
         use tokio::io::AsyncReadExt;
         let mut buf = vec![0u8; 64 * 1024];

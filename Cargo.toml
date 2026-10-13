@@ -19,7 +19,7 @@ clap = { version = "4.6.7", features = ["derive", "env"] }
 deadpool-postgres = "0.14.2"
 flate2 = "1.1.10"
 form_urlencoded = "1.2.2"
-futures-util = { version = "0.3.34", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.34", default-features = false, features = ["std", "sink"] }
 hex = "0.4.3"
 hmac = "0.13.0"
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
@@ -42,6 +42,7 @@ tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 webpki-roots = "1.0.9"
+zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
 
 [build-dependencies]
 flate2 = "1.1.10"

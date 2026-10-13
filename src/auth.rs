@@ -51,7 +51,7 @@ impl TokenType {
 }
 
 fn signing_key(core: &Core, collection_id: &str, kind: TokenType, token_key: &str) -> Vec<u8> {
-    let mut key = core.auth_secret().to_vec();
+    let mut key = core.auth_secret().as_ref().clone();
     for part in [collection_id, kind.as_str(), token_key] {
         key.push(0);
         key.extend_from_slice(part.as_bytes());

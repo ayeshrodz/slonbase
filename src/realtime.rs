@@ -239,6 +239,11 @@ impl Hub {
             .collect()
     }
 
+    /// Disconnects every client (their streams end).
+    pub fn disconnect_all(&self) {
+        self.clients.lock().expect("hub lock").clear();
+    }
+
     pub fn client_count(&self) -> usize {
         self.clients.lock().expect("hub lock").len()
     }
@@ -686,6 +691,8 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             }
 
             let mut prune = tokio::time::interval(Duration::from_secs(60));
+            // more often than once a minute, so no scheduled minute is skipped
+            let mut schedule = tokio::time::interval(Duration::from_secs(20));
             loop {
                 tokio::select! {
                     notification = notifications.recv() => {
@@ -696,6 +703,11 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                             reload_collections(&core).await;
                         } else if payload == "settings" {
                             reload_settings(&core).await;
+                        } else if payload == "restored" {
+                            // another instance restored a backup
+                            if let Err(err) = core.reload_after_restore().await {
+                                tracing::error!(error = %format!("{err:#}"), "failed to reload after a restore");
+                            }
                         } else if let Some(data) = payload.strip_prefix("oauth2:") {
                             let state = serde_json::from_str::<Value>(data)
                                 .ok()
@@ -708,6 +720,10 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                 tracing::error!(error = %format!("{err:#}"), "failed to deliver an event");
                             }
                         }
+                    }
+                    _ = schedule.tick() => {
+                        let Some(core) = weak.upgrade() else { return };
+                        crate::backups::run_scheduled(&core).await;
                     }
                     _ = prune.tick() => {
                         let Some(core) = weak.upgrade() else { return };

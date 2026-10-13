@@ -35,6 +35,23 @@ pub struct Config {
     pub force_path_style: bool,
 }
 
+/// A request body.
+enum Payload<'a> {
+    Empty,
+    Bytes(Bytes),
+    /// A file streamed from disk (with its size).
+    File(&'a std::path::Path, u64),
+}
+
+/// An object in a listing.
+#[derive(Debug, Clone)]
+pub struct ObjectInfo {
+    pub key: String,
+    pub size: u64,
+    /// As returned by S3 (RFC 3339).
+    pub modified: String,
+}
+
 pub struct Client {
     config: Config,
     /// The endpoint with the bucket applied (as a host or a path prefix).
@@ -91,7 +108,7 @@ impl Client {
         method: Method,
         key: &str,
         query: &[(&str, &str)],
-        body: Option<Bytes>,
+        body: Payload<'_>,
         extra_headers: &[(&str, String)],
         timeout: Option<Duration>,
     ) -> Result<reqwest::Response> {
@@ -118,12 +135,30 @@ impl Client {
 
         let payload_hash = match &body {
             // hashing a large upload takes a while, so not on the async threads
-            Some(data) if data.len() > 1 << 20 => {
+            Payload::Bytes(data) if data.len() > 1 << 20 => {
                 let data = data.clone();
                 tokio::task::spawn_blocking(move || hex::encode(Sha256::digest(&data))).await?
             }
-            Some(data) => hex::encode(Sha256::digest(data)),
-            None => EMPTY_SHA256.to_string(),
+            Payload::Bytes(data) => hex::encode(Sha256::digest(data)),
+            Payload::File(path, _) => {
+                let path = path.to_path_buf();
+                tokio::task::spawn_blocking(move || -> Result<String> {
+                    use std::io::Read;
+                    let mut file = std::fs::File::open(&path)?;
+                    let mut hasher = Sha256::new();
+                    let mut buf = vec![0u8; 256 * 1024];
+                    loop {
+                        let n = file.read(&mut buf)?;
+                        if n == 0 {
+                            break;
+                        }
+                        hasher.update(&buf[..n]);
+                    }
+                    Ok(hex::encode(hasher.finalize()))
+                })
+                .await??
+            }
+            Payload::Empty => EMPTY_SHA256.to_string(),
         };
         let now = chrono::Utc::now();
         let mut headers = vec![
@@ -161,8 +196,15 @@ impl Client {
             if let Some(timeout) = timeout {
                 request = request.timeout(timeout);
             }
-            if let Some(data) = &body {
-                request = request.body(data.clone());
+            match &body {
+                Payload::Empty => {}
+                Payload::Bytes(data) => request = request.body(data.clone()),
+                Payload::File(path, size) => {
+                    let file = tokio::fs::File::open(path).await?;
+                    request = request.header("content-length", size.to_string()).body(
+                        reqwest::Body::wrap_stream(crate::storage::file_chunks(file)),
+                    );
+                }
             }
             match request.send().await {
                 // every request here is idempotent, so a failed attempt can be repeated
@@ -181,7 +223,7 @@ impl Client {
                 Method::PUT,
                 key,
                 &[],
-                Some(data),
+                Payload::Bytes(data),
                 &[],
                 Some(REQUEST_TIMEOUT),
             )
@@ -191,7 +233,9 @@ impl Client {
 
     /// Opens an object for streaming, or `None` when it doesn't exist.
     pub async fn open(&self, key: &str) -> Result<Option<Object>> {
-        let response = self.send(Method::GET, key, &[], None, &[], None).await?;
+        let response = self
+            .send(Method::GET, key, &[], Payload::Empty, &[], None)
+            .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(None);
         }
@@ -210,7 +254,14 @@ impl Client {
 
     pub async fn exists(&self, key: &str) -> Result<bool> {
         let response = self
-            .send(Method::HEAD, key, &[], None, &[], Some(REQUEST_TIMEOUT))
+            .send(
+                Method::HEAD,
+                key,
+                &[],
+                Payload::Empty,
+                &[],
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(false);
@@ -220,7 +271,14 @@ impl Client {
 
     pub async fn delete(&self, key: &str) -> Result<()> {
         let response = self
-            .send(Method::DELETE, key, &[], None, &[], Some(REQUEST_TIMEOUT))
+            .send(
+                Method::DELETE,
+                key,
+                &[],
+                Payload::Empty,
+                &[],
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(());
@@ -230,7 +288,17 @@ impl Client {
 
     /// Lists the keys starting with `prefix`.
     pub async fn list(&self, prefix: &str) -> Result<Vec<String>> {
-        let mut keys = Vec::new();
+        Ok(self
+            .list_objects(prefix)
+            .await?
+            .into_iter()
+            .map(|o| o.key)
+            .collect())
+    }
+
+    /// Lists the objects whose keys start with `prefix`.
+    pub async fn list_objects(&self, prefix: &str) -> Result<Vec<ObjectInfo>> {
+        let mut objects = Vec::new();
         let mut token = String::new();
         loop {
             let page_size = self.page_size.to_string();
@@ -243,10 +311,29 @@ impl Client {
                 query.push(("continuation-token", &token));
             }
             let response = self
-                .send(Method::GET, "", &query, None, &[], Some(REQUEST_TIMEOUT))
+                .send(
+                    Method::GET,
+                    "",
+                    &query,
+                    Payload::Empty,
+                    &[],
+                    Some(REQUEST_TIMEOUT),
+                )
                 .await?;
             let body = ensure_success(response, "list").await?;
-            keys.extend(xml_values(&body, "Key"));
+            for contents in xml_blocks(&body, "Contents") {
+                let first = |tag| {
+                    xml_values(contents, tag)
+                        .into_iter()
+                        .next()
+                        .unwrap_or_default()
+                };
+                objects.push(ObjectInfo {
+                    key: first("Key"),
+                    size: first("Size").parse().unwrap_or_default(),
+                    modified: first("LastModified"),
+                });
+            }
             let truncated =
                 xml_values(&body, "IsTruncated").first().map(String::as_str) == Some("true");
             token = xml_values(&body, "NextContinuationToken")
@@ -254,15 +341,31 @@ impl Client {
                 .next()
                 .unwrap_or_default();
             if !truncated || token.is_empty() {
-                return Ok(keys);
+                return Ok(objects);
             }
         }
+    }
+
+    /// Uploads a file from disk without reading it into memory.
+    pub async fn put_file(&self, key: &str, path: &std::path::Path) -> Result<()> {
+        let size = tokio::fs::metadata(path).await?.len();
+        let response = self
+            .send(Method::PUT, key, &[], Payload::File(path, size), &[], None)
+            .await?;
+        ensure_success(response, "upload").await.map(|_| ())
     }
 
     /// Creates the bucket (used by tests; an existing bucket of the same owner is fine).
     pub async fn create_bucket(&self) -> Result<()> {
         let response = self
-            .send(Method::PUT, "", &[], None, &[], Some(REQUEST_TIMEOUT))
+            .send(
+                Method::PUT,
+                "",
+                &[],
+                Payload::Empty,
+                &[],
+                Some(REQUEST_TIMEOUT),
+            )
             .await?;
         if response.status() == StatusCode::CONFLICT {
             return Ok(());
@@ -289,7 +392,7 @@ impl Client {
                     Method::POST,
                     "",
                     &[("delete", "")],
-                    Some(body),
+                    Payload::Bytes(body),
                     &[
                         ("content-md5", md5),
                         ("content-type", "application/xml".to_string()),
@@ -402,6 +505,21 @@ fn xml_unescape(s: &str) -> String {
         .replace("&apos;", "'")
         .replace("&#39;", "'")
         .replace("&amp;", "&")
+}
+
+/// The raw inner XML of every `<tag>...</tag>` element.
+fn xml_blocks<'a>(xml: &'a str, tag: &str) -> Vec<&'a str> {
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let mut out = Vec::new();
+    let mut rest = xml;
+    while let Some(start) = rest.find(&open) {
+        rest = &rest[start + open.len()..];
+        let Some(end) = rest.find(&close) else { break };
+        out.push(&rest[..end]);
+        rest = &rest[end + close.len()..];
+    }
+    out
 }
 
 /// The text of every `<tag>...</tag>` element (S3's responses are simple and flat

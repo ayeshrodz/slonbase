@@ -20,6 +20,22 @@ pub struct Config {
     pub server: ServerConfig,
     pub database: DatabaseConfig,
     pub storage: StorageConfig,
+    pub backups: BackupsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BackupsConfig {
+    /// Directory for backups (unless the settings store them in S3).
+    pub path: PathBuf,
+}
+
+impl Default for BackupsConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("slonbase_data/backups"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -87,6 +103,7 @@ pub struct Overrides {
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
     pub storage_path: Option<PathBuf>,
+    pub backups_path: Option<PathBuf>,
     pub sql_console: Option<bool>,
 }
 
@@ -131,6 +148,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(path) = overrides.storage_path {
         effective.storage.path = path;
+    }
+    if let Some(path) = overrides.backups_path {
+        effective.backups.path = path;
     }
     if let Some(enabled) = overrides.sql_console {
         effective.server.sql_console = enabled;

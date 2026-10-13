@@ -78,6 +78,7 @@ pub fn new_app(config_path: &Path, database_url: Option<String>) -> Arc<App> {
             database_url,
             // uploads go next to the test's config file
             storage_path: Some(config_path.parent().unwrap().join("storage")),
+            backups_path: Some(config_path.parent().unwrap().join("backups")),
             ..Default::default()
         },
     )

@@ -154,6 +154,22 @@ pub fn router(app: Arc<App>) -> Router {
             "/api/files/{collection}/{record}/{filename}",
             get(records::files::serve),
         )
+        .route(
+            "/api/backups",
+            get(crate::backups::list).post(crate::backups::create_handler),
+        )
+        .route(
+            "/api/backups/upload",
+            post(crate::backups::upload).layer(DefaultBodyLimit::disable()),
+        )
+        .route(
+            "/api/backups/{key}",
+            get(crate::backups::download).delete(crate::backups::delete),
+        )
+        .route(
+            "/api/backups/{key}/restore",
+            post(crate::backups::restore_handler),
+        )
         .route("/api/logs", get(logs::list).delete(logs::truncate))
         .route("/api/logs/stats", get(logs::stats))
         .route("/api/logs/{id}", get(logs::view))
@@ -170,7 +186,12 @@ pub fn router(app: Arc<App>) -> Router {
         .with_state(app)
 }
 
-async fn health(State(app): State<Arc<App>>) -> Response {
+async fn health(
+    State(app): State<Arc<App>>,
+    auth: crate::auth::RequestAuth,
+    client_ip: Option<axum::Extension<crate::guard::ClientIp>>,
+    headers: axum::http::HeaderMap,
+) -> Response {
     let unhealthy = |message: String| {
         (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -196,11 +217,34 @@ async fn health(State(app): State<Arc<App>>) -> Response {
                     .map_err(|e| e.to_string())?;
                 Ok::<_, String>(())
             };
+            // for superusers, what the dashboard shows (like PocketBase)
+            let mut data = serde_json::Map::new();
+            if auth.is_superuser() {
+                let ip = client_ip.and_then(|e| e.0.0);
+                let settings = core.settings();
+                let proxy_header = settings
+                    .trusted_proxy
+                    .headers
+                    .iter()
+                    .map(String::as_str)
+                    .chain(["CF-Connecting-IP", "Fly-Client-IP", "X-Forwarded-For"])
+                    .find(|h| headers.contains_key(*h))
+                    .unwrap_or_default();
+                data.insert(
+                    "canBackup".into(),
+                    core.backup_lock.try_lock().is_ok().into(),
+                );
+                data.insert(
+                    "realIP".into(),
+                    ip.map(|ip| ip.to_string()).unwrap_or_default().into(),
+                );
+                data.insert("possibleProxyHeader".into(), proxy_header.into());
+            }
             match tokio::time::timeout(HEALTH_DB_TIMEOUT, check).await {
                 Ok(Ok(())) => Json(json!({
                     "code": 200,
                     "message": "API is healthy.",
-                    "data": {},
+                    "data": data,
                 }))
                 .into_response(),
                 Ok(Err(err)) => unhealthy(format!("Database unavailable: {err}")),

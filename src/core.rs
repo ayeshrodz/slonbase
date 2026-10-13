@@ -18,11 +18,15 @@ use crate::storage::Storage;
 pub struct Core {
     pub pool: Pool,
     registry: RwLock<Arc<Registry>>,
-    auth_secret: Vec<u8>,
+    auth_secret: RwLock<Arc<Vec<u8>>>,
     settings: RwLock<Arc<Settings>>,
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
+    /// The directory for backups (unless they're stored in S3).
+    pub backups_dir: PathBuf,
+    /// Held while a backup is created or restored on this instance.
+    pub backup_lock: tokio::sync::Mutex<()>,
     /// Rate limit counters of this instance.
     pub rate_limiter: crate::guard::RateLimiter,
     /// The request and app logs queue.
@@ -35,6 +39,24 @@ pub struct Core {
     /// Serializes collection changes within this instance (the database
     /// advisory lock serializes them across instances).
     pub(crate) schema_lock: tokio::sync::Mutex<()>,
+}
+
+/// The installation's signing secret, created once and shared by all instances.
+async fn load_auth_secret(client: &deadpool_postgres::Client) -> Result<String> {
+    client
+        .execute(
+            "INSERT INTO _slonbase.params (key, value) VALUES ('auth_secret', to_jsonb($1::text))
+             ON CONFLICT (key) DO NOTHING",
+            &[&ids::random_secret(32)],
+        )
+        .await?;
+    Ok(client
+        .query_one(
+            "SELECT value #>> '{}' FROM _slonbase.params WHERE key = 'auth_secret'",
+            &[],
+        )
+        .await?
+        .get(0))
 }
 
 fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
@@ -59,21 +81,7 @@ impl Core {
         let local_storage = config.storage.path.clone();
         let client = pool.get().await.map_err(describe_pool_error)?;
 
-        // created once per installation and shared by all instances
-        client
-            .execute(
-                "INSERT INTO _slonbase.params (key, value) VALUES ('auth_secret', to_jsonb($1::text))
-                 ON CONFLICT (key) DO NOTHING",
-                &[&ids::random_secret(32)],
-            )
-            .await?;
-        let secret: String = client
-            .query_one(
-                "SELECT value #>> '{}' FROM _slonbase.params WHERE key = 'auth_secret'",
-                &[],
-            )
-            .await?
-            .get(0);
+        let secret = load_auth_secret(&client).await?;
 
         let registry = store::load(&client).await?;
         let settings = Settings::load(&client).await?;
@@ -85,12 +93,14 @@ impl Core {
         Ok(Arc::new(Self {
             pool,
             registry: RwLock::new(Arc::new(registry)),
-            auth_secret: secret.into_bytes(),
+            auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
             logs,
             rate_limiter: Default::default(),
+            backups_dir: config.backups.path.clone(),
+            backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
@@ -106,8 +116,29 @@ impl Core {
         *self.registry.write().expect("registry lock") = Arc::new(registry);
     }
 
-    pub(crate) fn auth_secret(&self) -> &[u8] {
-        &self.auth_secret
+    /// The local storage directory (used unless S3 is enabled).
+    pub fn local_storage_path(&self) -> &std::path::Path {
+        &self.local_storage
+    }
+
+    pub(crate) fn auth_secret(&self) -> Arc<Vec<u8>> {
+        self.auth_secret.read().expect("secret lock").clone()
+    }
+
+    /// Reloads everything a restored backup replaced: the auth secret (so tokens issued
+    /// before the restore stop working), collections and settings. Realtime clients are
+    /// disconnected, since their auth may no longer exist.
+    pub async fn reload_after_restore(&self) -> Result<()> {
+        let client = self.pool.get().await.map_err(describe_pool_error)?;
+        let secret = load_auth_secret(&client).await?;
+        let registry = store::load(&client).await?;
+        let settings = Settings::load(&client).await?;
+        drop(client);
+        *self.auth_secret.write().expect("secret lock") = Arc::new(secret.into_bytes());
+        self.set_registry(registry);
+        self.set_settings(settings);
+        self.realtime.disconnect_all();
+        Ok(())
     }
 
     pub fn settings(&self) -> Arc<Settings> {

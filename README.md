@@ -7,8 +7,8 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 > **Status: early development (phase 4).** The admin dashboard, collections, the records REST API
 > with filtering and API rules, auth (superusers and auth collections with password, OAuth2 and
 > one-time password sign-in, MFA, verification, password reset and email change), realtime
-> subscriptions, relation paths, `expand`, file fields (stored locally or in S3), request logs and
-> rate limiting work. Backups and batch requests are next.
+> subscriptions, relation paths, `expand`, file fields (stored locally or in S3), request logs,
+> rate limiting and backups work. Batch requests are next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -85,6 +85,7 @@ file, then defaults.
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
+| `--backups-path` | `SLONBASE_BACKUPS_PATH` | `backups.path` | `slonbase_data/backups` |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
@@ -100,8 +101,8 @@ The dashboard is at `/_/` (e.g. `http://localhost:8090/_/`). It's
 [PocketBase](https://pocketbase.io)'s admin UI, embedded unchanged under its MIT license (see
 [ui/README.md](ui/README.md)), so it still shows PocketBase's name and logo. slonbase implements
 the API it uses: collections and records (including files and realtime), superusers,
-settings, the test email, collection import and export, logs, and the SQL console. Backups are
-coming next; the Geo Point field type isn't supported yet.
+settings, the test email, collection import and export, logs, backups, and the SQL console. The
+Geo Point field type isn't supported yet.
 
 **Logs.** Every request is logged (level 0, or 8 for errors, with the error), except dashboard
 files and successful health checks, and so are slonbase's own warnings and errors. They're kept
@@ -116,6 +117,15 @@ optionally only for `@guest` or `@auth` requests. Each allows `maxRequests` per 
 seconds per client IP; over the limit, requests get `429`. Superusers and `excludedIPs` aren't
 limited. Counters are kept in memory by each instance, so with several instances the limits apply
 per instance.
+
+**Backups** (`/api/backups`, or the dashboard's Backups page) are zip files with every collection,
+the settings, and the local files (unless files are in S3). Restoring one replaces all of that in
+one transaction, on every instance; it also restores the installation's signing key, so tokens
+issued after the backup stop working. Backups are kept in `--backups-path`, or in an S3 bucket
+(`backups.s3`); `backups.cron` (e.g. `0 3 * * *`, UTC) creates them automatically and
+`backups.cronMaxKeep` limits how many are kept. They're slonbase's own format (not `pg_dump`,
+which the Docker image doesn't have), so restore them with slonbase; you can still back up the
+database with your usual PostgreSQL tools.
 
 **Superuser IPs** (`superuserIPs`): when set, superuser requests, superuser sign-in and the
 `_superusers` endpoints only work from those addresses or ranges. Behind a proxy, set
@@ -164,6 +174,8 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `GET /api/collections/meta/scaffolds`, `meta/oauth2-providers` | Defaults and providers for the dashboard |
 | `POST /api/sql` | The SQL console (when enabled) |
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
+| `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
+| `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (the automatic backup) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
 | `GET /api/health` | Health check |
@@ -278,7 +290,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
    verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done), with local or S3 storage.
-4. **Admin dashboard**, **logs** and **rate limiting** (done), then backups and batch requests.
+4. **Admin dashboard**, **logs**, **rate limiting** and **backups** (done), then batch requests.
 5. **Extensibility**: use as a Rust library, and JS hooks.
 
 ## License

@@ -508,11 +508,42 @@ request to the `_superusers` collection (sign-in, OTP, password reset, records) 
 other addresses, and a superuser's file token from them counts as a guest's. The client address
 is the trusted proxy header's when configured, else the connection's.
 
+### Phase 4d: backups
+
+PocketBase zips its data directory. slonbase's data is in PostgreSQL, and `pg_dump` isn't an
+option (not in the `scratch` image, and it must match the server's major version), so slonbase
+exports what it owns itself:
+- **What's in a backup:** a manifest (format version, last migration, slonbase version, the
+  tables and their columns), the `collections` and `params` system tables (collections, settings,
+  the auth secret), every collection's table, and the local storage files when files aren't in S3.
+  Short-lived state (realtime events, OTPs, MFA sessions, logs) is left out.
+- **Export:** `COPY (SELECT ...) TO STDOUT` in the text format (portable across PostgreSQL
+  versions), all in one repeatable-read read-only transaction, so the backup is a consistent
+  snapshot; records in `_seq` order so a restore keeps their order. Tables go to temporary files,
+  which are zipped off the async threads (deflate, already-compressed files stored).
+- **Storage:** the backups directory (`--backups-path`) or the `backups.s3` bucket. Archives are
+  streamed to and from S3, never held in memory.
+- **Restore:** the archive's manifest is checked (format, and not newer than this version's
+  migrations), entries are extracted with zip-slip protection, then one transaction drops the
+  collection tables, reloads the system tables with `COPY FROM STDIN`, recreates the tables from
+  the restored collections and loads their data. Local files are swapped in by renaming the
+  directory. Missing system collections are created, and every instance reloads collections,
+  settings and the auth secret (a `restored` notification) and drops its realtime clients.
+- **Locking:** a backup or restore holds the instance's lock and a PostgreSQL session advisory
+  lock, so only one runs across all instances; the health check reports `canBackup` to superusers
+  like PocketBase.
+- **Schedule:** `backups.cron` is a 5-field cron expression in UTC, checked every 20 seconds.
+  Each scheduled minute is claimed with a conditional update of a params row, so one instance runs
+  it. Automatic backups beyond `cronMaxKeep` are deleted, oldest first.
+- Downloads need a superuser file token (and an allowed IP); uploads are streamed to disk, have no
+  size limit, and must contain a valid manifest.
+
+**Not yet:** restoring PocketBase (SQLite) backups, and encryption at rest.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
   instead of converting rows one by one.
-- **Backups** with `pg_dump`, or the provider's own backups. pgbase has none.
 
 ## Configuration
 
@@ -557,6 +588,10 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Backup tests cover creating (names, duplicates), restoring in place (order, JSON, special
+  characters, files, settings, dropped collections) and into another installation (its auth
+  secret replaced), downloads with file tokens, uploads (only valid backups), deletes, automatic
+  backups with `cronMaxKeep`, and backups in S3.
 - Guard tests cover rate limit labels and audiences, per-client windows, excluded IPs,
   superusers, resets, and the superuser IP allowlist (requests, sign-in, file tokens).
 - Log tests cover request entries (errors, auth, user agent, referer, proxy IPs, auth ids),
@@ -590,6 +625,6 @@ the file.
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
-4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs** and
-   **rate limits** (done), then backups and the batch API.
+4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs**,
+   **rate limits** and **backups** (done), then the batch API.
 5. **Extensibility**: Rust library API and JS hooks.

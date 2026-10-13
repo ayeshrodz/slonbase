@@ -153,6 +153,13 @@ async fn dashboard_endpoints() {
     let (_, crons) = admin(&app, &token, "GET", "/api/crons", None).await;
     assert_eq!(crons, json!([]));
 
+    // the health check tells superusers what the dashboard shows
+    let (_, health) = admin(&app, &token, "GET", "/api/health", None).await;
+    assert_eq!(health["data"]["canBackup"], true);
+    assert!(health["data"].get("realIP").is_some());
+    let (_, guest_health) = request(&app, "GET", "/api/health", &[], None).await;
+    assert_eq!(guest_health["data"], json!({}));
+
     // settings: every section, merged recursively, secrets kept
     let (_, settings) = admin(&app, &token, "GET", "/api/settings", None).await;
     for key in [

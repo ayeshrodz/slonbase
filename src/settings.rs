@@ -340,6 +340,10 @@ fn validate(s: &Settings) -> Errors {
     }
     s.s3.validate("s3", &mut errors);
     s.backups.s3.validate("backups.s3", &mut errors);
+    if !s.backups.cron.trim().is_empty() && crate::cron::Schedule::parse(&s.backups.cron).is_none()
+    {
+        errors.invalid("backups.cron", "Invalid cron expression.");
+    }
     if s.batch.enabled {
         if s.batch.max_requests == 0 {
             errors.invalid("batch.maxRequests", "Must be at least 1.");

@@ -1,4 +1,4 @@
-//! The dashboard's SQL console (`POST /api/sql`) and cron jobs list (`/api/crons`).
+//! The dashboard's SQL console (`POST /api/sql`) and cron jobs (`/api/crons`).
 //!
 //! The console runs any SQL a superuser enters, with the database role's privileges. On
 //! PostgreSQL that can reach beyond slonbase's data (a superuser role can read server
@@ -138,23 +138,37 @@ pub async fn run(
     })))
 }
 
-/// `GET /api/crons`: the registered cron jobs (none yet).
+/// The automatic backup job's id (PocketBase's).
+const AUTO_BACKUP_JOB: &str = "__pbAutoBackup__";
+
+/// `GET /api/crons`: the scheduled jobs (the automatic backup, when configured).
 pub async fn crons(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
 ) -> Result<Json<Value>, ApiError> {
-    app.core()?;
+    let core = app.core()?;
     auth.require_superuser()?;
-    Ok(Json(json!([])))
+    let cron = core.settings().backups.cron.trim().to_string();
+    let jobs = if cron.is_empty() {
+        vec![]
+    } else {
+        vec![json!({ "id": AUTO_BACKUP_JOB, "expression": cron })]
+    };
+    Ok(Json(Value::Array(jobs)))
 }
 
-/// `POST /api/crons/{id}`: runs a cron job.
+/// `POST /api/crons/{id}`: runs a job now.
 pub async fn run_cron(
     State(app): State<Arc<App>>,
-    Path(_id): Path<String>,
+    Path(id): Path<String>,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
-    app.core()?;
+) -> Result<axum::response::Response, ApiError> {
+    use axum::response::IntoResponse;
+    let core = app.core()?;
     auth.require_superuser()?;
-    Err(ApiError::not_found())
+    if id != AUTO_BACKUP_JOB || core.settings().backups.cron.trim().is_empty() {
+        return Err(ApiError::not_found());
+    }
+    crate::backups::run_auto_backup(&core).await?;
+    Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
