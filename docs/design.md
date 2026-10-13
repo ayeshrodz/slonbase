@@ -578,6 +578,27 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   placeholders (`{:name}`) are turned into literal tokens by the tokenizer, so values can't change
   the expression.
 
+### Phase 5b: JavaScript hooks
+
+- QuickJS through `rquickjs` (pure C, compiled with `cc`; prebuilt bindings cover the musl
+  targets), behind the default `js` feature. The API is PocketBase's JSVM API, implemented in
+  `src/js/prelude.js` on top of three natives: `__native_call(name, argsJson)`,
+  `__native_next(stateJson)` and `__native_log`. Values cross as JSON, which keeps the binding
+  small and the API in one JavaScript file.
+- `hooks.pool_size` threads each own a runtime that evaluated the prelude and every `*.pb.js`
+  file, so handler `i` is the same function in every runtime. The first runtime reports the
+  registrations, which become ordinary Rust hooks, axum routes (`{path...}` becomes `{*path}`)
+  and cron jobs.
+- A handler runs on one thread. `e.next()` sends the event state to the async side, which runs the
+  rest of the chain and the action and answers on a channel; the thread blocks meanwhile. Natives
+  block on the tokio runtime handle (the threads aren't runtime threads, so `block_on` is allowed).
+  If the request is dropped, the reply channel closes and `e.next()` throws.
+- Database access: `$app` maps to the record service; `$app.db().newQuery()` binds `{:name}`
+  placeholders as SQL literals (text dollar-quoted with a tag it doesn't contain) and reads rows
+  with `WITH _q AS (...) SELECT json_agg(_q)`, which also works for `INSERT ... RETURNING`.
+- Errors: `ApiError` and its subclasses keep their status, message and data; other exceptions answer
+  400 "Something went wrong..." and are logged with their stack.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -668,4 +689,5 @@ the file.
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
 4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs**,
    **rate limits**, **backups** and the **batch API** (done).
-5. **Extensibility**: Rust library API and JS hooks.
+5. **Extensibility** (done): Rust library API (hooks, routes, cron jobs, record service) and
+   JavaScript hooks with PocketBase's API.

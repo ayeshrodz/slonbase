@@ -8,7 +8,7 @@ admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 > filtering and API rules, batch requests, auth (superusers and auth collections with password,
 > OAuth2 and one-time password sign-in, MFA, verification, password reset and email change),
 > realtime subscriptions, relation paths, `expand`, file fields (stored locally or in S3),
-> request logs, rate limiting and backups work. Extensibility (hooks) is next.
+> request logs, rate limiting, backups, and JavaScript and Rust hooks work.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -87,6 +87,8 @@ file, then defaults.
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
 | `--backups-path` | `SLONBASE_BACKUPS_PATH` | `backups.path` | `slonbase_data/backups` |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
+| `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
+| `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
 Database URLs use the standard libpq format, e.g.
@@ -270,6 +272,53 @@ filter functions, view collections, and request hooks inside batch requests.
 
 ## Extending slonbase
 
+### JavaScript hooks
+
+Put `*.pb.js` files in the hooks directory (`slonbase_hooks`; `/data/hooks` in Docker,
+`/var/lib/slonbase/hooks` for the packages) and restart. They use PocketBase's JavaScript API, so
+most PocketBase hooks work as they are:
+
+```js
+// slonbase_hooks/main.pb.js
+onRecordCreateRequest((e) => {
+  e.record.set("status", "draft");
+  e.next(); // validates and saves the record
+}, "posts");
+
+onRecordAfterCreateSuccess((e) => {
+  console.log("new post", e.record.id);
+  e.next();
+}, "posts");
+
+routerAdd("GET", "/api/hello/{name}", (e) => {
+  const posts = $app.findRecordsByFilter("posts", "status = {:s}", "-created", 10, 0, { s: "draft" });
+  return e.json(200, { hello: e.request.pathValue("name"), drafts: posts.length });
+}, $apis.requireAuth());
+
+cronAdd("cleanup", "0 3 * * *", () => {
+  $app.db().newQuery("DELETE FROM posts WHERE status = {:s}").bind({ s: "spam" }).execute();
+});
+```
+
+Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
+`onRecordAfter{Create,Update,Delete}Success`, `onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
+`requireSuperuserAuth`, `requireSuperuserOrOwnerAuth` and `requireGuestOnly`), `cronAdd`/`cronRemove`,
+`Record` (`get`/`set`/`getString`/..., `setPassword`, `validatePassword`, `newAuthToken`), `$app`
+(`findRecordById`, `findRecordsByFilter`, `findFirstRecordByFilter`, `findAuthRecordByEmail`,
+`countRecords`, `findCollectionByNameOrId`, `save`, `delete`, `db().newQuery(...)`, `settings`,
+`newMailClient`), `$http.send`, `$security` (`randomString`, `sha256`, `hs256`, ...), `$os.getenv`,
+`require()` for modules in the hooks directory, and `console`. Errors thrown as `BadRequestError`,
+`NotFoundError`, `ForbiddenError`, `UnauthorizedError` or `ApiError` become API errors; other errors
+answer 400 and are logged.
+
+Each of the `--hooks-pool` runtimes loads every file, so top-level code runs once per runtime; keep
+state in the database rather than in variables. Not supported (yet): model hooks
+(`onRecordCreate`, ...) and other events, `routerUse`, file uploads in custom routes,
+`$filesystem`, and reloading when the files change. Build with `--no-default-features` to leave
+the JavaScript engine out.
+
+### Rust
+
 slonbase is also a Rust library. To add hooks, routes and cron jobs, depend on the `slonbase`
 crate and run its command line from your own `main`:
 
@@ -295,7 +344,8 @@ async fn main() -> std::process::ExitCode {
         ])).await?;
         tracing::info!(old, "old posts");
         Ok(())
-    })?;
+    })
+    .expect("a valid cron expression");
     ext.route("/api/hello", get(|| async { "Hello!" }));
     slonbase::cli::run(ext).await
 }
@@ -340,7 +390,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
    verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done), with local or S3 storage.
 4. **Admin dashboard**, **logs**, **rate limiting**, **backups** and **batch requests** (done).
-5. **Extensibility**: use as a Rust library, and JS hooks.
+5. **Extensibility** (done): JavaScript hooks with PocketBase's API, and a Rust library API.
 
 ## License
 

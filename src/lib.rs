@@ -38,6 +38,8 @@ pub mod hooks;
 pub mod http;
 pub mod ids;
 pub mod ip;
+#[cfg(feature = "js")]
+pub mod js;
 pub mod logs;
 pub mod mail;
 pub mod migrations;

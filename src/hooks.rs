@@ -157,7 +157,8 @@ pub struct RecordsListEvent {
 pub struct RecordEvent {
     pub core: Arc<Core>,
     pub collection: Arc<Collection>,
-    /// All values of the record, including hidden fields.
+    /// All values of the record, including hidden fields (but not password hashes and
+    /// token keys).
     pub record: Map<String, Value>,
 }
 
@@ -260,7 +261,11 @@ impl Hooks {
         }
         let core = core.clone();
         tokio::spawn(async move {
-            for change in changes {
+            for mut change in changes {
+                // hidden fields are included, secrets aren't
+                for field in change.collection.fields.iter().filter(|f| f.is_secret()) {
+                    change.values.remove(&field.name);
+                }
                 let e = RecordEvent {
                     core: core.clone(),
                     collection: change.collection.clone(),

@@ -21,6 +21,25 @@ pub struct Config {
     pub database: DatabaseConfig,
     pub storage: StorageConfig,
     pub backups: BackupsConfig,
+    pub hooks: HooksConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct HooksConfig {
+    /// Directory with the JavaScript hooks (`*.pb.js`); ignored when it doesn't exist.
+    pub dir: PathBuf,
+    /// Number of JavaScript runtimes (each runs one hook at a time).
+    pub pool_size: usize,
+}
+
+impl Default for HooksConfig {
+    fn default() -> Self {
+        Self {
+            dir: PathBuf::from("slonbase_hooks"),
+            pool_size: 10,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,6 +124,8 @@ pub struct Overrides {
     pub storage_path: Option<PathBuf>,
     pub backups_path: Option<PathBuf>,
     pub sql_console: Option<bool>,
+    pub hooks_dir: Option<PathBuf>,
+    pub hooks_pool_size: Option<usize>,
 }
 
 /// The result of loading the configuration.
@@ -154,6 +175,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(enabled) = overrides.sql_console {
         effective.server.sql_console = enabled;
+    }
+    if let Some(dir) = overrides.hooks_dir {
+        effective.hooks.dir = dir;
+    }
+    if let Some(size) = overrides.hooks_pool_size {
+        effective.hooks.pool_size = size;
     }
 
     if effective.database.max_connections == 0 {

@@ -63,6 +63,14 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
 
+    /// Directory with JavaScript hooks (`*.pb.js`) [default: slonbase_hooks].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_DIR")]
+    hooks_dir: Option<PathBuf>,
+
+    /// Number of JavaScript runtimes for the hooks [default: 10].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_POOL")]
+    hooks_pool: Option<usize>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -127,6 +135,8 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         storage_path: cli.storage_path,
         backups_path: cli.backups_path,
         sql_console: cli.sql_console.then_some(true),
+        hooks_dir: cli.hooks_dir,
+        hooks_pool_size: cli.hooks_pool,
     };
 
     match cli.command.unwrap_or(Command::Serve { setup_token: None }) {
@@ -193,8 +203,10 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
 async fn serve(
     loaded: config::Loaded,
     setup_token: Option<String>,
-    extensions: Extensions,
+    #[allow(unused_mut)] mut extensions: Extensions,
 ) -> Result<()> {
+    #[cfg(feature = "js")]
+    crate::js::load(&loaded.effective.hooks, &mut extensions).await?;
     let bind = loaded.effective.server.bind.clone();
     let app = App::with_extensions(loaded, setup_token, extensions)?;
 
