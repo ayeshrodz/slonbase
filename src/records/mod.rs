@@ -3,6 +3,7 @@
 pub mod access;
 pub mod api;
 pub mod auth_api;
+pub mod batch;
 pub mod expand;
 pub mod files;
 pub mod oauth2_api;

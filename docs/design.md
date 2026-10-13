@@ -540,6 +540,23 @@ exports what it owns itself:
 
 **Not yet:** restoring PocketBase (SQLite) backups, and encryption at rest.
 
+### Phase 4e: batch requests
+
+`POST /api/batch` follows PocketBase: `{"requests": [{"method", "url", "headers", "body"}]}` as
+JSON, or multipart with the JSON in `@jsonPayload` and files named `requests.{index}.{field}`;
+responses are `[{"status", "body"}]`, and a failure answers `400` with
+`data.requests.{index}` holding the failing request's error.
+- The record handlers' work is split into `create_in`/`update_in`/`delete_in`, which run in a
+  caller's transaction; single requests and batches use the same code. File changes are collected
+  (`FileEffects`): new files are removed if the transaction fails, replaced and deleted files once
+  it commits. Realtime events go to the outbox in the same transaction, so they're delivered only
+  if the whole batch commits.
+- `PUT .../records` is an upsert (an update when the body's `id` exists).
+- The batch's `Authorization` is used for every request (theirs are ignored), and rules apply per
+  request. The whole batch is limited by `batch.timeout`; dropping the transaction rolls it back.
+- Difference from PocketBase: `expand` is applied after the commit, so expanded relations show the
+  batch's final state rather than the state at that request.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -588,6 +605,9 @@ the file.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
   collections and settings), and catching up after the listener connection is killed.
+- Batch tests cover creates, updates, upserts and deletes in one batch (with expand), all-or-nothing
+  failures with the failing request's error, rules with the batch's auth, multipart files (and their
+  cleanup on failure), and limits.
 - Backup tests cover creating (names, duplicates), restoring in place (order, JSON, special
   characters, files, settings, dropped collections) and into another installation (its auth
   secret replaced), downloads with file tokens, uploads (only valid backups), deletes, automatic
@@ -626,5 +646,5 @@ the file.
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
 4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs**,
-   **rate limits** and **backups** (done), then the batch API.
+   **rate limits**, **backups** and the **batch API** (done).
 5. **Extensibility**: Rust library API and JS hooks.

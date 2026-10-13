@@ -50,7 +50,7 @@ fn find_collection(registry: &Registry, name: &str) -> Result<Arc<Collection>, A
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Missing collection context."))
 }
 
-fn request_info(
+pub(crate) fn request_info(
     method: &Method,
     query: &HashMap<String, String>,
     headers: &HeaderMap,
@@ -117,7 +117,7 @@ async fn expand_records(
 }
 
 /// A single record response, with `expand` applied.
-async fn respond(
+pub(crate) async fn respond(
     core: &Core,
     auth: &RequestAuth,
     request: &RequestInfo,
@@ -331,30 +331,77 @@ async fn apply_secrets(
     Ok(())
 }
 
-/// `POST /api/collections/{collection}/records`
-pub async fn create(
-    State(app): State<Arc<App>>,
-    Path(collection): Path<String>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    headers: HeaderMap,
-    auth: RequestAuth,
-    mut input: RecordBody,
-) -> Result<Json<Value>, ApiError> {
-    let core = app.core()?;
-    let registry = core.registry();
-    let c = find_collection(&registry, &collection)?;
-    ensure_allowed(&c, RuleAction::Create, &auth)?;
-    input.normalize_form_values(&c);
-    let mut body = input.data;
-    let request = request_info(
-        &method,
-        &query,
-        &headers,
-        Some(&body),
-        &auth,
-        &core.registry(),
-    );
+/// Where a write runs: the caller, its request and the collections.
+pub(crate) struct WriteContext<'a> {
+    pub core: &'a Core,
+    pub registry: &'a Arc<Registry>,
+    pub auth: &'a RequestAuth,
+    pub request: &'a RequestInfo,
+}
+
+/// File changes of writes in a transaction: new files are discarded if it fails, replaced
+/// and deleted files are removed once it commits.
+#[derive(Default)]
+pub(crate) struct FileEffects {
+    written: Vec<files::NewFile>,
+    replaced: Vec<(String, String, Vec<String>)>,
+    deleted_records: Vec<(String, String)>,
+}
+
+impl FileEffects {
+    /// Applies the file changes for the transaction's outcome and returns it.
+    pub(crate) async fn settle<T>(
+        self,
+        core: &Core,
+        outcome: Result<T, ApiError>,
+    ) -> Result<T, ApiError> {
+        match outcome {
+            Err(err) => {
+                files::discard(core, &self.written).await;
+                Err(err)
+            }
+            Ok(value) => {
+                for (collection_id, record_id, names) in &self.replaced {
+                    files::remove_replaced(core, collection_id, record_id, names).await;
+                }
+                // the files of every deleted record (including cascades)
+                for (collection_id, record_id) in &self.deleted_records {
+                    if let Err(err) = core
+                        .storage()
+                        .delete_prefix(&files::record_prefix(collection_id, record_id))
+                        .await
+                    {
+                        tracing::warn!(error = %format!("{err:#}"), "failed to delete record files");
+                    }
+                }
+                Ok(value)
+            }
+        }
+    }
+}
+
+async fn transaction(client: &mut deadpool_postgres::Client) -> Result<Transaction<'_>, ApiError> {
+    client.transaction().await.map_err(db_error)
+}
+
+async fn pooled(core: &Core) -> Result<deadpool_postgres::Client, ApiError> {
+    core.pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(describe_pool_error(e)))
+}
+
+/// Creates a record in `tx` and returns it as the caller sees it.
+pub(crate) async fn create_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    mut body: Map<String, Value>,
+    uploads: Vec<files::Upload>,
+    effects: &mut FileEffects,
+) -> Result<Value, ApiError> {
+    let (core, auth, request) = (ctx.core, ctx.auth, ctx.request);
+    ensure_allowed(c, RuleAction::Create, auth)?;
     let failed = "Failed to create record.";
 
     // only superusers and managers (with an empty manage rule) can create verified records
@@ -367,179 +414,127 @@ pub async fn create(
         body.remove(FIELD_VERIFIED);
     }
 
-    let mut values = values::defaults(&c);
+    let mut values = values::defaults(c);
     let mut errors = Errors::new();
-    let changes = values::apply_body(&c, &mut values, &body, true, &mut errors);
-    values::finalize(&c, &mut values, true, &request.now, &mut errors);
-    let file_plan = files::apply(
-        &c,
-        &mut values,
-        &Values::new(),
-        &body,
-        input.uploads,
-        &mut errors,
-    );
-    values::validate(&c, &values, &changes, true, &mut errors);
-    check_password_confirm(&c, &body, &mut errors);
+    let changes = values::apply_body(c, &mut values, &body, true, &mut errors);
+    values::finalize(c, &mut values, true, &request.now, &mut errors);
+    let file_plan = files::apply(c, &mut values, &Values::new(), &body, uploads, &mut errors);
+    values::validate(c, &values, &changes, true, &mut errors);
+    check_password_confirm(c, &body, &mut errors);
+    if errors.is_empty() {
+        check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
+    }
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
-    apply_secrets(&c, &mut values, &changes, false).await?;
-    files::write(&core, &file_plan).await?;
+    apply_secrets(c, &mut values, &changes, false).await?;
+    files::write(core, &file_plan).await?;
+    effects.written.extend(file_plan.new);
 
-    let saved: Result<_, ApiError> = async {
-        let mut client = core
-            .pool
-            .get()
-            .await
-            .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
-        let tx = client.transaction().await.map_err(db_error)?;
-        check_relations(&tx, &registry, &c, &values, &mut errors).await?;
-        if !errors.is_empty() {
-            return Err(ApiError::invalid_data(failed, &errors));
-        }
-
-        let mut params = Params::default();
-        let mut columns = Vec::new();
-        let mut placeholders = Vec::new();
-        for field in &c.fields {
-            let value = values
-                .get(&field.name)
-                .cloned()
-                .unwrap_or_else(|| values::default_value(field));
-            let placeholder = match values::to_param(field, &value) {
-                Some(p) => params.push(p),
-                None => params.push_null(),
-            };
-            columns.push(quote_ident(&field.name));
-            placeholders.push(format!("({placeholder}){}", values::sql_cast(field)));
-        }
-        let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
-        let fields = visible_fields(&c, auth.is_superuser());
-        let sql = format!(
-            "INSERT INTO {} AS {ALIAS} ({}) VALUES ({}) RETURNING {}",
-            table_ref(&c.name),
-            columns.join(", "),
-            placeholders.join(", "),
-            output_select(&fields, &email_visible)
-        );
-        let row = tx
-            .query_one(&sql, &params.as_refs())
-            .await
-            .map_err(|e| write_error(e, &c, failed))?;
-
-        // the create rule is checked against the inserted record
-        let mut rule_params = Params::default();
-        let id = values
-            .get("id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        let id_param = rule_params.push(id);
-        if let Some(rule) = rule_sql(&c, RuleAction::Create, &auth, &request, &mut rule_params)? {
-            let check = format!(
-                "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {rule}",
-                table_ref(&c.name)
-            );
-            if tx
-                .query_opt(&check, &rule_params.as_refs())
-                .await
-                .map_err(db_error)?
-                .is_none()
-            {
-                // dropping the transaction rolls it back
-                return Err(ApiError::bad_request(failed));
-            }
-        }
-        realtime::record_event(&tx, &c, Action::Create, &values)
-            .await
-            .map_err(db_error)?;
-        tx.commit().await.map_err(db_error)?;
-        Ok((row, fields, email_visible))
+    let mut params = Params::default();
+    let mut columns = Vec::new();
+    let mut placeholders = Vec::new();
+    for field in &c.fields {
+        let value = values
+            .get(&field.name)
+            .cloned()
+            .unwrap_or_else(|| values::default_value(field));
+        let placeholder = match values::to_param(field, &value) {
+            Some(p) => params.push(p),
+            None => params.push_null(),
+        };
+        columns.push(quote_ident(&field.name));
+        placeholders.push(format!("({placeholder}){}", values::sql_cast(field)));
     }
-    .await;
-    let (row, fields, email_visible) = match saved {
-        Ok(saved) => saved,
-        Err(err) => {
-            files::discard(&core, &file_plan.new).await;
-            return Err(err);
-        }
-    };
+    let email_visible = email_visible_sql(c, auth, request, &mut params)?;
+    let fields = visible_fields(c, auth.is_superuser());
+    let sql = format!(
+        "INSERT INTO {} AS {ALIAS} ({}) VALUES ({}) RETURNING {}",
+        table_ref(&c.name),
+        columns.join(", "),
+        placeholders.join(", "),
+        output_select(&fields, &email_visible)
+    );
+    let row = tx
+        .query_one(&sql, &params.as_refs())
+        .await
+        .map_err(|e| write_error(e, c, failed))?;
 
-    let record = output_record(&c, &fields, &row, &email_visible);
-    Ok(Json(
-        respond(&core, &auth, &request, &c, record, &query).await?,
-    ))
+    // the create rule is checked against the inserted record
+    let mut rule_params = Params::default();
+    let id = values
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let id_param = rule_params.push(id);
+    if let Some(rule) = rule_sql(c, RuleAction::Create, auth, request, &mut rule_params)? {
+        let check = format!(
+            "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {rule}",
+            table_ref(&c.name)
+        );
+        if tx
+            .query_opt(&check, &rule_params.as_refs())
+            .await
+            .map_err(db_error)?
+            .is_none()
+        {
+            // the caller's transaction is rolled back
+            return Err(ApiError::bad_request(failed));
+        }
+    }
+    realtime::record_event(tx, c, Action::Create, &values)
+        .await
+        .map_err(db_error)?;
+    Ok(output_record(c, &fields, &row, &email_visible))
 }
 
-/// `PATCH /api/collections/{collection}/records/{id}`
-#[allow(clippy::too_many_arguments)]
-pub async fn update(
-    State(app): State<Arc<App>>,
-    Path((collection, id)): Path<(String, String)>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    headers: HeaderMap,
-    auth: RequestAuth,
-    mut input: RecordBody,
-) -> Result<Json<Value>, ApiError> {
-    let core = app.core()?;
-    let registry = core.registry();
-    let c = find_collection(&registry, &collection)?;
-    input.normalize_form_values(&c);
-    let mut body = input.data;
-    let uploads = input.uploads;
-    let request = request_info(
-        &method,
-        &query,
-        &headers,
-        Some(&body),
-        &auth,
-        &core.registry(),
-    );
+/// Updates a record in `tx` and returns it as the caller sees it.
+pub(crate) async fn update_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    id: &str,
+    mut body: Map<String, Value>,
+    uploads: Vec<files::Upload>,
+    effects: &mut FileEffects,
+) -> Result<Value, ApiError> {
+    let (core, auth, request) = (ctx.core, ctx.auth, ctx.request);
+    ensure_allowed(c, RuleAction::Update, auth)?;
     let failed = "Failed to update record.";
 
     // the rule is checked against the current record (with @request.body available)
     let mut params = Params::default();
-    let id_param = params.push(id.clone());
+    let id_param = params.push(id.to_string());
     let mut where_sql = format!("{ALIAS}.\"id\" = {id_param}");
-    if let Some(rule) = rule_sql(&c, RuleAction::Update, &auth, &request, &mut params)? {
+    if let Some(rule) = rule_sql(c, RuleAction::Update, auth, request, &mut params)? {
         where_sql = format!("{where_sql} AND {rule}");
     }
 
-    let stored = all_fields(&c);
-    let mut written: Vec<files::NewFile> = Vec::new();
-    let mut removed: Vec<String> = Vec::new();
-    let saved: Result<_, ApiError> = async {
-        let mut client = core
-            .pool
-            .get()
-            .await
-            .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
-        let tx = client.transaction().await.map_err(db_error)?;
-        let current = tx
-            .query_opt(
-                &format!(
-                    "SELECT {} FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
-                    select_list(&stored),
-                    table_ref(&c.name)
-                ),
-                &params.as_refs(),
-            )
-            .await
-            .map_err(db_error)?
-            .ok_or_else(ApiError::not_found)?;
-        let mut values = row_values(&stored, &current);
-        let original = values.clone();
-        let mut errors = Errors::new();
+    let stored = all_fields(c);
+    let current = tx
+        .query_opt(
+            &format!(
+                "SELECT {} FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
+                select_list(&stored),
+                table_ref(&c.name)
+            ),
+            &params.as_refs(),
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(ApiError::not_found)?;
+    let mut values = row_values(&stored, &current);
+    let original = values.clone();
+    let mut errors = Errors::new();
 
-        // auth records: email, verified and passwords need the right to manage the record
-        let mut email_changed = false;
-        if c.is_auth() {
-            let can_manage = auth.is_superuser() || {
-                let mut manage_params = Params::default();
-                let id_param = manage_params.push(id.clone());
-                match manage_rule_sql(&c, &request, &mut manage_params)? {
+    // auth records: email, verified and passwords need the right to manage the record
+    let mut email_changed = false;
+    if c.is_auth() {
+        let can_manage = auth.is_superuser() || {
+            let mut manage_params = Params::default();
+            let id_param = manage_params.push(id.to_string());
+            match manage_rule_sql(c, request, &mut manage_params)? {
                 None => false,
                 Some(rule) => tx
                     .query_opt(
@@ -553,141 +548,116 @@ pub async fn update(
                     .map_err(db_error)?
                     .is_some(),
             }
-            };
+        };
 
-            let current_email = values
-                .get(FIELD_EMAIL)
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_string();
-            if let Some(new_email) = body.get(FIELD_EMAIL).and_then(Value::as_str) {
-                email_changed = !new_email.eq_ignore_ascii_case(&current_email);
-                if email_changed && !can_manage {
-                    errors.invalid(
-                        FIELD_EMAIL,
-                        "The email can only be changed with an email change request.",
-                    );
-                }
+        let current_email = values
+            .get(FIELD_EMAIL)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        if let Some(new_email) = body.get(FIELD_EMAIL).and_then(Value::as_str) {
+            email_changed = !new_email.eq_ignore_ascii_case(&current_email);
+            if email_changed && !can_manage {
+                errors.invalid(
+                    FIELD_EMAIL,
+                    "The email can only be changed with an email change request.",
+                );
             }
-            if !can_manage {
-                body.remove(FIELD_VERIFIED);
-                let changing_password = body
+        }
+        if !can_manage {
+            body.remove(FIELD_VERIFIED);
+            let changing_password = body
+                .get(FIELD_PASSWORD)
+                .and_then(Value::as_str)
+                .is_some_and(|p| !p.is_empty());
+            if changing_password {
+                let old = body
+                    .get("oldPassword")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                let hash = values
                     .get(FIELD_PASSWORD)
                     .and_then(Value::as_str)
-                    .is_some_and(|p| !p.is_empty());
-                if changing_password {
-                    let old = body
-                        .get("oldPassword")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
-                    let hash = values
-                        .get(FIELD_PASSWORD)
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
-                    if old.is_empty() || !values::verify_password(old, hash).await {
-                        errors.invalid("oldPassword", "Missing or invalid old password.");
-                    }
+                    .unwrap_or_default()
+                    .to_string();
+                if old.is_empty() || !values::verify_password(old, hash).await {
+                    errors.invalid("oldPassword", "Missing or invalid old password.");
                 }
             }
         }
-
-        let changes = values::apply_body(&c, &mut values, &body, false, &mut errors);
-        values::finalize(&c, &mut values, false, &request.now, &mut errors);
-        let file_plan = files::apply(&c, &mut values, &original, &body, uploads, &mut errors);
-        values::validate(&c, &values, &changes, false, &mut errors);
-        check_password_confirm(&c, &body, &mut errors);
-        if errors.is_empty() {
-            check_relations(&tx, &registry, &c, &values, &mut errors).await?;
-        }
-        if !errors.is_empty() {
-            return Err(ApiError::invalid_data(failed, &errors));
-        }
-        apply_secrets(&c, &mut values, &changes, email_changed).await?;
-        files::write(&core, &file_plan).await?;
-        written = file_plan.new;
-        removed = file_plan.removed;
-
-        let mut params = Params::default();
-        let mut sets = Vec::new();
-        for field in c.fields.iter().filter(|f| !f.is_primary_key()) {
-            let value = values
-                .get(&field.name)
-                .cloned()
-                .unwrap_or_else(|| values::default_value(field));
-            let placeholder = match values::to_param(field, &value) {
-                Some(p) => params.push(p),
-                None => params.push_null(),
-            };
-            sets.push(format!(
-                "{} = ({placeholder}){}",
-                quote_ident(&field.name),
-                values::sql_cast(field)
-            ));
-        }
-        let id_param = params.push(id.clone());
-        let email_visible = email_visible_sql(&c, &auth, &request, &mut params)?;
-        let fields = visible_fields(&c, auth.is_superuser());
-        let sql = format!(
-            "UPDATE {} AS {ALIAS} SET {} WHERE {ALIAS}.\"id\" = {id_param} RETURNING {}",
-            table_ref(&c.name),
-            sets.join(", "),
-            output_select(&fields, &email_visible)
-        );
-        let row = tx
-            .query_one(&sql, &params.as_refs())
-            .await
-            .map_err(|e| write_error(e, &c, failed))?;
-        realtime::record_event(&tx, &c, Action::Update, &values)
-            .await
-            .map_err(db_error)?;
-        tx.commit().await.map_err(db_error)?;
-        Ok((row, fields, email_visible))
     }
-    .await;
-    let (row, fields, email_visible) = match saved {
-        Ok(saved) => saved,
-        Err(err) => {
-            files::discard(&core, &written).await;
-            return Err(err);
-        }
-    };
-    files::remove_replaced(&core, &c.id, &id, &removed).await;
 
-    let record = output_record(&c, &fields, &row, &email_visible);
-    Ok(Json(
-        respond(&core, &auth, &request, &c, record, &query).await?,
-    ))
-}
-
-/// `DELETE /api/collections/{collection}/records/{id}`
-pub async fn delete(
-    State(app): State<Arc<App>>,
-    Path((collection, id)): Path<(String, String)>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    headers: HeaderMap,
-    auth: RequestAuth,
-) -> Result<Response, ApiError> {
-    let core = app.core()?;
-    let registry = core.registry();
-    let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
+    let changes = values::apply_body(c, &mut values, &body, false, &mut errors);
+    values::finalize(c, &mut values, false, &request.now, &mut errors);
+    let file_plan = files::apply(c, &mut values, &original, &body, uploads, &mut errors);
+    values::validate(c, &values, &changes, false, &mut errors);
+    check_password_confirm(c, &body, &mut errors);
+    if errors.is_empty() {
+        check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
+    }
+    if !errors.is_empty() {
+        return Err(ApiError::invalid_data(failed, &errors));
+    }
+    apply_secrets(c, &mut values, &changes, email_changed).await?;
+    files::write(core, &file_plan).await?;
+    effects.written.extend(file_plan.new);
+    effects
+        .replaced
+        .push((c.id.clone(), id.to_string(), file_plan.removed));
 
     let mut params = Params::default();
-    let id_param = params.push(id.clone());
+    let mut sets = Vec::new();
+    for field in c.fields.iter().filter(|f| !f.is_primary_key()) {
+        let value = values
+            .get(&field.name)
+            .cloned()
+            .unwrap_or_else(|| values::default_value(field));
+        let placeholder = match values::to_param(field, &value) {
+            Some(p) => params.push(p),
+            None => params.push_null(),
+        };
+        sets.push(format!(
+            "{} = ({placeholder}){}",
+            quote_ident(&field.name),
+            values::sql_cast(field)
+        ));
+    }
+    let id_param = params.push(id.to_string());
+    let email_visible = email_visible_sql(c, auth, request, &mut params)?;
+    let fields = visible_fields(c, auth.is_superuser());
+    let sql = format!(
+        "UPDATE {} AS {ALIAS} SET {} WHERE {ALIAS}.\"id\" = {id_param} RETURNING {}",
+        table_ref(&c.name),
+        sets.join(", "),
+        output_select(&fields, &email_visible)
+    );
+    let row = tx
+        .query_one(&sql, &params.as_refs())
+        .await
+        .map_err(|e| write_error(e, c, failed))?;
+    realtime::record_event(tx, c, Action::Update, &values)
+        .await
+        .map_err(db_error)?;
+    Ok(output_record(c, &fields, &row, &email_visible))
+}
+
+/// Deletes a record (with its cascades) in `tx`.
+pub(crate) async fn delete_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Arc<Collection>,
+    id: &str,
+    effects: &mut FileEffects,
+) -> Result<(), ApiError> {
+    let (auth, request) = (ctx.auth, ctx.request);
+    ensure_allowed(c, RuleAction::Delete, auth)?;
+    let mut params = Params::default();
+    let id_param = params.push(id.to_string());
     let mut where_sql = format!("{ALIAS}.\"id\" = {id_param}");
-    if let Some(rule) = rule_sql(&c, RuleAction::Delete, &auth, &request, &mut params)? {
+    if let Some(rule) = rule_sql(c, RuleAction::Delete, auth, request, &mut params)? {
         where_sql = format!("{where_sql} AND {rule}");
     }
-
-    let mut client = core
-        .pool
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
-    let tx = client.transaction().await.map_err(db_error)?;
     tx.query_opt(
         &format!(
             "SELECT 1 FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
@@ -720,20 +690,128 @@ pub async fn delete(
     }
 
     let mut visited = HashSet::new();
-    delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited).await?;
-    tx.commit().await.map_err(db_error)?;
+    delete_with_references(tx, ctx.registry, c.clone(), id.to_string(), 0, &mut visited).await?;
+    effects.deleted_records.extend(visited);
+    Ok(())
+}
 
-    // the files of every deleted record (including cascades)
-    for (collection_id, record_id) in &visited {
-        if let Err(err) = core
-            .storage()
-            .delete_prefix(&files::record_prefix(collection_id, record_id))
-            .await
-        {
-            tracing::warn!(error = %format!("{err:#}"), "failed to delete record files");
-        }
+/// `POST /api/collections/{collection}/records`
+pub async fn create(
+    State(app): State<Arc<App>>,
+    Path(collection): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    method: Method,
+    headers: HeaderMap,
+    auth: RequestAuth,
+    mut input: RecordBody,
+) -> Result<Json<Value>, ApiError> {
+    let core = app.core()?;
+    let registry = core.registry();
+    let c = find_collection(&registry, &collection)?;
+    ensure_allowed(&c, RuleAction::Create, &auth)?;
+    input.normalize_form_values(&c);
+    let request = request_info(
+        &method,
+        &query,
+        &headers,
+        Some(&input.data),
+        &auth,
+        &registry,
+    );
+    let ctx = WriteContext {
+        core: &core,
+        registry: &registry,
+        auth: &auth,
+        request: &request,
+    };
+    let mut effects = FileEffects::default();
+    let outcome = async {
+        let mut client = pooled(&core).await?;
+        let tx = transaction(&mut client).await?;
+        let record = create_in(&ctx, &tx, &c, input.data, input.uploads, &mut effects).await?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(record)
     }
+    .await;
+    let record = effects.settle(&core, outcome).await?;
+    Ok(Json(
+        respond(&core, &auth, &request, &c, record, &query).await?,
+    ))
+}
 
+/// `PATCH /api/collections/{collection}/records/{id}`
+#[allow(clippy::too_many_arguments)]
+pub async fn update(
+    State(app): State<Arc<App>>,
+    Path((collection, id)): Path<(String, String)>,
+    Query(query): Query<HashMap<String, String>>,
+    method: Method,
+    headers: HeaderMap,
+    auth: RequestAuth,
+    mut input: RecordBody,
+) -> Result<Json<Value>, ApiError> {
+    let core = app.core()?;
+    let registry = core.registry();
+    let c = find_collection(&registry, &collection)?;
+    input.normalize_form_values(&c);
+    let request = request_info(
+        &method,
+        &query,
+        &headers,
+        Some(&input.data),
+        &auth,
+        &registry,
+    );
+    let ctx = WriteContext {
+        core: &core,
+        registry: &registry,
+        auth: &auth,
+        request: &request,
+    };
+    let mut effects = FileEffects::default();
+    let outcome = async {
+        let mut client = pooled(&core).await?;
+        let tx = transaction(&mut client).await?;
+        let record = update_in(&ctx, &tx, &c, &id, input.data, input.uploads, &mut effects).await?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(record)
+    }
+    .await;
+    let record = effects.settle(&core, outcome).await?;
+    Ok(Json(
+        respond(&core, &auth, &request, &c, record, &query).await?,
+    ))
+}
+
+/// `DELETE /api/collections/{collection}/records/{id}`
+pub async fn delete(
+    State(app): State<Arc<App>>,
+    Path((collection, id)): Path<(String, String)>,
+    Query(query): Query<HashMap<String, String>>,
+    method: Method,
+    headers: HeaderMap,
+    auth: RequestAuth,
+) -> Result<Response, ApiError> {
+    let core = app.core()?;
+    let registry = core.registry();
+    let c = find_collection(&registry, &collection)?;
+    let request = request_info(&method, &query, &headers, None, &auth, &registry);
+    let ctx = WriteContext {
+        core: &core,
+        registry: &registry,
+        auth: &auth,
+        request: &request,
+    };
+    let mut effects = FileEffects::default();
+    let outcome = async {
+        let mut client = pooled(&core).await?;
+        let tx = transaction(&mut client).await?;
+        delete_in(&ctx, &tx, &c, &id, &mut effects).await?;
+        tx.commit().await.map_err(db_error)?;
+        Ok(())
+    }
+    .await;
+    effects.settle(&core, outcome).await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

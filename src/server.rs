@@ -149,6 +149,10 @@ pub fn router(app: Arc<App>) -> Router {
                 .delete(records::api::delete)
                 .layer(upload_limit()),
         )
+        .route(
+            "/api/batch",
+            post(records::batch::batch).layer(upload_limit()),
+        )
         .route("/api/files/token", post(records::files::token))
         .route(
             "/api/files/{collection}/{record}/{filename}",

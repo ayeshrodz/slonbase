@@ -4,11 +4,11 @@ A lightweight, high-performance backend in a single Rust binary, powered by **Po
 Inspired by [PocketBase](https://pocketbase.io): define collections, get a REST API, auth and an
 admin dashboard, but on top of your own PostgreSQL server instead of SQLite.
 
-> **Status: early development (phase 4).** The admin dashboard, collections, the records REST API
-> with filtering and API rules, auth (superusers and auth collections with password, OAuth2 and
-> one-time password sign-in, MFA, verification, password reset and email change), realtime
-> subscriptions, relation paths, `expand`, file fields (stored locally or in S3), request logs,
-> rate limiting and backups work. Batch requests are next.
+> **Status: early development.** The admin dashboard, collections, the records REST API with
+> filtering and API rules, batch requests, auth (superusers and auth collections with password,
+> OAuth2 and one-time password sign-in, MFA, verification, password reset and email change),
+> realtime subscriptions, relation paths, `expand`, file fields (stored locally or in S3),
+> request logs, rate limiting and backups work. Extensibility (hooks) is next.
 > See the [roadmap](#roadmap).
 
 PostgreSQL is **not bundled**. slonbase connects to any PostgreSQL 14+ server, on the same machine,
@@ -118,6 +118,12 @@ seconds per client IP; over the limit, requests get `429`. Superusers and `exclu
 limited. Counters are kept in memory by each instance, so with several instances the limits apply
 per instance.
 
+**Batch requests** (`POST /api/batch`, `pb.createBatch()` in the SDKs) run record creates,
+updates, upserts and deletes in one transaction: all of them apply, or none (with the failing
+request's error). Enable them with `batch.enabled`; `maxRequests`, `timeout` (seconds) and
+`maxBodySize` limit them. Each request uses the batch's auth and rules; `expand` in a request's URL
+shows the related records as of the end of the batch.
+
 **Backups** (`/api/backups`, or the dashboard's Backups page) are zip files with every collection,
 the settings, and the local files (unless files are in S3). Restoring one replaces all of that in
 one transaction, on every instance; it also restores the installation's signing key, so tokens
@@ -176,6 +182,7 @@ The API follows PocketBase's, so its docs and SDKs mostly apply. Supported so fa
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
 | `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
 | `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (the automatic backup) |
+| `POST /api/batch` | Several record creates, updates, upserts (`PUT`) and deletes in one transaction (enable `batch` in the settings) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
 | `GET /api/health` | Health check |
@@ -290,7 +297,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 2. **Auth** (done): superusers and auth collections with password, OAuth2 and OTP sign-in, MFA,
    verification, password reset and email change.
 3. **Realtime, relation expansion and files** (done), with local or S3 storage.
-4. **Admin dashboard**, **logs**, **rate limiting** and **backups** (done), then batch requests.
+4. **Admin dashboard**, **logs**, **rate limiting**, **backups** and **batch requests** (done).
 5. **Extensibility**: use as a Rust library, and JS hooks.
 
 ## License
