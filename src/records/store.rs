@@ -13,6 +13,15 @@ use crate::filter::quote_ident;
 /// SQL alias of the collection table in record queries.
 pub const ALIAS: &str = "t";
 
+/// The insertion order column (`_seq`); views have none, so they're ordered by id.
+pub fn row_order(c: &Collection, alias: &str) -> String {
+    if c.is_view() {
+        format!("{alias}.\"id\"")
+    } else {
+        format!("{alias}._seq")
+    }
+}
+
 /// Fields returned to clients, in field order. Secret fields (password hashes,
 /// token keys) are never included.
 pub fn visible_fields(c: &Collection, include_hidden: bool) -> Vec<&Field> {

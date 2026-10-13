@@ -451,6 +451,61 @@ impl Compiler<'_, '_> {
                 _ => fail(format!("invalid number {n}")),
             },
             Operand::Ident(ident) => self.ident(ident),
+            Operand::Call { name, args } => self.call(name, args),
+        }
+    }
+
+    fn call(&mut self, name: &str, args: &[Operand]) -> Result<Val, CompileError> {
+        match name {
+            // the great-circle distance in kilometers (PocketBase's geoDistance)
+            "geoDistance" => {
+                let [lon1, lat1, lon2, lat2] = args else {
+                    return fail("geoDistance() takes 4 arguments: lonA, latA, lonB, latB");
+                };
+                let mut n = Vec::with_capacity(4);
+                for arg in [lon1, lat1, lon2, lat2] {
+                    let val = self.operand(arg)?;
+                    n.push(self.number_arg(val, name)?);
+                }
+                let sql = format!(
+                    "(2 * 6371 * asin(least(1, sqrt(power(sin(radians({lat2} - {lat1}) / 2), 2) + \
+                     cos(radians({lat1})) * cos(radians({lat2})) * power(sin(radians({lon2} - {lon1}) / 2), 2)))))",
+                    lon1 = n[0],
+                    lat1 = n[1],
+                    lon2 = n[2],
+                    lat2 = n[3],
+                );
+                Ok(Val::Scalar {
+                    sql,
+                    ty: Ty::Number,
+                    nullable: false,
+                })
+            }
+            other => fail(format!("unknown function {other}()")),
+        }
+    }
+
+    fn number_arg(&mut self, val: Val, function: &str) -> Result<String, CompileError> {
+        match val {
+            Val::Lit(Lit::Num(n)) => Ok(format!(
+                "({})::double precision",
+                self.params.push(n.to_string())
+            )),
+            Val::Lit(Lit::Text(t)) if t.trim().parse::<f64>().is_ok_and(f64::is_finite) => {
+                Ok(format!(
+                    "({})::double precision",
+                    self.params.push(t.trim().to_string())
+                ))
+            }
+            Val::Scalar {
+                sql,
+                ty: Ty::Number,
+                ..
+            } => Ok(sql),
+            Val::Scalar {
+                sql, ty: Ty::Dyn, ..
+            } => Ok(to_num(&sql)),
+            _ => fail(format!("{function}() arguments must be numbers")),
         }
     }
 
@@ -519,6 +574,17 @@ impl Compiler<'_, '_> {
                     )
                 }
                 FieldKind::Relation(_) => self.relation_path(field, &rest, modifier),
+                FieldKind::GeoPoint(_) => match rest.as_slice() {
+                    [key @ ("lon" | "lat")] => self.apply_modifier(
+                        Val::Scalar {
+                            sql: format!("(({column} ->> '{key}')::double precision)"),
+                            ty: Ty::Number,
+                            nullable: false,
+                        },
+                        modifier,
+                    ),
+                    _ => fail(format!("{name:?} only has lon and lat")),
+                },
                 _ => fail(format!("{name:?} has no nested fields")),
             };
         }
@@ -1133,6 +1199,48 @@ mod tests {
         assert!(sql("published > @now").contains("::timestamptz"));
         assert!(sql("views = @year").contains("::double precision"));
         assert!(compile_str("published > @nope", false).is_err());
+    }
+
+    #[test]
+    fn geo_points() {
+        let mut c = collection();
+        c.fields.push(
+            serde_json::from_value(
+                serde_json::json!({ "id": "f8", "name": "loc", "type": "geoPoint" }),
+            )
+            .unwrap(),
+        );
+        let request = RequestInfo::new("GET");
+        let scope = Scope {
+            collection: &c,
+            alias: "t",
+            request: &request,
+            allow_hidden: false,
+        };
+        let mut params = Params::default();
+        let sql = crate::filter::to_sql(
+            "geoDistance(loc.lon, loc.lat, 23.32, 42.69) < 25 && loc.lat > 40",
+            &scope,
+            &mut params,
+        )
+        .unwrap();
+        assert!(sql.contains("asin"), "{sql}");
+        assert!(
+            sql.contains("((t.\"loc\" ->> 'lon')::double precision)"),
+            "{sql}"
+        );
+        assert_eq!(params.0.len(), 4, "the literals are bound");
+        for bad in [
+            "geoDistance(1, 2, 3) < 1",
+            "geoDistance(1, 2, 3, 'x') < 1",
+            "nope(1) = 1",
+            "loc.alt > 1",
+        ] {
+            assert!(
+                crate::filter::to_sql(bad, &scope, &mut Params::default()).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

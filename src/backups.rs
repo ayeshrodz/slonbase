@@ -262,7 +262,13 @@ async fn create_locked(core: &Core, name: &str, target: &Storage) -> Result<()> 
         });
     }
     let registry = store::load(&tx).await?;
-    for (i, c) in registry.all().iter().enumerate() {
+    // views hold no data: they're recreated from their definitions
+    for (i, c) in registry
+        .all()
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.is_view())
+    {
         let columns = record_columns(c);
         let file = format!("db/collection-{i}.copy");
         let list = columns
@@ -499,7 +505,10 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         .await?;
 
     let current = store::load(&tx).await?;
-    for c in current.all() {
+    // views first: they depend on the tables
+    let mut drop_order: Vec<_> = current.all().iter().collect();
+    drop_order.sort_by_key(|c| !c.is_view());
+    for c in drop_order {
         for statement in schema::drop(c) {
             tx.batch_execute(&statement).await?;
         }
@@ -535,13 +544,15 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
     }
 
     let restored = store::load(&tx).await?;
-    for c in restored.all() {
+    let mut create_order: Vec<_> = restored.all().iter().collect();
+    create_order.sort_by_key(|c| c.is_view());
+    for c in create_order {
         for statement in schema::create(c) {
             tx.batch_execute(&statement).await?;
         }
     }
     for table in manifest.tables.iter().filter(|t| t.schema == "slonbase") {
-        if restored.get(&table.table).is_none() {
+        if restored.get(&table.table).is_none_or(|c| c.is_view()) {
             continue;
         }
         copy_in(

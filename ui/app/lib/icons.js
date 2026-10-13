@@ -127,6 +127,7 @@ export const FIELD_TYPES = [
   { type: "file", icon: "image", label: "File", hint: "Uploads, with thumbnails for images" },
   { type: "relation", icon: "relation", label: "Relation", hint: "Links to records of a collection" },
   { type: "json", icon: "braces", label: "JSON", hint: "Any JSON value" },
+  { type: "geoPoint", icon: "pin", label: "Geo point", hint: "Longitude and latitude, filterable by distance" },
   { type: "password", icon: "asterisk", label: "Password", hint: "A hashed secret, never returned" },
 ];
 

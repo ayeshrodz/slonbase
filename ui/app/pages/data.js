@@ -4,7 +4,7 @@ import { html, useState, useEffect, useMemo, useStore, navigate, route, cx } fro
 import { api, enc } from "../lib/api.js";
 import { app, loadCollections, upsertCollection, removeCollection } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
-import { Button, Tabs, CollectionGlyph, CopyButton, Empty, Modal, SheetHead, Field, Input, Segmented, Callout, toast, confirmDialog, Menu } from "../lib/ui.js";
+import { Button, Tabs, CollectionGlyph, CopyButton, Empty, Modal, SheetHead, Field, Input, TextArea, Segmented, Callout, toast, confirmDialog, Menu } from "../lib/ui.js";
 import { Records } from "./records.js";
 import { Schema } from "./schema.js";
 import { Rules } from "./rules.js";
@@ -63,6 +63,7 @@ function CollectionsPanel({ active, onNew }) {
 function NewCollection({ onClose }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("base");
+  const [query, setQuery] = useState("SELECT id, created FROM posts");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async (e, close) => {
@@ -74,7 +75,11 @@ function NewCollection({ onClose }) {
       const body = clone(scaffolds[type] || { type, fields: [] });
       delete body.id;
       body.name = name.trim();
-      if (type === "view") body.viewQuery = "SELECT id FROM _superusers";
+      if (type === "view") {
+        body.viewQuery = query;
+        body.fields = [];
+        body.listRule = body.viewRule = null;
+      }
       const created = await api.post("/api/collections", body);
       upsertCollection(created);
       toast(`Created “${created.name}”.`);
@@ -82,7 +87,7 @@ function NewCollection({ onClose }) {
       navigate(`/data/${enc(created.name)}/schema`);
     } catch (err) {
       const fields = err.fieldErrors ? err.fieldErrors() : {};
-      setError(fields.name || Object.values(fields)[0] || err.message);
+      setError(fields.name || fields.viewQuery || Object.values(fields)[0] || err.message);
     } finally {
       setBusy(false);
     }
@@ -90,10 +95,12 @@ function NewCollection({ onClose }) {
   const types = [
     { value: "base", label: "Base" },
     { value: "auth", label: "Auth" },
+    { value: "view", label: "View" },
   ];
   const describe = {
     base: "Records with your own fields — posts, products, anything.",
     auth: "Users who can sign in: email, password, OAuth2, OTP and MFA.",
+    view: "Read-only records from a SQL query; fields come from its columns.",
   };
   return html`<${Modal} size="narrow" onClose=${onClose}>
     ${(close) => html`<form onSubmit=${(e) => submit(e, close)}>
@@ -107,6 +114,10 @@ function NewCollection({ onClose }) {
           <${Segmented} value=${type} onChange=${setType} options=${types} />
           <span class="help">${describe[type]}</span>
         </div>
+        ${type === "view" &&
+        html`<${Field} label="Query" help="A SELECT returning an id column; collections are tables by their names (FROM posts). Needs the SQL console (--sql-console).">
+          <${TextArea} code rows=${5} value=${query} onInput=${setQuery} />
+        </${Field}>`}
       </div>
       <div class="sheet-foot">
         <span class="spacer"></span>
@@ -123,7 +134,7 @@ const TABS = (c, locked) =>
     !locked && { id: "schema", label: "Schema", icon: "columns", badge: c.fields.filter((f) => !f.system).length },
     !locked && { id: "rules", label: "API rules", icon: "shield" },
     !locked && c.type === "auth" && { id: "auth", label: "Sign-in", icon: "key" },
-    !locked && { id: "indexes", label: "Indexes", icon: "zap", badge: c.indexes.length },
+    !locked && c.type !== "view" && { id: "indexes", label: "Indexes", icon: "zap", badge: c.indexes.length },
     { id: "api", label: "API", icon: "code" },
     !locked && { id: "settings", label: "Settings", icon: "settings" },
   ].filter(Boolean);
@@ -190,12 +201,20 @@ function CollectionSettings({ draft, setDraft, collection }) {
         <div class="row small muted">ID <code>${collection.id}</code><${CopyButton} text=${collection.id} /></div>
       </div>
     </div>
+    ${collection.type === "view" &&
+    html`<div class="card">
+      <div class="card-head"><h3>View query</h3><span class="small muted">Fields are rebuilt from its columns when you save</span></div>
+      <div class="card-body stack">
+        <${TextArea} code rows=${8} value=${draft.viewQuery || ""} onInput=${(v) => setDraft({ ...draft, viewQuery: v })} />
+        <span class="help small muted">Return an <code>id</code> column. Collections are tables by their names, e.g. <code>FROM posts</code>.</span>
+      </div>
+    </div>`}
     ${!collection.system &&
     html`<div class="card" style="border-color:color-mix(in srgb,var(--danger),transparent 70%)">
       <div class="card-head"><h3 style="color:var(--danger)">Danger zone</h3></div>
       <div class="card-body stack">
         <div class="row"><div class="grow"><b>Duplicate</b><div class="small muted">A new collection with the same fields and rules, without records.</div></div><${Button} icon="copy" onClick=${duplicate}>Duplicate</${Button}></div>
-        <div class="row"><div class="grow"><b>Delete all records</b><div class="small muted">Empties the collection; the schema stays.</div></div><${Button} variant="danger-ghost" icon="trash" onClick=${truncate}>Truncate</${Button}></div>
+        ${collection.type !== "view" && html`<div class="row"><div class="grow"><b>Delete all records</b><div class="small muted">Empties the collection; the schema stays.</div></div><${Button} variant="danger-ghost" icon="trash" onClick=${truncate}>Truncate</${Button}></div>`}
         <div class="row"><div class="grow"><b>Delete the collection</b><div class="small muted">Removes the table, its records and files.</div></div><${Button} variant="danger" icon="trash" onClick=${remove}>Delete</${Button}></div>
       </div>
     </div>`}
@@ -230,7 +249,7 @@ function CollectionView({ collection, tab, recordId }) {
       const key = Object.keys(fields)[0];
       if (key) {
         const m = /^fields\.(\d+)\.(.+)$/.exec(key);
-        const where = m ? `${(draft.fields[Number(m[1])] || {}).name || "field"} → ${m[2]}` : key;
+        const where = m ? `${(draft.fields[Number(m[1])] || {}).name || "field"} → ${m[2]}` : key === "viewQuery" ? "Query" : key;
         toast.error(`${where}: ${fields[key]}`);
       } else {
         toast.error(err);

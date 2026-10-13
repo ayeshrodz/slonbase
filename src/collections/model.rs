@@ -27,6 +27,8 @@ pub struct Collection {
     pub updated: String,
     /// Set for auth collections (normalized by validation).
     pub auth: Option<AuthOptions>,
+    /// The `SELECT` of view collections.
+    pub view_query: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -66,9 +68,19 @@ impl TryFrom<RawCollection> for Collection {
     type Error = serde_json::Error;
 
     fn try_from(raw: RawCollection) -> Result<Self, Self::Error> {
+        let view_query = match raw.kind {
+            CollectionKind::View => Some(
+                raw.extra
+                    .get("viewQuery")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+            ),
+            _ => None,
+        };
         let auth = match raw.kind {
             CollectionKind::Auth => Some(serde_json::from_value(Value::Object(raw.extra))?),
-            CollectionKind::Base => None,
+            CollectionKind::Base | CollectionKind::View => None,
         };
         Ok(Self {
             id: raw.id,
@@ -85,19 +97,23 @@ impl TryFrom<RawCollection> for Collection {
             created: raw.created,
             updated: raw.updated,
             auth,
+            view_query,
         })
     }
 }
 
 impl From<Collection> for RawCollection {
     fn from(c: Collection) -> Self {
-        let extra = match c.auth {
+        let mut extra = match c.auth {
             Some(auth) => match serde_json::to_value(auth) {
                 Ok(Value::Object(map)) => map,
                 _ => Map::new(),
             },
             None => Map::new(),
         };
+        if let Some(query) = c.view_query {
+            extra.insert("viewQuery".into(), Value::String(query));
+        }
         Self {
             id: c.id,
             name: c.name,
@@ -123,6 +139,8 @@ pub enum CollectionKind {
     #[default]
     Base,
     Auth,
+    /// Read-only records from a SQL query.
+    View,
 }
 
 /// Options of auth collections (PocketBase's names and defaults).
@@ -397,6 +415,16 @@ pub enum FieldKind {
     Relation(RelationOptions),
     Password(PasswordOptions),
     File(FileOptions),
+    #[serde(rename = "geoPoint")]
+    GeoPoint(GeoPointOptions),
+}
+
+/// A point as `{"lon": ..., "lat": ...}` (PocketBase's geoPoint field).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GeoPointOptions {
+    /// Required points can't be `{"lon": 0, "lat": 0}`.
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -547,6 +575,7 @@ impl Field {
             FieldKind::Relation(_) => "relation",
             FieldKind::Password(_) => "password",
             FieldKind::File(_) => "file",
+            FieldKind::GeoPoint(_) => "geoPoint",
         }
     }
 
@@ -580,7 +609,7 @@ impl Field {
                     Storage::Text
                 }
             }
-            FieldKind::Json(_) => Storage::Json,
+            FieldKind::Json(_) | FieldKind::GeoPoint(_) => Storage::Json,
         }
     }
 
@@ -588,6 +617,9 @@ impl Field {
     pub fn column_type(&self) -> &'static str {
         if self.is_primary_key() {
             return "TEXT PRIMARY KEY";
+        }
+        if matches!(self.kind, FieldKind::GeoPoint(_)) {
+            return r#"JSONB NOT NULL DEFAULT '{"lon":0,"lat":0}'"#;
         }
         // autodate values are set by slonbase (like PocketBase, an update-only
         // autodate field stays empty on create), so they have no default
@@ -615,6 +647,7 @@ impl Field {
             FieldKind::Relation(o) => o.required,
             FieldKind::Password(o) => o.required,
             FieldKind::File(o) => o.required,
+            FieldKind::GeoPoint(o) => o.required,
         }
     }
 }
@@ -628,6 +661,10 @@ pub const FIELD_VERIFIED: &str = "verified";
 impl Collection {
     pub fn is_auth(&self) -> bool {
         self.kind == CollectionKind::Auth
+    }
+
+    pub fn is_view(&self) -> bool {
+        self.kind == CollectionKind::View
     }
 
     /// The auth options, for auth collections.
@@ -790,9 +827,18 @@ mod tests {
     #[test]
     fn rejects_unknown_types() {
         let result: Result<Collection, _> = serde_json::from_value(json!({
-            "name": "x", "type": "view"
+            "name": "x", "type": "nope"
         }));
         assert!(result.is_err());
+        let view: Collection = serde_json::from_value(json!({
+            "name": "x", "type": "view", "viewQuery": "SELECT id FROM posts"
+        }))
+        .unwrap();
+        assert_eq!(view.view_query.as_deref(), Some("SELECT id FROM posts"));
+        assert_eq!(
+            serde_json::to_value(&view).unwrap()["viewQuery"],
+            "SELECT id FROM posts"
+        );
         let result: Result<Field, _> = serde_json::from_value(json!({
             "name": "x", "type": "nope"
         }));

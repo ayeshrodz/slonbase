@@ -38,6 +38,9 @@ fn parsed_indexes(c: &Collection) -> Vec<Index> {
 }
 
 pub fn create(c: &Collection) -> Vec<String> {
+    if c.is_view() {
+        return super::view::create(c);
+    }
     let table = table_ref(&c.name);
     let mut columns: Vec<String> = c.fields.iter().map(column_def).collect();
     columns.push("_seq BIGINT GENERATED ALWAYS AS IDENTITY".into());
@@ -67,11 +70,20 @@ pub fn create(c: &Collection) -> Vec<String> {
 }
 
 pub fn drop(c: &Collection) -> Vec<String> {
+    if c.is_view() {
+        return super::view::drop(c);
+    }
     vec![format!("DROP TABLE {}", table_ref(&c.name))]
 }
 
 /// Statements turning the `old` table into the `new` one. Fields are matched by id.
 pub fn update(old: &Collection, new: &Collection) -> Vec<String> {
+    if new.is_view() {
+        // views are recreated (their columns may change)
+        let mut statements = super::view::drop(old);
+        statements.extend(super::view::create(new));
+        return statements;
+    }
     let mut statements = Vec::new();
     let table = table_ref(&new.name);
 

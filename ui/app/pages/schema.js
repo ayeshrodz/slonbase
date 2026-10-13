@@ -129,11 +129,11 @@ function TypeOptions({ field, set, collections, collectionId, errs = {} }) {
   }
 }
 
-function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore, removed, collections, collectionId, errs = {}, drag }) {
+function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore, removed, collections, collectionId, errs = {}, drag, fromView }) {
   const error = Object.values(errs)[0];
   const meta = fieldMeta(field.type);
   const set = (patch) => onChange({ ...field, ...patch });
-  const locked = field.system;
+  const locked = field.system || fromView;
   return html`<div
     class=${cx("field-card", { open, removed, dragging: drag.dragging === index, "drop-target": drag.over === index && drag.dragging !== index })}
     draggable=${drag.handle === index}
@@ -158,6 +158,7 @@ function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore
         class="field-name-input"
         value=${field.name}
         disabled=${locked || removed}
+        title=${fromView ? "Named by the view's query" : undefined}
         placeholder="field_name"
         aria-label="Field name"
         onInput=${(e) => set({ name: e.target.value })}
@@ -166,7 +167,8 @@ function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore
       ${field.required && html`<span class="chip outline">required</span>`}
       ${field.hidden && html`<span class="chip outline"><${Icon} name="eyeOff" size=${11} /> hidden</span>`}
       ${field.presentable && html`<span class="chip outline">presentable</span>`}
-      ${locked && html`<span class="chip warn"><${Icon} name="lock" size=${11} /> system</span>`}
+      ${field.system && html`<span class="chip warn"><${Icon} name="lock" size=${11} /> system</span>`}
+      ${fromView && !field.system && html`<span class="chip outline">${fieldMeta(field.type).label}</span>`}
       ${removed
         ? html`<${Button} size="xs" icon="undo" onClick=${onRestore}>Restore</${Button}>`
         : html`<${IconButton} size="sm" icon=${open ? "chevronUp" : "settings"} label=${open ? "Close options" : "Options"} onClick=${onToggle} />
@@ -181,7 +183,7 @@ function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore
         <${Switch} checked=${field.presentable} onChange=${(v) => set({ presentable: v })} label="Presentable" />
       </div>
       ${errs.name && html`<span class="small" style="color:var(--danger)">Name: ${errs.name}</span>`}
-      <${TypeOptions} field=${field} set=${set} collections=${collections} collectionId=${collectionId} errs=${errs} />
+      ${!fromView && html`<${TypeOptions} field=${field} set=${set} collections=${collections} collectionId=${collectionId} errs=${errs} />`}
       <${Field} label="Help text" help="Shown under the input in the record editor">
         <${Input} value=${field.help} onInput=${(v) => set({ help: v })} />
       </${Field}>
@@ -284,7 +286,7 @@ export function Schema({ draft, setDraft, collection, errors }) {
 
   return html`<div style="max-width:900px">
     ${collection.type === "view" &&
-    html`<${Callout}>A view's fields come from its query. Edit the query in Settings.</${Callout}>`}
+    html`<div style="margin-bottom:12px"><${Callout}>A view's fields come from its query (edit it in Settings). Here you can set how they're shown and whether they're hidden.</${Callout}></div>`}
     <div class="row" style="margin:4px 0 14px">
       <div class="grow small muted">${fields.length} fields · drag <${Icon} name="grip" size=${13} /> to reorder · system fields are locked</div>
       ${collection.type !== "view" && html`<${Button} variant="primary" icon="plus" onClick=${() => setPicking(true)}>Add field</${Button}>`}
@@ -303,6 +305,7 @@ export function Schema({ draft, setDraft, collection, errors }) {
           collectionId=${collection.id}
           errs=${fieldErrors(i)}
           drag=${drag}
+          fromView=${collection.type === "view"}
         />`
       )}
       ${stillRemoved.map(

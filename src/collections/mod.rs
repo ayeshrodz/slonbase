@@ -7,3 +7,4 @@ pub mod schema;
 pub mod store;
 pub mod system;
 pub mod validate;
+pub mod view;

@@ -24,6 +24,9 @@ const DEFAULT_EDITOR_MAX_SIZE: i64 = 5 << 20;
 const DEFAULT_JSON_MAX_SIZE: i64 = 1 << 20;
 
 pub fn default_value(field: &Field) -> Value {
+    if matches!(field.kind, FieldKind::GeoPoint(_)) {
+        return serde_json::json!({ "lon": 0, "lat": 0 });
+    }
     match field.storage() {
         Storage::Text | Storage::Date => Value::String(String::new()),
         Storage::Number => Value::from(0),
@@ -153,6 +156,9 @@ pub fn apply_body(
 
 /// Converts loosely typed input into the field's normalized JSON form.
 pub fn normalize(field: &Field, raw: &Value) -> Result<Value, String> {
+    if matches!(field.kind, FieldKind::GeoPoint(_)) {
+        return geo_point(raw);
+    }
     match field.storage() {
         Storage::Text => match raw {
             Value::Null => Ok(Value::String(String::new())),
@@ -229,6 +235,38 @@ pub fn normalize(field: &Field, raw: &Value) -> Result<Value, String> {
         }
         Storage::Json => Ok(raw.clone()),
     }
+}
+
+/// `{"lon", "lat"}` from an object (numbers or numeric strings) or a JSON string of one.
+fn geo_point(raw: &Value) -> Result<Value, String> {
+    let invalid = || "Must be an object with lon and lat numbers.".to_string();
+    let object = match raw {
+        Value::Null => return Ok(serde_json::json!({ "lon": 0, "lat": 0 })),
+        Value::String(s) if s.trim().is_empty() => {
+            return Ok(serde_json::json!({ "lon": 0, "lat": 0 }));
+        }
+        Value::String(s) => serde_json::from_str::<Value>(s).map_err(|_| invalid())?,
+        other => other.clone(),
+    };
+    let Value::Object(map) = object else {
+        return Err(invalid());
+    };
+    let coordinate = |key: &str| -> Result<f64, String> {
+        match map.get(key) {
+            None | Some(Value::Null) => Ok(0.0),
+            Some(Value::Number(n)) => n.as_f64().ok_or_else(invalid),
+            Some(Value::String(s)) => s.trim().parse::<f64>().map_err(|_| invalid()),
+            _ => Err(invalid()),
+        }
+    };
+    let (lon, lat) = (coordinate("lon")?, coordinate("lat")?);
+    if !(-180.0..=180.0).contains(&lon) || !lon.is_finite() {
+        return Err("The longitude must be between -180 and 180.".into());
+    }
+    if !(-90.0..=90.0).contains(&lat) || !lat.is_finite() {
+        return Err("The latitude must be between -90 and 90.".into());
+    }
+    Ok(serde_json::json!({ "lon": number(lon), "lat": number(lat) }))
 }
 
 /// Validates the final values of a record.
@@ -472,6 +510,14 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
             }
             if items.len() > o.max_select.max(1) {
                 return Err(invalid(format!("Select no more than {}.", o.max_select)));
+            }
+            Ok(())
+        }
+        FieldKind::GeoPoint(o) => {
+            let zero = value.get("lon").and_then(Value::as_f64) == Some(0.0)
+                && value.get("lat").and_then(Value::as_f64) == Some(0.0);
+            if o.required && zero {
+                return Err(required());
             }
             Ok(())
         }

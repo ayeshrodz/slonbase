@@ -125,8 +125,20 @@ impl From<tokio_postgres::Error> for WriteError {
             }
             if *code == SqlState::NOT_NULL_VIOLATION
                 || *code == SqlState::INVALID_TEXT_REPRESENTATION
+                || *code == SqlState::CANNOT_COERCE
+                || *code == SqlState::DATATYPE_MISMATCH
+                || *code == SqlState::INVALID_DATETIME_FORMAT
+                || *code == SqlState::FEATURE_NOT_SUPPORTED
             {
                 return WriteError::Conflict(db.message().to_string());
+            }
+            // e.g. dropping a column or table a view collection uses
+            if *code == SqlState::DEPENDENT_OBJECTS_STILL_EXIST {
+                let detail = db.detail().map(|d| format!(" ({d})")).unwrap_or_default();
+                return WriteError::Conflict(format!(
+                    "{}{detail}; change or delete the view collections that use it first",
+                    db.message()
+                ));
             }
         }
         WriteError::Other(e.into())
@@ -203,7 +215,14 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
 }
 
 /// Applies validated changes in one transaction and returns the reloaded registry.
-pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+    // views go after the tables they read, and are dropped before them
+    changes.sort_by_key(|change| match change {
+        Change::Delete(c) if c.is_view() => 0,
+        Change::Delete(_) => 1,
+        Change::Create(c) | Change::Update { new: c, .. } if !c.is_view() => 2,
+        _ => 3,
+    });
     let mut client = pool.get().await.map_err(describe_pool_error)?;
     let tx = client.transaction().await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])

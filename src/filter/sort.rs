@@ -27,7 +27,10 @@ pub fn compile_sort(
         };
         let item = match name {
             "@random" => "random()".to_string(),
-            "@rowid" => format!("{alias}._seq {direction}"),
+            "@rowid" => format!(
+                "{} {direction}",
+                crate::records::store::row_order(collection, alias)
+            ),
             _ => {
                 let field = collection
                     .field(name)
@@ -43,7 +46,10 @@ pub fn compile_sort(
         };
         items.push(item);
     }
-    items.push(format!("{alias}._seq ASC"));
+    items.push(format!(
+        "{} ASC",
+        crate::records::store::row_order(collection, alias)
+    ));
     Ok(items)
 }
 

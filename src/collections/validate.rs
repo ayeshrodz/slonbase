@@ -108,6 +108,21 @@ fn prepare_inner(
             errors.invalid("type", "The collection type can't be changed.");
         }
     }
+    if c.is_view() {
+        // fields come from the query (see `view::infer_fields`)
+        if let Err(message) = super::view::check_query(c.view_query.as_deref().unwrap_or_default())
+        {
+            errors.invalid("viewQuery", message);
+        }
+        c.create_rule = None;
+        c.update_rule = None;
+        c.delete_rule = None;
+        if !c.indexes.is_empty() {
+            errors.invalid("indexes", "View collections can't have indexes.");
+        }
+    } else {
+        c.view_query = None;
+    }
     prepare_auth(c, &mut errors);
     keep_client_secrets(c, old);
     prepare_fields(c, old, registry, &mut errors);
@@ -692,7 +707,7 @@ fn validate_options(
                 );
             }
         }
-        FieldKind::Bool(_) | FieldKind::Autodate(_) => {}
+        FieldKind::Bool(_) | FieldKind::Autodate(_) | FieldKind::GeoPoint(_) => {}
     }
 }
 

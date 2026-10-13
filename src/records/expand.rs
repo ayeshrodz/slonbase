@@ -225,9 +225,10 @@ async fn fetch(
     let email_visible = email_visible_sql(c, ctx.auth, ctx.request, &mut params)?;
     let fields = visible_fields(c, ctx.auth.is_superuser());
     let sql = format!(
-        "SELECT {} FROM {} {ALIAS} WHERE {where_sql} ORDER BY {ALIAS}._seq LIMIT {MAX_RELATED}",
+        "SELECT {} FROM {} {ALIAS} WHERE {where_sql} ORDER BY {} LIMIT {MAX_RELATED}",
         output_select(&fields, &email_visible),
-        table_ref(&c.name)
+        table_ref(&c.name),
+        super::store::row_order(c, ALIAS)
     );
     let client = ctx
         .core

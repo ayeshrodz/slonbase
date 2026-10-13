@@ -75,7 +75,7 @@ export function Rules({ draft, setDraft, errors }) {
       <code>@request.headers.*</code> and <code>@now</code>. Superusers bypass every rule.
     </${Callout}>
     <div class="stack tight stagger">
-      ${RULES.map(
+      ${RULES.filter((r) => draft.type !== "view" || r.key === "listRule" || r.key === "viewRule").map(
         (r, i) => html`<div style=${{ "--i": i }}>
           <${RuleCard} rule=${r} value=${draft[r.key]} onChange=${(v) => set(r.key, v)} fields=${fields} error=${errors[r.key]} />
         </div>`

@@ -82,6 +82,9 @@ pub(crate) fn request_info(
 
 /// Checks only that the action is allowed at all (non-null rule or superuser).
 fn ensure_allowed(c: &Collection, action: RuleAction, auth: &RequestAuth) -> Result<(), ApiError> {
+    if c.is_view() && !matches!(action, RuleAction::List | RuleAction::View) {
+        return Err(ApiError::bad_request("View collections are read-only."));
+    }
     if !auth.is_superuser() && c.rule(action).is_none() {
         return Err(ApiError::superusers_only());
     }
@@ -1280,6 +1283,9 @@ pub async fn truncate(
         return Err(ApiError::bad_request(
             "The superusers collection can't be truncated.",
         ));
+    }
+    if c.is_view() {
+        return Err(ApiError::bad_request("View collections are read-only."));
     }
 
     let mut client = core

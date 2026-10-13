@@ -2455,3 +2455,43 @@ pre.code .c {
 .copy-ok {
   color: var(--ok) !important;
 }
+
+.map-preview {
+  position: relative;
+  height: 160px;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--canvas-2);
+  animation: rise var(--t-med) var(--ease-out) backwards;
+}
+.map-preview img {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 256px;
+  height: 256px;
+  transition: transform var(--t-slow) var(--ease-out);
+}
+:root[data-theme="dark"] .map-preview img {
+  filter: invert(0.9) hue-rotate(180deg) saturate(0.6);
+}
+.map-pin {
+  position: absolute;
+  left: 160px;
+  top: 80px;
+  transform: translate(-50%, -100%);
+  color: var(--danger);
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.35));
+  animation: drop var(--t-slow) var(--ease-spring) backwards;
+}
+.map-credit {
+  position: absolute;
+  right: 6px;
+  bottom: 4px;
+  font-size: 10px;
+  color: #444;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 0 4px;
+  border-radius: 4px;
+}

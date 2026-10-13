@@ -244,11 +244,39 @@ function RelationInput({ field, value, record, onChange }) {
   </div>`;
 }
 
+// an OpenStreetMap tile around the point, with a pin
+function MapPreview({ lat, lon }) {
+  const zoom = 13;
+  const n = 2 ** zoom;
+  const rad = (lat * Math.PI) / 180;
+  const fx = ((lon + 180) / 360) * n;
+  const fy = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+  const x = Math.floor(fx);
+  const y = Math.floor(fy);
+  if (!isFinite(fx) || !isFinite(fy) || y < 0 || y >= n) return null;
+  const px = (fx - x) * 256;
+  const py = (fy - y) * 256;
+  return html`<div class="map-preview">
+    <img
+      src=${`https://tile.openstreetmap.org/${zoom}/${x}/${y}.png`}
+      alt="Map"
+      loading="lazy"
+      style=${{ transform: `translate(${-px + 160}px, ${-py + 80}px)` }}
+      onError=${(e) => (e.target.parentNode.style.display = "none")}
+    />
+    <span class="map-pin"><${Icon} name="pin" size=${26} /></span>
+    <span class="map-credit">© OpenStreetMap</span>
+  </div>`;
+}
+
 function GeoInput({ value, onChange }) {
   const v = value || { lat: 0, lon: 0 };
-  return html`<div class="grid-2">
-    <${Field} label="Latitude"><${Input} type="number" step="any" min="-90" max="90" value=${v.lat} onInput=${(x) => onChange({ ...v, lat: Number(x) })} /></${Field}>
-    <${Field} label="Longitude"><${Input} type="number" step="any" min="-180" max="180" value=${v.lon} onInput=${(x) => onChange({ ...v, lon: Number(x) })} /></${Field}>
+  return html`<div class="stack tight">
+    <div class="grid-2">
+      <${Field} label="Longitude"><${Input} type="number" step="any" min="-180" max="180" value=${v.lon} onInput=${(x) => onChange({ ...v, lon: Number(x) })} /></${Field}>
+      <${Field} label="Latitude"><${Input} type="number" step="any" min="-90" max="90" value=${v.lat} onInput=${(x) => onChange({ ...v, lat: Number(x) })} /></${Field}>
+    </div>
+    ${(v.lat !== 0 || v.lon !== 0) && html`<${MapPreview} lat=${v.lat} lon=${v.lon} />`}
   </div>`;
 }
 

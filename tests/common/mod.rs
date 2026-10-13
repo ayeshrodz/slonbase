@@ -80,17 +80,24 @@ pub fn new_app_with(
     database_url: Option<String>,
     extensions: slonbase::Extensions,
 ) -> Arc<App> {
-    let loaded = config::load(
-        config_path,
-        Overrides {
-            database_url,
-            // uploads go next to the test's config file
-            storage_path: Some(config_path.parent().unwrap().join("storage")),
-            backups_path: Some(config_path.parent().unwrap().join("backups")),
-            ..Default::default()
-        },
-    )
-    .unwrap();
+    new_app_configured(config_path, database_url, extensions, |_| {})
+}
+
+pub fn new_app_configured(
+    config_path: &Path,
+    database_url: Option<String>,
+    extensions: slonbase::Extensions,
+    configure: impl FnOnce(&mut Overrides),
+) -> Arc<App> {
+    let mut overrides = Overrides {
+        database_url,
+        // uploads go next to the test's config file
+        storage_path: Some(config_path.parent().unwrap().join("storage")),
+        backups_path: Some(config_path.parent().unwrap().join("backups")),
+        ..Default::default()
+    };
+    configure(&mut overrides);
+    let loaded = config::load(config_path, overrides).unwrap();
     App::with_extensions(loaded, None, extensions).unwrap()
 }
 
@@ -214,8 +221,17 @@ pub async fn ready_app_with(
     tdb: &TestDb,
     extensions: slonbase::Extensions,
 ) -> (Arc<App>, String, tempfile::TempDir) {
+    ready_app_configured(tdb, extensions, |_| {}).await
+}
+
+/// [`ready_app`] with changed configuration overrides.
+pub async fn ready_app_configured(
+    tdb: &TestDb,
+    extensions: slonbase::Extensions,
+    configure: impl FnOnce(&mut Overrides),
+) -> (Arc<App>, String, tempfile::TempDir) {
     let (dir, config_path) = temp_config();
-    let app = new_app_with(&config_path, Some(tdb.url.clone()), extensions);
+    let app = new_app_configured(&config_path, Some(tdb.url.clone()), extensions, configure);
     app.bootstrap().await.unwrap();
     let token = app.setup_token().to_string();
     let (status, body) = call(

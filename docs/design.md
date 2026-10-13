@@ -551,6 +551,26 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - Difference from PocketBase: `expand` is applied after the commit, so expanded relations show the
   batch's final state rather than the state at that request.
 
+### Geo Point fields and view collections
+
+- `geoPoint` is stored as `JSONB NOT NULL DEFAULT '{"lon":0,"lat":0}'`; input may use numbers or
+  numeric strings, coordinates are range-checked, and a required point can't be `0, 0` (like
+  PocketBase). The filter language gained function calls: `geoDistance()` compiles to the
+  haversine formula (km), and `field.lon` / `field.lat` read the coordinates as numbers.
+- A view collection is a PostgreSQL view over its query. On create or update the query is
+  prepared (`SELECT * FROM (query) _q LIMIT 0`, in a transaction that's rolled back) to read the
+  result columns, which become fields by type (numbers, booleans, dates, JSON for arrays and JSON,
+  text otherwise); fields with the same names keep their ids and display options. The view casts
+  every column to its field's storage, so records are read by the same code as tables. Views are
+  read-only (create/update/delete rules are null and writes are refused), have no indexes, and
+  sort by `id` where tables use their insertion order. Unqualified names resolve to collections
+  (`search_path = slonbase, public` in the creating transaction), so PocketBase queries work.
+- PostgreSQL tracks what views depend on: dropping a table or column a view uses fails, and the
+  error says so. Collection changes apply views last (and drop them first), as do backup
+  restores, which recreate views from their definitions (they hold no data to copy).
+- Security: a view query runs with the role's privileges on every read, the same exposure as the
+  SQL console, so creating or changing one requires `--sql-console`.
+
 ### Dashboard redesign
 
 - Its own design: a top navigation bar instead of a side rail, a collections panel with grouped,

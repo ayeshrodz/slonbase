@@ -53,7 +53,15 @@ pub enum Operand {
     /// A field name, a `@macro` or a `@request.*` / `@collection.*` path,
     /// possibly with `:modifiers`.
     Ident(String),
+    /// A function call, e.g. `geoDistance(lon, lat, 23.3, 42.7)`.
+    Call {
+        name: String,
+        args: Vec<Operand>,
+    },
 }
+
+/// Most arguments a function takes.
+const MAX_ARGS: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError(pub String);
@@ -199,7 +207,10 @@ fn tokenize(
                 }
                 let ident: String = chars[start..i].iter().collect();
                 if chars.get(i) == Some(&'(') {
-                    return err(format!("functions are not supported yet ({ident})"));
+                    let (args, end) = call_args(&chars, i, params)?;
+                    tokens.push(Token::Operand(Operand::Call { name: ident, args }));
+                    i = end;
+                    continue;
                 }
                 if ident.ends_with('.') || ident.ends_with(':') || ident.contains("..") {
                     return err(format!("invalid identifier {ident:?}"));
@@ -211,6 +222,65 @@ fn tokenize(
     }
 
     Ok(tokens)
+}
+
+/// The arguments of a call whose `(` is at `open`, and the position after its `)`.
+fn call_args(
+    chars: &[char],
+    open: usize,
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Result<(Vec<Operand>, usize), ParseError> {
+    let mut depth = 0;
+    let mut quote: Option<char> = None;
+    let mut parts = Vec::new();
+    let mut start = open + 1;
+    let mut i = open;
+    while i < chars.len() {
+        let c = chars[i];
+        match quote {
+            Some(q) => {
+                if c == '\\' && chars.get(i + 1) == Some(&q) {
+                    i += 1;
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '\'' | '"' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        parts.push(chars[start..i].iter().collect::<String>());
+                        break;
+                    }
+                }
+                ',' if depth == 1 => {
+                    parts.push(chars[start..i].iter().collect::<String>());
+                    start = i + 1;
+                }
+                _ => {}
+            },
+        }
+        i += 1;
+    }
+    if i >= chars.len() {
+        return err("missing closing parenthesis of a function call");
+    }
+    if parts.len() == 1 && parts[0].trim().is_empty() {
+        parts.clear();
+    }
+    if parts.len() > MAX_ARGS {
+        return err("too many function arguments");
+    }
+    let mut args = Vec::with_capacity(parts.len());
+    for part in parts {
+        match tokenize(&part, params)?.as_slice() {
+            [Token::Operand(operand)] => args.push(operand.clone()),
+            _ => return err(format!("invalid function argument {:?}", part.trim())),
+        }
+    }
+    Ok((args, i + 1))
 }
 
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
@@ -338,6 +408,25 @@ mod tests {
     }
 
     #[test]
+    fn function_calls() {
+        let expr = parse("geoDistance(loc.lon, loc.lat, 23.3, \"42,7\") < 25").unwrap();
+        let Expr::Cmp(cmp) = expr else { panic!() };
+        assert_eq!(
+            cmp.left,
+            Operand::Call {
+                name: "geoDistance".into(),
+                args: vec![
+                    Operand::Ident("loc.lon".into()),
+                    Operand::Ident("loc.lat".into()),
+                    Operand::Number("23.3".into()),
+                    Operand::Text("42,7".into()),
+                ],
+            }
+        );
+        assert_eq!(cmp.op, Op::Lt);
+    }
+
+    #[test]
     fn placeholders() {
         let params = serde_json::json!({ "title": "it's \\", "n": 5, "ok": true })
             .as_object()
@@ -462,7 +551,8 @@ mod tests {
             "a = 'unterminated",
             "a = 1.",
             "a. = 1",
-            "geoDistance(1, 2, 3, 4) < 10",
+            "geoDistance(1, 2 < 10",
+            "f(a b) = 1",
             "a = 'x' b = 1",
             "a # 1",
         ] {

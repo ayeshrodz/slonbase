@@ -29,6 +29,58 @@ fn write_error(err: WriteError, message: &str) -> ApiError {
     }
 }
 
+/// Fills a view collection's fields from its query (keeping the options of fields with the
+/// same names). Changing the query needs the SQL console to be enabled, since the query
+/// runs with the database role's privileges.
+async fn infer_view(
+    core: &Core,
+    c: &mut Collection,
+    old: Option<&Collection>,
+    errors_prefix: &str,
+    failed: &str,
+) -> Result<(), ApiError> {
+    if !c.is_view() {
+        return Ok(());
+    }
+    let query = c.view_query.clone().unwrap_or_default();
+    let changed = old.is_none_or(|o| o.view_query.as_deref() != Some(query.as_str()));
+    if changed && !core.sql_console {
+        return Err(ApiError::forbidden(
+            "View queries run SQL with the database role's privileges, so creating or changing \
+             them needs the SQL console: start slonbase with --sql-console.",
+        ));
+    }
+    let mut client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    // inspected in a transaction that's rolled back, with collections on the search path
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    tx.batch_execute(super::view::SEARCH_PATH)
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    let previous = if c.fields.is_empty() {
+        old.map(|o| o.fields.clone()).unwrap_or_default()
+    } else {
+        c.fields.clone()
+    };
+    match super::view::infer_fields(&tx, &query, &previous).await {
+        Ok(fields) => {
+            c.fields = fields;
+            Ok(())
+        }
+        Err(message) => {
+            let mut errors = crate::validation::Errors::new();
+            errors.invalid(format!("{errors_prefix}viewQuery"), message);
+            Err(ApiError::invalid_data(failed, &errors))
+        }
+    }
+}
+
 /// Reloads the registry under the schema lock, so validation sees changes
 /// made by other instances.
 async fn fresh_registry(core: &Core) -> Result<Registry, ApiError> {
@@ -120,6 +172,7 @@ pub async fn create(
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(&core).await?;
 
+    infer_view(&core, &mut c, None, "", failed).await?;
     let errors = validate::prepare(&mut c, None, &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
@@ -156,6 +209,7 @@ pub async fn update(
     merged.extend(body);
     let mut new = parse(merged)?;
 
+    infer_view(&core, &mut new, Some(&old), "", failed).await?;
     let errors = validate::prepare(&mut new, Some(&old), &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
@@ -239,7 +293,6 @@ pub async fn scaffolds(
     Ok(Json(json!({
         "base": scaffold("base"),
         "auth": scaffold("auth"),
-        // view collections aren't supported yet; creating one fails with an error
         "view": {
             "id": "", "name": "", "type": "view", "system": false, "fields": [], "indexes": [],
             "listRule": null, "viewRule": null, "createRule": null, "updateRule": null,
@@ -326,6 +379,14 @@ pub async fn import(
             }
             None => {}
         }
+        infer_view(
+            &core,
+            &mut c,
+            old.as_deref(),
+            &format!("collections.{i}."),
+            failed,
+        )
+        .await?;
         pairs.push((old, c));
     }
 
