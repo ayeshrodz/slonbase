@@ -1,5 +1,5 @@
-//! Embeds the admin dashboard (`ui/dist`): text files are gzipped at build time, and
-//! `$OUT_DIR/ui_files.rs` lists every file as `(path, bytes, gzipped)`.
+//! Embeds the admin dashboard (`ui/app`): text files are gzipped at build time, and
+//! `$OUT_DIR/ui_files.rs` lists every file as `(path, bytes, gzipped, etag)`.
 
 use std::fs;
 use std::io::Write;
@@ -22,16 +22,26 @@ fn files(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+/// A content hash for the file's ETag.
+fn fnv1a(data: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in data {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn main() {
-    let dist = Path::new("ui/dist");
-    println!("cargo:rerun-if-changed=ui/dist");
+    let dist = Path::new("ui/app");
+    println!("cargo:rerun-if-changed=ui/app");
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     let embed_dir = out_dir.join("ui");
     let _ = fs::remove_dir_all(&embed_dir);
 
     let mut paths = Vec::new();
     files(dist, &mut paths);
-    let mut table = String::from("pub static FILES: &[(&str, &[u8], bool)] = &[\n");
+    let mut table = String::from("pub static FILES: &[(&str, &[u8], bool, &str)] = &[\n");
     for path in paths {
         let relative = path
             .strip_prefix(dist)
@@ -40,6 +50,7 @@ fn main() {
             .expect("UTF-8 file name")
             .replace('\\', "/");
         let data = fs::read(&path).expect("readable UI file");
+        let hash = fnv1a(&data);
         let gzip = path
             .extension()
             .and_then(|e| e.to_str())
@@ -60,8 +71,9 @@ fn main() {
         };
         fs::write(&target, bytes).expect("write embedded file");
         table.push_str(&format!(
-            "    ({relative:?}, include_bytes!({:?}), {gzip}),\n",
-            target.to_str().expect("UTF-8 path")
+            "    ({relative:?}, include_bytes!({:?}), {gzip}, \"\\\"{:016x}\\\"\"),\n",
+            target.to_str().expect("UTF-8 path"),
+            hash
         ));
     }
     table.push_str("];\n");

@@ -5,60 +5,93 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>slonbase setup</title>
+<link rel="icon" href="/_/favicon.svg" type="image/svg+xml">
 <style>
   :root {
-    --bg: #f5f6f8; --card: #ffffff; --text: #1d2330; --muted: #5d6677;
-    --border: #d9dde5; --accent: #2f6fdd; --accent-text: #ffffff;
-    --ok-bg: #e7f6ec; --ok-text: #1d6b3a; --err-bg: #fdecec; --err-text: #a12828;
-    --info-bg: #eaf1fd; --info-text: #234e9a;
+    --canvas: #f3f2ee; --surface: #ffffff; --ink: #17181e; --muted: #727582; --faint: #a3a5af;
+    --line: #e5e3dc; --line-2: #d8d5cc; --accent: #6a4cf6; --brand-a: #7b5cff; --brand-b: #19c2c9;
+    --ok: #12a37f; --ok-soft: rgba(18,163,127,.12); --danger: #e0384f; --danger-soft: rgba(224,56,79,.11);
+    --info: #2f7bea; --info-soft: rgba(47,123,234,.11);
+    --shadow: 0 24px 60px -18px rgba(35,28,70,.28), 0 8px 20px -10px rgba(23,22,30,.14);
+    --ease: cubic-bezier(.22,1,.36,1); --spring: cubic-bezier(.34,1.56,.64,1);
+    color-scheme: light dark;
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #12151b; --card: #1b1f27; --text: #e6e9ef; --muted: #9aa3b2;
-      --border: #2f3542; --accent: #5b8ff0; --accent-text: #0d1117;
-      --ok-bg: #16301f; --ok-text: #8bd8a5; --err-bg: #3a1b1b; --err-text: #f2a3a3;
-      --info-bg: #182640; --info-text: #9fc0f5;
+      --canvas: #0c0d11; --surface: #15161d; --ink: #ecedf3; --muted: #8b8e9c; --faint: #5d606d;
+      --line: #262833; --line-2: #323543; --accent: #8e74ff;
+      --ok: #2fd3a6; --ok-soft: rgba(47,211,166,.13); --danger: #ff5c72; --danger-soft: rgba(255,92,114,.13);
+      --info: #5aa0ff; --info-soft: rgba(90,160,255,.13);
+      --shadow: 0 28px 70px -20px rgba(0,0,0,.75);
     }
   }
   * { box-sizing: border-box; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  @keyframes float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+  @keyframes spin { to { transform: rotate(360deg); } }
   body {
-    margin: 0; min-height: 100vh; background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-    display: flex; align-items: flex-start; justify-content: center; padding: 48px 16px;
+    margin: 0; min-height: 100vh; color: var(--ink);
+    background: radial-gradient(900px 500px at 0% 0%, color-mix(in srgb, var(--brand-a), transparent 86%), transparent 60%),
+      radial-gradient(800px 500px at 100% 100%, color-mix(in srgb, var(--brand-b), transparent 88%), transparent 60%), var(--canvas);
+    font: 14.5px/1.55 "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    display: flex; align-items: flex-start; justify-content: center; padding: 8vh 16px 48px;
   }
   main { width: 100%; max-width: 480px; }
-  .brand { font-weight: 700; font-size: 22px; margin: 0 0 4px; }
-  .sub { color: var(--muted); margin: 0 0 24px; }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 24px; }
-  h2 { font-size: 17px; margin: 0 0 4px; }
-  .step { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
-  label { display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px; }
+  .head { display: flex; align-items: center; gap: 12px; margin-bottom: 22px; animation: rise .5s var(--ease) both; }
+  .head svg { animation: float 4s ease-in-out infinite; }
+  .brand { font-weight: 700; font-size: 21px; margin: 0; letter-spacing: -.03em; }
+  .brand b { background: linear-gradient(90deg, var(--brand-a), var(--brand-b)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .sub { color: var(--muted); margin: 2px 0 0; font-size: 13.5px; }
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 26px;
+    box-shadow: var(--shadow); animation: rise .45s var(--ease) both;
+  }
+  h2 { font-size: 19px; margin: 0 0 2px; letter-spacing: -.02em; }
+  .step { color: var(--accent); font-size: 12px; font-weight: 650; letter-spacing: .06em; text-transform: uppercase; margin: 0 0 14px; }
+  label { display: block; font-size: 12.5px; font-weight: 600; margin: 14px 0 6px; color: var(--muted); }
   input, select {
-    width: 100%; padding: 9px 11px; font: inherit; color: var(--text); background: var(--bg);
-    border: 1px solid var(--border); border-radius: 8px;
+    width: 100%; height: 40px; padding: 8px 12px; font: inherit; color: var(--ink); background: var(--surface);
+    border: 1px solid var(--line-2); border-radius: 10px; outline: none;
+    transition: border-color .12s, box-shadow .22s var(--ease);
   }
-  input:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--accent), transparent 68%); }
   .row { display: grid; grid-template-columns: 1fr 110px; gap: 12px; }
-  .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; flex-wrap: wrap; }
+  .actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 24px; flex-wrap: wrap; }
   button {
-    font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 8px; cursor: pointer;
-    border: 1px solid var(--border); background: transparent; color: var(--text);
+    font: inherit; font-weight: 600; font-size: 13.5px; height: 38px; padding: 0 18px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--line-2); background: var(--surface); color: var(--ink);
+    transition: transform .12s var(--ease), box-shadow .22s var(--ease), background .12s;
   }
-  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
-  button:disabled { opacity: .55; cursor: default; }
-  .link { background: none; border: 0; padding: 0; color: var(--accent); font-weight: 500; font-size: 13px; margin-top: 10px; }
-  .msg { border-radius: 8px; padding: 10px 12px; margin-top: 16px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
-  .msg.ok { background: var(--ok-bg); color: var(--ok-text); }
-  .msg.err { background: var(--err-bg); color: var(--err-text); }
-  .msg.info { background: var(--info-bg); color: var(--info-text); }
-  .hint { color: var(--muted); font-size: 13px; margin: 6px 0 0; }
+  button:hover { transform: translateY(-1px); }
+  button:active { transform: scale(.97); }
+  button.primary {
+    background: linear-gradient(180deg, color-mix(in srgb, var(--accent), white 10%), var(--accent)); border-color: transparent; color: #fff;
+    box-shadow: 0 4px 14px -6px var(--accent);
+  }
+  button.primary:hover { box-shadow: 0 8px 22px -8px var(--accent); }
+  button:disabled { opacity: .5; cursor: default; transform: none; }
+  .link { background: none; border: 0; padding: 0; height: auto; color: var(--accent); font-weight: 560; font-size: 13px; margin-top: 12px; box-shadow: none; }
+  .msg { border-radius: 12px; padding: 11px 13px; margin-top: 16px; font-size: 13.5px; white-space: pre-wrap; word-break: break-word; animation: rise .3s var(--ease) both; }
+  .msg.ok { background: var(--ok-soft); color: var(--ok); }
+  .msg.err { background: var(--danger-soft); color: var(--danger); }
+  .msg.info { background: var(--info-soft); color: var(--info); }
+  .hint { color: var(--muted); font-size: 12.5px; margin: 6px 0 0; }
+  #loading p::before { content: ""; display: inline-block; width: 14px; height: 14px; margin-right: 10px; vertical-align: -2px;
+    border: 2px solid var(--accent); border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
   [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <main>
-  <p class="brand">slonbase</p>
-  <p class="sub">First-time setup</p>
+  <div class="head">
+    <svg width="44" height="44" viewBox="0 0 40 40" aria-hidden="true"><defs><linearGradient id="g" x1="4" y1="4" x2="36" y2="36" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#7b5cff"/><stop offset="1" stop-color="#19c2c9"/></linearGradient></defs><rect x="1" y="1" width="38" height="38" rx="12" fill="url(#g)"/><ellipse cx="11.2" cy="16.6" rx="6.4" ry="7.4" fill="#fff" fill-opacity=".5"/><ellipse cx="28.8" cy="16.6" rx="6.4" ry="7.4" fill="#fff" fill-opacity=".5"/><circle cx="20" cy="15.6" r="8" fill="#fff"/><path d="M20 19.5v7.2c0 2.4 1.7 3.8 3.6 3.8 1.5 0 2.6-1 2.8-2.3" fill="none" stroke="#fff" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="17.1" cy="14.6" r="1.25" fill="#3f2fb8"/><circle cx="22.9" cy="14.6" r="1.25" fill="#3f2fb8"/></svg>
+    <div>
+      <p class="brand">slon<b>base</b></p>
+      <p class="sub">First-time setup</p>
+    </div>
+  </div>
 
   <div class="card" id="loading"><p>Loading…</p></div>
 

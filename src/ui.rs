@@ -1,5 +1,5 @@
-//! The admin dashboard (PocketBase's UI, see `ui/README.md`), embedded at build time and
-//! served at `/_/`.
+//! The admin dashboard (`ui/app`, see `ui/README.md`), embedded at build time and served
+//! at `/_/`. Files are revalidated with ETags (`no-cache`), so a new build shows up at once.
 
 use std::io::Read;
 use std::sync::Arc;
@@ -10,11 +10,11 @@ use axum::response::{IntoResponse, Redirect, Response};
 
 use crate::app::{App, Mode};
 
-/// PocketBase's policy for its dashboard.
+/// Only the dashboard's own scripts run; images may be data: (provider logos) and blob:
+/// (upload previews) URLs.
 const CSP: &str = "default-src 'self'; style-src 'self' 'unsafe-inline'; \
-    img-src 'self' http://127.0.0.1:* https://tile.openstreetmap.org data: blob:; \
-    connect-src 'self' http://127.0.0.1:* https://nominatim.openstreetmap.org; \
-    script-src 'self' http://127.0.0.1:*; frame-ancestors 'none'";
+    img-src 'self' data: blob: https://tile.openstreetmap.org; connect-src 'self'; \
+    script-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'";
 
 mod files {
     include!(concat!(env!("OUT_DIR"), "/ui_files.rs"));
@@ -47,24 +47,48 @@ fn accepts_gzip(headers: &HeaderMap) -> bool {
         })
 }
 
+/// For working on the dashboard: `SLONBASE_DEV_UI_DIR=ui/app` serves the files from disk.
+fn dev_file(path: &str) -> Option<Response> {
+    let dir = std::env::var_os("SLONBASE_DEV_UI_DIR")?;
+    if path.split('/').any(|part| part == ".." || part.is_empty()) {
+        return Some(StatusCode::NOT_FOUND.into_response());
+    }
+    let data = std::fs::read(std::path::Path::new(&dir).join(path)).ok();
+    Some(match data {
+        Some(data) => (
+            [
+                (header::CONTENT_TYPE, content_type(path)),
+                (header::CACHE_CONTROL, "no-store"),
+                (header::CONTENT_SECURITY_POLICY, CSP),
+            ],
+            data,
+        )
+            .into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
 fn file(path: &str, headers: &HeaderMap) -> Response {
-    let Some((_, data, gzipped)) = files::FILES.iter().find(|(p, _, _)| *p == path) else {
+    if let Some(response) = dev_file(path) {
+        return response;
+    }
+    let Some((_, data, gzipped, etag)) = files::FILES.iter().find(|(p, _, _, _)| *p == path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let cache = if path == "index.html" {
-        "no-cache"
-    } else if path.starts_with("assets/") {
-        // file names carry a content hash
-        "public, max-age=31536000, immutable"
-    } else {
-        "public, max-age=86400"
-    };
     let mut response_headers = HeaderMap::new();
+    response_headers.insert(header::ETAG, HeaderValue::from_static(etag));
+    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    let matches = headers
+        .get(header::IF_NONE_MATCH)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.split(',').any(|t| t.trim() == *etag));
+    if matches {
+        return (StatusCode::NOT_MODIFIED, response_headers).into_response();
+    }
     response_headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_static(content_type(path)),
     );
-    response_headers.insert(header::CACHE_CONTROL, HeaderValue::from_static(cache));
     response_headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,
         HeaderValue::from_static("nosniff"),
@@ -98,17 +122,6 @@ pub async fn index(State(app): State<Arc<App>>, headers: HeaderMap) -> Response 
 
 /// `GET /_/{*path}`
 pub async fn asset(Path(path): Path<String>, headers: HeaderMap) -> Response {
-    if path == "extensions.js" {
-        // dashboard extensions (none)
-        return (
-            [
-                (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
-                (header::CACHE_CONTROL, "no-cache"),
-            ],
-            "",
-        )
-            .into_response();
-    }
     file(&path, &headers)
 }
 
@@ -121,14 +134,14 @@ mod tests {
         assert!(
             files::FILES
                 .iter()
-                .any(|(p, _, gz)| *p == "index.html" && *gz)
-        );
-        assert!(
-            files::FILES
-                .iter()
-                .any(|(p, _, gz)| p.ends_with(".woff2") && !*gz)
+                .any(|(p, _, gz, _)| *p == "index.html" && *gz)
         );
         let mut headers = HeaderMap::new();
+        // revalidation
+        let etag = file("main.js", &headers).headers()[header::ETAG].clone();
+        let mut cached = HeaderMap::new();
+        cached.insert(header::IF_NONE_MATCH, etag);
+        assert_eq!(file("main.js", &cached).status(), StatusCode::NOT_MODIFIED);
         assert_eq!(
             file("index.html", &headers).headers()[header::CONTENT_TYPE],
             "text/html; charset=utf-8"

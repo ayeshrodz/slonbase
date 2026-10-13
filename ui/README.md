@@ -1,10 +1,13 @@
-# Admin dashboard
+# The slonbase dashboard
 
-`dist/` is the prebuilt admin UI of [PocketBase](https://github.com/pocketbase/pocketbase)
-(`ui/dist` at commit `6f370ea7`), used unchanged under its MIT license (`LICENSE.md`). slonbase
-implements the API it uses and serves it at `/_/`; the files are compressed and embedded into
-the binary at build time (`build.rs`).
+The admin dashboard served at `/_/`. It's plain ES modules with no build step:
+[Preact](https://preactjs.com) and [htm](https://github.com/developit/htm) are vendored in
+`app/vendor` (licenses next to them), and `build.rs` embeds `app/` into the binary (text files
+gzipped). Edit the files and rebuild.
 
-To update it, copy a newer `ui/dist` from PocketBase and check the dashboard against slonbase
-(`tests/dashboard.rs` and a manual pass), since newer versions may use endpoints slonbase
-doesn't have yet.
+- `app/main.js` — the shell: top navigation, command palette (⌘K / Ctrl K), routes
+- `app/lib/` — the API client, store and router, components, icons and formatting
+- `app/pages/` — one module per screen
+- `app/app.css` — design tokens (light and dark), components and motion
+
+It talks to the server only through the public API, the same one the SDKs use.

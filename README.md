@@ -99,12 +99,18 @@ Logging is controlled by `RUST_LOG` (default `info`).
 
 ## Admin dashboard
 
-The dashboard is at `/_/` (e.g. `http://localhost:8090/_/`). It's
-[PocketBase](https://pocketbase.io)'s admin UI, embedded unchanged under its MIT license (see
-[ui/README.md](ui/README.md)), so it still shows PocketBase's name and logo. slonbase implements
-the API it uses: collections and records (including files and realtime), superusers,
-settings, the test email, collection import and export, logs, backups, and the SQL console. The
-Geo Point field type isn't supported yet.
+The dashboard is at `/_/` (e.g. `http://localhost:8090/_/`): slonbase's own UI, built into the
+binary. It covers:
+- an overview of your collections and traffic;
+- the data workspace (live record grid, record editor with uploads and relation pickers, schema
+  editor, API rules, sign-in options, indexes, and API docs for every collection);
+- logs, the SQL console, and settings (mail, file storage, backups, rate limits, superuser IPs,
+  cron jobs, import and export).
+
+Press ⌘K / Ctrl K anywhere to jump to a collection or action. It follows your system's light or
+dark theme (or pick one), uses the accent color from the settings, and works on phones. It uses
+only the public API, so anything it does you can script too; see [ui/README.md](ui/README.md)
+to work on it.
 
 **Logs.** Every request is logged (level 0, or 8 for errors, with the error), except dashboard
 files and successful health checks, and so are slonbase's own warnings and errors. They're kept
@@ -394,6 +400,7 @@ The design and the reasoning behind it are in [docs/design.md](docs/design.md).
 
 ## License
 
-[MIT](LICENSE). The embedded admin UI is PocketBase's (MIT, [ui/LICENSE.md](ui/LICENSE.md)).
+[MIT](LICENSE). The dashboard vendors Preact (MIT) and htm (Apache-2.0); their licenses are in
+[ui/app/vendor](ui/app/vendor).
 slonbase is an independent project inspired by PocketBase (also MIT) and is not
 affiliated with it.

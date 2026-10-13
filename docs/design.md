@@ -430,14 +430,8 @@ limited to 128 MiB anyway), and presigned URLs.
 
 ### Phase 4a: admin dashboard
 
-**The UI** is PocketBase's admin dashboard (`ui/dist`, MIT), embedded unchanged rather than
-writing a new one: it's mature and familiar, and keeping slonbase's API compatible enough to run
-it is also the best test of that compatibility. `build.rs` gzips the text files at build time
-(3.3 MB of files, about 1.2 MB embedded); they're served gzipped, or decompressed for the rare
-client that doesn't accept gzip. Hashed assets are cached for a year, `index.html` is revalidated,
-and pages carry PocketBase's Content-Security-Policy. The UI was checked in headless Chromium:
-signing in, creating collections of every supported field type, records with uploads, editing,
-search, settings, the test email, the SQL console, auth collections and superusers.
+**The UI** was first PocketBase's dashboard, embedded unchanged to prove the API compatible; it
+has since been replaced by slonbase's own (see "Dashboard redesign" below).
 
 **System collections.** The UI manages superusers and linked accounts through the records API,
 so like PocketBase they're collections: `_superusers` (auth) and `_externalAuths` (base). They're
@@ -556,6 +550,26 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   request. The whole batch is limited by `batch.timeout`; dropping the transaction rolls it back.
 - Difference from PocketBase: `expand` is applied after the commit, so expanded relations show the
   batch's final state rather than the state at that request.
+
+### Dashboard redesign
+
+- Its own design: a top navigation bar instead of a side rail, a collections panel with grouped,
+  colored collection glyphs, collection pages with tabs (records, schema, rules, sign-in,
+  indexes, API docs, settings) that edit one draft saved from a floating save bar, records edited
+  in a centered sheet with a metadata column, a ⌘K command palette, and an overview page. Light
+  and dark themes come from design tokens in `app.css`; the accent follows `meta.accentColor`.
+- Motion: entrance animations for pages and lists (staggered), sliding indicators on the
+  navigation, tabs and segmented controls, spring switches, sheet and toast transitions, count-up
+  numbers, growing chart bars, row flashes for live updates, and a blinking, ear-flapping logo.
+  All of it respects `prefers-reduced-motion`. Entrance animations use `animation-fill-mode:
+  backwards`: a transform that stays applied would make the element the containing block of
+  `position: fixed` descendants, so overlays are also rendered into `<body>` through a portal.
+- No build step: plain ES modules with Preact and htm vendored (~17 KB), embedded by `build.rs`
+  and gzipped. Every file is revalidated with an ETag (an FNV hash computed at build time) since
+  names aren't hashed. `SLONBASE_DEV_UI_DIR=ui/app` serves the files from disk while working on
+  them. The Content-Security-Policy allows only the dashboard's own scripts.
+- The pages behind email links (`#/auth/confirm-verification/{token}`, password reset, email
+  change) and superuser password reset live in the same app, since emails link to `/_/#/auth/...`.
 
 ### Phase 5a: Rust extensions
 
@@ -687,7 +701,7 @@ the file.
    reset, email change, impersonation, settings and mail; OAuth2, OTP and MFA (done).
 3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
    expand** (done), **files** (done: local or S3 storage, thumbnails, protected files).
-4. **Admin dashboard** (done: PocketBase's UI, system collections, settings), **logs**,
+4. **Admin dashboard** (done: system collections, settings; now slonbase's own UI), **logs**,
    **rate limits**, **backups** and the **batch API** (done).
 5. **Extensibility** (done): Rust library API (hooks, routes, cron jobs, record service) and
    JavaScript hooks with PocketBase's API.

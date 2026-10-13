@@ -54,25 +54,34 @@ async fn serves_the_dashboard() {
     let (_, headers, body) = raw_request(&app, "GET", "/_/", &[], vec![]).await;
     assert!(headers.get("content-encoding").is_none());
     let html = String::from_utf8(body).unwrap();
-    let asset = html
-        .split("src=\"./assets/")
-        .nth(1)
-        .and_then(|rest| rest.split('"').next())
-        .expect("a script asset");
-    let (status, headers, _) =
-        raw_request(&app, "GET", &format!("/_/assets/{asset}"), &[], vec![]).await;
+    assert!(html.contains("<title>slonbase</title>"));
+    let (status, headers, _) = raw_request(&app, "GET", "/_/main.js", &[], vec![]).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "text/javascript; charset=utf-8");
-    assert!(
-        headers["cache-control"]
-            .to_str()
-            .unwrap()
-            .contains("immutable")
-    );
-
-    let (status, _, body) = raw_request(&app, "GET", "/_/extensions.js", &[], vec![]).await;
-    assert_eq!(status, StatusCode::OK);
+    // revalidated with the ETag
+    let etag = headers["etag"].to_str().unwrap().to_string();
+    let (status, _, body) = raw_request(
+        &app,
+        "GET",
+        "/_/main.js",
+        &[("if-none-match", etag.as_str())],
+        vec![],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_MODIFIED);
     assert!(body.is_empty());
+    // every module the dashboard imports is embedded
+    for module in [
+        "lib/core.js",
+        "vendor/preact.js",
+        "pages/records.js",
+        "app.css",
+        "favicon.svg",
+    ] {
+        let (status, _, _) = raw_request(&app, "GET", &format!("/_/{module}"), &[], vec![]).await;
+        assert_eq!(status, StatusCode::OK, "{module}");
+    }
+
     let (status, _, _) = raw_request(&app, "GET", "/_/missing.js", &[], vec![]).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) = raw_request(&app, "GET", "/_/../Cargo.toml", &[], vec![]).await;
