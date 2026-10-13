@@ -438,6 +438,7 @@ async fn check_access(
     let mut allowed_at_all = Vec::new();
     for target in targets {
         let mut request = RequestInfo::new("GET");
+        request.registry = Some(core.registry());
         request.auth = target.auth.info();
         request.query = target.topic.query.clone();
         request.headers = target.topic.headers.clone();

@@ -16,20 +16,22 @@ use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::{GenericClient, Transaction};
 use serde_json::{Map, Value, json};
-use tokio_postgres::Row;
 
-use super::access::{email_visible_sql, manage_rule_sql, pick_fields, rule_sql};
-use super::store::{ALIAS, all_fields, record_json, row_values, select_list, visible_fields};
+use super::access::{
+    email_visible_sql, manage_rule_sql, output_record, output_select, pick_fields, rule_sql,
+};
+use super::expand;
+use super::store::{ALIAS, all_fields, row_values, select_list, visible_fields};
 use super::values::{self, Changes, Values};
 use crate::app::App;
 use crate::auth::RequestAuth;
 use crate::collections::indexes::Index;
 use crate::collections::model::{
-    Collection, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED, Field, FieldKind,
-    RuleAction,
+    Collection, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED, FieldKind, RuleAction,
 };
 use crate::collections::schema::table_ref;
 use crate::collections::store::Registry;
+use crate::core::Core;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
@@ -54,8 +56,10 @@ fn request_info(
     headers: &HeaderMap,
     body: Option<&Map<String, Value>>,
     auth: &RequestAuth,
+    registry: &Arc<Registry>,
 ) -> RequestInfo {
     let mut info = RequestInfo::new(method.as_str());
+    info.registry = Some(registry.clone());
     info.auth = auth.info();
     info.query = query.clone();
     info.headers = headers
@@ -91,26 +95,40 @@ fn bad_filter(e: impl std::fmt::Display) -> ApiError {
     ApiError::bad_request(format!("Invalid filter parameters: {e}."))
 }
 
-/// Select list for client responses: the visible fields, then the email visibility flag.
-fn output_select(fields: &[&Field], email_visible: &Option<String>) -> String {
-    match email_visible {
-        Some(sql) => format!("{}, {sql} AS _email_visible", select_list(fields)),
-        None => select_list(fields),
-    }
+/// Applies the `expand` query parameter to response records.
+async fn expand_records(
+    core: &Core,
+    auth: &RequestAuth,
+    request: &RequestInfo,
+    c: &Arc<Collection>,
+    records: &mut [Value],
+    query: &HashMap<String, String>,
+) -> Result<(), ApiError> {
+    let Some(raw) = query.get("expand") else {
+        return Ok(());
+    };
+    let tree = expand::Tree::parse(raw);
+    let ctx = expand::Context {
+        core,
+        auth,
+        request,
+    };
+    expand::apply(&ctx, c.clone(), records, &tree).await
 }
 
-/// Builds the response for a row selected with [`output_select`].
-fn output_record(
-    c: &Collection,
-    fields: &[&Field],
-    row: &Row,
-    email_visible: &Option<String>,
-) -> Value {
-    let mut values = row_values(fields, row);
-    if email_visible.is_some() && !row.get::<_, bool>(fields.len()) {
-        values.remove(FIELD_EMAIL);
-    }
-    record_json(c, values)
+/// A single record response, with `expand` applied.
+async fn respond(
+    core: &Core,
+    auth: &RequestAuth,
+    request: &RequestInfo,
+    c: &Arc<Collection>,
+    record: Value,
+    query: &HashMap<String, String>,
+) -> Result<Value, ApiError> {
+    let mut records = [record];
+    expand_records(core, auth, request, c, &mut records, query).await?;
+    let [record] = records;
+    Ok(record)
 }
 
 /// `GET /api/collections/{collection}/records`
@@ -124,7 +142,7 @@ pub async fn list(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
-    let request = request_info(&method, &query, &headers, None, &auth);
+    let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
     let superuser = auth.is_superuser();
 
     let page = query
@@ -202,14 +220,15 @@ pub async fn list(
         (rows, count.get::<_, i64>(0))
     };
 
-    let items: Vec<Value> = rows
+    drop(client);
+    let mut items: Vec<Value> = rows
         .iter()
-        .map(|row| {
-            pick_fields(
-                output_record(&c, &fields, row, &email_visible),
-                query.get("fields"),
-            )
-        })
+        .map(|row| output_record(&c, &fields, row, &email_visible))
+        .collect();
+    expand_records(&core, &auth, &request, &c, &mut items, &query).await?;
+    let items: Vec<Value> = items
+        .into_iter()
+        .map(|item| pick_fields(item, query.get("fields")))
         .collect();
     let total_pages = if total < 0 {
         -1
@@ -237,7 +256,7 @@ pub async fn view(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
-    let request = request_info(&method, &query, &headers, None, &auth);
+    let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
 
     let mut params = Params::default();
     let id_param = params.push(id);
@@ -264,10 +283,10 @@ pub async fn view(
         .map_err(db_error)?
         .ok_or_else(ApiError::not_found)?;
 
-    Ok(Json(pick_fields(
-        output_record(&c, &fields, &row, &email_visible),
-        query.get("fields"),
-    )))
+    drop(client);
+    let record = output_record(&c, &fields, &row, &email_visible);
+    let record = respond(&core, &auth, &request, &c, record, &query).await?;
+    Ok(Json(pick_fields(record, query.get("fields"))))
 }
 
 /// Checks `passwordConfirm` for auth collections.
@@ -326,7 +345,14 @@ pub async fn create(
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
     ensure_allowed(&c, RuleAction::Create, &auth)?;
-    let request = request_info(&method, &query, &headers, Some(&body), &auth);
+    let request = request_info(
+        &method,
+        &query,
+        &headers,
+        Some(&body),
+        &auth,
+        &core.registry(),
+    );
     let failed = "Failed to create record.";
 
     // only superusers and managers (with an empty manage rule) can create verified records
@@ -418,7 +444,10 @@ pub async fn create(
         .map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
 
-    Ok(Json(output_record(&c, &fields, &row, &email_visible)))
+    let record = output_record(&c, &fields, &row, &email_visible);
+    Ok(Json(
+        respond(&core, &auth, &request, &c, record, &query).await?,
+    ))
 }
 
 /// `PATCH /api/collections/{collection}/records/{id}`
@@ -435,7 +464,14 @@ pub async fn update(
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, Some(&body), &auth);
+    let request = request_info(
+        &method,
+        &query,
+        &headers,
+        Some(&body),
+        &auth,
+        &core.registry(),
+    );
     let failed = "Failed to update record.";
 
     // the rule is checked against the current record (with @request.body available)
@@ -575,7 +611,10 @@ pub async fn update(
         .map_err(db_error)?;
     tx.commit().await.map_err(db_error)?;
 
-    Ok(Json(output_record(&c, &fields, &row, &email_visible)))
+    let record = output_record(&c, &fields, &row, &email_visible);
+    Ok(Json(
+        respond(&core, &auth, &request, &c, record, &query).await?,
+    ))
 }
 
 /// `DELETE /api/collections/{collection}/records/{id}`
@@ -590,7 +629,7 @@ pub async fn delete(
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, None, &auth);
+    let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
 
     let mut params = Params::default();
     let id_param = params.push(id.clone());

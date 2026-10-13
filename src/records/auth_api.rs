@@ -106,6 +106,7 @@ async fn auth_rule_allows(
     };
     let mut request = RequestInfo::new(method.as_str());
     request.auth = Some(record.info());
+    request.registry = Some(core.registry());
     let scope = Scope {
         collection: c,
         alias: ALIAS,

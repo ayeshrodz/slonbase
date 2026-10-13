@@ -280,6 +280,33 @@ events) fills up is disconnected.
 **Not yet:** `expand` in events, `@collection` rules, and events for changes made outside the
 records API (auth flows that set `verified` or the password, or direct SQL).
 
+### Phase 3: relation paths and expand
+
+**Relation paths** in filters and rules (`author.org.name`) compile to correlated subqueries
+over the related tables, never JOINs, so they can't duplicate rows or skew counts.
+- If every hop is single-valued, the path is a scalar subquery.
+- If any hop or the final field is multi-valued, the path is a set compared with the usual
+  all/any (`?`) semantics.
+- A missing related record behaves like a single empty value, so `author.name = null` matches
+  records without an author.
+- Paths can end in a JSON path (`author.meta.key`) and have up to 6 hops.
+- The related collections' API rules don't apply (as in PocketBase), but their hidden fields stay
+  hidden from non-superusers, and secrets are never reachable.
+- Rules that use paths are validated against the related collections when saved.
+
+**Expand** runs after the main query:
+- It loads each relation level with one query per path for all records, using `id IN (...)` and
+  the related collection's `viewRule`.
+- Back-relations (`{collection}_via_{field}`) use the source collection's `listRule`.
+- Expanded records get the same field and email visibility as a direct request.
+- It works on list, view, create and update responses, up to 6 levels and 5,000 related records
+  per path.
+- Unknown or forbidden paths are skipped silently, as in PocketBase.
+- `fields=...,expand` keeps the expanded records.
+
+A sweep runs relation-path operands against every operator and value kind in PostgreSQL to check
+the generated SQL is always accepted.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -339,7 +366,7 @@ the file.
    superuser auth.
 2. **Auth** (done): superusers and auth collections, password sign-in, verification, password
    reset, email change, impersonation, settings and mail. OAuth2, OTP and MFA follow.
-3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **files** (local/S3,
-   thumbnails), relation expansion.
+3. **Realtime** (done: `LISTEN/NOTIFY` outbox, multi-instance sync), **relation paths and
+   expand** (done), **files** (local/S3, thumbnails).
 4. **Admin dashboard** (PocketBase's UI first), mail, logs, backups, settings, batch API.
 5. **Extensibility**: Rust library API and JS hooks.

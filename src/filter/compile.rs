@@ -15,7 +15,9 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use serde_json::Value;
 
 use super::parser::{Cmp, Expr, Op, Operand};
-use crate::collections::model::{Collection, FieldKind, Storage};
+use crate::collections::model::{Collection, Field, FieldKind, Storage};
+use crate::collections::schema::table_ref;
+use crate::collections::store::Registry;
 use crate::datetime;
 
 /// Request data available to rules as `@request.*`.
@@ -29,6 +31,9 @@ pub struct RequestInfo {
     pub headers: HashMap<String, String>,
     pub body: serde_json::Map<String, Value>,
     pub now: DateTime<Utc>,
+    /// Collections reachable through relation paths (`author.name`). Without it,
+    /// relation paths can only point back to the scope's own collection.
+    pub registry: Option<std::sync::Arc<Registry>>,
 }
 
 impl RequestInfo {
@@ -40,6 +45,7 @@ impl RequestInfo {
             headers: HashMap::new(),
             body: serde_json::Map::new(),
             now: Utc::now(),
+            registry: None,
         }
     }
 }
@@ -149,6 +155,11 @@ enum Val {
     },
     /// Literal list (from `@request.body`), kept as JSON text.
     List(String),
+    /// Values reached through a multi-valued relation path: a query returning column `v`.
+    Set {
+        rows: String,
+        ty: Ty,
+    },
 }
 
 struct Compiler<'a, 'p> {
@@ -180,53 +191,77 @@ impl Compiler<'_, '_> {
         right: Val,
     ) -> Result<String, CompileError> {
         // multi-valued operands are compared item by item
-        let left_multi = self.multi_source(&left);
-        let right_multi = self.multi_source(&right);
-        match (left_multi, right_multi) {
+        let left_set = self.set_of(&left);
+        let right_set = self.set_of(&right);
+        match (left_set, right_set) {
             (Some(_), Some(_)) => fail("both operands can't be multi-valued"),
-            (Some(source), None) => self.compare_items(source, op, any, right, false),
-            (None, Some(source)) => self.compare_items(source, op, any, left, true),
+            (Some((from, item)), None) => self.compare_items(from, item, op, any, right, false),
+            (None, Some((from, item))) => self.compare_items(from, item, op, any, left, true),
             (None, None) => self.compare_scalars(left, op, right),
         }
     }
 
-    fn multi_source(&mut self, val: &Val) -> Option<String> {
+    /// The `FROM` item and the element of a multi-valued operand, `None` for scalars.
+    fn set_of(&mut self, val: &Val) -> Option<(String, Val)> {
         let source = match val {
             Val::Multi { source } => source.clone(),
             Val::List(json) => format!("({})::jsonb", self.params.push(json.clone())),
+            Val::Set { rows, ty } => {
+                self.aliases += 1;
+                let alias = format!("__e{}", self.aliases);
+                // no related records behave like a single NULL value
+                let from = format!(
+                    "(SELECT v FROM ({rows}) AS __x UNION ALL SELECT NULL WHERE NOT EXISTS ({rows})) AS {alias}(v)"
+                );
+                let item = Val::Scalar {
+                    sql: format!("{alias}.v"),
+                    ty: *ty,
+                    nullable: true,
+                };
+                return Some((from, item));
+            }
             _ => return None,
         };
-        // an empty list behaves like [""] (so "tags = ''" matches empty lists)
-        Some(format!(
-            "(CASE WHEN jsonb_array_length({source}) = 0 THEN '[\"\"]'::jsonb ELSE {source} END)"
-        ))
-    }
-
-    fn compare_items(
-        &mut self,
-        source: String,
-        op: Op,
-        any: bool,
-        other: Val,
-        items_on_right: bool,
-    ) -> Result<String, CompileError> {
         self.aliases += 1;
         let alias = format!("__e{}", self.aliases);
+        // an empty list behaves like [""] (so "tags = ''" matches empty lists)
+        let from = format!(
+            "jsonb_array_elements_text(CASE WHEN jsonb_array_length({source}) = 0 THEN '[\"\"]'::jsonb ELSE {source} END) AS {alias}(v)"
+        );
         let item = Val::Scalar {
             sql: format!("{alias}.v"),
             ty: Ty::Text,
             nullable: false,
         };
-        let other = match other {
-            Val::Null => Val::Lit(Lit::Text(String::new())),
-            v => v,
+        Some((from, item))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn compare_items(
+        &mut self,
+        from: String,
+        item: Val,
+        op: Op,
+        any: bool,
+        other: Val,
+        items_on_right: bool,
+    ) -> Result<String, CompileError> {
+        let condition = match (&other, op) {
+            // "= null" means empty: a missing related record or an empty string
+            (Val::Null, Op::Eq) => self.is_empty(&item),
+            (Val::Null, Op::Neq) => format!("NOT {}", self.is_empty(&item)),
+            _ => {
+                let other = match other {
+                    Val::Null => Val::Lit(Lit::Text(String::new())),
+                    v => v,
+                };
+                if items_on_right {
+                    self.compare_scalars(other, op, item)?
+                } else {
+                    self.compare_scalars(item, op, other)?
+                }
+            }
         };
-        let condition = if items_on_right {
-            self.compare_scalars(other, op, item)?
-        } else {
-            self.compare_scalars(item, op, other)?
-        };
-        let from = format!("jsonb_array_elements_text({source}) AS {alias}(v)");
         Ok(if any {
             format!("EXISTS (SELECT 1 FROM {from} WHERE {condition})")
         } else {
@@ -387,6 +422,7 @@ impl Compiler<'_, '_> {
             Val::Null => Ok(self.params.push("")),
             Val::Multi { source } => Ok(format!("({source})::text")),
             Val::List(json) => Ok(self.params.push(json)),
+            Val::Set { .. } => fail("multi-valued relation paths can't be used here"),
         }
     }
 
@@ -403,6 +439,7 @@ impl Compiler<'_, '_> {
             },
             Val::Multi { source } => format!("(jsonb_array_length({source}) = 0)"),
             Val::List(json) => if json == "[]" { "TRUE" } else { "FALSE" }.into(),
+            Val::Set { rows, .. } => format!("(NOT EXISTS ({rows}))"),
         }
     }
 
@@ -481,7 +518,7 @@ impl Compiler<'_, '_> {
                         modifier,
                     )
                 }
-                FieldKind::Relation(_) => fail("relation field paths are not supported yet"),
+                FieldKind::Relation(_) => self.relation_path(field, &rest, modifier),
                 _ => fail(format!("{name:?} has no nested fields")),
             };
         }
@@ -529,6 +566,134 @@ impl Compiler<'_, '_> {
                 "the :each modifier requires a multi-valued field ({name:?})"
             ));
         }
+        self.apply_modifier(val, modifier)
+    }
+
+    fn related_collection(&self, collection_id: &str) -> Option<std::sync::Arc<Collection>> {
+        if collection_id == self.scope.collection.id {
+            return Some(std::sync::Arc::new(self.scope.collection.clone()));
+        }
+        self.scope
+            .request
+            .registry
+            .as_ref()
+            .and_then(|r| r.by_id(collection_id).cloned())
+    }
+
+    /// `relation.field[.field...]`: a correlated subquery over the related tables. The
+    /// result is a scalar when every hop is single-valued, a set otherwise. The related
+    /// collections' API rules don't apply (as in PocketBase); hidden fields still do.
+    fn relation_path(
+        &mut self,
+        first: &Field,
+        rest: &[&str],
+        modifier: Option<&str>,
+    ) -> Result<Val, CompileError> {
+        const MAX_HOPS: usize = 6;
+
+        fn target_of(f: &Field) -> String {
+            match &f.kind {
+                FieldKind::Relation(o) => o.collection_id.clone(),
+                _ => String::new(),
+            }
+        }
+        let missing =
+            |name: &str| CompileError(format!("the related collection of {name:?} doesn't exist"));
+
+        let mut multi = first.is_multi();
+        let mut collection = self
+            .related_collection(&target_of(first))
+            .ok_or_else(|| missing(&first.name))?;
+        self.aliases += 1;
+        let mut alias = format!("__r{}", self.aliases);
+        let first_column = format!("{}.{}", self.scope.alias, quote_ident(&first.name));
+        let from = format!("{} {alias}", table_ref(&collection.name));
+        let condition = link(&alias, &first_column, first.is_multi());
+        let mut joins = Vec::new();
+        let mut hops = 1;
+
+        let mut i = 0;
+        let (value, ty) = loop {
+            let part = rest[i];
+            let last = i == rest.len() - 1;
+            let field = match collection.field(part) {
+                Some(f) if !f.is_secret() && (!f.hidden || self.scope.allow_hidden) => f.clone(),
+                _ => return fail(format!("unknown field {part:?} in {:?}", collection.name)),
+            };
+            let column = format!("{alias}.{}", quote_ident(&field.name));
+
+            if !last {
+                match &field.kind {
+                    FieldKind::Relation(_) => {
+                        hops += 1;
+                        if hops > MAX_HOPS {
+                            return fail(format!(
+                                "relation paths are limited to {MAX_HOPS} levels"
+                            ));
+                        }
+                        multi |= field.is_multi();
+                        collection = self
+                            .related_collection(&target_of(&field))
+                            .ok_or_else(|| missing(part))?;
+                        self.aliases += 1;
+                        let next = format!("__r{}", self.aliases);
+                        joins.push(format!(
+                            "JOIN {} {next} ON {}",
+                            table_ref(&collection.name),
+                            link(&next, &column, field.is_multi())
+                        ));
+                        alias = next;
+                        i += 1;
+                        continue;
+                    }
+                    FieldKind::Json(_) => {
+                        let keys = &rest[i + 1..];
+                        if keys.iter().any(|k| {
+                            k.is_empty() || !k.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        }) {
+                            return fail("invalid JSON path");
+                        }
+                        let path = self.params.push(format!("{{{}}}", keys.join(",")));
+                        break (format!("({column} #>> ({path})::text[])"), Ty::Dyn);
+                    }
+                    _ => return fail(format!("{part:?} has no nested fields")),
+                }
+            }
+
+            break match field.storage() {
+                Storage::Multi => {
+                    // the items of a multi-valued field of the related record
+                    multi = true;
+                    self.aliases += 1;
+                    let items = format!("__i{}", self.aliases);
+                    joins.push(format!(
+                        "CROSS JOIN LATERAL jsonb_array_elements_text({column}) AS {items}(v)"
+                    ));
+                    (format!("{items}.v"), Ty::Text)
+                }
+                Storage::Text => (column, Ty::Text),
+                Storage::Number => (column, Ty::Number),
+                Storage::Bool => (column, Ty::Bool),
+                Storage::Date => (column, Ty::Date),
+                Storage::Json => (format!("({column} #>> '{{}}')"), Ty::Dyn),
+            };
+        };
+
+        let rows = format!(
+            "SELECT {value} AS v FROM {from} {} WHERE {condition}",
+            joins.join(" ")
+        );
+        if multi {
+            if modifier.is_some_and(|m| m != "each") {
+                return fail("modifiers are not supported on multi-valued relation paths");
+            }
+            return Ok(Val::Set { rows, ty });
+        }
+        let val = Val::Scalar {
+            sql: format!("({rows} LIMIT 1)"),
+            ty,
+            nullable: true,
+        };
         self.apply_modifier(val, modifier)
     }
 
@@ -721,6 +886,15 @@ fn convert(lit: &Lit, ty: Ty) -> Option<Converted> {
     }
 }
 
+/// Joins a related table (`alias`) to a relation column of the previous one.
+fn link(alias: &str, relation_column: &str, multi: bool) -> String {
+    if multi {
+        format!("{alias}.\"id\" IN (SELECT jsonb_array_elements_text({relation_column}))")
+    } else {
+        format!("{alias}.\"id\" = {relation_column}")
+    }
+}
+
 fn text_or_null(value: Option<&String>) -> Val {
     match value {
         Some(s) => Val::Lit(Lit::Text(s.clone())),
@@ -876,7 +1050,8 @@ mod tests {
         assert_eq!(sql("published = null"), r#"(t."published" IS NULL)"#);
         assert_eq!(sql("views = null"), "FALSE");
         assert_eq!(sql("null = null"), "TRUE");
-        assert_eq!(sql("tags = null"), sql("tags = ''"));
+        // empty lists match null (like '')
+        assert!(sql("tags = null").contains("(__e1.v = '')"));
     }
 
     #[test]

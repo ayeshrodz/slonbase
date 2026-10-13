@@ -93,9 +93,9 @@ pub fn prepare(c: &mut Collection, old: Option<&Collection>, registry: &Registry
     }
     prepare_auth(c, &mut errors);
     prepare_fields(c, old, registry, &mut errors);
-    validate_rules(c, &mut errors);
+    validate_rules(c, registry, &mut errors);
     prepare_indexes(c, old, registry, &mut errors);
-    validate_auth_options(c, &mut errors);
+    validate_auth_options(c, registry, &mut errors);
 
     errors
 }
@@ -169,7 +169,7 @@ fn prepare_auth(c: &mut Collection, errors: &mut Errors) {
     }
 }
 
-fn validate_auth_options(c: &Collection, errors: &mut Errors) {
+fn validate_auth_options(c: &Collection, registry: &Registry, errors: &mut Errors) {
     let Some(auth) = c.auth_options() else { return };
 
     let tokens = [
@@ -219,7 +219,8 @@ fn validate_auth_options(c: &Collection, errors: &mut Errors) {
         }
     }
 
-    let request = RequestInfo::new("GET");
+    let mut request = RequestInfo::new("GET");
+    request.registry = Some(std::sync::Arc::new(registry.clone()));
     let scope = Scope {
         collection: c,
         alias: "t",
@@ -509,8 +510,9 @@ fn validate_options(
     }
 }
 
-fn validate_rules(c: &Collection, errors: &mut Errors) {
-    let request = RequestInfo::new("GET");
+fn validate_rules(c: &Collection, registry: &Registry, errors: &mut Errors) {
+    let mut request = RequestInfo::new("GET");
+    request.registry = Some(std::sync::Arc::new(registry.clone()));
     let scope = Scope {
         collection: c,
         alias: "t",

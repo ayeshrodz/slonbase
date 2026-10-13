@@ -5,9 +5,12 @@ use std::collections::HashSet;
 
 use serde_json::Value;
 
-use super::store::ALIAS;
+use tokio_postgres::Row;
+
+use super::store::{ALIAS, record_json, row_values, select_list};
 use crate::auth::RequestAuth;
 use crate::collections::model::{Collection, FIELD_EMAIL_VISIBILITY, RuleAction};
+use crate::collections::model::{FIELD_EMAIL, Field};
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
 
@@ -48,10 +51,14 @@ pub fn pick_fields(record: Value, fields: Option<&String>) -> Value {
     if wanted.contains("*") {
         return record;
     }
+    // "expand" or "expand.<anything>" keeps the expanded records
+    let keep_expand = wanted
+        .iter()
+        .any(|w| *w == "expand" || w.starts_with("expand."));
     match record {
         Value::Object(map) => Value::Object(
             map.into_iter()
-                .filter(|(k, _)| wanted.contains(k.as_str()))
+                .filter(|(k, _)| wanted.contains(k.as_str()) || (k == "expand" && keep_expand))
                 .collect(),
         ),
         other => other,
@@ -103,4 +110,26 @@ pub fn email_visible_sql(
         parts.push(manage);
     }
     Ok(Some(format!("({})", parts.join(" OR "))))
+}
+
+/// Select list for client responses: the visible fields, then the email visibility flag.
+pub fn output_select(fields: &[&Field], email_visible: &Option<String>) -> String {
+    match email_visible {
+        Some(sql) => format!("{}, {sql} AS _email_visible", select_list(fields)),
+        None => select_list(fields),
+    }
+}
+
+/// Builds the response for a row selected with [`output_select`].
+pub fn output_record(
+    c: &Collection,
+    fields: &[&Field],
+    row: &Row,
+    email_visible: &Option<String>,
+) -> Value {
+    let mut values = row_values(fields, row);
+    if email_visible.is_some() && !row.get::<_, bool>(fields.len()) {
+        values.remove(FIELD_EMAIL);
+    }
+    record_json(c, values)
 }
