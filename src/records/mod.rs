@@ -8,5 +8,6 @@ pub mod expand;
 pub mod files;
 pub mod oauth2_api;
 pub mod otp;
+pub mod service;
 pub mod store;
 pub mod values;

@@ -39,6 +39,8 @@ pub struct Core {
     /// Serializes collection changes within this instance (the database
     /// advisory lock serializes them across instances).
     pub(crate) schema_lock: tokio::sync::Mutex<()>,
+    /// The registered hooks and cron jobs.
+    pub hooks: Arc<crate::hooks::Hooks>,
 }
 
 /// The installation's signing secret, created once and shared by all instances.
@@ -70,14 +72,24 @@ fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
 impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
     /// collections and settings in sync with other instances.
-    pub async fn start(pool: Pool, url: &str, config: &Config) -> Result<Arc<Self>> {
-        let core = Self::load(pool, config).await?;
+    pub async fn start(
+        pool: Pool,
+        url: &str,
+        config: &Config,
+        hooks: Arc<crate::hooks::Hooks>,
+    ) -> Result<Arc<Self>> {
+        let core = Self::load(pool, config, hooks).await?;
         crate::logs::capture_app_logs(&core.logs);
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
+        core.hooks.ready(&core).await;
         Ok(core)
     }
 
-    pub async fn load(pool: Pool, config: &Config) -> Result<Arc<Self>> {
+    pub async fn load(
+        pool: Pool,
+        config: &Config,
+        hooks: Arc<crate::hooks::Hooks>,
+    ) -> Result<Arc<Self>> {
         let local_storage = config.storage.path.clone();
         let client = pool.get().await.map_err(describe_pool_error)?;
 
@@ -105,6 +117,7 @@ impl Core {
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),
+            hooks,
         }))
     }
 

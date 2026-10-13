@@ -72,6 +72,14 @@ pub async fn admin_exec(admin_url: &str, sql: &str) {
 }
 
 pub fn new_app(config_path: &Path, database_url: Option<String>) -> Arc<App> {
+    new_app_with(config_path, database_url, slonbase::Extensions::default())
+}
+
+pub fn new_app_with(
+    config_path: &Path,
+    database_url: Option<String>,
+    extensions: slonbase::Extensions,
+) -> Arc<App> {
     let loaded = config::load(
         config_path,
         Overrides {
@@ -83,7 +91,7 @@ pub fn new_app(config_path: &Path, database_url: Option<String>) -> Arc<App> {
         },
     )
     .unwrap();
-    App::new(loaded, None).unwrap()
+    App::with_extensions(loaded, None, extensions).unwrap()
 }
 
 pub async fn call(
@@ -198,8 +206,16 @@ pub const ADMIN_PASSWORD: &str = "0123456789";
 
 /// A set-up app with a superuser, plus that superuser's auth token.
 pub async fn ready_app(tdb: &TestDb) -> (Arc<App>, String, tempfile::TempDir) {
+    ready_app_with(tdb, slonbase::Extensions::default()).await
+}
+
+/// [`ready_app`] with hooks and routes.
+pub async fn ready_app_with(
+    tdb: &TestDb,
+    extensions: slonbase::Extensions,
+) -> (Arc<App>, String, tempfile::TempDir) {
     let (dir, config_path) = temp_config();
-    let app = new_app(&config_path, Some(tdb.url.clone()));
+    let app = new_app_with(&config_path, Some(tdb.url.clone()), extensions);
     app.bootstrap().await.unwrap();
     let token = app.setup_token().to_string();
     let (status, body) = call(

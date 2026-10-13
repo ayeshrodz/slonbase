@@ -356,12 +356,12 @@ async fn create(
         }
     }
 
-    let created = api::create(
-        State(app.clone()),
-        Path(c.name.clone()),
-        Query(HashMap::new()),
-        Method::POST,
-        HeaderMap::new(),
+    let created = api::create_request(
+        &app.core()?,
+        &c.name,
+        &HashMap::new(),
+        &Method::POST,
+        &HeaderMap::new(),
         RequestAuth::default(),
         RecordBody {
             data,
@@ -371,6 +371,7 @@ async fn create(
     )
     .await?;
     let id = created
+        .record
         .get("id")
         .and_then(Value::as_str)
         .unwrap_or_default()

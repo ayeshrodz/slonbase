@@ -266,7 +266,49 @@ settings; while SMTP is disabled they're written to the log.
 each checked against the related collection's rules.
 
 Not supported yet (see [docs/design.md](docs/design.md)): auth alerts, `@collection` lookups,
-filter functions, and view collections.
+filter functions, view collections, and request hooks inside batch requests.
+
+## Extending slonbase
+
+slonbase is also a Rust library. To add hooks, routes and cron jobs, depend on the `slonbase`
+crate and run its command line from your own `main`:
+
+```rust
+use axum::routing::get;
+
+#[tokio::main]
+async fn main() -> std::process::ExitCode {
+    let mut ext = slonbase::Extensions::default();
+    // runs before the record is written; `next` writes it
+    ext.hooks.on_record_create_request.add(&["posts"], |mut e, next| async move {
+        e.record.insert("status".into(), "draft".into());
+        next.run(e).await
+    });
+    // runs after the change is committed (API writes, batches and the record service)
+    ext.hooks.on_record_after_create_success.add(&["posts"], |e, next| async move {
+        tracing::info!(id = %e.record["id"], "new post");
+        next.run(e).await
+    });
+    ext.hooks.cron("nightly", "0 3 * * *", |core| async move {
+        let old = core.count_records("posts", "created < {:t}", &serde_json::Map::from_iter([
+            ("t".into(), "2025-01-01".into()),
+        ])).await?;
+        tracing::info!(old, "old posts");
+        Ok(())
+    })?;
+    ext.route("/api/hello", get(|| async { "Hello!" }));
+    slonbase::cli::run(ext).await
+}
+```
+
+Hooks: `on_record_{create,update,delete,view}_request`, `on_records_list_request` (around API
+requests; a hook can change the record, return an error, or set `e.response` instead of calling
+`next`) and `on_record_after_{create,update,delete}_success` (after commit, in the background).
+`hooks.on_ready` runs when the app is ready. Cron jobs run on one instance per scheduled minute
+and show up in the dashboard. Hooks, routes and cron jobs can read and write records with
+`core.find_record_by_id`, `find_records_by_filter`, `find_first_record_by_filter`,
+`count_records`, `save_record` and `delete_record` (no API rules; filters take `{:name}`
+placeholders).
 
 ## Development
 

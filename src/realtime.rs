@@ -724,6 +724,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                     _ = schedule.tick() => {
                         let Some(core) = weak.upgrade() else { return };
                         crate::backups::run_scheduled(&core).await;
+                        crate::hooks::run_scheduled_crons(&core).await;
                     }
                     _ = prune.tick() => {
                         let Some(core) = weak.upgrade() else { return };

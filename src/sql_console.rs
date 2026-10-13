@@ -149,11 +149,13 @@ pub async fn crons(
     let core = app.core()?;
     auth.require_superuser()?;
     let cron = core.settings().backups.cron.trim().to_string();
-    let jobs = if cron.is_empty() {
-        vec![]
-    } else {
-        vec![json!({ "id": AUTO_BACKUP_JOB, "expression": cron })]
-    };
+    let mut jobs = Vec::new();
+    if !cron.is_empty() {
+        jobs.push(json!({ "id": AUTO_BACKUP_JOB, "expression": cron }));
+    }
+    for job in core.hooks.crons() {
+        jobs.push(json!({ "id": job.id, "expression": job.expression }));
+    }
     Ok(Json(Value::Array(jobs)))
 }
 
@@ -166,6 +168,16 @@ pub async fn run_cron(
     use axum::response::IntoResponse;
     let core = app.core()?;
     auth.require_superuser()?;
+    if let Some(job) = core.hooks.crons().iter().find(|j| j.id == id) {
+        // in the background, like PocketBase
+        let (run, core) = (job.run.clone(), core.clone());
+        tokio::spawn(async move {
+            if let Err(err) = run(core).await {
+                tracing::error!(job = %id, error = %err.details.as_deref().unwrap_or(&err.message), "a cron job failed");
+            }
+        });
+        return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
+    }
     if id != AUTO_BACKUP_JOB || core.settings().backups.cron.trim().is_empty() {
         return Err(ApiError::not_found());
     }

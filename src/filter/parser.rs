@@ -80,7 +80,22 @@ enum Token {
     Operand(Operand),
 }
 
-fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
+/// A `{:name}` placeholder's value as an operand.
+fn placeholder(value: &serde_json::Value) -> Operand {
+    use serde_json::Value;
+    match value {
+        Value::Null => Operand::Ident("null".into()),
+        Value::Bool(b) => Operand::Ident(b.to_string()),
+        Value::Number(n) => Operand::Number(n.to_string()),
+        Value::String(s) => Operand::Text(s.clone()),
+        other => Operand::Text(other.to_string()),
+    }
+}
+
+fn tokenize(
+    input: &str,
+    params: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Result<Vec<Token>, ParseError> {
     let chars: Vec<char> = input.chars().collect();
     let mut tokens = Vec::new();
     let mut i = 0;
@@ -101,6 +116,18 @@ fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
             ')' => {
                 tokens.push(Token::RParen);
                 i += 1;
+            }
+            '{' if params.is_some() && chars.get(i + 1) == Some(&':') => {
+                let start = i + 2;
+                let Some(len) = chars[start..].iter().position(|c| *c == '}') else {
+                    return err("unterminated placeholder");
+                };
+                let name: String = chars[start..start + len].iter().collect();
+                let value = params
+                    .and_then(|p| p.get(name.trim()))
+                    .ok_or_else(|| ParseError(format!("missing placeholder value {name:?}")))?;
+                tokens.push(Token::Operand(placeholder(value)));
+                i = start + len + 1;
             }
             '&' | '|' => {
                 if chars.get(i + 1) != Some(&c) {
@@ -187,7 +214,19 @@ fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
 }
 
 pub fn parse(input: &str) -> Result<Expr, ParseError> {
-    let tokens = tokenize(input)?;
+    parse_tokens(tokenize(input, None)?)
+}
+
+/// Parses an expression with `{:name}` placeholders, replaced by the values in `params`
+/// (as literals, so they can't change the expression).
+pub fn parse_with_params(
+    input: &str,
+    params: &serde_json::Map<String, serde_json::Value>,
+) -> Result<Expr, ParseError> {
+    parse_tokens(tokenize(input, Some(params))?)
+}
+
+fn parse_tokens(tokens: Vec<Token>) -> Result<Expr, ParseError> {
     if tokens.is_empty() {
         return err("empty expression");
     }
@@ -296,6 +335,27 @@ mod tests {
             any,
             right,
         })
+    }
+
+    #[test]
+    fn placeholders() {
+        let params = serde_json::json!({ "title": "it's \\", "n": 5, "ok": true })
+            .as_object()
+            .cloned()
+            .unwrap();
+        let expr =
+            parse_with_params("title = {:title} && n > {: n } && ok = {:ok}", &params).unwrap();
+        let Expr::And(left, ok) = expr else { panic!() };
+        let Expr::And(title, n) = *left else { panic!() };
+        let Expr::Cmp(title) = *title else { panic!() };
+        assert_eq!(title.right, Operand::Text("it's \\".into()));
+        let Expr::Cmp(n) = *n else { panic!() };
+        assert_eq!(n.right, Operand::Number("5".into()));
+        let Expr::Cmp(ok) = *ok else { panic!() };
+        assert_eq!(ok.right, Operand::Ident("true".into()));
+        assert!(parse_with_params("a = {:missing}", &params).is_err());
+        // without params, braces stay invalid
+        assert!(parse("a = {:title}").is_err());
     }
 
     #[test]

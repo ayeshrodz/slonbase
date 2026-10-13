@@ -271,6 +271,26 @@ impl RequestAuth {
         }
     }
 
+    /// Superuser access for trusted code (hooks and the record service), which bypasses
+    /// API rules without being any particular superuser.
+    pub fn system(core: &Core) -> Self {
+        let collection = core
+            .registry()
+            .by_id(SUPERUSERS_COLLECTION_ID)
+            .cloned()
+            .expect("the superusers collection exists");
+        let mut values = Values::new();
+        values.insert("id".into(), Value::String(String::new()));
+        Self {
+            superuser: Some(AuthRecord {
+                collection,
+                values,
+                refreshable: false,
+            }),
+            record: None,
+        }
+    }
+
     pub fn is_superuser(&self) -> bool {
         self.superuser.is_some()
     }

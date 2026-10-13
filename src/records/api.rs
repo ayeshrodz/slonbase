@@ -36,6 +36,7 @@ use crate::core::Core;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, quote_ident, to_sql};
+use crate::hooks::{Change, Hooks, RecordRequestEvent, RecordsListEvent};
 use crate::realtime::{self, Action};
 use crate::validation::Errors;
 
@@ -139,7 +140,7 @@ pub async fn list(
     method: Method,
     headers: HeaderMap,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
     let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
@@ -221,28 +222,50 @@ pub async fn list(
     };
 
     drop(client);
-    let mut items: Vec<Value> = rows
+    let items: Vec<Value> = rows
         .iter()
         .map(|row| output_record(&c, &fields, row, &email_visible))
-        .collect();
-    expand_records(&core, &auth, &request, &c, &mut items, &query).await?;
-    let items: Vec<Value> = items
-        .into_iter()
-        .map(|item| pick_fields(item, query.get("fields")))
         .collect();
     let total_pages = if total < 0 {
         -1
     } else {
         (total + per_page - 1) / per_page
     };
+    let e = RecordsListEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        records: items,
+        page,
+        per_page,
+        total_items: total,
+        total_pages,
+        auth,
+        request: Arc::new(request),
+        response: None,
+    };
+    let mut e = core
+        .hooks
+        .on_records_list_request
+        .trigger(Some(&c), e, |e| async { Ok(e) })
+        .await?;
+    if let Some(response) = e.response {
+        return Ok(response);
+    }
+    expand_records(&core, &e.auth, &e.request, &c, &mut e.records, &query).await?;
+    let items: Vec<Value> = e
+        .records
+        .into_iter()
+        .map(|item| pick_fields(item, query.get("fields")))
+        .collect();
 
     Ok(Json(json!({
-        "page": page,
-        "perPage": per_page,
-        "totalItems": total,
-        "totalPages": total_pages,
+        "page": e.page,
+        "perPage": e.per_page,
+        "totalItems": e.total_items,
+        "totalPages": e.total_pages,
         "items": items,
-    })))
+    }))
+    .into_response())
 }
 
 /// `GET /api/collections/{collection}/records/{id}`
@@ -253,7 +276,7 @@ pub async fn view(
     method: Method,
     headers: HeaderMap,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = find_collection(&core.registry(), &collection)?;
     let request = request_info(&method, &query, &headers, None, &auth, &core.registry());
@@ -285,8 +308,20 @@ pub async fn view(
 
     drop(client);
     let record = output_record(&c, &fields, &row, &email_visible);
-    let record = respond(&core, &auth, &request, &c, record, &query).await?;
-    Ok(Json(pick_fields(record, query.get("fields"))))
+    let e = RecordRequestEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        record: into_map(record),
+        auth,
+        request: Arc::new(request),
+        response: None,
+    };
+    let e = core
+        .hooks
+        .on_record_view_request
+        .trigger(Some(&c), e, |e| async { Ok(e) })
+        .await?;
+    record_response(&core, e, &query).await
 }
 
 /// Checks `passwordConfirm` for auth collections.
@@ -346,13 +381,15 @@ pub(crate) struct FileEffects {
     written: Vec<files::NewFile>,
     replaced: Vec<(String, String, Vec<String>)>,
     deleted_records: Vec<(String, String)>,
+    /// Record changes, for the after-success hooks.
+    pub(crate) changes: Vec<Change>,
 }
 
 impl FileEffects {
     /// Applies the file changes for the transaction's outcome and returns it.
     pub(crate) async fn settle<T>(
         self,
-        core: &Core,
+        core: &Arc<Core>,
         outcome: Result<T, ApiError>,
     ) -> Result<T, ApiError> {
         match outcome {
@@ -374,6 +411,7 @@ impl FileEffects {
                         tracing::warn!(error = %format!("{err:#}"), "failed to delete record files");
                     }
                 }
+                Hooks::committed(core, self.changes);
                 Ok(value)
             }
         }
@@ -486,6 +524,7 @@ pub(crate) async fn create_in(
     realtime::record_event(tx, c, Action::Create, &values)
         .await
         .map_err(db_error)?;
+    record_change(effects, ctx.registry, c, Action::Create, values);
     Ok(output_record(c, &fields, &row, &email_visible))
 }
 
@@ -639,7 +678,24 @@ pub(crate) async fn update_in(
     realtime::record_event(tx, c, Action::Update, &values)
         .await
         .map_err(db_error)?;
+    record_change(effects, ctx.registry, c, Action::Update, values);
     Ok(output_record(c, &fields, &row, &email_visible))
+}
+
+fn record_change(
+    effects: &mut FileEffects,
+    registry: &Registry,
+    c: &Collection,
+    action: Action,
+    values: Values,
+) {
+    if let Some(collection) = registry.by_id(&c.id) {
+        effects.changes.push(Change {
+            collection: collection.clone(),
+            action,
+            values,
+        });
+    }
 }
 
 /// Deletes a record (with its cascades) in `tx`.
@@ -690,9 +746,80 @@ pub(crate) async fn delete_in(
     }
 
     let mut visited = HashSet::new();
-    delete_with_references(tx, ctx.registry, c.clone(), id.to_string(), 0, &mut visited).await?;
+    delete_with_references(
+        tx,
+        ctx.registry,
+        c.clone(),
+        id.to_string(),
+        0,
+        &mut visited,
+        &mut effects.changes,
+    )
+    .await?;
     effects.deleted_records.extend(visited);
     Ok(())
+}
+
+/// The record a request hook sees for an update or delete: the current record, if the
+/// caller's rule for the action allows it (404 otherwise).
+async fn current_for_hook(
+    core: &Core,
+    c: &Collection,
+    id: &str,
+    action: RuleAction,
+    auth: &RequestAuth,
+    request: &RequestInfo,
+) -> Result<Values, ApiError> {
+    let mut params = Params::default();
+    let id_param = params.push(id.to_string());
+    let mut where_sql = format!("{ALIAS}.\"id\" = {id_param}");
+    if let Some(rule) = rule_sql(c, action, auth, request, &mut params)? {
+        where_sql = format!("{where_sql} AND {rule}");
+    }
+    let fields = visible_fields(c, true);
+    let client = pooled(core).await?;
+    let row = client
+        .query_opt(
+            &format!(
+                "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
+                select_list(&fields),
+                table_ref(&c.name)
+            ),
+            &params.as_refs(),
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(ApiError::not_found)?;
+    Ok(row_values(&fields, &row))
+}
+
+fn into_map(record: Value) -> Map<String, Value> {
+    match record {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    }
+}
+
+/// The response of a create, update or view request: the hook's response, or the record
+/// with `expand` and `fields` applied.
+async fn record_response(
+    core: &Core,
+    e: RecordRequestEvent,
+    query: &HashMap<String, String>,
+) -> Result<Response, ApiError> {
+    if let Some(response) = e.response {
+        return Ok(response);
+    }
+    let record = respond(
+        core,
+        &e.auth,
+        &e.request,
+        &e.collection,
+        Value::Object(e.record),
+        query,
+    )
+    .await?;
+    Ok(Json(pick_fields(record, query.get("fields"))).into_response())
 }
 
 /// `POST /api/collections/{collection}/records`
@@ -703,40 +830,69 @@ pub async fn create(
     method: Method,
     headers: HeaderMap,
     auth: RequestAuth,
-    mut input: RecordBody,
-) -> Result<Json<Value>, ApiError> {
+    input: RecordBody,
+) -> Result<Response, ApiError> {
     let core = app.core()?;
+    let e = create_request(&core, &collection, &query, &method, &headers, auth, input).await?;
+    record_response(&core, e, &query).await
+}
+
+/// Creates a record as a create request does, request hooks included.
+pub(crate) async fn create_request(
+    core: &Arc<Core>,
+    collection: &str,
+    query: &HashMap<String, String>,
+    method: &Method,
+    headers: &HeaderMap,
+    auth: RequestAuth,
+    mut input: RecordBody,
+) -> Result<RecordRequestEvent, ApiError> {
     let registry = core.registry();
-    let c = find_collection(&registry, &collection)?;
+    let c = find_collection(&registry, collection)?;
     ensure_allowed(&c, RuleAction::Create, &auth)?;
     input.normalize_form_values(&c);
-    let request = request_info(
-        &method,
-        &query,
-        &headers,
+    let request = Arc::new(request_info(
+        method,
+        query,
+        headers,
         Some(&input.data),
         &auth,
         &registry,
-    );
-    let ctx = WriteContext {
-        core: &core,
-        registry: &registry,
-        auth: &auth,
-        request: &request,
+    ));
+    let e = RecordRequestEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        record: input.data,
+        auth,
+        request,
+        response: None,
     };
-    let mut effects = FileEffects::default();
-    let outcome = async {
-        let mut client = pooled(&core).await?;
-        let tx = transaction(&mut client).await?;
-        let record = create_in(&ctx, &tx, &c, input.data, input.uploads, &mut effects).await?;
-        tx.commit().await.map_err(db_error)?;
-        Ok(record)
-    }
-    .await;
-    let record = effects.settle(&core, outcome).await?;
-    Ok(Json(
-        respond(&core, &auth, &request, &c, record, &query).await?,
-    ))
+    let uploads = input.uploads;
+    core.hooks
+        .on_record_create_request
+        .trigger(Some(&c), e, move |mut e| async move {
+            let body = std::mem::take(&mut e.record);
+            let ctx = WriteContext {
+                core: &e.core,
+                registry: &registry,
+                auth: &e.auth,
+                request: &e.request,
+            };
+            let mut effects = FileEffects::default();
+            let outcome = async {
+                let mut client = pooled(ctx.core).await?;
+                let tx = transaction(&mut client).await?;
+                let record =
+                    create_in(&ctx, &tx, &e.collection, body, uploads, &mut effects).await?;
+                tx.commit().await.map_err(db_error)?;
+                Ok(record)
+            }
+            .await;
+            let record = effects.settle(&e.core, outcome).await?;
+            e.record = into_map(record);
+            Ok(e)
+        })
+        .await
 }
 
 /// `PATCH /api/collections/{collection}/records/{id}`
@@ -749,38 +905,68 @@ pub async fn update(
     headers: HeaderMap,
     auth: RequestAuth,
     mut input: RecordBody,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
     input.normalize_form_values(&c);
-    let request = request_info(
+    let request = Arc::new(request_info(
         &method,
         &query,
         &headers,
         Some(&input.data),
         &auth,
         &registry,
-    );
-    let ctx = WriteContext {
-        core: &core,
-        registry: &registry,
-        auth: &auth,
-        request: &request,
+    ));
+    let hook = &core.hooks.on_record_update_request;
+    // hooks see the current record with the submitted data applied
+    let (record, current) = if hook.has_handlers(Some(&c)) {
+        ensure_allowed(&c, RuleAction::Update, &auth)?;
+        let current = current_for_hook(&core, &c, &id, RuleAction::Update, &auth, &request).await?;
+        let mut record = current.clone();
+        record.extend(input.data);
+        (record, Some(current))
+    } else {
+        (input.data, None)
     };
-    let mut effects = FileEffects::default();
-    let outcome = async {
-        let mut client = pooled(&core).await?;
-        let tx = transaction(&mut client).await?;
-        let record = update_in(&ctx, &tx, &c, &id, input.data, input.uploads, &mut effects).await?;
-        tx.commit().await.map_err(db_error)?;
-        Ok(record)
-    }
-    .await;
-    let record = effects.settle(&core, outcome).await?;
-    Ok(Json(
-        respond(&core, &auth, &request, &c, record, &query).await?,
-    ))
+    let e = RecordRequestEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        record,
+        auth,
+        request,
+        response: None,
+    };
+    let uploads = input.uploads;
+    let e = hook
+        .trigger(Some(&c), e, move |mut e| async move {
+            let mut body = std::mem::take(&mut e.record);
+            if let Some(current) = current {
+                // only what the request or the hooks changed
+                body.retain(|k, v| current.get(k) != Some(v));
+            }
+            let ctx = WriteContext {
+                core: &e.core,
+                registry: &registry,
+                auth: &e.auth,
+                request: &e.request,
+            };
+            let mut effects = FileEffects::default();
+            let outcome = async {
+                let mut client = pooled(ctx.core).await?;
+                let tx = transaction(&mut client).await?;
+                let record =
+                    update_in(&ctx, &tx, &e.collection, &id, body, uploads, &mut effects).await?;
+                tx.commit().await.map_err(db_error)?;
+                Ok(record)
+            }
+            .await;
+            let record = effects.settle(&e.core, outcome).await?;
+            e.record = into_map(record);
+            Ok(e)
+        })
+        .await?;
+    record_response(&core, e, &query).await
 }
 
 /// `DELETE /api/collections/{collection}/records/{id}`
@@ -795,24 +981,47 @@ pub async fn delete(
     let core = app.core()?;
     let registry = core.registry();
     let c = find_collection(&registry, &collection)?;
-    let request = request_info(&method, &query, &headers, None, &auth, &registry);
-    let ctx = WriteContext {
-        core: &core,
-        registry: &registry,
-        auth: &auth,
-        request: &request,
+    let request = Arc::new(request_info(
+        &method, &query, &headers, None, &auth, &registry,
+    ));
+    let hook = &core.hooks.on_record_delete_request;
+    let record = if hook.has_handlers(Some(&c)) {
+        ensure_allowed(&c, RuleAction::Delete, &auth)?;
+        current_for_hook(&core, &c, &id, RuleAction::Delete, &auth, &request).await?
+    } else {
+        Map::new()
     };
-    let mut effects = FileEffects::default();
-    let outcome = async {
-        let mut client = pooled(&core).await?;
-        let tx = transaction(&mut client).await?;
-        delete_in(&ctx, &tx, &c, &id, &mut effects).await?;
-        tx.commit().await.map_err(db_error)?;
-        Ok(())
-    }
-    .await;
-    effects.settle(&core, outcome).await?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    let e = RecordRequestEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        record,
+        auth,
+        request,
+        response: None,
+    };
+    let e = hook
+        .trigger(Some(&c), e, move |e| async move {
+            let ctx = WriteContext {
+                core: &e.core,
+                registry: &registry,
+                auth: &e.auth,
+                request: &e.request,
+            };
+            let mut effects = FileEffects::default();
+            let outcome = async {
+                let mut client = pooled(ctx.core).await?;
+                let tx = transaction(&mut client).await?;
+                delete_in(&ctx, &tx, &e.collection, &id, &mut effects).await?;
+                tx.commit().await.map_err(db_error)?;
+                Ok(())
+            }
+            .await;
+            effects.settle(&e.core, outcome).await?;
+            Ok(e)
+        })
+        .await?;
+    Ok(e.response
+        .unwrap_or_else(|| StatusCode::NO_CONTENT.into_response()))
 }
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -827,6 +1036,7 @@ fn delete_with_references<'b>(
     id: String,
     depth: usize,
     visited: &'b mut HashSet<(String, String)>,
+    changes: &'b mut Vec<Change>,
 ) -> BoxFuture<'b, Result<(), ApiError>> {
     Box::pin(async move {
         if !visited.insert((c.id.clone(), id.clone())) {
@@ -871,8 +1081,16 @@ fn delete_with_references<'b>(
                     .map_err(db_error)?;
                 for row in rows {
                     let ref_id: String = row.get(0);
-                    delete_with_references(tx, registry, other.clone(), ref_id, depth + 1, visited)
-                        .await?;
+                    delete_with_references(
+                        tx,
+                        registry,
+                        other.clone(),
+                        ref_id,
+                        depth + 1,
+                        visited,
+                        changes,
+                    )
+                    .await?;
                 }
                 continue;
             }
@@ -907,6 +1125,11 @@ fn delete_with_references<'b>(
                 realtime::record_event(tx, &other, Action::Update, &values)
                     .await
                     .map_err(db_error)?;
+                changes.push(Change {
+                    collection: other.clone(),
+                    action: Action::Update,
+                    values,
+                });
             }
         }
 
@@ -923,9 +1146,15 @@ fn delete_with_references<'b>(
             .await
             .map_err(db_error)?;
         if let Some(row) = deleted {
-            realtime::record_event(tx, &c, Action::Delete, &row_values(&fields, &row))
+            let values = row_values(&fields, &row);
+            realtime::record_event(tx, &c, Action::Delete, &values)
                 .await
                 .map_err(db_error)?;
+            changes.push(Change {
+                collection: c.clone(),
+                action: Action::Delete,
+                values,
+            });
             if c.is_auth() {
                 tx.execute(
                     &format!(
@@ -1070,10 +1299,13 @@ pub async fn truncate(
         .map(|row| row.get(0))
         .collect();
     let mut visited = HashSet::new();
+    let mut changes = Vec::new();
     for id in ids {
-        delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited).await?;
+        delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited, &mut changes)
+            .await?;
     }
     tx.commit().await.map_err(db_error)?;
+    Hooks::committed(&core, changes);
 
     for (collection_id, record_id) in &visited {
         if let Err(err) = core

@@ -41,12 +41,24 @@ pub struct App {
     setup_token: Arc<str>,
     /// Serializes setup completion requests.
     pub(crate) setup_lock: tokio::sync::Mutex<()>,
+    pub(crate) hooks: Arc<crate::hooks::Hooks>,
+    /// Extra routes, merged into the router.
+    routes: axum::Router<Arc<App>>,
 }
 
 impl App {
     /// Creates the app in the `Starting` mode. `setup_token` lets automation
     /// preset the token; otherwise a random one is generated.
     pub fn new(config: Loaded, setup_token: Option<String>) -> Result<Arc<Self>> {
+        Self::with_extensions(config, setup_token, crate::Extensions::default())
+    }
+
+    /// Creates the app with hooks, routes and cron jobs.
+    pub fn with_extensions(
+        config: Loaded,
+        setup_token: Option<String>,
+        extensions: crate::Extensions,
+    ) -> Result<Arc<Self>> {
         let token = match setup_token {
             Some(t) if t.len() < MIN_SETUP_TOKEN_LENGTH => {
                 anyhow::bail!(
@@ -64,6 +76,8 @@ impl App {
             config: Mutex::new(config),
             setup_token: token.into(),
             setup_lock: tokio::sync::Mutex::new(()),
+            hooks: Arc::new(extensions.hooks),
+            routes: extensions.routes,
         }))
     }
 
@@ -96,6 +110,15 @@ impl App {
         *self.config.lock().expect("config lock") = loaded;
     }
 
+    pub(crate) fn extra_routes(&self) -> axum::Router<Arc<App>> {
+        self.routes.clone()
+    }
+
+    /// The registered hooks.
+    pub fn hooks(&self) -> &crate::hooks::Hooks {
+        &self.hooks
+    }
+
     pub fn setup_token(&self) -> &str {
         &self.setup_token
     }
@@ -118,7 +141,8 @@ impl App {
             let attempt = async {
                 if prepare(&pool).await? {
                     Ok(Some(
-                        Core::start(pool.clone(), &url, &config.effective).await?,
+                        Core::start(pool.clone(), &url, &config.effective, self.hooks.clone())
+                            .await?,
                     ))
                 } else {
                     anyhow::Ok(None)

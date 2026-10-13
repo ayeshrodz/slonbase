@@ -557,6 +557,27 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - Difference from PocketBase: `expand` is applied after the commit, so expanded relations show the
   batch's final state rather than the state at that request.
 
+### Phase 5a: Rust extensions
+
+- `slonbase::cli::run(Extensions)` is the whole command line; the binary passes no extensions.
+  `Extensions` holds `Hooks` and an `axum::Router<Arc<App>>` merged into the server's routes.
+- A hook is `Fn(E, Next<E>) -> Future<Result<E, ApiError>>`; `next.run(e)` runs the remaining
+  handlers and then the action (a `'static` closure owning everything it needs), so hooks can work
+  before and after the action, or skip it. Handlers can be limited to collections (id or name).
+- Request hooks wrap the record handlers. For updates and deletes, the record the hook sees is
+  loaded with the caller's rule first (404 otherwise, so hooks never see records the caller can't
+  touch); for updates it's merged with the request body, and only keys that differ from the stored
+  record are written. Batch requests don't run request hooks (their writes share a transaction).
+- After-success hooks get every change of a transaction (`FileEffects.changes`, including
+  cascades and relations cleared by a delete) once it commits, from `settle`. They're local to the
+  instance that made the change, unlike realtime events, so each change runs them once.
+- Cron jobs are checked by the listener's 20-second tick; each matching minute is claimed per job
+  in `_slonbase.params`, so one instance runs it.
+- The record service (`Core::save_record` and friends) runs with `RequestAuth::system`, a
+  superuser without a record, through the same `create_in`/`update_in`/`delete_in`. Filter
+  placeholders (`{:name}`) are turned into literal tokens by the tokenizer, so values can't change
+  the expression.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
