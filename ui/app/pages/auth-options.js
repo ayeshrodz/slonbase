@@ -118,15 +118,21 @@ const TEMPLATES = [
   { key: "resetPasswordTemplate", label: "Password reset", vars: ["APP_NAME", "APP_URL", "TOKEN"] },
   { key: "confirmEmailChangeTemplate", label: "Email change", vars: ["APP_NAME", "APP_URL", "TOKEN"] },
   { key: "otp", label: "One-time password", vars: ["APP_NAME", "APP_URL", "OTP"] },
+  { key: "authAlert", label: "New device", vars: ["APP_NAME", "APP_URL", "ALERT_INFO"] },
 ];
+
+// templates kept inside an option group rather than at the top level
+const NESTED = { otp: "otp", authAlert: "authAlert" };
 
 export function AuthOptions({ draft, setDraft, errors }) {
   const set = (patch) => setDraft({ ...draft, ...patch });
   const [tpl, setTpl] = useState("verificationTemplate");
   const identity = draft.fields.filter((f) => ["email", "text"].includes(f.type) && f.name !== "id" && f.name !== "tokenKey").map((f) => f.name);
   const fields = draft.fields.map((f) => f.name).filter((n) => n !== "password" && n !== "tokenKey");
-  const template = tpl === "otp" ? draft.otp.emailTemplate : draft[tpl];
-  const setTemplate = (v) => (tpl === "otp" ? set({ otp: { ...draft.otp, emailTemplate: v } }) : set({ [tpl]: v }));
+  const group = NESTED[tpl];
+  const template = group ? draft[group].emailTemplate : draft[tpl];
+  const setTemplate = (v) => (group ? set({ [group]: { ...draft[group], emailTemplate: v } }) : set({ [tpl]: v }));
+  const alert = draft.authAlert || { enabled: false, emailTemplate: { subject: "", body: "" } };
   const tokens = [
     ["authToken", "Auth token"],
     ["verificationToken", "Verification link"],
@@ -174,6 +180,8 @@ export function AuthOptions({ draft, setDraft, errors }) {
       </div>
       ${draft.mfa.enabled && !draft.otp.enabled && !draft.oauth2.enabled && html`<${Callout} kind="warn">MFA needs a second method: turn on OTP or OAuth2.</${Callout}>`}
     </${Section}>
+
+    <${Section} icon="bell" title="New device alerts" subtitle="Email the user after a sign-in from a device it hasn't used before" enabled=${alert.enabled} onToggle=${(v) => set({ authAlert: { ...alert, enabled: v } })} open=${false} />
 
     <${Section} icon="clock" title="Token lifetimes">
       <div class="grid-3">

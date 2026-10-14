@@ -49,6 +49,41 @@ pub fn user_ip(
     remote
 }
 
+/// The client of a request: its connection address, headers and user agent.
+#[derive(Debug, Clone, Default)]
+pub struct Client {
+    pub remote: Option<IpAddr>,
+    pub headers: HeaderMap,
+}
+
+impl Client {
+    /// The client's address (see [`user_ip`]).
+    pub fn ip(&self, proxy: &TrustedProxy) -> Option<IpAddr> {
+        user_ip(&self.headers, self.remote, proxy)
+    }
+
+    pub fn user_agent(&self) -> &str {
+        self.headers
+            .get(axum::http::header::USER_AGENT)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default()
+    }
+}
+
+impl<S: Send + Sync> axum::extract::FromRequestParts<S> for Client {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        _: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Ok(Self {
+            remote: remote_ip(&parts.extensions),
+            headers: parts.headers.clone(),
+        })
+    }
+}
+
 /// An IP address or a CIDR range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Range {

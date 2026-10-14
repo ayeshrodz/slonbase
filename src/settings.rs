@@ -529,10 +529,11 @@ pub async fn test_email(
         "password-reset" => &options.reset_password_template,
         "email-change" => &options.confirm_email_change_template,
         "otp" => &options.otp.email_template,
+        "login-alert" => &options.auth_alert.email_template,
         _ => {
             return Err(invalid_field(
                 "template",
-                "Must be verification, password-reset, email-change or otp.",
+                "Must be verification, password-reset, email-change, otp or login-alert.",
             ));
         }
     };
@@ -541,7 +542,11 @@ pub async fn test_email(
         crate::mail::render(
             &text
                 .replace("{OTP}", "123456")
-                .replace("{OTP_ID}", "OTP_ID"),
+                .replace("{OTP_ID}", "OTP_ID")
+                .replace(
+                    "{ALERT_INFO}",
+                    &crate::records::auth_api::alert_info("127.0.0.1", "Test client"),
+                ),
             &settings,
             "TEST_TOKEN",
         )

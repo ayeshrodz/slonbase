@@ -112,7 +112,7 @@ pub fn render(template: &str, settings: &Settings, token: &str) -> String {
         .replace("{TOKEN}", token)
 }
 
-fn html_escape(s: &str) -> String {
+pub fn html_escape(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

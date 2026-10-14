@@ -44,6 +44,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "logs",
         sql: include_str!("../migrations/0005_logs.sql"),
     },
+    Migration {
+        version: 6,
+        name: "auth_origins",
+        sql: include_str!("../migrations/0006_auth_origins.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

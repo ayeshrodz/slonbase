@@ -1180,6 +1180,12 @@ fn delete_with_references<'b>(
                 )
                 .await
                 .map_err(db_error)?;
+                tx.execute(
+                    "DELETE FROM _slonbase.auth_origins WHERE collection_id = $1 AND record_id = $2",
+                    &[&c.id, &id],
+                )
+                .await
+                .map_err(db_error)?;
             }
         }
         Ok(())

@@ -185,7 +185,7 @@ function Mail({ s }) {
       <div class="row wrap top">
         <${Field} class="grow" label="To"><${Input} type="email" value=${testTo} onInput=${setTestTo} placeholder="you@example.com" /></${Field}>
         <${Field} label="Template">
-          <${Select} value=${template} onChange=${setTemplate} options=${[{ value: "verification", label: "Verification" }, { value: "password-reset", label: "Password reset" }, { value: "email-change", label: "Email change" }, { value: "otp", label: "One-time password" }]} />
+          <${Select} value=${template} onChange=${setTemplate} options=${[{ value: "verification", label: "Verification" }, { value: "password-reset", label: "Password reset" }, { value: "email-change", label: "Email change" }, { value: "otp", label: "One-time password" }, { value: "login-alert", label: "New device alert" }]} />
         </${Field}>
       </div>
       <div class="row"><span class="small muted grow">Uses the saved settings — save first.</span><${Button} icon="mail" loading=${sending} disabled=${!testTo || s.dirty} onClick=${test}>Send test</${Button}></div>

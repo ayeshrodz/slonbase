@@ -13,6 +13,7 @@ use axum::extract::{Path, Query, State};
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
+use sha2::{Digest, Sha256};
 
 use super::store::{self, ALIAS, record_json, visible_fields};
 use super::values::{self, Values};
@@ -27,6 +28,7 @@ use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
+use crate::ip::Client;
 use crate::mail;
 use crate::validation::Errors;
 
@@ -180,6 +182,7 @@ pub(super) async fn finish_auth(
     record: &AuthRecord,
     method: &str,
     http_method: &Method,
+    client: &Client,
     mfa_id: &str,
     meta: Option<Value>,
 ) -> Result<Response, ApiError> {
@@ -229,6 +232,10 @@ pub(super) async fn finish_auth(
         }
     }
 
+    if let Err(err) = auth_alert(core, record, client).await {
+        tracing::warn!("auth alert for record {}: {err:#}", record.id());
+    }
+
     let mut out = json!({
         "token": record.issue_auth_token(core, None, true),
         "record": self_json(c, &record.values),
@@ -237,6 +244,98 @@ pub(super) async fn finish_auth(
         out["meta"] = meta;
     }
     Ok(Json(out).into_response())
+}
+
+/// Known devices kept per record.
+const MAX_ORIGINS: i64 = 5;
+
+/// Remembers the device a record signed in from, and emails the record when it's a new
+/// one (but not on its first sign-in, or the first since a password change).
+async fn auth_alert(core: &Core, record: &AuthRecord, client: &Client) -> anyhow::Result<()> {
+    let c = &record.collection;
+    let settings = core.settings();
+    let ip = client
+        .ip(&settings.trusted_proxy)
+        .map(|ip| ip.to_string())
+        .unwrap_or_default();
+    let user_agent = client.user_agent();
+    let fingerprint = hex(&Sha256::digest(format!("{ip}\n{user_agent}")));
+    let token_key = record
+        .values
+        .get(FIELD_TOKEN_KEY)
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let key_hash = hex(&Sha256::digest(token_key));
+
+    let db = core.pool.get().await?;
+    // devices from before the last password change don't count
+    db.execute(
+        "DELETE FROM _slonbase.auth_origins
+         WHERE collection_id = $1 AND record_id = $2 AND key_hash <> $3",
+        &[&c.id, &record.id(), &key_hash],
+    )
+    .await?;
+    let known: i64 = db
+        .query_one(
+            "SELECT count(*) FROM _slonbase.auth_origins WHERE collection_id = $1 AND record_id = $2",
+            &[&c.id, &record.id()],
+        )
+        .await?
+        .get(0);
+    // (xmax = 0) is true for a row this statement inserted, false for an updated one
+    let is_new: bool = db
+        .query_one(
+            "INSERT INTO _slonbase.auth_origins (collection_id, record_id, fingerprint, key_hash)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (collection_id, record_id, fingerprint) DO UPDATE SET updated = now()
+             RETURNING (xmax = 0)",
+            &[&c.id, &record.id(), &fingerprint, &key_hash],
+        )
+        .await?
+        .get(0);
+    db.execute(
+        "DELETE FROM _slonbase.auth_origins WHERE collection_id = $1 AND record_id = $2
+         AND fingerprint NOT IN (SELECT fingerprint FROM _slonbase.auth_origins
+             WHERE collection_id = $1 AND record_id = $2 ORDER BY updated DESC LIMIT $3)",
+        &[&c.id, &record.id(), &MAX_ORIGINS],
+    )
+    .await?;
+    drop(db);
+
+    let options = &c.auth_options().expect("auth collection").auth_alert;
+    let email = record
+        .values
+        .get(FIELD_EMAIL)
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if !options.enabled || !is_new || known == 0 || email.is_empty() {
+        return Ok(());
+    }
+    let info = alert_info(&ip, user_agent);
+    let fill = |text: &str| mail::render(&text.replace("{ALERT_INFO}", &info), &settings, "");
+    core.send_mail(mail::Message {
+        to: email.to_string(),
+        subject: fill(&options.email_template.subject),
+        html: fill(&options.email_template.body),
+    });
+    Ok(())
+}
+
+/// `{ALERT_INFO}`: when and where the sign-in came from (HTML-escaped).
+pub(crate) fn alert_info(ip: &str, user_agent: &str) -> String {
+    let when = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC");
+    let mut info = when.to_string();
+    for part in [ip, user_agent] {
+        if !part.is_empty() {
+            info.push_str(" - ");
+            info.push_str(part);
+        }
+    }
+    mail::html_escape(&info)
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
 pub(super) async fn find_by_email(
@@ -281,6 +380,7 @@ pub async fn auth_with_password(
     Path(collection): Path<String>,
     Query(query): Query<HashMap<String, String>>,
     method: Method,
+    origin: Client,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -354,7 +454,16 @@ pub async fn auth_with_password(
         return Err(failed());
     }
     let mfa_id = mfa_id(&body, &query);
-    finish_auth(&core, &record, METHOD_PASSWORD, &method, mfa_id, None).await
+    finish_auth(
+        &core,
+        &record,
+        METHOD_PASSWORD,
+        &method,
+        &origin,
+        mfa_id,
+        None,
+    )
+    .await
 }
 
 /// `POST /api/collections/{collection}/auth-refresh`

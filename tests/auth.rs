@@ -1039,3 +1039,111 @@ async fn auth_values_in_filters_never_error() {
 
     env.finish().await;
 }
+
+#[tokio::test]
+async fn new_device_alerts() {
+    let Some(env) = Env::new().await else { return };
+    let users = users_collection(&env, json!({})).await;
+    assert_eq!(users["authAlert"]["enabled"], true, "{users}");
+    assert!(
+        users["authAlert"]["emailTemplate"]["body"]
+            .as_str()
+            .unwrap()
+            .contains("{ALERT_INFO}")
+    );
+    let alice = env.signup("alice@example.com", "alice-password").await;
+
+    let login_from = |agent: &'static str| {
+        let env = &env;
+        async move {
+            let (status, body) = request(
+                &env.app,
+                "POST",
+                "/api/collections/users/auth-with-password",
+                &[("user-agent", agent)],
+                Some(json!({ "identity": "alice@example.com", "password": "alice-password" })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{body}");
+            // alerts are sent in the background
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            env.mail_count()
+        }
+    };
+    let alerts = |env: &Env| {
+        env.mailer
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m.subject == "Login from a new location")
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+
+    // the first sign-in and known devices send nothing
+    login_from("Laptop/1.0").await;
+    login_from("Laptop/1.0").await;
+    assert!(alerts(&env).is_empty());
+
+    // a new device does, once
+    login_from("Phone/2.0").await;
+    let sent = alerts(&env);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].to, "alice@example.com");
+    assert!(sent[0].html.contains("Phone/2.0"), "{}", sent[0].html);
+    login_from("Phone/2.0").await;
+    login_from("Laptop/1.0").await;
+    assert_eq!(alerts(&env).len(), 1);
+
+    // a password change forgets the known devices: the next sign-in is like the first
+    let id = alice["id"].as_str().unwrap();
+    env.ok(
+        Some(&env.admin.clone()),
+        "PATCH",
+        &format!("/api/collections/users/records/{id}"),
+        Some(json!({ "password": "alice-password", "passwordConfirm": "alice-password" })),
+    )
+    .await;
+    login_from("Tablet/3.0").await;
+    assert_eq!(alerts(&env).len(), 1);
+    login_from("Laptop/1.0").await;
+    assert_eq!(alerts(&env).len(), 2);
+
+    // turned off
+    env.ok(
+        Some(&env.admin.clone()),
+        "PATCH",
+        "/api/collections/users",
+        Some(json!({ "authAlert": { "enabled": false, "emailTemplate": { "subject": "", "body": "" } } })),
+    )
+    .await;
+    let (_, users) = env.admin("GET", "/api/collections/users", None).await;
+    assert_eq!(
+        users["authAlert"]["emailTemplate"]["subject"], "Login from a new location",
+        "a blank template is the default one"
+    );
+    login_from("Desktop/4.0").await;
+    assert_eq!(alerts(&env).len(), 2);
+
+    // deleting the record forgets its devices
+    env.ok(
+        Some(&env.admin.clone()),
+        "DELETE",
+        &format!("/api/collections/users/records/{id}"),
+        None,
+    )
+    .await;
+    let client = env.app.core().unwrap().pool.get().await.unwrap();
+    let left: i64 = client
+        .query_one(
+            "SELECT count(*) FROM _slonbase.auth_origins WHERE record_id = $1",
+            &[&id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(left, 0);
+
+    env.finish().await;
+}

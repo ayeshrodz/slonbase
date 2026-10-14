@@ -53,6 +53,7 @@ pub async fn auth_with_oauth2(
     Query(query): Query<HashMap<String, String>>,
     method: Method,
     auth: RequestAuth,
+    origin: crate::ip::Client,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -222,6 +223,7 @@ pub async fn auth_with_oauth2(
         &record,
         METHOD_OAUTH2,
         &method,
+        &origin,
         mfa_id(&body, &query),
         Some(user.meta(is_new)),
     )

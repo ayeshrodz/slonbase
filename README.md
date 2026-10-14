@@ -270,6 +270,10 @@ behind a load balancer: realtime events, collection changes and settings reach a
 Emails (verification, password reset, email change) are sent through the SMTP server in the
 settings; while SMTP is disabled they're written to the log.
 
+**New device alerts** (`authAlert`, on by default) email a record when it signs in from an IP
+address and user agent it hasn't used before (not on its first sign-in, nor the first after a
+password change). The last 5 devices per record are remembered.
+
 **Expand** loads related records into each record's `expand` key: relation fields
 (`expand=author.org,editors`) and back-relations (`expand=comments_via_post`), up to 6 levels,
 each checked against the related collection's rules.
@@ -289,8 +293,7 @@ and expand work as usual. Because the query runs with the database role's privil
 `SELECT` can call any function the role may use), creating or changing one needs the SQL
 console to be enabled (`--sql-console`); existing views keep working without it.
 
-Not supported yet (see [docs/design.md](docs/design.md)): auth alerts and request hooks
-inside batch requests.
+Not supported yet (see [docs/design.md](docs/design.md)): request hooks inside batch requests.
 
 ## Extending slonbase
 

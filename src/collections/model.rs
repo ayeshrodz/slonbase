@@ -1,7 +1,7 @@
 //! Collection and field definitions, (de)serialized in PocketBase's JSON format.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Map, Value};
 
 /// Id PocketBase uses for its superusers collection (kept for SDK compatibility).
 pub const SUPERUSERS_COLLECTION_ID: &str = "pbc_3142635823";
@@ -164,8 +164,8 @@ pub struct AuthOptions {
     pub oauth2: OAuth2Options,
     pub mfa: MfaOptions,
     pub otp: OtpOptions,
-    // accepted and stored for compatibility, not implemented yet
-    pub auth_alert: Value,
+    /// Emails the record when it signs in from a new device.
+    pub auth_alert: AuthAlertOptions,
 }
 
 impl Default for AuthOptions {
@@ -204,7 +204,7 @@ impl Default for AuthOptions {
                        <p>Thanks,<br/>\n{APP_NAME} team</p>"
                     .into(),
             },
-            auth_alert: json!({ "enabled": false }),
+            auth_alert: AuthAlertOptions::default(),
             oauth2: OAuth2Options::default(),
             mfa: MfaOptions::default(),
             otp: OtpOptions::default(),
@@ -292,6 +292,41 @@ impl Default for OtpOptions {
                 subject: "OTP for {APP_NAME}".into(),
                 body: "<p>Hello,</p>\n<p>Your one-time password is: <strong>{OTP}</strong></p>\n\
                        <p><i>If you didn't ask for the one-time password, you can ignore this email.</i></p>\n\
+                       <p>Thanks,<br/>\n{APP_NAME} team</p>"
+                    .into(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct AuthAlertOptions {
+    pub enabled: bool,
+    #[serde(deserialize_with = "alert_template")]
+    pub email_template: EmailTemplate,
+}
+
+/// A blank alert template (collections stored before alerts were implemented, or imported
+/// without one) is the default one.
+fn alert_template<'de, D: serde::Deserializer<'de>>(d: D) -> Result<EmailTemplate, D::Error> {
+    let t = EmailTemplate::deserialize(d)?;
+    if t.subject.trim().is_empty() && t.body.trim().is_empty() {
+        return Ok(AuthAlertOptions::default().email_template);
+    }
+    Ok(t)
+}
+
+impl Default for AuthAlertOptions {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            email_template: EmailTemplate {
+                subject: "Login from a new location".into(),
+                body: "<p>Hello,</p>\n<p>We noticed a login to your {APP_NAME} account from a new location:</p>\n\
+                       <p><em>{ALERT_INFO}</em></p>\n\
+                       <p><strong>If this wasn't you, you should immediately change your {APP_NAME} account password to revoke access from all other locations.</strong></p>\n\
+                       <p>If this was you, you may disregard this email.</p>\n\
                        <p>Thanks,<br/>\n{APP_NAME} team</p>"
                     .into(),
             },

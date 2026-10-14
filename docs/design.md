@@ -642,6 +642,22 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - Errors: `ApiError` and its subclasses keep their status, message and data; other exceptions answer
   400 "Something went wrong..." and are logged with their stack.
 
+### `@collection` lookups and new device alerts
+
+- `@collection.name[:alias].path` in rules and filters: each distinct `name:alias` becomes a
+  `LEFT JOIN name __cN ON TRUE` inside one `EXISTS (SELECT 1 FROM (SELECT 1) __one ... WHERE expr)`
+  around the whole expression, so it's true when some combination of rows matches, and the
+  `(SELECT 1)` row keeps parts of the expression that don't use the lookup working when the
+  other collection is empty. Paths can go through relations of the looked-up collection. At
+  most 6 lookups per expression, to bound the joins.
+- Sign-ins (password, OTP, OAuth2, after MFA) record a device in `_slonbase.auth_origins`: a
+  SHA-256 of the client IP (trusted proxy aware) and user agent, plus a hash of the record's
+  token key. Rows with another key hash are dropped first, so anything that rotates the key (a
+  password change, a reset) forgets the devices without hooks in each of those paths. A new
+  device sends `authAlert.emailTemplate` (`{ALERT_INFO}`: time, IP, user agent) unless it's the
+  record's first known device. The last 5 are kept; a failure here is logged and never blocks
+  the sign-in. Unlike PocketBase, origins aren't a `_authOrigins` collection yet.
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON

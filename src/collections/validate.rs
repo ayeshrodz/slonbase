@@ -331,6 +331,19 @@ fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors
         }
     }
 
+    if auth.auth_alert.enabled {
+        let t = &auth.auth_alert.email_template;
+        for (key, value) in [("subject", &t.subject), ("body", &t.body)] {
+            if value.trim().is_empty() {
+                errors.add(
+                    format!("authAlert.emailTemplate.{key}"),
+                    "validation_required",
+                    "Cannot be blank.",
+                );
+            }
+        }
+    }
+
     if auth.mfa.enabled {
         if !duration_range.contains(&auth.mfa.duration) {
             errors.invalid("mfa.duration", duration_message);

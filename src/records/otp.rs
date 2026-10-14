@@ -142,6 +142,7 @@ pub async fn auth_with_otp(
     Path(collection): Path<String>,
     Query(query): Query<HashMap<String, String>>,
     method: Method,
+    origin: crate::ip::Client,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -242,6 +243,7 @@ pub async fn auth_with_otp(
         &record,
         METHOD_OTP,
         &method,
+        &origin,
         mfa_id(&body, &query),
         None,
     )
