@@ -619,20 +619,44 @@ async fn deliver_event(core: &Core, id: i64, seen: &mut Seen) -> anyhow::Result<
 }
 
 async fn reload_collections(core: &Core) {
-    match store::load_from_pool(&core.pool).await {
-        Ok(registry) => core.set_registry(registry),
-        Err(err) => tracing::error!(error = %format!("{err:#}"), "failed to reload collections"),
+    // A change made here while loading replaces the registry with one it read after its
+    // own commit; this load may predate that, so it's discarded and read again (it may
+    // also have been the only one to see another instance's change).
+    for _ in 0..5 {
+        let generation = core.registry_generation();
+        match store::load_from_pool(&core.pool).await {
+            Ok(registry) => {
+                if core.set_registry_if(generation, registry) {
+                    return;
+                }
+            }
+            Err(err) => {
+                tracing::error!(error = %format!("{err:#}"), "failed to reload collections");
+                return;
+            }
+        }
     }
 }
 
 async fn reload_settings(core: &Core) {
-    let loaded = async {
-        let client = core.pool.get().await.map_err(db::describe_pool_error)?;
-        Settings::load(&client).await
-    };
-    match loaded.await {
-        Ok(settings) => core.set_settings(settings),
-        Err(err) => tracing::error!(error = %format!("{err:#}"), "failed to reload settings"),
+    // as for collections: don't undo a newer change made here
+    for _ in 0..5 {
+        let generation = core.settings_generation();
+        let loaded = async {
+            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            Settings::load(&client).await
+        };
+        match loaded.await {
+            Ok(settings) => {
+                if core.set_settings_if(generation, settings) {
+                    return;
+                }
+            }
+            Err(err) => {
+                tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
+                return;
+            }
+        }
     }
 }
 

@@ -17,9 +17,12 @@ use crate::storage::Storage;
 
 pub struct Core {
     pub pool: Pool,
-    registry: RwLock<Arc<Registry>>,
+    /// The collections, with a generation that every replacement bumps.
+    registry: RwLock<(u64, Arc<Registry>)>,
     auth_secret: RwLock<Arc<Vec<u8>>>,
     settings: RwLock<Arc<Settings>>,
+    /// Bumped by every settings replacement (held while replacing them).
+    settings_generation: std::sync::Mutex<u64>,
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
@@ -104,9 +107,10 @@ impl Core {
         tracing::info!(storage = %storage.describe(), "file storage");
         Ok(Arc::new(Self {
             pool,
-            registry: RwLock::new(Arc::new(registry)),
+            registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
+            settings_generation: std::sync::Mutex::new(0),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
             logs,
@@ -122,11 +126,28 @@ impl Core {
     }
 
     pub fn registry(&self) -> Arc<Registry> {
-        self.registry.read().expect("registry lock").clone()
+        self.registry.read().expect("registry lock").1.clone()
     }
 
     pub(crate) fn set_registry(&self, registry: Registry) {
-        *self.registry.write().expect("registry lock") = Arc::new(registry);
+        let mut current = self.registry.write().expect("registry lock");
+        *current = (current.0 + 1, Arc::new(registry));
+    }
+
+    /// The registry's generation, to pass to [`Core::set_registry_if`].
+    pub(crate) fn registry_generation(&self) -> u64 {
+        self.registry.read().expect("registry lock").0
+    }
+
+    /// Replaces the registry unless it was replaced since `generation`: a reload that read
+    /// the collections before a newer local change committed must not undo it.
+    pub(crate) fn set_registry_if(&self, generation: u64, registry: Registry) -> bool {
+        let mut current = self.registry.write().expect("registry lock");
+        if current.0 != generation {
+            return false;
+        }
+        *current = (generation + 1, Arc::new(registry));
+        true
     }
 
     /// The local storage directory (used unless S3 is enabled).
@@ -160,6 +181,38 @@ impl Core {
 
     /// Replaces the settings (switching the file storage when its settings changed).
     pub(crate) fn set_settings(&self, settings: Settings) {
+        let mut generation = self
+            .settings_generation
+            .lock()
+            .expect("settings generation");
+        self.replace_settings(settings);
+        *generation += 1;
+    }
+
+    /// The settings' generation, to pass to [`Core::set_settings_if`].
+    pub(crate) fn settings_generation(&self) -> u64 {
+        *self
+            .settings_generation
+            .lock()
+            .expect("settings generation")
+    }
+
+    /// Replaces the settings unless they were replaced since `generation` (see
+    /// [`Core::set_registry_if`]).
+    pub(crate) fn set_settings_if(&self, generation: u64, settings: Settings) -> bool {
+        let mut current = self
+            .settings_generation
+            .lock()
+            .expect("settings generation");
+        if *current != generation {
+            return false;
+        }
+        self.replace_settings(settings);
+        *current += 1;
+        true
+    }
+
+    fn replace_settings(&self, settings: Settings) {
         let previous = self.settings();
         let storage_changed = previous.s3 != settings.s3;
         if previous.rate_limits != settings.rate_limits {
