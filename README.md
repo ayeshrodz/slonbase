@@ -89,6 +89,7 @@ file, then defaults.
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
+| `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
 Database URLs use the standard libpq format, e.g.
@@ -325,10 +326,11 @@ cronAdd("cleanup", "0 3 * * *", () => {
 ```
 
 Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
-`onRecordAfter{Create,Update,Delete}Success`, `onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
+`onRecord{Create,Update,Delete}` (model hooks), `onRecordAfter{Create,Update,Delete}Success`,
+`onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
 `requireSuperuserAuth`, `requireSuperuserOrOwnerAuth` and `requireGuestOnly`; multipart uploads via
 `e.findUploadedFiles(key)`), `routerUse` (middleware around every request; `e.next()` continues),
-`cronAdd`/`cronRemove`, `$filesystem.fileFromBytes`,
+`cronAdd`/`cronRemove`, `$filesystem` (`fileFromBytes`, `fileFromPath`, `fileFromURL`),
 `Record` (`get`/`set`/`getString`/..., `setPassword`, `validatePassword`, `newAuthToken`), `$app`
 (`findRecordById`, `findRecordsByFilter`, `findFirstRecordByFilter`, `findAuthRecordByEmail`,
 `countRecords`, `findCollectionByNameOrId`, `save`, `delete`, `db().newQuery(...)`, `settings`,
@@ -338,11 +340,25 @@ Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
 answer 400 and are logged.
 
 Each of the `--hooks-pool` runtimes loads every file, so top-level code runs once per runtime; keep
-state in the database rather than in variables. Uploaded files (and `fileFromBytes` files) can be
-set on a file field before `$app.save(record)`; mixed with stored file names, the names are kept and
-the files appended. Not supported (yet): model hooks (`onRecordCreate`, ...) and other events,
-`$filesystem.fileFromPath`/`fileFromURL`, and reloading when the files change. Build with `--no-default-features` to leave
-the JavaScript engine out.
+state in the database rather than in variables. When all of them are busy (handlers nest: a
+`routerUse` handler waits while the route runs, which may run a model hook), extra runtimes start
+and stop again when idle.
+
+Model hooks run for every write (the API, batches, `$app.save` and the Rust record service) before
+the record is written, inside its transaction: changes to `e.record` are written, and throwing an
+error cancels the write. The record is written once the handlers return, so code after `e.next()`
+still sees it unsaved; use `onRecordAfter*Success` for work after the write. Don't write the same
+record through `$app` from its own model hook (change `e.record` instead), and note that records
+deleted by a cascade don't run `onRecordDelete`.
+
+Uploaded and `$filesystem` files can be set on a file field before `$app.save(record)`; mixed with
+stored file names, the names are kept and the files appended. Files are limited to 32 MiB, and
+`fileFromURL` only fetches `http(s)` URLs.
+
+When the hook files change, slonbase restarts itself (the same process, re-executed with the same
+arguments, after up to 5 seconds for open requests); turn this off with `hooks.watch = false`.
+Not supported (yet): other events (`onRecordValidate`, collection and mail hooks, ...). Build with
+`--no-default-features` to leave the JavaScript engine out.
 
 ### Rust
 
@@ -381,6 +397,7 @@ async fn main() -> std::process::ExitCode {
 Hooks: `on_record_{create,update,delete,view}_request`, `on_records_list_request` (around API
 requests; a hook can change the record, return an error, or set `e.response` instead of calling
 `next`) and `on_record_after_{create,update,delete}_success` (after commit, in the background).
+`hooks.on_record_create`/`_update`/`_delete` are the model hooks described above.
 `hooks.on_request` is middleware around every request (`e.request`, `e.auth`; `next` routes it and
 sets `e.response`). `hooks.on_ready` runs when the app is ready. Cron jobs run on one instance per scheduled minute
 and show up in the dashboard. Hooks, routes and cron jobs can read and write records with

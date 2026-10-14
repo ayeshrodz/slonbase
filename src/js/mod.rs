@@ -77,6 +77,62 @@ type NextFn = Box<dyn FnOnce(Value) -> BoxFuture<Result<Value, ApiError>> + Send
 #[derive(Clone)]
 struct Pool {
     jobs: mpsc::Sender<Job>,
+    workers: Arc<Workers>,
+}
+
+/// Most runtimes, the extra ones included.
+const MAX_RUNTIMES: usize = 256;
+/// How long an extra runtime waits for work before it stops.
+const EXTRA_IDLE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The runtime threads. Handlers nest (a `routerUse` handler waits in `e.next()` while the
+/// route's handler runs, which may save a record that runs a model hook...), so when every
+/// runtime is busy or spoken for, an extra one starts for the job instead of it waiting on
+/// a runtime that waits on it.
+struct Workers {
+    shared: Arc<Shared>,
+    files: Arc<Vec<(String, String)>>,
+    jobs: Arc<Mutex<mpsc::Receiver<Job>>>,
+    /// Runtimes waiting for a job.
+    idle: std::sync::atomic::AtomicUsize,
+    /// Jobs sent and not yet picked up.
+    queued: std::sync::atomic::AtomicUsize,
+    /// Running runtimes.
+    total: std::sync::atomic::AtomicUsize,
+}
+
+impl Workers {
+    fn spawn(
+        self: &Arc<Self>,
+        name: String,
+        report: Option<tokio::sync::oneshot::Sender<Result<String, String>>>,
+        idle_timeout: Option<std::time::Duration>,
+    ) -> std::io::Result<()> {
+        use std::sync::atomic::Ordering;
+        self.total.fetch_add(1, Ordering::SeqCst);
+        let workers = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name(name)
+            .spawn(move || worker(workers, report, idle_timeout));
+        if spawned.is_err() {
+            self.total.fetch_sub(1, Ordering::SeqCst);
+        }
+        spawned.map(|_| ())
+    }
+
+    /// Starts an extra runtime when no idle one is left for the queued jobs.
+    fn grow_if_needed(self: &Arc<Self>) {
+        use std::sync::atomic::Ordering;
+        if self.idle.load(Ordering::SeqCst) >= self.queued.load(Ordering::SeqCst)
+            || self.total.load(Ordering::SeqCst) >= MAX_RUNTIMES
+        {
+            return;
+        }
+        let n = self.total.load(Ordering::SeqCst);
+        if let Err(err) = self.spawn(format!("slonbase-js-extra-{n}"), None, Some(EXTRA_IDLE)) {
+            tracing::warn!(error = %err, "failed to start an extra JavaScript runtime");
+        }
+    }
 }
 
 /// `{"ok": value}` or `{"err": {status, message, data}}`, as the prelude expects.
@@ -136,6 +192,9 @@ impl Pool {
     ) -> Result<Value, ApiError> {
         let (out, mut from_js) = tokio::sync::mpsc::unbounded_channel();
         let (resume_tx, resume) = mpsc::channel();
+        self.workers
+            .queued
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         self.jobs
             .send(Job {
                 index,
@@ -145,6 +204,7 @@ impl Pool {
                 resume,
             })
             .map_err(|_| ApiError::internal(anyhow::anyhow!("the JavaScript runtimes stopped")))?;
+        self.workers.grow_if_needed();
         let mut next = next;
         loop {
             match from_js.recv().await {
@@ -276,13 +336,21 @@ fn start_runtime(
 }
 
 fn worker(
-    shared: Arc<Shared>,
-    files: Arc<Vec<(String, String)>>,
-    jobs: Arc<Mutex<mpsc::Receiver<Job>>>,
+    workers: Arc<Workers>,
     report: Option<tokio::sync::oneshot::Sender<Result<String, String>>>,
+    idle_timeout: Option<std::time::Duration>,
 ) {
+    use std::sync::atomic::Ordering;
+    struct Running<'a>(&'a Workers);
+    impl Drop for Running<'_> {
+        fn drop(&mut self) {
+            self.0.total.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+    let _running = Running(&workers);
+    let (shared, files) = (&workers.shared, &workers.files);
     let slot: JobSlot = Rc::new(RefCell::new(None));
-    let (rt, ctx) = match start_runtime(&shared, &files, &slot) {
+    let (rt, ctx) = match start_runtime(shared, files, &slot) {
         Ok((rt, ctx, registrations)) => {
             if let Some(report) = report {
                 let _ = report.send(Ok(registrations));
@@ -300,10 +368,19 @@ fn worker(
         }
     };
     loop {
-        let job = match jobs.lock().expect("jobs lock").recv() {
-            Ok(job) => job,
-            Err(_) => return,
+        workers.idle.fetch_add(1, Ordering::SeqCst);
+        let received = {
+            let jobs = workers.jobs.lock().expect("jobs lock");
+            match idle_timeout {
+                Some(timeout) => jobs.recv_timeout(timeout).ok(),
+                None => jobs.recv().ok(),
+            }
         };
+        workers.idle.fetch_sub(1, Ordering::SeqCst);
+        let Some(job) = received else {
+            return; // the pool is gone, or an extra runtime had nothing to do
+        };
+        workers.queued.fetch_sub(1, Ordering::SeqCst);
         *slot.borrow_mut() = Some((job.out.clone(), job.resume));
         native::set_uploads(job.uploads);
         let result = ctx.with(|ctx| {
@@ -356,28 +433,34 @@ pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::
         core: RwLock::new(Weak::new()),
         dir: std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
     });
-    let files = Arc::new(files);
     let (jobs_tx, jobs_rx) = mpsc::channel();
-    let jobs_rx = Arc::new(Mutex::new(jobs_rx));
+    let workers = Arc::new(Workers {
+        shared: shared.clone(),
+        files: Arc::new(files),
+        jobs: Arc::new(Mutex::new(jobs_rx)),
+        idle: Default::default(),
+        queued: Default::default(),
+        total: Default::default(),
+    });
     let (report_tx, report_rx) = tokio::sync::oneshot::channel();
     let mut report = Some(report_tx);
-    for i in 0..config.pool_size.max(1) {
-        let (shared, files, jobs_rx, report) = (
-            shared.clone(),
-            files.clone(),
-            jobs_rx.clone(),
-            report.take(),
-        );
-        std::thread::Builder::new()
-            .name(format!("slonbase-js-{i}"))
-            .spawn(move || worker(shared, files, jobs_rx, report))?;
+    for i in 0..config.pool_size.clamp(1, MAX_RUNTIMES) {
+        workers.spawn(format!("slonbase-js-{i}"), report.take(), None)?;
     }
     let registrations = report_rx
         .await
         .map_err(|_| anyhow::anyhow!("the JavaScript runtime stopped"))?
         .map_err(|e| anyhow::anyhow!("failed to load the JavaScript hooks: {e}"))?;
     let registrations: Vec<Registration> = serde_json::from_str(&registrations)?;
-    register(Pool { jobs: jobs_tx }, shared, registrations, extensions)
+    register(
+        Pool {
+            jobs: jobs_tx,
+            workers,
+        },
+        shared,
+        registrations,
+        extensions,
+    )
 }
 
 fn register(
@@ -408,6 +491,21 @@ fn register(
                 reg.collections,
                 Arc::new(move |e, next| {
                     Box::pin(record_request(pool.clone(), index, e, next, stored))
+                }),
+            );
+            continue;
+        }
+        let model_hook = match reg.kind.as_str() {
+            "recordCreate" => Some((&mut hooks.on_record_create, false)),
+            "recordUpdate" => Some((&mut hooks.on_record_update, true)),
+            "recordDelete" => Some((&mut hooks.on_record_delete, true)),
+            _ => None,
+        };
+        if let Some((hook, stored)) = model_hook {
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| {
+                    Box::pin(model_event(pool.clone(), index, e, next, stored))
                 }),
             );
             continue;
@@ -632,6 +730,62 @@ async fn record_request(
     }
     if let Some(response) = response_from(&state["response"]) {
         e.response = Some(response);
+    }
+    Ok(e)
+}
+
+/// A model hook (`onRecordCreate`, ...): the handler's record changes are kept.
+async fn model_event(
+    pool: Pool,
+    index: usize,
+    e: RecordEvent,
+    next: Next<RecordEvent>,
+    stored: bool,
+) -> HookResult<RecordEvent> {
+    let event = json!({
+        "collection": collection_json(&e.collection),
+        "record": e.record,
+        "stored": stored,
+    });
+    let (core, collection) = (e.core.clone(), e.collection.clone());
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let take_record = |state: &Value| match state.get("record") {
+        Some(Value::Object(record)) => {
+            let mut record = record.clone();
+            for key in NON_FIELDS {
+                record.remove(key);
+            }
+            Some(record)
+        }
+        _ => None,
+    };
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                if let Some(record) = take_record(&state) {
+                    e.record = record;
+                }
+                let e = next.run(e).await?;
+                let out = json!({ "record": e.record });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot
+        .lock()
+        .expect("event lock")
+        .take()
+        .unwrap_or(RecordEvent {
+            core,
+            collection,
+            record: Map::new(),
+        });
+    if let Some(record) = take_record(&state) {
+        e.record = record;
     }
     Ok(e)
 }
@@ -959,6 +1113,67 @@ async fn middleware(
     }
     e.request = None;
     Ok(e)
+}
+
+/// How often the hooks directory is checked for changes.
+const WATCH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+/// Most entries looked at in the hooks directory (a guard against huge trees).
+const WATCH_MAX_ENTRIES: usize = 10_000;
+
+/// A fingerprint of the hooks directory: every file's path, size and modification time
+/// (`node_modules` and hidden entries left out). Empty when the directory doesn't exist.
+fn fingerprint(dir: &Path) -> Vec<(PathBuf, u64, Option<std::time::SystemTime>)> {
+    let mut out = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&current) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if out.len() >= WATCH_MAX_ENTRIES {
+                return out;
+            }
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with('.') || name == "node_modules" {
+                continue;
+            }
+            let Ok(meta) = entry.metadata() else { continue };
+            if meta.is_dir() {
+                pending.push(entry.path());
+            } else {
+                out.push((entry.path(), meta.len(), meta.modified().ok()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Resolves once the files in `dir` change (and have stopped changing for a moment).
+pub async fn changed(dir: PathBuf) {
+    let read = |dir: PathBuf| async move {
+        tokio::task::spawn_blocking(move || fingerprint(&dir))
+            .await
+            .unwrap_or_default()
+    };
+    let initial = read(dir.clone()).await;
+    loop {
+        tokio::time::sleep(WATCH_INTERVAL).await;
+        let mut current = read(dir.clone()).await;
+        if current == initial {
+            continue;
+        }
+        // editors write in several steps: wait until it settles
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+            let next = read(dir.clone()).await;
+            if next == current {
+                return;
+            }
+            current = next;
+        }
+    }
 }
 
 /// Whether `path` is inside the hooks directory.

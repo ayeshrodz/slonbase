@@ -44,11 +44,85 @@ fn file_from_bytes(data: &Value, name: &str) -> Result<Value, ApiError> {
             ));
         }
     };
+    keep_file("fileFromBytes", bytes, name)
+}
+
+/// `$filesystem.fileFromPath(path)`: a file on the server's disk.
+fn file_from_path(path: &str) -> Result<Value, ApiError> {
+    let path = std::path::Path::new(path);
+    let meta = std::fs::metadata(path)
+        .map_err(|e| bad(format!("fileFromPath: can't read {}: {e}", path.display())))?;
+    if !meta.is_file() {
+        return Err(bad(format!(
+            "fileFromPath: {} isn't a file.",
+            path.display()
+        )));
+    }
+    if meta.len() > MAX_FILE_BYTES as u64 {
+        return Err(bad("fileFromPath: the file is too large."));
+    }
+    let bytes = std::fs::read(path)
+        .map_err(|e| bad(format!("fileFromPath: can't read {}: {e}", path.display())))?;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "file".into());
+    keep_file("fileFromPath", bytes, &name)
+}
+
+/// Longest download of `$filesystem.fileFromURL` (seconds).
+const FILE_URL_TIMEOUT: u64 = 60;
+
+/// `$filesystem.fileFromURL(url)`: downloads a file (http or https, up to the size limit).
+async fn file_from_url(url: &str) -> Result<Value, ApiError> {
+    let parsed = reqwest::Url::parse(url).map_err(|_| bad("fileFromURL: invalid URL."))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err(bad("fileFromURL: only http and https URLs are supported."));
+    }
+    let mut response = crate::http::client()
+        .get(parsed.clone())
+        .timeout(Duration::from_secs(FILE_URL_TIMEOUT))
+        .send()
+        .await
+        .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?;
+    if !response.status().is_success() {
+        return Err(bad(format!(
+            "fileFromURL: the server answered {}.",
+            response.status().as_u16()
+        )));
+    }
+    if response
+        .content_length()
+        .is_some_and(|len| len > MAX_FILE_BYTES as u64)
+    {
+        return Err(bad("fileFromURL: the file is too large."));
+    }
+    let mut bytes = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|e| bad(format!("fileFromURL: failed to read the response: {e}")))?
+    {
+        if bytes.len() + chunk.len() > MAX_FILE_BYTES {
+            return Err(bad("fileFromURL: the file is too large."));
+        }
+        bytes.extend_from_slice(&chunk);
+    }
+    let name = parsed
+        .path_segments()
+        .and_then(|mut segments| segments.next_back().map(str::to_string))
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "file".into());
+    keep_file("fileFromURL", bytes, &name)
+}
+
+/// Keeps a file for the running job and returns its JavaScript value.
+fn keep_file(function: &str, bytes: Vec<u8>, name: &str) -> Result<Value, ApiError> {
     if bytes.len() > MAX_FILE_BYTES {
-        return Err(bad("fileFromBytes: the file is too large."));
+        return Err(bad(format!("{function}: the file is too large.")));
     }
     if name.trim().is_empty() {
-        return Err(bad("fileFromBytes: the file needs a name."));
+        return Err(bad(format!("{function}: the file needs a name.")));
     }
     let token = crate::ids::random_id(24);
     let size = bytes.len();
@@ -178,6 +252,8 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
+        "fileFromPath" => return file_from_path(&a.str(0)),
+        "fileFromURL" => return handle.block_on(file_from_url(&a.str(0))),
         "http" => return handle.block_on(http(&a)),
         _ => {}
     }

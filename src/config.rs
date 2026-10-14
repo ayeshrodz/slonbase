@@ -31,6 +31,8 @@ pub struct HooksConfig {
     pub dir: PathBuf,
     /// Number of JavaScript runtimes (each runs one hook at a time).
     pub pool_size: usize,
+    /// Restart the server when the hook files change.
+    pub watch: bool,
 }
 
 impl Default for HooksConfig {
@@ -38,6 +40,7 @@ impl Default for HooksConfig {
         Self {
             dir: PathBuf::from("slonbase_hooks"),
             pool_size: 10,
+            watch: true,
         }
     }
 }
@@ -126,6 +129,7 @@ pub struct Overrides {
     pub sql_console: Option<bool>,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
+    pub hooks_watch: Option<bool>,
 }
 
 /// The result of loading the configuration.
@@ -181,6 +185,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(size) = overrides.hooks_pool_size {
         effective.hooks.pool_size = size;
+    }
+    if let Some(watch) = overrides.hooks_watch {
+        effective.hooks.watch = watch;
     }
 
     if effective.database.max_connections == 0 {

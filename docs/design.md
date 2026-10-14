@@ -653,7 +653,23 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   for `e.requestInfo()` and handed on as a fresh body; other bodies stream through unread, so
   uploads aren't buffered twice. A handler's own response wins; otherwise the router's, with the
   handler's `setHeader` headers added. Without handlers the layer is a pass-through.
-- Files: a route's multipart uploads and `$filesystem.fileFromBytes()` files live in the running
+- The pool grows: handlers nest (middleware → route → `$app.save` → model hook), and with every
+  runtime waiting on another a fixed pool would deadlock. Each job counts as queued until a runtime
+  takes it; when fewer runtimes are idle than jobs are queued, an extra runtime starts (up to 256
+  in all) and stops after 30 s without work.
+- Model hooks (`on_record_create`/`_update`/`_delete`) run in `create_in`/`update_in`/`delete_in`,
+  so every write path has them. Handlers get the record (the body over the defaults, or over the
+  current values; never the token key or a password hash) and their changes are merged back into
+  the body, which then goes through the usual validation, so a hook can't store what the API
+  wouldn't. Update and delete read the record for the hook without `FOR UPDATE` and take the row
+  lock afterwards: a handler that writes the record through another connection doesn't wait on
+  its own transaction (that read is a moment older than the locked one).
+- Watching: the server polls a fingerprint of the hooks directory (paths, sizes and mtimes; hidden
+  entries and `node_modules` skipped) every second; after a change settles it shuts down
+  gracefully (at most 5 s, as realtime streams never end on their own) and `exec`s itself with the
+  same arguments, keeping its PID for systemd and Docker.
+- Files: a route's multipart uploads and `$filesystem` files (`fileFromBytes`, `fileFromPath`,
+  `fileFromURL`) live in the running
   job's thread-local map, by token; JavaScript sees `{_upload, name, originalName, size}`. When
   `$app.save()` meets such values in a field, the native side turns them into `field+` uploads
   (after the kept names) for the record service, so they follow the usual file rules

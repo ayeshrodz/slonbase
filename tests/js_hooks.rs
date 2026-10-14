@@ -170,6 +170,7 @@ async fn js_hooks() {
         &HooksConfig {
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 2,
+            watch: false,
         },
         &mut ext,
     )
@@ -377,6 +378,7 @@ async fn load_errors() {
     let config = HooksConfig {
         dir: dir.path().to_path_buf(),
         pool_size: 1,
+        watch: false,
     };
     // no files: nothing to do
     slonbase::js::load(&config, &mut slonbase::Extensions::default())

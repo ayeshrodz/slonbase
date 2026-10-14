@@ -375,7 +375,7 @@ async fn apply_secrets(
 
 /// Where a write runs: the caller, its request and the collections.
 pub(crate) struct WriteContext<'a> {
-    pub core: &'a Core,
+    pub core: &'a Arc<Core>,
     pub registry: &'a Arc<Registry>,
     pub auth: &'a RequestAuth,
     pub request: &'a RequestInfo,
@@ -436,6 +436,57 @@ async fn pooled(core: &Core) -> Result<deadpool_postgres::Client, ApiError> {
         .map_err(|e| ApiError::internal(describe_pool_error(e)))
 }
 
+/// Fields a model hook never sees or changes.
+const SECRET_FIELDS: [&str; 1] = [FIELD_TOKEN_KEY];
+
+/// Runs a model hook (`on_record_create`, ...) on `record` and merges what its handlers
+/// changed into `body`, so the change goes through the usual validation.
+async fn model_hook(
+    ctx: &WriteContext<'_>,
+    hook: &crate::hooks::Hook<crate::hooks::RecordEvent>,
+    c: &Collection,
+    mut record: Map<String, Value>,
+    body: &mut Map<String, Value>,
+) -> Result<(), ApiError> {
+    if !hook.has_handlers(Some(c)) {
+        return Ok(());
+    }
+    for key in SECRET_FIELDS {
+        record.remove(key);
+    }
+    let e = crate::hooks::RecordEvent {
+        core: ctx.core.clone(),
+        collection: Arc::new(c.clone()),
+        record: record.clone(),
+    };
+    let e = hook.trigger(Some(c), e, |e| async { Ok(e) }).await?;
+    for (key, value) in e.record {
+        if SECRET_FIELDS.contains(&key.as_str()) || record.get(&key) == Some(&value) {
+            continue;
+        }
+        if key == FIELD_PASSWORD {
+            body.insert("passwordConfirm".into(), value.clone());
+        }
+        body.insert(key, value);
+    }
+    Ok(())
+}
+
+/// The record as a model hook sees it: `base` with the body's field values applied.
+fn hook_record(c: &Collection, base: Values, body: &Map<String, Value>) -> Map<String, Value> {
+    let mut record = base;
+    for field in &c.fields {
+        if let Some(value) = body.get(&field.name) {
+            record.insert(field.name.clone(), value.clone());
+        }
+    }
+    record.remove(FIELD_PASSWORD);
+    if let Some(password) = body.get(FIELD_PASSWORD) {
+        record.insert(FIELD_PASSWORD.into(), password.clone());
+    }
+    record
+}
+
 /// Creates a record in `tx` and returns it as the caller sees it.
 pub(crate) async fn create_in(
     ctx: &WriteContext<'_>,
@@ -458,6 +509,8 @@ pub(crate) async fn create_in(
     if c.is_auth() && !auth.is_superuser() && !manage_all {
         body.remove(FIELD_VERIFIED);
     }
+    let record = hook_record(c, values::defaults(c), &body);
+    model_hook(ctx, &core.hooks.on_record_create, c, record, &mut body).await?;
 
     let mut values = values::defaults(c);
     let mut errors = Errors::new();
@@ -558,6 +611,24 @@ pub(crate) async fn update_in(
     }
 
     let stored = all_fields(c);
+    if core.hooks.on_record_update.has_handlers(Some(c)) {
+        // read without the row lock, so a handler writing through the record service
+        // can't wait on this transaction
+        let row = tx
+            .query_opt(
+                &format!(
+                    "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
+                    select_list(&stored),
+                    table_ref(&c.name)
+                ),
+                &params.as_refs(),
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(ApiError::not_found)?;
+        let record = hook_record(c, row_values(&stored, &row), &body);
+        model_hook(ctx, &core.hooks.on_record_update, c, record, &mut body).await?;
+    }
     let current = tx
         .query_opt(
             &format!(
@@ -720,6 +791,32 @@ pub(crate) async fn delete_in(
     let mut where_sql = format!("{ALIAS}.\"id\" = {id_param}");
     if let Some(rule) = rule_sql(c, RuleAction::Delete, auth, request, &mut params)? {
         where_sql = format!("{where_sql} AND {rule}");
+    }
+    if ctx.core.hooks.on_record_delete.has_handlers(Some(c)) {
+        let stored = all_fields(c);
+        let row = tx
+            .query_opt(
+                &format!(
+                    "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
+                    select_list(&stored),
+                    table_ref(&c.name)
+                ),
+                &params.as_refs(),
+            )
+            .await
+            .map_err(db_error)?
+            .ok_or_else(ApiError::not_found)?;
+        let mut record = row_values(&stored, &row);
+        record.remove(FIELD_PASSWORD);
+        // changes are ignored: the record is deleted
+        model_hook(
+            ctx,
+            &ctx.core.hooks.on_record_delete,
+            c,
+            record,
+            &mut Map::new(),
+        )
+        .await?;
     }
     tx.query_opt(
         &format!(

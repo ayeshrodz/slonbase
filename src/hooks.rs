@@ -195,6 +195,12 @@ pub struct Hooks {
     pub on_record_delete_request: Hook<RecordRequestEvent>,
     pub on_record_view_request: Hook<RecordRequestEvent>,
     pub on_records_list_request: Hook<RecordsListEvent>,
+    /// Model hooks: every create, update and delete (the API, batches and the record
+    /// service), before it's written, inside its transaction. Changes to `record` are
+    /// written; an error aborts the write.
+    pub on_record_create: Hook<RecordEvent>,
+    pub on_record_update: Hook<RecordEvent>,
+    pub on_record_delete: Hook<RecordEvent>,
     pub on_record_after_create_success: Hook<RecordEvent>,
     pub on_record_after_update_success: Hook<RecordEvent>,
     pub on_record_after_delete_success: Hook<RecordEvent>,

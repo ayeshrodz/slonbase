@@ -574,6 +574,20 @@
     return e;
   }
 
+  // model hooks: e.record is written once the handlers return
+  function recordModelEvent(raw) {
+    const e = { app: $app, collection: raw.collection, record: new Record(raw.collection, raw.record) };
+    if (raw.stored) e.record._original = clone(e.record._data);
+    e.next = () => {
+      const res = callNext({ record: e.record._fields() });
+      const original = e.record._original;
+      e.record = new Record(raw.collection, res.record);
+      e.record._original = original;
+    };
+    e._state = () => ({ record: e.record._fields() });
+    return e;
+  }
+
   function routeEvent(raw) {
     const e = requestEvent(raw);
     e._state = () => ({ response: e._response });
@@ -600,6 +614,7 @@
     recordRequest: recordRequestEvent,
     recordsList: listRequestEvent,
     record: recordEvent,
+    recordModel: recordModelEvent,
     route: routeEvent,
     middleware: middlewareEvent,
     simple: simpleEvent,
@@ -630,6 +645,14 @@
     g[name] = (fn, ...c) => register(recordRequestHooks[name], "recordRequest", fn, { collections: collections(c) });
   }
   g.onRecordsListRequest = (fn, ...c) => register("recordsListRequest", "recordsList", fn, { collections: collections(c) });
+  const modelHooks = {
+    onRecordCreate: "recordCreate",
+    onRecordUpdate: "recordUpdate",
+    onRecordDelete: "recordDelete",
+  };
+  for (const name of Object.keys(modelHooks)) {
+    g[name] = (fn, ...c) => register(modelHooks[name], "recordModel", fn, { collections: collections(c) });
+  }
   const afterHooks = {
     onRecordAfterCreateSuccess: "recordAfterCreateSuccess",
     onRecordAfterUpdateSuccess: "recordAfterUpdateSuccess",
@@ -672,6 +695,9 @@
   const $filesystem = {
     // a file from a string or an array of bytes, for a file field in $app.save()
     fileFromBytes: (data, name) => call("fileFromBytes", typeof data === "string" ? data : Array.from(data || []), String(name)),
+    // a file on the server's disk, or downloaded (http/https)
+    fileFromPath: (path) => call("fileFromPath", String(path)),
+    fileFromURL: (url) => call("fileFromURL", String(url)),
   };
 
   const $apis = {

@@ -71,6 +71,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_HOOKS_POOL")]
     hooks_pool: Option<usize>,
 
+    /// Restart when the hook files change [default: true].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
+    hooks_watch: Option<bool>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -137,6 +141,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         sql_console: cli.sql_console.then_some(true),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
+        hooks_watch: cli.hooks_watch,
     };
 
     match cli.command.unwrap_or(Command::Serve { setup_token: None }) {
@@ -208,6 +213,7 @@ async fn serve(
     #[cfg(feature = "js")]
     crate::js::load(&loaded.effective.hooks, &mut extensions).await?;
     let bind = loaded.effective.server.bind.clone();
+    let hooks = loaded.effective.hooks.clone();
     let app = App::with_extensions(loaded, setup_token, extensions)?;
 
     let listener = tokio::net::TcpListener::bind(&bind)
@@ -235,28 +241,84 @@ async fn serve(
     }
 
     let fatal = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let restart = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let stopping = std::sync::Arc::new(tokio::sync::Notify::new());
     let shutdown = {
-        let fatal = fatal.clone();
+        let (fatal, restart, stopping) = (fatal.clone(), restart.clone(), stopping.clone());
         async move {
             tokio::select! {
                 _ = server::shutdown_signal() => {}
                 Ok(err) = fatal_rx => {
                     *fatal.lock().expect("fatal lock") = Some(err);
                 }
+                _ = hooks_changed(&hooks) => {
+                    tracing::info!("the hook files changed, restarting");
+                    restart.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
             }
+            stopping.notify_one();
         }
     };
 
-    axum::serve(
+    let serve = axum::serve(
         listener,
         server::router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown)
-    .await
-    .context("server error")?;
+    .with_graceful_shutdown(shutdown);
+    let restarting = restart.clone();
+    tokio::select! {
+        result = serve => result.context("server error")?,
+        // long-lived connections (realtime) don't hold up a restart
+        _ = async {
+            stopping.notified().await;
+            if restarting.load(std::sync::atomic::Ordering::SeqCst) {
+                tokio::time::sleep(RESTART_GRACE).await;
+            } else {
+                std::future::pending::<()>().await;
+            }
+        } => {}
+    }
 
-    match fatal.lock().expect("fatal lock").take() {
-        Some(err) => Err(err),
-        None => Ok(()),
+    if let Some(err) = fatal.lock().expect("fatal lock").take() {
+        return Err(err);
+    }
+    if restart.load(std::sync::atomic::Ordering::SeqCst) {
+        return restart_process();
+    }
+    Ok(())
+}
+
+/// How long a restart waits for open requests.
+const RESTART_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Resolves when the hook files change (never, when watching is off or without the
+/// JavaScript engine).
+async fn hooks_changed(hooks: &config::HooksConfig) {
+    #[cfg(feature = "js")]
+    if hooks.watch {
+        return crate::js::changed(hooks.dir.clone()).await;
+    }
+    let _ = hooks;
+    std::future::pending::<()>().await
+}
+
+/// Replaces the process with a fresh start of the same command.
+fn restart_process() -> Result<()> {
+    let exe = std::env::current_exe().context("failed to find the executable to restart")?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        let err = std::process::Command::new(&exe)
+            .args(std::env::args_os().skip(1))
+            .exec();
+        Err(anyhow::anyhow!(
+            "failed to restart {}: {err}",
+            exe.display()
+        ))
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = exe;
+        anyhow::bail!("the hook files changed; restart slonbase to load them")
     }
 }
