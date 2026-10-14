@@ -153,6 +153,18 @@ pub struct RecordsListEvent {
     pub response: Option<Response>,
 }
 
+/// Any request (the API, the dashboard and custom routes), before it's routed: global
+/// middleware. `next` hands the request to the router and sets the response; a handler
+/// that doesn't call it answers with its own response (or an empty 200).
+pub struct RequestEvent {
+    pub core: Arc<Core>,
+    /// The caller (none for a missing or invalid token).
+    pub auth: RequestAuth,
+    /// The request, until `next` takes it.
+    pub request: Option<axum::extract::Request>,
+    pub response: Option<Response>,
+}
+
 /// A record that was created, updated or deleted (after its transaction committed).
 pub struct RecordEvent {
     pub core: Arc<Core>,
@@ -176,6 +188,8 @@ pub(crate) type CronFn = dyn Fn(Arc<Core>) -> BoxFuture<Result<(), ApiError>> + 
 /// All registered hooks.
 #[derive(Default)]
 pub struct Hooks {
+    /// Runs for every request when the server is ready (see [`RequestEvent`]).
+    pub on_request: Hook<RequestEvent>,
     pub on_record_create_request: Hook<RecordRequestEvent>,
     pub on_record_update_request: Hook<RecordRequestEvent>,
     pub on_record_delete_request: Hook<RecordRequestEvent>,
@@ -339,6 +353,48 @@ pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
                 tracing::error!(job = %id, error = %err.details.as_deref().unwrap_or(&err.message), "a cron job failed");
             }
         });
+    }
+}
+
+/// Runs the [`Hooks::on_request`] handlers around the router.
+pub(crate) async fn request_middleware(
+    axum::extract::State(app): axum::extract::State<Arc<crate::app::App>>,
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    use axum::extract::FromRequestParts;
+    use axum::response::IntoResponse;
+
+    let Ok(core) = app.core() else {
+        return next.run(req).await;
+    };
+    let hook = &core.hooks.on_request;
+    if !hook.has_handlers(None) {
+        return next.run(req).await;
+    }
+    let (mut parts, body) = req.into_parts();
+    let auth = RequestAuth::from_request_parts(&mut parts, &app)
+        .await
+        .unwrap_or_default();
+    let e = RequestEvent {
+        core: core.clone(),
+        auth,
+        request: Some(axum::extract::Request::from_parts(parts, body)),
+        response: None,
+    };
+    let result = hook
+        .trigger(None, e, move |mut e| async move {
+            if let Some(req) = e.request.take() {
+                e.response = Some(next.run(req).await);
+            }
+            Ok(e)
+        })
+        .await;
+    match result {
+        Ok(e) => e
+            .response
+            .unwrap_or_else(|| axum::http::StatusCode::OK.into_response()),
+        Err(err) => err.into_response(),
     }
 }
 

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use serde_json::{Map, Value};
 
 use super::api::{FileEffects, WriteContext, create_in, delete_in, update_in};
+use super::files::Upload;
 use super::store::{self, ALIAS, record_json, row_values, select_list, visible_fields};
 use crate::auth::RequestAuth;
 use crate::collections::model::{Collection, FIELD_PASSWORD};
@@ -189,7 +190,19 @@ impl Core {
     pub async fn save_record(
         self: &Arc<Self>,
         collection: &str,
+        data: Map<String, Value>,
+    ) -> Result<Record, ApiError> {
+        self.save_record_with_files(collection, data, Vec::new())
+            .await
+    }
+
+    /// [`Core::save_record`] with uploads for file fields, keyed like multipart requests
+    /// (`field` replaces the files, `field+` appends, `+field` prepends).
+    pub async fn save_record_with_files(
+        self: &Arc<Self>,
+        collection: &str,
         mut data: Map<String, Value>,
+        uploads: Vec<Upload>,
     ) -> Result<Record, ApiError> {
         let c = self.collection(collection)?;
         for key in NON_FIELD_KEYS {
@@ -224,9 +237,9 @@ impl Core {
                     .is_some();
             let record = if exists {
                 data.remove("id");
-                update_in(&ctx, &tx, &c, &id, data, Vec::new(), &mut effects).await?
+                update_in(&ctx, &tx, &c, &id, data, uploads, &mut effects).await?
             } else {
-                create_in(&ctx, &tx, &c, data, Vec::new(), &mut effects).await?
+                create_in(&ctx, &tx, &c, data, uploads, &mut effects).await?
             };
             tx.commit().await.map_err(db_error)?;
             Ok(record)

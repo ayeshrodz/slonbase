@@ -12,6 +12,99 @@ use crate::collections::api::to_json as collection_json;
 use crate::collections::model::FIELD_PASSWORD;
 use crate::core::Core;
 use crate::error::ApiError;
+use crate::records::files::Upload;
+
+thread_local! {
+    /// The files of the job running on this thread, by token: the request's uploads and
+    /// those made with `$filesystem.fileFromBytes()`.
+    static UPLOADS: std::cell::RefCell<std::collections::HashMap<String, Upload>> =
+        Default::default();
+}
+
+/// Sets the files of the job about to run on this thread (and drops the previous ones).
+pub(super) fn set_uploads(uploads: Vec<(String, Upload)>) {
+    UPLOADS.with(|u| *u.borrow_mut() = uploads.into_iter().collect());
+}
+
+/// Largest file made with `$filesystem.fileFromBytes()`.
+const MAX_FILE_BYTES: usize = 32 << 20;
+
+/// `$filesystem.fileFromBytes(data, name)`: `data` is a string or an array of bytes.
+fn file_from_bytes(data: &Value, name: &str) -> Result<Value, ApiError> {
+    let bytes: Vec<u8> = match data {
+        Value::String(s) => s.as_bytes().to_vec(),
+        Value::Array(items) => items
+            .iter()
+            .map(|v| v.as_u64().filter(|b| *b <= 255).map(|b| b as u8))
+            .collect::<Option<_>>()
+            .ok_or_else(|| bad("fileFromBytes: the data must be a string or an array of bytes."))?,
+        _ => {
+            return Err(bad(
+                "fileFromBytes: the data must be a string or an array of bytes.",
+            ));
+        }
+    };
+    if bytes.len() > MAX_FILE_BYTES {
+        return Err(bad("fileFromBytes: the file is too large."));
+    }
+    if name.trim().is_empty() {
+        return Err(bad("fileFromBytes: the file needs a name."));
+    }
+    let token = crate::ids::random_id(24);
+    let size = bytes.len();
+    UPLOADS.with(|u| {
+        u.borrow_mut().insert(
+            token.clone(),
+            Upload {
+                key: String::new(),
+                original_name: name.to_string(),
+                data: bytes.into(),
+            },
+        )
+    });
+    Ok(json!({ "_upload": token, "name": name, "originalName": name, "size": size }))
+}
+
+/// The upload behind a file value of a record (`{"_upload": token, ...}`).
+fn upload_of(value: &Value) -> Option<Result<Upload, ApiError>> {
+    let token = value.get("_upload")?.as_str()?;
+    Some(
+        UPLOADS
+            .with(|u| u.borrow().get(token).cloned())
+            .ok_or_else(|| {
+                bad("The file is no longer available (files live for one handler run).")
+            }),
+    )
+}
+
+/// Moves the files in record data to uploads: a field set to files (or to a list mixing
+/// kept file names and files) keeps those names and appends the files.
+fn take_files(data: &mut Map<String, Value>) -> Result<Vec<Upload>, ApiError> {
+    let mut uploads = Vec::new();
+    for (key, value) in data.iter_mut() {
+        let items: Vec<Value> = match value {
+            Value::Array(items) => items.clone(),
+            Value::Object(_) => vec![value.clone()],
+            _ => continue,
+        };
+        if !items.iter().any(|v| v.get("_upload").is_some()) {
+            continue;
+        }
+        let mut kept = Vec::new();
+        for item in items {
+            match upload_of(&item) {
+                Some(upload) => {
+                    let mut upload = upload?;
+                    upload.key = format!("{key}+");
+                    uploads.push(upload);
+                }
+                None => kept.push(item),
+            }
+        }
+        *value = Value::Array(kept);
+    }
+    Ok(uploads)
+}
 
 /// Longest `sleep()`.
 const MAX_SLEEP_MS: u64 = 60_000;
@@ -84,6 +177,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             return Ok(Value::Null);
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
+        "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
         "http" => return handle.block_on(http(&a)),
         _ => {}
     }
@@ -120,9 +214,13 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             &a.str(1),
             &a.object(2)
         ))?)),
-        "save" => Ok(Value::Object(
-            handle.block_on(core.save_record(&a.str(0), a.object(1)))?,
-        )),
+        "save" => {
+            let mut data = a.object(1);
+            let uploads = take_files(&mut data)?;
+            Ok(Value::Object(handle.block_on(
+                core.save_record_with_files(&a.str(0), data, uploads),
+            )?))
+        }
         "delete" => {
             handle.block_on(core.delete_record(&a.str(0), &a.str(1)))?;
             Ok(Value::Null)

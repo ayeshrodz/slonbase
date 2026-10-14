@@ -648,6 +648,16 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   with `WITH _q AS (...) SELECT json_agg(_q)`, which also works for `INSERT ... RETURNING`.
 - Errors: `ApiError` and its subclasses keep their status, message and data; other exceptions answer
   400 "Something went wrong..." and are logged with their stack.
+- `routerUse` handlers are `Hooks::on_request` handlers, a layer inside the guard (so rate limits
+  and IP rules apply first) around the whole router. JSON and form bodies (up to 32 MiB) are read
+  for `e.requestInfo()` and handed on as a fresh body; other bodies stream through unread, so
+  uploads aren't buffered twice. A handler's own response wins; otherwise the router's, with the
+  handler's `setHeader` headers added. Without handlers the layer is a pass-through.
+- Files: a route's multipart uploads and `$filesystem.fileFromBytes()` files live in the running
+  job's thread-local map, by token; JavaScript sees `{_upload, name, originalName, size}`. When
+  `$app.save()` meets such values in a field, the native side turns them into `field+` uploads
+  (after the kept names) for the record service, so they follow the usual file rules
+  (`maxSize`, `mimeTypes`, cleanup if the save fails). The map is cleared when the job ends.
 
 ### `@collection` lookups and new device alerts
 

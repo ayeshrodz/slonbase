@@ -326,7 +326,9 @@ cronAdd("cleanup", "0 3 * * *", () => {
 
 Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
 `onRecordAfter{Create,Update,Delete}Success`, `onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
-`requireSuperuserAuth`, `requireSuperuserOrOwnerAuth` and `requireGuestOnly`), `cronAdd`/`cronRemove`,
+`requireSuperuserAuth`, `requireSuperuserOrOwnerAuth` and `requireGuestOnly`; multipart uploads via
+`e.findUploadedFiles(key)`), `routerUse` (middleware around every request; `e.next()` continues),
+`cronAdd`/`cronRemove`, `$filesystem.fileFromBytes`,
 `Record` (`get`/`set`/`getString`/..., `setPassword`, `validatePassword`, `newAuthToken`), `$app`
 (`findRecordById`, `findRecordsByFilter`, `findFirstRecordByFilter`, `findAuthRecordByEmail`,
 `countRecords`, `findCollectionByNameOrId`, `save`, `delete`, `db().newQuery(...)`, `settings`,
@@ -336,9 +338,10 @@ Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
 answer 400 and are logged.
 
 Each of the `--hooks-pool` runtimes loads every file, so top-level code runs once per runtime; keep
-state in the database rather than in variables. Not supported (yet): model hooks
-(`onRecordCreate`, ...) and other events, `routerUse`, file uploads in custom routes,
-`$filesystem`, and reloading when the files change. Build with `--no-default-features` to leave
+state in the database rather than in variables. Uploaded files (and `fileFromBytes` files) can be
+set on a file field before `$app.save(record)`; mixed with stored file names, the names are kept and
+the files appended. Not supported (yet): model hooks (`onRecordCreate`, ...) and other events,
+`$filesystem.fileFromPath`/`fileFromURL`, and reloading when the files change. Build with `--no-default-features` to leave
 the JavaScript engine out.
 
 ### Rust
@@ -378,7 +381,8 @@ async fn main() -> std::process::ExitCode {
 Hooks: `on_record_{create,update,delete,view}_request`, `on_records_list_request` (around API
 requests; a hook can change the record, return an error, or set `e.response` instead of calling
 `next`) and `on_record_after_{create,update,delete}_success` (after commit, in the background).
-`hooks.on_ready` runs when the app is ready. Cron jobs run on one instance per scheduled minute
+`hooks.on_request` is middleware around every request (`e.request`, `e.auth`; `next` routes it and
+sets `e.response`). `hooks.on_ready` runs when the app is ready. Cron jobs run on one instance per scheduled minute
 and show up in the dashboard. Hooks, routes and cron jobs can read and write records with
 `core.find_record_by_id`, `find_records_by_filter`, `find_first_record_by_filter`,
 `count_records`, `save_record` and `delete_record` (no API rules; filters take `{:name}`

@@ -178,6 +178,11 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/logs/stats", get(logs::stats))
         .route("/api/logs/{id}", get(logs::view))
         .merge(app.extra_routes())
+        // global middleware from extensions (`routerUse`), after the guard's checks
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::hooks::request_middleware,
+        ))
         // inner layers run last: the guard runs inside the logger, so rejections are logged
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),

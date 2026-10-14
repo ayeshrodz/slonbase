@@ -524,6 +524,8 @@
     e.setHeader = (name, value) => {
       e._headers[name] = String(value);
     };
+    // files of a multipart request (each usable as a file field value in $app.save)
+    e.findUploadedFiles = (key) => clone((info.files || {})[key] || []);
     return e;
   }
 
@@ -578,6 +580,16 @@
     return e;
   }
 
+  // `routerUse` middleware: e.next() runs the rest of the request
+  function middlewareEvent(raw) {
+    const e = requestEvent(raw);
+    e.next = () => {
+      callNext({});
+    };
+    e._state = () => ({ response: e._response, headers: e._headers });
+    return e;
+  }
+
   function simpleEvent() {
     const e = { app: $app, next: () => {} };
     e._state = () => ({});
@@ -589,6 +601,7 @@
     recordsList: listRequestEvent,
     record: recordEvent,
     route: routeEvent,
+    middleware: middlewareEvent,
     simple: simpleEvent,
   };
 
@@ -646,8 +659,20 @@
     if (typeof handler !== "function") throw new TypeError("routerAdd: the handler must be a function");
     register("route", "route", middlewareChain(handler, middlewares), { method: String(method).toUpperCase(), path: String(path) });
   };
+  // global middleware for every request (the API, the dashboard and routerAdd routes)
+  g.routerUse = (...fns) => {
+    for (const m of fns) {
+      const fn = typeof m === "function" ? m : m && m.func;
+      register("routerUse", "middleware", fn);
+    }
+  };
   g.cronAdd = (id, expression, fn) => register("cron", "simple", fn, { id: String(id), expression: String(expression) });
   g.cronRemove = (id) => registrations.push({ kind: "cronRemove", id: String(id) });
+
+  const $filesystem = {
+    // a file from a string or an array of bytes, for a file field in $app.save()
+    fileFromBytes: (data, name) => call("fileFromBytes", typeof data === "string" ? data : Array.from(data || []), String(name)),
+  };
 
   const $apis = {
     requireAuth: (...c) => (e) => {
@@ -701,6 +726,7 @@
     arrayOf,
     $app,
     $apis,
+    $filesystem,
     $security,
     $http,
     $os,

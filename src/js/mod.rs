@@ -33,8 +33,9 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    BoxFuture, HookResult, Next, RecordEvent, RecordRequestEvent, RecordsListEvent,
+    BoxFuture, HookResult, Next, RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
 };
+use crate::records::files::Upload;
 
 const PRELUDE: &str = include_str!("prelude.js");
 /// Largest body a JavaScript route reads.
@@ -65,6 +66,8 @@ enum FromJs {
 struct Job {
     index: usize,
     event: String,
+    /// Files the handler can use (`e.findUploadedFiles()`), by token.
+    uploads: Vec<(String, Upload)>,
     out: tokio::sync::mpsc::UnboundedSender<FromJs>,
     resume: mpsc::Receiver<String>,
 }
@@ -120,12 +123,24 @@ impl Pool {
         event: Value,
         next: Option<NextFn>,
     ) -> Result<Value, ApiError> {
+        self.run_with(index, event, next, Vec::new()).await
+    }
+
+    /// [`Pool::run`] with uploaded files for the handler.
+    async fn run_with(
+        &self,
+        index: usize,
+        event: Value,
+        next: Option<NextFn>,
+        uploads: Vec<(String, Upload)>,
+    ) -> Result<Value, ApiError> {
         let (out, mut from_js) = tokio::sync::mpsc::unbounded_channel();
         let (resume_tx, resume) = mpsc::channel();
         self.jobs
             .send(Job {
                 index,
                 event: event.to_string(),
+                uploads,
                 out,
                 resume,
             })
@@ -290,6 +305,7 @@ fn worker(
             Err(_) => return,
         };
         *slot.borrow_mut() = Some((job.out.clone(), job.resume));
+        native::set_uploads(job.uploads);
         let result = ctx.with(|ctx| {
             let run = || -> rquickjs::Result<String> {
                 let dispatch: Function = ctx.globals().get("__dispatch")?;
@@ -308,6 +324,7 @@ fn worker(
             }
         }
         slot.borrow_mut().take();
+        native::set_uploads(Vec::new());
         let _ = job.out.send(FromJs::Done(result));
     }
 }
@@ -412,6 +429,10 @@ fn register(
             "recordsListRequest" => hooks.on_records_list_request.add_boxed(
                 reg.collections,
                 Arc::new(move |e, next| Box::pin(list_request(pool.clone(), index, e, next))),
+            ),
+            "routerUse" => hooks.on_request.add_boxed(
+                Vec::new(),
+                Arc::new(move |e, next| Box::pin(middleware(pool.clone(), index, e, next))),
             ),
             "route" => routes
                 .entry(reg.path.clone())
@@ -745,12 +766,6 @@ async fn route(pool: Pool, index: usize, app: Arc<App>, req: Request) -> Respons
             path_params.insert(key.to_string(), Value::String(value.to_string()));
         }
     }
-    let real_ip = parts
-        .extensions
-        .get::<crate::guard::ClientIp>()
-        .and_then(|ip| ip.0)
-        .map(|ip| ip.to_string())
-        .unwrap_or_default();
     let bytes = match axum::body::to_bytes(body, MAX_ROUTE_BODY).await {
         Ok(bytes) => bytes,
         Err(_) => {
@@ -758,27 +773,89 @@ async fn route(pool: Pool, index: usize, app: Arc<App>, req: Request) -> Respons
                 .into_response();
         }
     };
+    let (body, uploads) = match read_body(&parts, bytes).await {
+        Ok(read) => read,
+        Err(err) => return err.into_response(),
+    };
+    let mut files: Map<String, Value> = Map::new();
+    let mut tokens = Vec::with_capacity(uploads.len());
+    for upload in uploads {
+        let token = crate::ids::random_id(24);
+        let list = files
+            .entry(upload.key.clone())
+            .or_insert_with(|| Value::Array(Vec::new()));
+        if let Value::Array(list) = list {
+            list.push(json!({
+                "_upload": token,
+                "name": upload.original_name,
+                "originalName": upload.original_name,
+                "size": upload.data.len(),
+            }));
+        }
+        tokens.push((token, upload));
+    }
+    let mut event = request_event_json(&parts, &auth, body, path_params);
+    event["requestInfo"]["files"] = Value::Object(files);
+    match pool.run_with(index, event, None, tokens).await {
+        Ok(state) => {
+            response_from(&state["response"]).unwrap_or_else(|| StatusCode::OK.into_response())
+        }
+        Err(err) => err.into_response(),
+    }
+}
+
+/// A request's body for a handler: JSON, a form, or multipart (values and uploads).
+async fn read_body(
+    parts: &axum::http::request::Parts,
+    bytes: axum::body::Bytes,
+) -> Result<(Value, Vec<Upload>), ApiError> {
     let content_type = parts
         .headers
         .get(axum::http::header::CONTENT_TYPE)
         .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if bytes.is_empty() {
+        return Ok((Value::Object(Map::new()), Vec::new()));
+    }
+    if content_type.starts_with("application/json") {
+        return serde_json::from_slice(&bytes)
+            .map(|body| (body, Vec::new()))
+            .map_err(|_| ApiError::bad_request("Invalid JSON body."));
+    }
+    if content_type.starts_with("application/x-www-form-urlencoded") {
+        let body = form_urlencoded::parse(&bytes)
+            .map(|(k, v)| (k.into_owned(), Value::String(v.into_owned())))
+            .collect();
+        return Ok((Value::Object(body), Vec::new()));
+    }
+    if content_type.starts_with("multipart/form-data") {
+        let mut req = Request::new(axum::body::Body::from(bytes));
+        *req.headers_mut() = parts.headers.clone();
+        let body =
+            <crate::records::files::RecordBody as axum::extract::FromRequest<()>>::from_request(
+                req,
+                &(),
+            )
+            .await?;
+        return Ok((Value::Object(body.data), body.uploads));
+    }
+    Ok((Value::Object(Map::new()), Vec::new()))
+}
+
+/// The event of a request handler (`routerAdd`, `routerUse`).
+fn request_event_json(
+    parts: &axum::http::request::Parts,
+    auth: &RequestAuth,
+    body: Value,
+    path_params: Map<String, Value>,
+) -> Value {
+    let real_ip = parts
+        .extensions
+        .get::<crate::guard::ClientIp>()
+        .and_then(|ip| ip.0)
+        .map(|ip| ip.to_string())
         .unwrap_or_default();
-    let body = if bytes.is_empty() {
-        Value::Object(Map::new())
-    } else if content_type.starts_with("application/json") {
-        match serde_json::from_slice(&bytes) {
-            Ok(body) => body,
-            Err(_) => return ApiError::bad_request("Invalid JSON body.").into_response(),
-        }
-    } else if content_type.starts_with("application/x-www-form-urlencoded") {
-        Value::Object(
-            form_urlencoded::parse(&bytes)
-                .map(|(k, v)| (k.into_owned(), Value::String(v.into_owned())))
-                .collect(),
-        )
-    } else {
-        Value::Object(Map::new())
-    };
     let raw_query = parts.uri.query().unwrap_or_default().to_string();
     let query: Map<String, Value> = form_urlencoded::parse(raw_query.as_bytes())
         .map(|(k, v)| (k.into_owned(), Value::String(v.into_owned())))
@@ -795,8 +872,8 @@ async fn route(pool: Pool, index: usize, app: Arc<App>, req: Request) -> Respons
             })
         })
         .collect();
-    let event = json!({
-        "auth": auth_json(&auth),
+    json!({
+        "auth": auth_json(auth),
         "requestInfo": {
             "method": parts.method.as_str(),
             "path": parts.uri.path(),
@@ -806,14 +883,82 @@ async fn route(pool: Pool, index: usize, app: Arc<App>, req: Request) -> Respons
             "body": body,
             "pathParams": path_params,
             "realIP": real_ip,
+            "files": {},
         },
-    });
-    match pool.run(index, event, None).await {
-        Ok(state) => {
-            response_from(&state["response"]).unwrap_or_else(|| StatusCode::OK.into_response())
+    })
+}
+
+/// A `routerUse` handler around the rest of the request. JSON and form bodies (up to the
+/// routes' limit) are read for `e.requestInfo()` and passed on; other bodies (uploads)
+/// stream through unread.
+async fn middleware(
+    pool: Pool,
+    index: usize,
+    mut e: RequestEvent,
+    next: Next<RequestEvent>,
+) -> HookResult<RequestEvent> {
+    let Some(req) = e.request.take() else {
+        return next.run(e).await;
+    };
+    let (parts, body) = req.into_parts();
+    let content_type = parts
+        .headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let readable = content_type.starts_with("application/json")
+        || content_type.starts_with("application/x-www-form-urlencoded");
+    let (body_json, body) = if readable {
+        let bytes = axum::body::to_bytes(body, MAX_ROUTE_BODY)
+            .await
+            .map_err(|_| {
+                ApiError::new(StatusCode::PAYLOAD_TOO_LARGE, "Request entity too large.")
+            })?;
+        let json = match read_body(&parts, bytes.clone()).await {
+            Ok((json, _)) => json,
+            Err(_) => Value::Object(Map::new()), // the route reports invalid bodies
+        };
+        (json, axum::body::Body::from(bytes))
+    } else {
+        (Value::Object(Map::new()), body)
+    };
+    let event = request_event_json(&parts, &e.auth, body_json, Map::new());
+    e.request = Some(Request::from_parts(parts, body));
+
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |_| {
+            Box::pin(async move {
+                let e = slot.lock().expect("event lock").take().expect("event");
+                let e = next.run(e).await?;
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(json!({}))
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot
+        .lock()
+        .expect("event lock")
+        .take()
+        .ok_or_else(|| ApiError::internal(anyhow::anyhow!("the request was lost")))?;
+    // the handler's own response wins; else the rest of the chain's, with its headers
+    if let Some(response) = response_from(&state["response"]) {
+        e.response = Some(response);
+    } else if let (Some(response), Value::Object(headers)) = (&mut e.response, &state["headers"]) {
+        for (name, v) in headers {
+            if let (Ok(name), Some(Ok(v))) = (
+                HeaderName::from_bytes(name.as_bytes()),
+                v.as_str().map(HeaderValue::from_str),
+            ) {
+                response.headers_mut().insert(name, v);
+            }
         }
-        Err(err) => err.into_response(),
     }
+    e.request = None;
+    Ok(e)
 }
 
 /// Whether `path` is inside the hooks directory.

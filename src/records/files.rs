@@ -189,6 +189,7 @@ fn valid_name(name: &str) -> bool {
 // request bodies
 
 /// An uploaded file from a multipart request.
+#[derive(Clone)]
 pub struct Upload {
     /// The form key: `field`, `field+` or `+field`.
     pub key: String,
