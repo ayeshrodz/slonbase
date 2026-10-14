@@ -81,7 +81,11 @@ pub(crate) fn request_info(
 }
 
 /// Checks only that the action is allowed at all (non-null rule or superuser).
-fn ensure_allowed(c: &Collection, action: RuleAction, auth: &RequestAuth) -> Result<(), ApiError> {
+pub(crate) fn ensure_allowed(
+    c: &Collection,
+    action: RuleAction,
+    auth: &RequestAuth,
+) -> Result<(), ApiError> {
     if c.is_view() && !matches!(action, RuleAction::List | RuleAction::View) {
         return Err(ApiError::bad_request("View collections are read-only."));
     }
@@ -773,6 +777,20 @@ async fn current_for_hook(
     auth: &RequestAuth,
     request: &RequestInfo,
 ) -> Result<Values, ApiError> {
+    let client = pooled(core).await?;
+    current_in(&client, c, id, action, auth, request).await
+}
+
+/// The record a hook sees for an update or delete request, read with `client` (a batch's
+/// transaction sees the batch's earlier writes): 404 when the rule doesn't allow it.
+pub(crate) async fn current_in(
+    client: &impl GenericClient,
+    c: &Collection,
+    id: &str,
+    action: RuleAction,
+    auth: &RequestAuth,
+    request: &RequestInfo,
+) -> Result<Values, ApiError> {
     let mut params = Params::default();
     let id_param = params.push(id.to_string());
     let mut where_sql = format!("{ALIAS}.\"id\" = {id_param}");
@@ -780,7 +798,6 @@ async fn current_for_hook(
         where_sql = format!("{where_sql} AND {rule}");
     }
     let fields = visible_fields(c, true);
-    let client = pooled(core).await?;
     let row = client
         .query_opt(
             &format!(
@@ -796,7 +813,7 @@ async fn current_for_hook(
     Ok(row_values(&fields, &row))
 }
 
-fn into_map(record: Value) -> Map<String, Value> {
+pub(crate) fn into_map(record: Value) -> Map<String, Value> {
     match record {
         Value::Object(map) => map,
         _ => Map::new(),

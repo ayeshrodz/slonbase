@@ -548,6 +548,13 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - `PUT .../records` is an upsert (an update when the body's `id` exists).
 - The batch's `Authorization` is used for every request (theirs are ignored), and rules apply per
   request. The whole batch is limited by `batch.timeout`; dropping the transaction rolls it back.
+- Request hooks run per request. Their chains need `'static` closures, which can't borrow the
+  transaction, so the batch's connection and transaction live in a task of their own and a
+  hook's `next` sends its write there as a job (one at a time, in order; reads for upserts and for
+  the current record that update/delete hooks see go the same way, so they see the batch's earlier
+  writes). The batch commits with a final message; an error, a timeout or a hook's failure drops
+  the channel (aborting the task on timeout), which rolls back. A hook's own `e.response` becomes
+  that request's `{"status", "body"}`.
 - Difference from PocketBase: `expand` is applied after the commit, so expanded relations show the
   batch's final state rather than the state at that request.
 

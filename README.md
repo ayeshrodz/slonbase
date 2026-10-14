@@ -130,8 +130,9 @@ per instance.
 **Batch requests** (`POST /api/batch`, `pb.createBatch()` in the SDKs) run record creates,
 updates, upserts and deletes in one transaction: all of them apply, or none (with the failing
 request's error). Enable them with `batch.enabled`; `maxRequests`, `timeout` (seconds) and
-`maxBodySize` limit them. Each request uses the batch's auth and rules; `expand` in a request's URL
-shows the related records as of the end of the batch.
+`maxBodySize` limit them. Each request uses the batch's auth and rules and runs the request hooks
+(their `next` writes in the batch's transaction, and a hook's error fails the batch); `expand` in a
+request's URL shows the related records as of the end of the batch.
 
 **Backups** (`/api/backups`, or the dashboard's Backups page) are zip files with every collection,
 the settings, and the local files (unless files are in S3). Restoring one replaces all of that in
@@ -292,8 +293,6 @@ their names). Their fields come from the query's columns, and list/view rules, f
 and expand work as usual. Because the query runs with the database role's privileges (a
 `SELECT` can call any function the role may use), creating or changing one needs the SQL
 console to be enabled (`--sql-console`); existing views keep working without it.
-
-Not supported yet (see [docs/design.md](docs/design.md)): request hooks inside batch requests.
 
 ## Extending slonbase
 

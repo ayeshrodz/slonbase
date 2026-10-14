@@ -16,14 +16,20 @@ use axum::extract::State;
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use serde_json::{Map, Value, json};
 
+use deadpool_postgres::Transaction;
+use tokio::sync::{mpsc, oneshot};
+
 use super::api::{FileEffects, WriteContext, create_in, delete_in, update_in};
 use super::files::{RecordBody, Upload};
 use super::store;
 use crate::app::App;
 use crate::auth::RequestAuth;
-use crate::collections::model::Collection;
+use crate::collections::model::{Collection, RuleAction};
+use crate::collections::store::Registry;
+use crate::core::Core;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
+use crate::hooks::RecordRequestEvent;
 
 /// The default and maximum body size (PocketBase's default).
 const MAX_BODY: u64 = 128 << 20;
@@ -214,104 +220,337 @@ pub async fn batch(
     }
 
     let from_form = input.from_form;
-    let mut effects = FileEffects::default();
+    let effects = Arc::new(tokio::sync::Mutex::new(FileEffects::default()));
+    let (sender, receiver) = mpsc::channel(1);
+    let worker = tokio::spawn(run_transaction(core.clone(), receiver, effects.clone()));
+    let tx = TxHandle(sender);
+
     let run = async {
-        let mut client = core
-            .pool
-            .get()
-            .await
-            .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
-        let tx = client
-            .transaction()
-            .await
-            .map_err(|e| ApiError::internal(e.into()))?;
         let mut done = Vec::with_capacity(requests.len());
         for (i, request) in requests.into_iter().enumerate() {
-            let SubRequest {
-                method,
-                collection: c,
-                action,
-                query,
-                headers,
-                mut body,
-                uploads,
-            } = request;
-            if from_form {
-                // multipart batches carry JSON field values as text
-                form_values(&c, &mut body);
-            }
-            // an upsert updates the record with the body's id, if it exists
-            let action = match action {
-                Action::Upsert => {
-                    let id = body
-                        .get("id")
-                        .and_then(Value::as_str)
-                        .unwrap_or_default()
-                        .to_string();
-                    let exists = !id.is_empty()
-                        && store::find_by_id(&tx, &c, &id)
-                            .await
-                            .map_err(|e| ApiError::internal(e.into()))?
-                            .is_some();
-                    if exists {
-                        Action::Update(id)
-                    } else {
-                        Action::Create
-                    }
-                }
-                other => other,
-            };
-            let info =
-                super::api::request_info(&method, &query, &headers, Some(&body), &auth, &registry);
-            let ctx = WriteContext {
-                core: &core,
-                registry: &registry,
-                auth: &auth,
-                request: &info,
-            };
-            let outcome = match action {
-                Action::Create => create_in(&ctx, &tx, &c, body, uploads, &mut effects)
-                    .await
-                    .map(Some),
-                Action::Update(id) => update_in(&ctx, &tx, &c, &id, body, uploads, &mut effects)
-                    .await
-                    .map(Some),
-                Action::Delete(id) => delete_in(&ctx, &tx, &c, &id, &mut effects)
-                    .await
-                    .map(|_| None),
-                Action::Upsert => unreachable!("resolved above"),
-            };
-            match outcome {
-                Ok(record) => done.push((c, query, info, record)),
-                Err(err) => return Err(failed_at(i, err)),
-            }
+            let item = run_request(&core, &registry, &auth, &tx, request, from_form)
+                .await
+                .map_err(|e| failed_at(i, e))?;
+            done.push(item);
         }
-        tx.commit()
-            .await
-            .map_err(|e| ApiError::internal(e.into()))?;
+        tx.commit().await?;
         Ok(done)
     };
     let timeout = Duration::from_secs(settings.timeout.max(1));
     let outcome = match tokio::time::timeout(timeout, run).await {
         Ok(outcome) => outcome,
-        // dropping the transaction rolls it back
         Err(_) => Err(ApiError::bad_request(
             "Batch transaction failed: the batch took too long.",
         )),
     };
+    // without a commit, the transaction rolls back when its task ends
+    drop(tx);
+    if outcome.is_err() {
+        worker.abort();
+    }
+    let _ = worker.await;
+    let effects = std::mem::take(&mut *effects.lock().await);
     let done = effects.settle(&core, outcome).await?;
 
     let mut results = Vec::with_capacity(done.len());
-    for (c, query, info, record) in done {
-        results.push(match record {
-            Some(record) => json!({
-                "status": 200,
-                "body": super::api::respond(&core, &auth, &info, &c, record, &query).await?,
-            }),
-            None => json!({ "status": 204, "body": null }),
-        });
+    for Done {
+        query,
+        event,
+        deleted,
+    } in done
+    {
+        if let Some(response) = event.response {
+            results.push(response_json(response).await);
+        } else if deleted {
+            results.push(json!({ "status": 204, "body": null }));
+        } else {
+            let body = super::api::respond(
+                &core,
+                &event.auth,
+                &event.request,
+                &event.collection,
+                Value::Object(event.record),
+                &query,
+            )
+            .await?;
+            results.push(json!({ "status": 200, "body": body }));
+        }
     }
     Ok(Json(Value::Array(results)))
+}
+
+/// A request of the batch that went through.
+struct Done {
+    query: HashMap<String, String>,
+    event: RecordRequestEvent,
+    deleted: bool,
+}
+
+/// Runs one request of the batch: its request hooks, with the write (their `next`) in the
+/// batch's transaction.
+async fn run_request(
+    core: &Arc<Core>,
+    registry: &Arc<Registry>,
+    auth: &RequestAuth,
+    tx: &TxHandle,
+    request: SubRequest,
+    from_form: bool,
+) -> Result<Done, ApiError> {
+    let SubRequest {
+        method,
+        collection: c,
+        action,
+        query,
+        headers,
+        mut body,
+        uploads,
+    } = request;
+    if from_form {
+        // multipart batches carry JSON field values as text
+        form_values(&c, &mut body);
+    }
+    // an upsert updates the record with the body's id, if it exists
+    let action = match action {
+        Action::Upsert => {
+            let id = body
+                .get("id")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let exists = !id.is_empty() && {
+                let (c, id) = (c.clone(), id.clone());
+                tx.run(move |tx, _| {
+                    Box::pin(async move {
+                        store::find_by_id(tx, &c, &id)
+                            .await
+                            .map(|found| found.is_some())
+                            .map_err(|e| ApiError::internal(e.into()))
+                    })
+                })
+                .await?
+            };
+            if exists {
+                Action::Update(id)
+            } else {
+                Action::Create
+            }
+        }
+        other => other,
+    };
+    let request = Arc::new(super::api::request_info(
+        &method,
+        &query,
+        &headers,
+        Some(&body),
+        auth,
+        registry,
+    ));
+    let hooks = &core.hooks;
+    let (hook, rule) = match &action {
+        Action::Create => (&hooks.on_record_create_request, RuleAction::Create),
+        Action::Update(_) => (&hooks.on_record_update_request, RuleAction::Update),
+        Action::Delete(_) => (&hooks.on_record_delete_request, RuleAction::Delete),
+        Action::Upsert => unreachable!("resolved above"),
+    };
+    let target = match &action {
+        Action::Update(id) | Action::Delete(id) => Some(id.clone()),
+        _ => None,
+    };
+    // as in single requests, hooks see the current record (with an update's data applied)
+    let mut current = None;
+    let record = match &target {
+        Some(id) if hook.has_handlers(Some(&c)) => {
+            super::api::ensure_allowed(&c, rule, auth)?;
+            let (c, id, auth, request) = (c.clone(), id.clone(), auth.clone(), request.clone());
+            let found = tx
+                .run(move |tx, _| {
+                    Box::pin(async move {
+                        super::api::current_in(tx, &c, &id, rule, &auth, &request).await
+                    })
+                })
+                .await?;
+            current = Some(found.clone());
+            let mut record = found;
+            if rule == RuleAction::Update {
+                record.extend(body);
+            }
+            record
+        }
+        _ => body,
+    };
+    let event = RecordRequestEvent {
+        core: core.clone(),
+        collection: c.clone(),
+        record,
+        auth: auth.clone(),
+        request,
+        response: None,
+    };
+    let (registry, tx) = (registry.clone(), tx.clone());
+    let deleted = matches!(action, Action::Delete(_));
+    let event = hook
+        .trigger(Some(&c), event, move |mut e| async move {
+            let mut body = std::mem::take(&mut e.record);
+            if let Some(current) = &current {
+                if rule == RuleAction::Update {
+                    // only what the request or the hooks changed
+                    body.retain(|k, v| current.get(k) != Some(v));
+                }
+            }
+            let (core, auth, request, c) = (
+                e.core.clone(),
+                e.auth.clone(),
+                e.request.clone(),
+                e.collection.clone(),
+            );
+            let record = tx
+                .run(move |tx, effects| {
+                    Box::pin(async move {
+                        let ctx = WriteContext {
+                            core: &core,
+                            registry: &registry,
+                            auth: &auth,
+                            request: &request,
+                        };
+                        match action {
+                            Action::Create => create_in(&ctx, tx, &c, body, uploads, effects)
+                                .await
+                                .map(Some),
+                            Action::Update(id) => {
+                                update_in(&ctx, tx, &c, &id, body, uploads, effects)
+                                    .await
+                                    .map(Some)
+                            }
+                            Action::Delete(id) => {
+                                delete_in(&ctx, tx, &c, &id, effects).await.map(|_| None)
+                            }
+                            Action::Upsert => unreachable!("resolved above"),
+                        }
+                    })
+                })
+                .await?;
+            e.record = match record {
+                Some(record) => super::api::into_map(record),
+                None => current.unwrap_or_default(),
+            };
+            Ok(e)
+        })
+        .await?;
+    Ok(Done {
+        query,
+        event,
+        deleted,
+    })
+}
+
+/// A hook's own response as a batch result.
+async fn response_json(response: axum::response::Response) -> Value {
+    let status = response.status().as_u16();
+    let bytes = axum::body::to_bytes(response.into_body(), MAX_BODY as usize)
+        .await
+        .unwrap_or_default();
+    let body = if bytes.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&bytes)
+            .unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&bytes).into_owned()))
+    };
+    json!({ "status": status, "body": body })
+}
+
+type TxJob =
+    Box<dyn for<'a> FnOnce(&'a Transaction<'a>, &'a mut FileEffects) -> BoxFuture<'a, ()> + Send>;
+type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+enum TxMessage {
+    Job(TxJob),
+    Commit(oneshot::Sender<Result<(), ApiError>>),
+}
+
+/// The batch's transaction, owned by its own task, so that writes can run from the
+/// request hooks (whose handlers outlive any borrow of a connection).
+#[derive(Clone)]
+struct TxHandle(mpsc::Sender<TxMessage>);
+
+fn transaction_gone() -> ApiError {
+    ApiError::internal(anyhow::anyhow!("the batch transaction ended early"))
+}
+
+impl TxHandle {
+    /// Runs `f` in the transaction and returns its result.
+    async fn run<T, F>(&self, f: F) -> Result<T, ApiError>
+    where
+        T: Send + 'static,
+        F: for<'a> FnOnce(
+                &'a Transaction<'a>,
+                &'a mut FileEffects,
+            ) -> BoxFuture<'a, Result<T, ApiError>>
+            + Send
+            + 'static,
+    {
+        let (reply, result) = oneshot::channel();
+        let job: TxJob = Box::new(move |tx, effects| {
+            Box::pin(async move {
+                let _ = reply.send(f(tx, effects).await);
+            })
+        });
+        self.0
+            .send(TxMessage::Job(job))
+            .await
+            .map_err(|_| transaction_gone())?;
+        result.await.map_err(|_| transaction_gone())?
+    }
+
+    async fn commit(&self) -> Result<(), ApiError> {
+        let (reply, result) = oneshot::channel();
+        self.0
+            .send(TxMessage::Commit(reply))
+            .await
+            .map_err(|_| transaction_gone())?;
+        result.await.map_err(|_| transaction_gone())?
+    }
+}
+
+/// Owns the batch's connection and transaction and runs the jobs sent to it, in order.
+/// Ends with a commit, or rolls back when the handles are dropped without one.
+async fn run_transaction(
+    core: Arc<Core>,
+    mut jobs: mpsc::Receiver<TxMessage>,
+    effects: Arc<tokio::sync::Mutex<FileEffects>>,
+) {
+    let mut client = match core.pool.get().await {
+        Ok(client) => client,
+        Err(e) => return fail_all(jobs, ApiError::internal(describe_pool_error(e))).await,
+    };
+    let tx = match client.transaction().await {
+        Ok(tx) => tx,
+        Err(e) => return fail_all(jobs, ApiError::internal(e.into())).await,
+    };
+    while let Some(message) = jobs.recv().await {
+        match message {
+            TxMessage::Job(job) => {
+                let mut effects = effects.lock().await;
+                job(&tx, &mut effects).await;
+            }
+            TxMessage::Commit(reply) => {
+                let _ = reply.send(tx.commit().await.map_err(|e| ApiError::internal(e.into())));
+                return;
+            }
+        }
+    }
+}
+
+/// Answers every message with `error` (the transaction couldn't start).
+async fn fail_all(mut jobs: mpsc::Receiver<TxMessage>, error: ApiError) {
+    tracing::warn!("batch transaction: {}", error.message);
+    while let Some(message) = jobs.recv().await {
+        // a job's reply sender is dropped with it, which reports the failure
+        if let TxMessage::Commit(reply) = message {
+            let _ = reply.send(Err(ApiError::internal(anyhow::anyhow!(
+                "the batch transaction couldn't start"
+            ))));
+        }
+    }
 }
 
 /// Parses JSON fields sent as text (multipart batches), like single requests do.

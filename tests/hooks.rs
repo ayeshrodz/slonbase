@@ -309,6 +309,58 @@ async fn rust_extensions() {
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND);
 
+    // batch requests run the request hooks, with their writes in the batch's transaction
+    let (status, res) = call(
+        &app,
+        admin,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true, "maxRequests": 10 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, results) = call(&app, None, "POST", "/api/batch", Some(json!({ "requests": [
+        { "method": "POST", "url": "/api/collections/posts/records", "body": { "id": "batchpost000001", "title": "in batch", "status": "published" } },
+        // sees the record created earlier in the same batch
+        { "method": "PATCH", "url": "/api/collections/posts/records/batchpost000001", "body": { "title": "patched" } },
+        { "method": "PUT", "url": "/api/collections/posts/records", "body": { "id": "batchpost000001", "status": "locked" } },
+        { "method": "DELETE", "url": "/api/collections/posts/records/batchpost000001" },
+    ] }))).await;
+    assert_eq!(status, StatusCode::OK, "{results}");
+    assert_eq!(results[0]["body"]["status"], "draft", "{results}");
+    assert_eq!(results[0]["body"]["hooked"], true);
+    assert_eq!(results[1]["body"]["title"], "PATCHED");
+    assert_eq!(results[1]["body"]["status"], "draft");
+    // the hook answered instead of deleting
+    assert_eq!(
+        results[3],
+        json!({ "status": 409, "body": { "message": "locked" } })
+    );
+    wait_for(&log, "update PATCHED").await;
+    assert!(
+        core.find_record_by_id("posts", "batchpost000001")
+            .await
+            .unwrap()
+            .is_some()
+    );
+
+    // a hook's error fails the whole batch, writes made before it included
+    let (status, res) = call(&app, None, "POST", "/api/batch", Some(json!({ "requests": [
+        { "method": "POST", "url": "/api/collections/posts/records", "body": { "id": "batchpost000003", "title": "kept?" } },
+        { "method": "POST", "url": "/api/collections/posts/records", "body": { "title": "forbidden" } },
+    ] }))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert_eq!(
+        res["data"]["requests"]["1"]["response"]["message"], "Not this title.",
+        "{res}"
+    );
+    assert!(
+        core.find_record_by_id("posts", "batchpost000003")
+            .await
+            .unwrap()
+            .is_none()
+    );
+
     drop(core);
     drop(app);
     tdb.drop_db().await;
