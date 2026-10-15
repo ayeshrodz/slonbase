@@ -588,6 +588,31 @@
     return e;
   }
 
+  function collectionEvent(raw) {
+    const e = { app: $app, collection: raw.collection };
+    e.next = () => {
+      const res = callNext({ collection: e.collection });
+      e.collection = res.collection;
+    };
+    e._state = () => ({ collection: e.collection });
+    return e;
+  }
+
+  function mailerEvent(raw) {
+    const e = { app: $app, message: raw.message, kind: raw.kind };
+    if (raw.collection) e.collection = raw.collection;
+    if (raw.record) {
+      e.record = new Record(raw.collection, raw.record);
+      e.record._original = clone(e.record._data);
+    }
+    e.next = () => {
+      const res = callNext({ message: e.message });
+      e.message = res.message;
+    };
+    e._state = () => ({});
+    return e;
+  }
+
   function routeEvent(raw) {
     const e = requestEvent(raw);
     e._state = () => ({ response: e._response });
@@ -615,6 +640,8 @@
     recordsList: listRequestEvent,
     record: recordEvent,
     recordModel: recordModelEvent,
+    collection: collectionEvent,
+    mailer: mailerEvent,
     route: routeEvent,
     middleware: middlewareEvent,
     simple: simpleEvent,
@@ -652,6 +679,29 @@
   };
   for (const name of Object.keys(modelHooks)) {
     g[name] = (fn, ...c) => register(modelHooks[name], "recordModel", fn, { collections: collections(c) });
+  }
+  g.onRecordValidate = (fn, ...c) => register("recordValidate", "recordModel", fn, { collections: collections(c) });
+  const collectionHooks = {
+    onCollectionCreate: "collectionCreate",
+    onCollectionUpdate: "collectionUpdate",
+    onCollectionDelete: "collectionDelete",
+    onCollectionAfterCreateSuccess: "collectionAfterCreateSuccess",
+    onCollectionAfterUpdateSuccess: "collectionAfterUpdateSuccess",
+    onCollectionAfterDeleteSuccess: "collectionAfterDeleteSuccess",
+  };
+  for (const name of Object.keys(collectionHooks)) {
+    g[name] = (fn, ...c) => register(collectionHooks[name], "collection", fn, { collections: collections(c) });
+  }
+  const mailerHooks = {
+    onMailerSend: "",
+    onMailerRecordVerificationSend: "verification",
+    onMailerRecordPasswordResetSend: "passwordReset",
+    onMailerRecordEmailChangeSend: "emailChange",
+    onMailerRecordOTPSend: "otp",
+    onMailerRecordAuthAlertSend: "authAlert",
+  };
+  for (const name of Object.keys(mailerHooks)) {
+    g[name] = (fn, ...c) => register("mailerSend", "mailer", fn, { mail: mailerHooks[name], collections: collections(c) });
   }
   const afterHooks = {
     onRecordAfterCreateSuccess: "recordAfterCreateSuccess",

@@ -472,6 +472,30 @@ async fn model_hook(
     Ok(())
 }
 
+/// Runs the `on_record_validate` handlers on the validated values (changes are ignored).
+async fn validate_hook(
+    ctx: &WriteContext<'_>,
+    c: &Collection,
+    values: &Values,
+) -> Result<(), ApiError> {
+    let hook = &ctx.core.hooks.on_record_validate;
+    if !hook.has_handlers(Some(c)) {
+        return Ok(());
+    }
+    let mut record = values.clone();
+    record.remove(FIELD_PASSWORD);
+    for key in SECRET_FIELDS {
+        record.remove(key);
+    }
+    let e = crate::hooks::RecordEvent {
+        core: ctx.core.clone(),
+        collection: Arc::new(c.clone()),
+        record,
+    };
+    hook.trigger(Some(c), e, |e| async { Ok(e) }).await?;
+    Ok(())
+}
+
 /// The record as a model hook sees it: `base` with the body's field values applied.
 fn hook_record(c: &Collection, base: Values, body: &Map<String, Value>) -> Map<String, Value> {
     let mut record = base;
@@ -525,6 +549,7 @@ pub(crate) async fn create_in(
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
+    validate_hook(ctx, c, &values).await?;
     apply_secrets(c, &mut values, &changes, false).await?;
     files::write(core, &file_plan).await?;
     effects.written.extend(file_plan.new);
@@ -716,6 +741,7 @@ pub(crate) async fn update_in(
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
+    validate_hook(ctx, c, &values).await?;
     apply_secrets(c, &mut values, &changes, email_changed).await?;
     files::write(core, &file_plan).await?;
     effects.written.extend(file_plan.new);

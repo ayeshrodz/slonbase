@@ -326,8 +326,10 @@ cronAdd("cleanup", "0 3 * * *", () => {
 ```
 
 Available: `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest`,
-`onRecord{Create,Update,Delete}` (model hooks), `onRecordAfter{Create,Update,Delete}Success`,
-`onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
+`onRecord{Create,Update,Delete}` (model hooks), `onRecordValidate`,
+`onRecordAfter{Create,Update,Delete}Success`, `onCollection{Create,Update,Delete}` and
+`onCollectionAfter{Create,Update,Delete}Success`, `onMailerSend` and
+`onMailerRecord{Verification,PasswordReset,EmailChange,OTP,AuthAlert}Send`, `onBootstrap`, `routerAdd` (with `$apis.requireAuth`,
 `requireSuperuserAuth`, `requireSuperuserOrOwnerAuth` and `requireGuestOnly`; multipart uploads via
 `e.findUploadedFiles(key)`), `routerUse` (middleware around every request; `e.next()` continues),
 `cronAdd`/`cronRemove`, `$filesystem` (`fileFromBytes`, `fileFromPath`, `fileFromURL`),
@@ -357,8 +359,13 @@ stored file names, the names are kept and the files appended. Files are limited 
 
 When the hook files change, slonbase restarts itself (the same process, re-executed with the same
 arguments, after up to 5 seconds for open requests); turn this off with `hooks.watch = false`.
-Not supported (yet): other events (`onRecordValidate`, collection and mail hooks, ...). Build with
-`--no-default-features` to leave the JavaScript engine out.
+`onRecordValidate` runs on every create and update after the built-in validation passed; throw
+(e.g. a `BadRequestError` with field data) to reject the record. Collection hooks run for changes
+made through the collections API (not imports): `e.collection` is the collection's JSON, which
+create and update handlers may change before it's validated and applied. Mail hooks see
+`e.message` (`to`, `subject`, `html`) and, for auth emails, `e.record` and `e.kind`; a handler that
+doesn't call `e.next()` skips the email. Build with `--no-default-features` to leave the JavaScript
+engine out.
 
 ### Rust
 
@@ -397,7 +404,8 @@ async fn main() -> std::process::ExitCode {
 Hooks: `on_record_{create,update,delete,view}_request`, `on_records_list_request` (around API
 requests; a hook can change the record, return an error, or set `e.response` instead of calling
 `next`) and `on_record_after_{create,update,delete}_success` (after commit, in the background).
-`hooks.on_record_create`/`_update`/`_delete` are the model hooks described above.
+`hooks.on_record_create`/`_update`/`_delete`, `on_record_validate`, `on_collection_*` and
+`on_mailer_send` are the model, validation, collection and mail hooks described above.
 `hooks.on_request` is middleware around every request (`e.request`, `e.auth`; `next` routes it and
 sets `e.response`). `hooks.on_ready` runs when the app is ready. Cron jobs run on one instance per scheduled minute
 and show up in the dashboard. Hooks, routes and cron jobs can read and write records with

@@ -313,11 +313,15 @@ async fn auth_alert(core: &Core, record: &AuthRecord, client: &Client) -> anyhow
     }
     let info = alert_info(&ip, user_agent);
     let fill = |text: &str| mail::render(&text.replace("{ALERT_INFO}", &info), &settings, "");
-    core.send_mail(mail::Message {
-        to: email.to_string(),
-        subject: fill(&options.email_template.subject),
-        html: fill(&options.email_template.body),
-    });
+    core.send_mail_for(
+        mail::Message {
+            to: email.to_string(),
+            subject: fill(&options.email_template.subject),
+            html: fill(&options.email_template.body),
+        },
+        "authAlert",
+        Some(record),
+    );
     Ok(())
 }
 
@@ -358,13 +362,24 @@ pub(super) async fn find_by_email(
     }))
 }
 
-pub(super) fn send_template(core: &Core, template: &EmailTemplate, to: &str, token: &str) {
+pub(super) fn send_template(
+    core: &Core,
+    template: &EmailTemplate,
+    to: &str,
+    token: &str,
+    kind: &str,
+    record: &AuthRecord,
+) {
     let settings = core.settings();
-    core.send_mail(mail::Message {
-        to: to.to_string(),
-        subject: mail::render(&template.subject, &settings, token),
-        html: mail::render(&template.body, &settings, token),
-    });
+    core.send_mail_for(
+        mail::Message {
+            to: to.to_string(),
+            subject: mail::render(&template.subject, &settings, token),
+            html: mail::render(&template.body, &settings, token),
+        },
+        kind,
+        Some(record),
+    );
 }
 
 pub(super) fn new_token_key() -> String {
@@ -596,6 +611,8 @@ pub async fn request_verification(
                 &options.verification_template,
                 record.email(),
                 &token,
+                "verification",
+                &record,
             );
         }
     }
@@ -676,6 +693,8 @@ pub async fn request_password_reset(
             &options.reset_password_template,
             record.email(),
             &token,
+            "passwordReset",
+            &record,
         );
     }
     Ok(no_content())
@@ -800,6 +819,8 @@ pub async fn request_email_change(
         &options.confirm_email_change_template,
         &new_email,
         &token,
+        "emailChange",
+        &record,
     );
     Ok(no_content())
 }

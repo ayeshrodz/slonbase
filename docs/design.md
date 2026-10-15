@@ -664,6 +664,16 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   wouldn't. Update and delete read the record for the hook without `FOR UPDATE` and take the row
   lock afterwards: a handler that writes the record through another connection doesn't wait on
   its own transaction (that read is a moment older than the locked one).
+- `on_record_validate` runs in the write functions once the record's own validation passed, on
+  the final values (no secrets); its changes are ignored, an error rejects the write.
+- Collection hooks run in the collections API under the schema lock: the handlers get the full
+  serialization (the one updates merge into), and what they return is parsed and goes through
+  `validate::prepare` like the request, with the id kept. Imports don't run them. The after-success
+  hooks get the saved collection (secrets masked) in a background task.
+- Mail: every email goes through `Core::send_mail_for`/`send_mail_now`, which run `on_mailer_send`
+  around the mailer; auth emails pass their kind and record (without the password hash and token
+  key). Handlers scoped to collections only see auth emails of those; the per-kind JavaScript hooks
+  are `on_mailer_send` handlers that skip other kinds without entering JavaScript.
 - Watching: the server polls a fingerprint of the hooks directory (paths, sizes and mtimes; hidden
   entries and `node_modules` skipped) every second; after a change settles it shuts down
   gracefully (at most 5 s, as realtime streams never end on their own) and `exec`s itself with the

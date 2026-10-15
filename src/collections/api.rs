@@ -158,6 +158,59 @@ pub async fn view(
     Ok(Json(to_json(c)))
 }
 
+/// Runs a collection hook on `c` before its change; returns the collection the handlers
+/// left (or `c` itself without handlers).
+async fn before_hook(
+    core: &Arc<Core>,
+    hook: &crate::hooks::Hook<crate::hooks::CollectionEvent>,
+    c: Collection,
+) -> Result<Collection, ApiError> {
+    if !hook.has_handlers(Some(&c)) {
+        return Ok(c);
+    }
+    let collection = match serde_json::to_value(&c).expect("serializes") {
+        Value::Object(map) => map,
+        _ => unreachable!(),
+    };
+    let e = crate::hooks::CollectionEvent {
+        core: core.clone(),
+        collection,
+    };
+    let e = hook.trigger(Some(&c), e, |e| async { Ok(e) }).await?;
+    let mut changed = parse(e.collection)?;
+    // the identity stays
+    changed.id = c.id.clone();
+    Ok(changed)
+}
+
+/// Runs a collection hook after a change, in the background.
+fn after_hook(
+    core: &Arc<Core>,
+    pick: fn(&crate::hooks::Hooks) -> &crate::hooks::Hook<crate::hooks::CollectionEvent>,
+    c: &Collection,
+) {
+    if !pick(&core.hooks).has_handlers(Some(c)) {
+        return;
+    }
+    let (core, c) = (core.clone(), c.clone());
+    tokio::spawn(async move {
+        let collection = match to_json(&c) {
+            Value::Object(map) => map,
+            _ => Map::new(),
+        };
+        let e = crate::hooks::CollectionEvent {
+            core: core.clone(),
+            collection,
+        };
+        if let Err(err) = pick(&core.hooks)
+            .trigger(Some(&c), e, |e| async { Ok(e) })
+            .await
+        {
+            tracing::error!(collection = %c.name, error = %err.message, "a collection hook failed");
+        }
+    });
+}
+
 /// `POST /api/collections`
 pub async fn create(
     State(app): State<Arc<App>>,
@@ -168,10 +221,11 @@ pub async fn create(
     auth.require_superuser()?;
     let failed = "Failed to create collection.";
 
-    let mut c = parse(body)?;
+    let c = parse(body)?;
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(&core).await?;
 
+    let mut c = before_hook(&core, &core.hooks.on_collection_create, c).await?;
     infer_view(&core, &mut c, None, "", failed).await?;
     let errors = validate::prepare(&mut c, None, &registry);
     if !errors.is_empty() {
@@ -183,6 +237,7 @@ pub async fn create(
     let saved = registry.by_id(&c.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
+    after_hook(&core, |h| &h.on_collection_after_create_success, &saved);
 
     Ok(Json(to_json(&saved)))
 }
@@ -207,7 +262,8 @@ pub async fn update(
         _ => unreachable!(),
     };
     merged.extend(body);
-    let mut new = parse(merged)?;
+    let new = parse(merged)?;
+    let mut new = before_hook(&core, &core.hooks.on_collection_update, new).await?;
 
     infer_view(&core, &mut new, Some(&old), "", failed).await?;
     let errors = validate::prepare(&mut new, Some(&old), &registry);
@@ -226,6 +282,7 @@ pub async fn update(
     let saved = registry.by_id(&new.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "updated collection");
+    after_hook(&core, |h| &h.on_collection_after_update_success, &saved);
 
     Ok(Json(to_json(&saved)))
 }
@@ -261,10 +318,13 @@ pub async fn delete(
         )));
     }
 
+    // changes are ignored: the collection is deleted
+    before_hook(&core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
     let registry = store::apply(&core.pool, Change::Delete(&c))
         .await
         .map_err(|e| write_error(e, failed))?;
     core.set_registry(registry);
+    after_hook(&core, |h| &h.on_collection_after_delete_success, &c);
     if let Err(err) = core.storage().delete_prefix(&c.id).await {
         tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
     }

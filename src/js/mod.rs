@@ -33,7 +33,8 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    BoxFuture, HookResult, Next, RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
+    BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEvent, RecordRequestEvent,
+    RecordsListEvent, RequestEvent,
 };
 use crate::records::files::Upload;
 
@@ -244,6 +245,9 @@ struct Registration {
     id: String,
     #[serde(default)]
     expression: String,
+    /// Mail hooks: the kind of email (`verification`, ...), or empty for all.
+    #[serde(default)]
+    mail: String,
 }
 
 /// The running job's channels, used by `e.next()`.
@@ -499,6 +503,7 @@ fn register(
             "recordCreate" => Some((&mut hooks.on_record_create, false)),
             "recordUpdate" => Some((&mut hooks.on_record_update, true)),
             "recordDelete" => Some((&mut hooks.on_record_delete, true)),
+            "recordValidate" => Some((&mut hooks.on_record_validate, true)),
             _ => None,
         };
         if let Some((hook, stored)) = model_hook {
@@ -506,6 +511,32 @@ fn register(
                 reg.collections,
                 Arc::new(move |e, next| {
                     Box::pin(model_event(pool.clone(), index, e, next, stored))
+                }),
+            );
+            continue;
+        }
+        let collection_hook = match reg.kind.as_str() {
+            "collectionCreate" => Some(&mut hooks.on_collection_create),
+            "collectionUpdate" => Some(&mut hooks.on_collection_update),
+            "collectionDelete" => Some(&mut hooks.on_collection_delete),
+            "collectionAfterCreateSuccess" => Some(&mut hooks.on_collection_after_create_success),
+            "collectionAfterUpdateSuccess" => Some(&mut hooks.on_collection_after_update_success),
+            "collectionAfterDeleteSuccess" => Some(&mut hooks.on_collection_after_delete_success),
+            _ => None,
+        };
+        if let Some(hook) = collection_hook {
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| Box::pin(collection_event(pool.clone(), index, e, next))),
+            );
+            continue;
+        }
+        if reg.kind == "mailerSend" {
+            let mail = reg.mail.clone();
+            hooks.on_mailer_send.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| {
+                    Box::pin(mailer_event(pool.clone(), index, mail.clone(), e, next))
                 }),
             );
             continue;
@@ -788,6 +819,98 @@ async fn model_event(
         e.record = record;
     }
     Ok(e)
+}
+
+/// A collection hook: changes to the collection are kept (create, update).
+async fn collection_event(
+    pool: Pool,
+    index: usize,
+    e: CollectionEvent,
+    next: Next<CollectionEvent>,
+) -> HookResult<CollectionEvent> {
+    let event = json!({ "collection": e.collection });
+    let core = e.core.clone();
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                if let Some(Value::Object(c)) = state.get("collection") {
+                    e.collection = c.clone();
+                }
+                let e = next.run(e).await?;
+                let out = json!({ "collection": e.collection });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot
+        .lock()
+        .expect("event lock")
+        .take()
+        .unwrap_or(CollectionEvent {
+            core,
+            collection: Map::new(),
+        });
+    if let Some(Value::Object(c)) = state.get("collection") {
+        e.collection = c.clone();
+    }
+    Ok(e)
+}
+
+/// A mail hook (`onMailerSend`, `onMailerRecordVerificationSend`, ...); `mail` limits it
+/// to one kind of email. Not calling `e.next()` skips the email.
+async fn mailer_event(
+    pool: Pool,
+    index: usize,
+    mail: String,
+    e: MailerEvent,
+    next: Next<MailerEvent>,
+) -> HookResult<MailerEvent> {
+    if !mail.is_empty() && mail != e.kind {
+        return next.run(e).await;
+    }
+    let message_json = |m: &crate::mail::Message| json!({ "to": [{ "address": m.to }], "subject": m.subject, "html": m.html });
+    let event = json!({
+        "message": message_json(&e.message),
+        "kind": e.kind,
+        "collection": e.collection.as_deref().map(collection_json),
+        "record": e.record,
+    });
+    let apply = |e: &mut MailerEvent, state: &Value| {
+        let m = &state["message"];
+        if let Some(to) = m["to"][0]["address"].as_str().or(m["to"].as_str()) {
+            e.message.to = to.to_string();
+        }
+        if let Some(subject) = m["subject"].as_str() {
+            e.message.subject = subject.to_string();
+        }
+        if let Some(html) = m["html"].as_str() {
+            e.message.html = html.to_string();
+        }
+    };
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                apply(&mut e, &state);
+                let e = next.run(e).await?;
+                let out = json!({ "message": message_json(&e.message) });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    pool.run(index, event, Some(next_fn)).await?;
+    slot.lock()
+        .expect("event lock")
+        .take()
+        .ok_or_else(|| ApiError::internal(anyhow::anyhow!("the email was lost")))
 }
 
 async fn list_request(

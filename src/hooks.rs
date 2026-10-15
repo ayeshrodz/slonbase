@@ -165,6 +165,26 @@ pub struct RequestEvent {
     pub response: Option<Response>,
 }
 
+/// A collection change, before it's applied (create, update, delete) or after it was.
+pub struct CollectionEvent {
+    pub core: Arc<Core>,
+    /// The collection as JSON (with secrets before the change, masked after it). Changes
+    /// made by a create or update handler are applied and validated like the request.
+    pub collection: Map<String, Value>,
+}
+
+/// An email about to be sent (`next` sends it; a handler that doesn't call it skips it).
+pub struct MailerEvent {
+    pub message: crate::mail::Message,
+    /// What the email is for: `verification`, `passwordReset`, `emailChange`, `otp`,
+    /// `authAlert`, or empty for other emails (test emails, hooks).
+    pub kind: String,
+    /// The auth collection and record of an auth email.
+    pub collection: Option<Arc<Collection>>,
+    /// The record without its secrets (password hash, token key).
+    pub record: Option<Map<String, Value>>,
+}
+
 /// A record that was created, updated or deleted (after its transaction committed).
 pub struct RecordEvent {
     pub core: Arc<Core>,
@@ -201,6 +221,19 @@ pub struct Hooks {
     pub on_record_create: Hook<RecordEvent>,
     pub on_record_update: Hook<RecordEvent>,
     pub on_record_delete: Hook<RecordEvent>,
+    /// Runs after a record's own validation passed, before it's written (create and
+    /// update); an error rejects the write.
+    pub on_record_validate: Hook<RecordEvent>,
+    /// Collection changes through the API, before they're applied; an error cancels them.
+    pub on_collection_create: Hook<CollectionEvent>,
+    pub on_collection_update: Hook<CollectionEvent>,
+    pub on_collection_delete: Hook<CollectionEvent>,
+    /// After a collection change was applied (run in the background).
+    pub on_collection_after_create_success: Hook<CollectionEvent>,
+    pub on_collection_after_update_success: Hook<CollectionEvent>,
+    pub on_collection_after_delete_success: Hook<CollectionEvent>,
+    /// Every email (handlers limited to collections see only auth emails of those).
+    pub on_mailer_send: Hook<MailerEvent>,
     pub on_record_after_create_success: Hook<RecordEvent>,
     pub on_record_after_update_success: Hook<RecordEvent>,
     pub on_record_after_delete_success: Hook<RecordEvent>,

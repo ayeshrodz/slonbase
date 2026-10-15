@@ -127,11 +127,15 @@ pub async fn request_otp(
                 "",
             )
         };
-        core.send_mail(mail::Message {
-            to: record.email().to_string(),
-            subject: fill(&options.email_template.subject),
-            html: fill(&options.email_template.body),
-        });
+        core.send_mail_for(
+            mail::Message {
+                to: record.email().to_string(),
+                subject: fill(&options.email_template.subject),
+                html: fill(&options.email_template.body),
+            },
+            "otp",
+            Some(&record),
+        );
     });
     Ok(Json(json!({ "otpId": otp_id })))
 }

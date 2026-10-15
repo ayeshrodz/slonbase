@@ -241,18 +241,72 @@ impl Core {
     pub async fn send_mail_now(&self, message: mail::Message) -> Result<()> {
         let mailer = self.mailer.read().expect("mailer lock").clone();
         let settings = self.settings();
-        mailer.send(&settings, message).await
+        let event = crate::hooks::MailerEvent {
+            message,
+            kind: String::new(),
+            collection: None,
+            record: None,
+        };
+        let sent = Arc::new(std::sync::Mutex::new(None));
+        let result = self
+            .hooks
+            .on_mailer_send
+            .trigger(None, event, {
+                let sent = sent.clone();
+                move |e| async move {
+                    let result = mailer.send(&settings, e.message.clone()).await;
+                    *sent.lock().expect("sent lock") = Some(result);
+                    Ok(e)
+                }
+            })
+            .await;
+        result.map_err(|e| anyhow::anyhow!(e.message))?;
+        // a handler that skipped `next` didn't send it
+        sent.lock().expect("sent lock").take().unwrap_or(Ok(()))
     }
 
     /// Sends an email in the background; failures are logged. Sending in the background
     /// also keeps response times the same whether or not an email was sent.
     pub fn send_mail(&self, message: mail::Message) {
+        self.send_mail_for(message, "", None);
+    }
+
+    /// [`Core::send_mail`] for an auth email: `kind` and the record reach the mail hooks.
+    pub(crate) fn send_mail_for(
+        &self,
+        message: mail::Message,
+        kind: &str,
+        record: Option<&crate::auth::AuthRecord>,
+    ) {
         let mailer = self.mailer.read().expect("mailer lock").clone();
         let settings = self.settings();
+        let hooks = self.hooks.clone();
+        let collection = record.map(|r| r.collection.clone());
+        let event = crate::hooks::MailerEvent {
+            message,
+            kind: kind.to_string(),
+            collection: collection.clone(),
+            record: record.map(|r| {
+                let mut values = r.values.clone();
+                values.remove(crate::collections::model::FIELD_PASSWORD);
+                values.remove(crate::collections::model::FIELD_TOKEN_KEY);
+                values
+            }),
+        };
         tokio::spawn(async move {
-            let to = message.to.clone();
-            if let Err(err) = mailer.send(&settings, message).await {
-                tracing::error!(%to, error = %format!("{err:#}"), "failed to send an email");
+            let to = event.message.to.clone();
+            let result = hooks
+                .on_mailer_send
+                .trigger(collection.as_deref(), event, move |e| async move {
+                    if let Err(err) = mailer.send(&settings, e.message.clone()).await {
+                        let to = &e.message.to;
+                        tracing::error!(%to, error = %format!("{err:#}"), "failed to send an email");
+                    }
+                    Ok(e)
+                })
+                .await;
+            if let Err(err) = result {
+                tracing::error!(%to, error = %err.message, "a mail hook failed; the email wasn't sent");
             }
         });
     }
