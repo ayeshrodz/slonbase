@@ -220,6 +220,17 @@ async fn files_in_s3() {
         original.len().to_string().as_str()
     );
 
+    // a byte range from S3 (the type still comes from the file's start)
+    let (status, headers, body) =
+        raw_request(&second, "GET", &uri, &[("range", "bytes=10-29")], vec![]).await;
+    assert_eq!(status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(body, original[10..30]);
+    assert_eq!(
+        headers["content-range"],
+        format!("bytes 10-29/{}", original.len()).as_str()
+    );
+    assert_eq!(headers["content-type"], "image/png");
+
     // thumbnails are generated once and stored next to the file
     for _ in 0..2 {
         let (status, headers, body) =

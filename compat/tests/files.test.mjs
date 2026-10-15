@@ -76,6 +76,14 @@ test("upload and serve", async () => {
   assert.equal(file.status, 200);
   assert.equal(file.body.toString(), "hello");
 
+  // byte ranges
+  const range = await fetch(url, { headers: { Range: "bytes=1-3" } });
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get("content-range"), "bytes 1-3/5");
+  assert.equal(await range.text(), "ell");
+  const beyond = await fetch(url, { headers: { Range: "bytes=10-" } });
+  assert.equal(beyond.status, 416);
+
   const image = await download(guest.files.getURL(record, png));
   assert.equal(image.type, "image/png");
   const thumb = await download(guest.files.getURL(record, png, { thumb: "10x10" }));

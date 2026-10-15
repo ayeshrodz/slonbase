@@ -16,7 +16,7 @@ use std::sync::Arc;
 use axum::Json;
 use axum::body::{Body, Bytes};
 use axum::extract::{FromRequest, Multipart, Path, Query, Request, State};
-use axum::http::{HeaderValue, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
 
@@ -607,6 +607,7 @@ pub async fn serve(
     State(app): State<Arc<App>>,
     Path((collection, record_id, filename)): Path<(String, String, String)>,
     Query(query): Query<HashMap<String, String>>,
+    headers: axum::http::HeaderMap,
     client_ip: Option<axum::Extension<crate::guard::ClientIp>>,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -686,27 +687,65 @@ pub async fn serve(
         }
     }
 
-    let object = core
-        .storage()
-        .open(&served_key)
-        .await
-        .map_err(ApiError::internal)?
-        .ok_or_else(ApiError::not_found)?;
+    let storage = core.storage();
+    // a single byte range (media players, resumed downloads); several ranges, or If-Range
+    // (files have no validators to compare), get the whole file
+    let wanted = headers
+        .get(header::RANGE)
+        .and_then(|v| v.to_str().ok())
+        .filter(|_| !headers.contains_key(header::IF_RANGE))
+        .and_then(parse_range);
+    let mut partial: Option<(u64, u64, u64)> = None;
+    if let Some(wanted) = wanted {
+        let total = storage
+            .size(&served_key)
+            .await
+            .map_err(ApiError::internal)?
+            .ok_or_else(ApiError::not_found)?;
+        match wanted.resolve(total) {
+            Some((start, end)) => partial = Some((start, end, total)),
+            None => {
+                let mut response = StatusCode::RANGE_NOT_SATISFIABLE.into_response();
+                if let Ok(v) = HeaderValue::from_str(&format!("bytes */{total}")) {
+                    response.headers_mut().insert(header::CONTENT_RANGE, v);
+                }
+                return Ok(response);
+            }
+        }
+    }
+
+    let object = match partial {
+        Some((start, end, _)) => storage.open_range(&served_key, start, end).await,
+        None => storage.open(&served_key).await,
+    }
+    .map_err(ApiError::internal)?
+    .ok_or_else(ApiError::not_found)?;
     let size = object.size;
     // fused: the head may already have read to the end
     let mut stream = object.stream.fuse();
-
-    // detect the type from the first bytes, then stream the rest
+    // the type comes from the file's first bytes, also for a range
     let mut head = Vec::new();
-    while head.len() < 8192 {
-        match stream.next().await {
-            Some(chunk) => {
-                head.extend_from_slice(&chunk.map_err(|e| ApiError::internal(e.into()))?)
+    // (for any range, so the type doesn't depend on how much of the start it covers)
+    let content_type = if partial.is_some() {
+        let mut first = Vec::new();
+        if let Ok(Some(object)) = storage.open_range(&served_key, 0, SNIFF_BYTES - 1).await {
+            let mut chunks = object.stream;
+            while let Some(Ok(chunk)) = chunks.next().await {
+                first.extend_from_slice(&chunk);
             }
-            None => break,
         }
-    }
-    let content_type = detect_mime(&head, &served_name);
+        detect_mime(&first, &served_name)
+    } else {
+        while head.len() < SNIFF_BYTES as usize {
+            match stream.next().await {
+                Some(chunk) => {
+                    head.extend_from_slice(&chunk.map_err(|e| ApiError::internal(e.into()))?)
+                }
+                None => break,
+            }
+        }
+        detect_mime(&head, &served_name)
+    };
 
     let download = query
         .get("download")
@@ -721,7 +760,14 @@ pub async fn serve(
             .chain(stream);
 
     let mut response = Body::from_stream(stream).into_response();
+    if let Some((start, end, total)) = partial {
+        *response.status_mut() = StatusCode::PARTIAL_CONTENT;
+        if let Ok(v) = HeaderValue::from_str(&format!("bytes {start}-{end}/{total}")) {
+            response.headers_mut().insert(header::CONTENT_RANGE, v);
+        }
+    }
     let headers = response.headers_mut();
+    headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     let set = |headers: &mut axum::http::HeaderMap, name, value: String| {
         if let Ok(v) = HeaderValue::from_str(&value) {
             headers.insert(name, v);
@@ -753,6 +799,60 @@ pub async fn serve(
 }
 
 use futures_util::StreamExt;
+
+/// Bytes read to detect a file's type.
+const SNIFF_BYTES: u64 = 8192;
+
+/// A requested byte range: `start-end`, `start-` or `-suffix`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ByteRange {
+    From(u64, Option<u64>),
+    Last(u64),
+}
+
+impl ByteRange {
+    /// The inclusive range within a file of `total` bytes, or `None` when it can't be served.
+    fn resolve(self, total: u64) -> Option<(u64, u64)> {
+        if total == 0 {
+            return None;
+        }
+        match self {
+            Self::From(start, end) => {
+                if start >= total {
+                    return None;
+                }
+                let end = end.unwrap_or(total - 1).min(total - 1);
+                (end >= start).then_some((start, end))
+            }
+            Self::Last(0) => None,
+            Self::Last(n) => Some((total.saturating_sub(n), total - 1)),
+        }
+    }
+}
+
+/// A `Range` header with one byte range (several ranges are served as the whole file).
+fn parse_range(raw: &str) -> Option<ByteRange> {
+    let spec = raw.trim().strip_prefix("bytes=")?.trim();
+    if spec.contains(',') {
+        return None;
+    }
+    let (start, end) = spec.split_once('-')?;
+    let (start, end) = (start.trim(), end.trim());
+    let number = |s: &str| -> Option<u64> {
+        (!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| s.parse().ok())
+            .flatten()
+    };
+    if start.is_empty() {
+        return number(end).map(ByteRange::Last);
+    }
+    let start = number(start)?;
+    if end.is_empty() {
+        return Some(ByteRange::From(start, None));
+    }
+    let end = number(end)?;
+    (end >= start).then_some(ByteRange::From(start, Some(end)))
+}
 
 fn file_field_with<'c>(c: &'c Collection, record: &Values, filename: &str) -> Option<&'c Field> {
     c.fields.iter().find(|f| {
@@ -834,6 +934,30 @@ pub async fn token(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ranges() {
+        use ByteRange::*;
+        assert_eq!(parse_range("bytes=0-99"), Some(From(0, Some(99))));
+        assert_eq!(parse_range("bytes=100-"), Some(From(100, None)));
+        assert_eq!(parse_range("bytes=-5"), Some(Last(5)));
+        for bad in [
+            "bytes=5-1",
+            "bytes=a-b",
+            "bytes=0-1,4-5",
+            "bytes=",
+            "bytes=-",
+            "items=0-1",
+            "bytes=+1-2",
+        ] {
+            assert_eq!(parse_range(bad), None, "{bad}");
+        }
+        assert_eq!(From(0, Some(99)).resolve(50), Some((0, 49)));
+        assert_eq!(From(50, None).resolve(50), None);
+        assert_eq!(Last(10).resolve(5), Some((0, 4)));
+        assert_eq!(Last(0).resolve(5), None);
+        assert_eq!(From(0, None).resolve(0), None);
+    }
 
     #[test]
     fn names() {

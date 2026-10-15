@@ -398,7 +398,11 @@ between text formats, so a text file named `x.png` is rejected by an `image/png`
   once, off the async threads, with decoding limits (12,000 px, 256 MiB) against decompression
   bombs.
 
-**Not yet:** HTTP range requests, and deleting the files of a removed file field.
+Single byte ranges (`Range: bytes=a-b`, `a-`, `-n`) are answered with `206` (seeking on disk,
+a `Range` GET on S3), with the type sniffed from the file's start like a full response; several
+ranges or `If-Range` get the whole file, an unsatisfiable range `416`.
+
+**Not yet:** deleting the files of a removed file field.
 
 ### Phase 3: S3 storage
 

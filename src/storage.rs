@@ -127,6 +127,43 @@ impl Storage {
         }
     }
 
+    /// The size of a file, or `None` when it doesn't exist.
+    pub async fn size(&self, key: &str) -> Result<Option<u64>> {
+        check_key(key)?;
+        match self {
+            Self::Local(local) => match tokio::fs::metadata(local.path(key)).await {
+                Ok(meta) => Ok(Some(meta.len())),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e.into()),
+            },
+            Self::S3(client) => client.size(key).await,
+            Self::Unavailable(message) => Err(Self::unavailable(message)),
+        }
+    }
+
+    /// Opens bytes `start..=end` of a file (`size` is the length of that range).
+    pub async fn open_range(&self, key: &str, start: u64, end: u64) -> Result<Option<Object>> {
+        check_key(key)?;
+        anyhow::ensure!(start <= end, "invalid range");
+        let len = end - start + 1;
+        match self {
+            Self::Local(local) => match tokio::fs::File::open(local.path(key)).await {
+                Ok(mut file) => {
+                    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+                    file.seek(std::io::SeekFrom::Start(start)).await?;
+                    Ok(Some(Object {
+                        size: len,
+                        stream: Box::pin(file_chunks(file.take(len))),
+                    }))
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(e.into()),
+            },
+            Self::S3(client) => client.open_range(key, start, end).await,
+            Self::Unavailable(message) => Err(Self::unavailable(message)),
+        }
+    }
+
     pub async fn exists(&self, key: &str) -> Result<bool> {
         check_key(key)?;
         match self {
@@ -283,9 +320,9 @@ impl Local {
     }
 }
 
-/// Streams a file in 64 KiB chunks.
-pub(crate) fn file_chunks(
-    file: tokio::fs::File,
+/// Streams a file (or any reader) in 64 KiB chunks.
+pub(crate) fn file_chunks<R: tokio::io::AsyncRead + Unpin + Send>(
+    file: R,
 ) -> impl Stream<Item = std::io::Result<Bytes>> + Send {
     futures_util::stream::unfold(file, |mut file| async move {
         use tokio::io::AsyncReadExt;

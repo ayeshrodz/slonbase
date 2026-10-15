@@ -252,6 +252,60 @@ impl Client {
         Ok(Some(Object { size, stream }))
     }
 
+    /// The size of an object, or `None` when it doesn't exist.
+    pub async fn size(&self, key: &str) -> Result<Option<u64>> {
+        let response = self
+            .send(
+                Method::HEAD,
+                key,
+                &[],
+                Payload::Empty,
+                &[],
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        // a HEAD response has no body: its length is the object's
+        let size = response
+            .headers()
+            .get(reqwest::header::CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or_default();
+        ensure_success(response, "check").await?;
+        Ok(Some(size))
+    }
+
+    /// Opens bytes `start..=end` of an object for streaming.
+    pub async fn open_range(&self, key: &str, start: u64, end: u64) -> Result<Option<Object>> {
+        let response = self
+            .send(
+                Method::GET,
+                key,
+                &[],
+                Payload::Empty,
+                &[("range", format!("bytes={start}-{end}"))],
+                None,
+            )
+            .await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+        if !response.status().is_success() {
+            ensure_success(response, "download").await?;
+            bail!("unreachable: the response was an error");
+        }
+        let size = response.content_length().unwrap_or_default();
+        let stream: ByteStream = Box::pin(
+            response
+                .bytes_stream()
+                .map(|chunk| chunk.map_err(std::io::Error::other)),
+        );
+        Ok(Some(Object { size, stream }))
+    }
+
     pub async fn exists(&self, key: &str) -> Result<bool> {
         let response = self
             .send(

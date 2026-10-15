@@ -399,3 +399,70 @@ async fn protected_files() {
 
     env.tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn byte_ranges() {
+    let Some(env) = setup().await else { return };
+    let content: Vec<u8> = (0..20_000u32).map(|i| (i % 251) as u8).collect();
+    let (status, record) = env
+        .upload(
+            "POST",
+            "/api/collections/docs/records",
+            &[("title", "ranges")],
+            &[("files", "data.bin", &content)],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    let id = record["id"].as_str().unwrap();
+    let name = record["files"][0].as_str().unwrap();
+    let uri = format!("/api/files/docs/{id}/{name}");
+    let get = |range: &'static str| {
+        let uri = uri.clone();
+        let env = &env;
+        async move { raw_request(&env.app, "GET", &uri, &[("range", range)], vec![]).await }
+    };
+
+    // the whole file says that ranges are accepted
+    let (status, headers, bytes) = env.get(&uri).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(headers["accept-ranges"], "bytes");
+    assert_eq!(bytes, content);
+
+    for (range, start, end) in [
+        ("bytes=0-99", 0, 99),
+        ("bytes=10000-10009", 10_000, 10_009),
+        ("bytes=19990-", 19_990, 19_999),
+        ("bytes=-5", 19_995, 19_999),
+        ("bytes=19000-999999", 19_000, 19_999),
+    ] {
+        let (status, headers, bytes) = get(range).await;
+        assert_eq!(status, StatusCode::PARTIAL_CONTENT, "{range}");
+        assert_eq!(
+            headers["content-range"],
+            format!("bytes {start}-{end}/20000").as_str(),
+            "{range}"
+        );
+        assert_eq!(
+            headers["content-length"],
+            (end - start + 1).to_string().as_str()
+        );
+        assert_eq!(bytes, content[start..=end], "{range}");
+        // the type is the file's, wherever the range starts
+        assert_eq!(
+            headers["content-type"], "application/octet-stream",
+            "{range}"
+        );
+    }
+
+    let (status, headers, _) = get("bytes=20000-").await;
+    assert_eq!(status, StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(headers["content-range"], "bytes */20000");
+
+    // several ranges, or a malformed header: the whole file
+    for range in ["bytes=0-1,5-6", "bytes=abc", "items=0-1"] {
+        let (status, _, bytes) = get(range).await;
+        assert_eq!(status, StatusCode::OK, "{range}");
+        assert_eq!(bytes.len(), 20_000, "{range}");
+    }
+    env.tdb.drop_db().await;
+}
