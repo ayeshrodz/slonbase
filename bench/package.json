@@ -1,0 +1,9 @@
+{
+  "name": "slonbase-bench",
+  "private": true,
+  "description": "Benchmarks slonbase and PocketBase on the same workloads.",
+  "type": "module",
+  "dependencies": {
+    "pocketbase": "0.28.1"
+  }
+}
