@@ -784,7 +784,9 @@ the file.
   against the PocketBase release (checksum-verified), so an expectation only stays if PocketBase
   meets it too. Known, deliberate differences are left out of the shared assertions: emails are
   unique regardless of case in slonbase (PocketBase compares them as written).
-- Planned: benchmarks against PocketBase.
+- Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase and PocketBase,
+  with the server and the load generator on separate CPUs; results and how to read them are in
+  [bench/README.md](../bench/README.md).
 
 ## Roadmap
 

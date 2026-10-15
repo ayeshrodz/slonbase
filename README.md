@@ -433,6 +433,9 @@ cargo build && DATABASE_URL='postgres://...an empty database...' compat/run.sh s
 POCKETBASE_BIN=/path/to/pocketbase compat/run.sh pocketbase
 ```
 
+[bench/](bench/) compares slonbase and PocketBase on the same workloads; see
+[bench/README.md](bench/README.md) for the results.
+
 Packages are built with [nfpm](https://nfpm.goreleaser.com):
 
 ```sh
