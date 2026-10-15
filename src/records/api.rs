@@ -890,6 +890,7 @@ pub(crate) async fn delete_in(
 
     let mut visited = HashSet::new();
     delete_with_references(
+        ctx.core,
         tx,
         ctx.registry,
         c.clone(),
@@ -1185,7 +1186,9 @@ type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// Deletes a record after handling the relation fields pointing to it:
 /// cascade-delete fields delete the referencing records, other fields drop the id,
 /// and required fields that would become empty block the delete.
+#[allow(clippy::too_many_arguments)]
 fn delete_with_references<'b>(
+    core: &'b Arc<Core>,
     tx: &'b Transaction<'_>,
     registry: &'b Registry,
     c: Arc<Collection>,
@@ -1237,7 +1240,38 @@ fn delete_with_references<'b>(
                     .map_err(db_error)?;
                 for row in rows {
                     let ref_id: String = row.get(0);
+                    // a cascaded delete runs the model hook too (an error cancels it all)
+                    if core.hooks.on_record_delete.has_handlers(Some(&other)) {
+                        let stored = all_fields(&other);
+                        let found = tx
+                            .query_opt(
+                                &format!(
+                                    "SELECT {} FROM {table} {ALIAS} WHERE {ALIAS}.id = $1::text",
+                                    select_list(&stored)
+                                ),
+                                &[&ref_id],
+                            )
+                            .await
+                            .map_err(db_error)?;
+                        if let Some(found) = found {
+                            let mut record = row_values(&stored, &found);
+                            record.remove(FIELD_PASSWORD);
+                            for key in SECRET_FIELDS {
+                                record.remove(key);
+                            }
+                            let e = crate::hooks::RecordEvent {
+                                core: core.clone(),
+                                collection: other.clone(),
+                                record,
+                            };
+                            core.hooks
+                                .on_record_delete
+                                .trigger(Some(&other), e, |e| async { Ok(e) })
+                                .await?;
+                        }
+                    }
                     delete_with_references(
+                        core,
                         tx,
                         registry,
                         other.clone(),
@@ -1475,8 +1509,17 @@ pub async fn truncate(
     let mut visited = HashSet::new();
     let mut changes = Vec::new();
     for id in ids {
-        delete_with_references(&tx, &registry, c.clone(), id, 0, &mut visited, &mut changes)
-            .await?;
+        delete_with_references(
+            &core,
+            &tx,
+            &registry,
+            c.clone(),
+            id,
+            0,
+            &mut visited,
+            &mut changes,
+        )
+        .await?;
     }
     tx.commit().await.map_err(db_error)?;
     Hooks::committed(&core, changes);

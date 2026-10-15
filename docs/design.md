@@ -679,7 +679,7 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   the final values (no secrets); its changes are ignored, an error rejects the write.
 - Collection hooks run in the collections API under the schema lock: the handlers get the full
   serialization (the one updates merge into), and what they return is parsed and goes through
-  `validate::prepare` like the request, with the id kept. Imports don't run them. The after-success
+  `validate::prepare` like the request, with the id kept. Imports run them for each collection they create, update or delete. The after-success
   hooks get the saved collection (secrets masked) in a background task.
 - Mail: every email goes through `Core::send_mail_for`/`send_mail_now`, which run `on_mailer_send`
   around the mailer; auth emails pass their kind and record (without the password hash and token

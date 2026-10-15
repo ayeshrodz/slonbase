@@ -47,6 +47,11 @@ onCollectionAfterCreateSuccess((e) => {
   e.next();
 });
 
+onRecordDelete((e) => {
+  if (e.record.getBool("pinned")) throw new BadRequestError("A pinned child can't go.");
+  e.next();
+}, "children");
+
 onMailerSend((e) => {
   e.message.subject = "[app] " + e.message.subject;
   e.next();
@@ -276,6 +281,131 @@ async fn validate_collection_and_mail_hooks() {
         "{}",
         sent[0].html
     );
+
+    // collection imports run the collection hooks too
+    let (status, res) = request(
+        &app,
+        "PUT",
+        "/api/collections/import",
+        &admin,
+        Some(json!({
+            "collections": [{ "name": "tmp_imported", "type": "base", "fields": [] }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert_eq!(res["message"], "No temporary collections.");
+    let (status, res) = request(
+        &app,
+        "PUT",
+        "/api/collections/import",
+        &admin,
+        Some(json!({
+            "collections": [{ "name": "imported", "type": "base", "listRule": null, "fields": [] }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (_, imported) = request(&app, "GET", "/api/collections/imported", &admin, None).await;
+    assert_eq!(
+        imported["listRule"], "",
+        "the create hook changed the imported collection"
+    );
+    let mut seen = false;
+    for _ in 0..100 {
+        let (_, list) = request(
+            &app,
+            "GET",
+            "/api/collections/events/records?filter=message%3D%22created%20imported%22",
+            &[],
+            None,
+        )
+        .await;
+        if list["totalItems"] == 1 {
+            seen = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    assert!(seen, "the after-create hook ran for the import");
+
+    // cascaded deletes run the delete hook of the cascaded records
+    let (status, parents) = request(
+        &app,
+        "POST",
+        "/api/collections",
+        &admin,
+        Some(json!({
+            "name": "parents", "listRule": "", "viewRule": "", "createRule": "", "deleteRule": "",
+            "fields": [{ "name": "name", "type": "text" }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{parents}");
+    let (status, res) = request(&app, "POST", "/api/collections", &admin, Some(json!({
+        "name": "children", "listRule": "", "viewRule": "", "createRule": "", "deleteRule": "",
+        "fields": [
+            { "name": "pinned", "type": "bool" },
+            { "name": "parent", "type": "relation", "collectionId": parents["id"], "maxSelect": 1, "cascadeDelete": true },
+        ],
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let create = |collection: &'static str, body: serde_json::Value| {
+        let app = app.clone();
+        async move {
+            let (status, res) = request(
+                &app,
+                "POST",
+                &format!("/api/collections/{collection}/records"),
+                &[],
+                Some(body),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+            res["id"].as_str().unwrap().to_string()
+        }
+    };
+    let keep = create("parents", json!({ "name": "keep" })).await;
+    create("children", json!({ "parent": keep, "pinned": true })).await;
+    let (status, res) = request(
+        &app,
+        "DELETE",
+        &format!("/api/collections/parents/records/{keep}"),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert_eq!(res["message"], "A pinned child can't go.");
+    let (status, _) = request(
+        &app,
+        "GET",
+        &format!("/api/collections/parents/records/{keep}"),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "the parent stays");
+    let gone = create("parents", json!({ "name": "gone" })).await;
+    let child = create("children", json!({ "parent": gone, "pinned": false })).await;
+    let (status, _) = request(
+        &app,
+        "DELETE",
+        &format!("/api/collections/parents/records/{gone}"),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, _) = request(
+        &app,
+        "GET",
+        &format!("/api/collections/children/records/{child}"),
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "the child went with it");
 
     drop(core);
     drop(app);

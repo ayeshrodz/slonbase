@@ -380,8 +380,8 @@ Model hooks run for every write (the API, batches, `$app.save` and the Rust reco
 the record is written, inside its transaction: changes to `e.record` are written, and throwing an
 error cancels the write. The record is written once the handlers return, so code after `e.next()`
 still sees it unsaved; use `onRecordAfter*Success` for work after the write. Don't write the same
-record through `$app` from its own model hook (change `e.record` instead), and note that records
-deleted by a cascade don't run `onRecordDelete`.
+record through `$app` from its own model hook (change `e.record` instead). Records deleted by a cascade run `onRecordDelete` too (a handler's error cancels the
+whole delete).
 
 Uploaded and `$filesystem` files can be set on a file field before `$app.save(record)`; mixed with
 stored file names, the names are kept and the files appended. Files are limited to 32 MiB, and
@@ -391,7 +391,7 @@ When the hook files change, slonbase restarts itself (the same process, re-execu
 arguments, after up to 5 seconds for open requests); turn this off with `hooks.watch = false`.
 `onRecordValidate` runs on every create and update after the built-in validation passed; throw
 (e.g. a `BadRequestError` with field data) to reject the record. Collection hooks run for changes
-made through the collections API (not imports): `e.collection` is the collection's JSON, which
+made through the collections API, imports included: `e.collection` is the collection's JSON, which
 create and update handlers may change before it's validated and applied. Mail hooks see
 `e.message` (`to`, `subject`, `html`) and, for auth emails, `e.record` and `e.kind`; a handler that
 doesn't call `e.next()` skips the email. Build with `--no-default-features` to leave the JavaScript

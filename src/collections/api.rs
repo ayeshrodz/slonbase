@@ -564,6 +564,13 @@ pub(crate) async fn import_definitions(
             }
             None => {}
         }
+        // the collection hooks, as for single changes
+        let hook = if old.is_some() {
+            &core.hooks.on_collection_update
+        } else {
+            &core.hooks.on_collection_create
+        };
+        let mut c = before_hook(core, hook, c).await?;
         infer_view(
             core,
             &mut c,
@@ -608,6 +615,9 @@ pub(crate) async fn import_definitions(
         return Err(ApiError::invalid_data(failed, &errors));
     }
 
+    for c in &deleted {
+        before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+    }
     let mut changes: Vec<Change> = deleted.iter().map(|c| Change::Delete(c)).collect();
     for (old, new) in &pairs {
         changes.push(match old {
@@ -619,6 +629,19 @@ pub(crate) async fn import_definitions(
     let registry = store::apply_all(&core.pool, changes)
         .await
         .map_err(|e| write_error(e, failed))?;
+    for (old, new) in &pairs {
+        let Some(saved) = registry.by_id(&new.id) else {
+            continue;
+        };
+        match old {
+            Some(old) if old.as_ref() == new => {}
+            Some(_) => after_hook(core, |h| &h.on_collection_after_update_success, saved),
+            None => after_hook(core, |h| &h.on_collection_after_create_success, saved),
+        }
+    }
+    for c in &deleted {
+        after_hook(core, |h| &h.on_collection_after_delete_success, c);
+    }
     core.set_registry(registry);
     for c in &deleted {
         if let Err(err) = core.storage().delete_prefix(&c.id).await {
