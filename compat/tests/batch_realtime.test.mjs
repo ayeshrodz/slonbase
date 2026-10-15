@@ -99,3 +99,41 @@ test("realtime subscriptions", async () => {
   await stopFiltered();
   listener.realtime.unsubscribe();
 });
+
+test("realtime events with expand", async () => {
+  const people = uid("people");
+  const notes = uid("notes");
+  const peopleC = await pb.collections.create({
+    name: people,
+    listRule: "",
+    viewRule: "",
+    fields: [{ name: "name", type: "text" }],
+  });
+  await pb.collections.create({
+    name: notes,
+    listRule: "",
+    viewRule: "",
+    createRule: "",
+    fields: [
+      { name: "text", type: "text" },
+      { name: "owner", type: "relation", collectionId: peopleC.id, maxSelect: 1 },
+    ],
+  });
+  try {
+    const ann = await pb.collection(people).create({ name: "Ann" });
+    const listener = client();
+    const events = [];
+    const stop = await listener
+      .collection(notes)
+      .subscribe("*", (e) => events.push(e.record), { expand: "owner" });
+    await client().collection(notes).create({ text: "hello", owner: ann.id });
+    await eventually(() => events.length >= 1);
+    assert.equal(events[0].text, "hello");
+    assert.equal(events[0].expand?.owner?.name, "Ann", JSON.stringify(events[0]));
+    await stop();
+    listener.realtime.unsubscribe();
+  } finally {
+    await pb.collections.delete(notes).catch(() => {});
+    await pb.collections.delete(people).catch(() => {});
+  }
+});

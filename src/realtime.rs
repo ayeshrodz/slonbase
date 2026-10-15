@@ -435,7 +435,7 @@ pub async fn dispatch(core: &Core, collection_id: &str, action: Action, record: 
             Ok(results) => {
                 for (target, access) in chunk.iter().zip(results) {
                     if let Some(email_visible) = access {
-                        deliver(core, &c, action, &record, target, email_visible);
+                        deliver(core, &c, action, &record, target, email_visible).await;
                     }
                 }
             }
@@ -444,6 +444,16 @@ pub async fn dispatch(core: &Core, collection_id: &str, action: Action, record: 
             }
         }
     }
+}
+
+/// The request a subscription's events are checked and expanded as.
+fn target_request(core: &Core, target: &Target) -> RequestInfo {
+    let mut request = RequestInfo::new("GET");
+    request.registry = Some(core.registry());
+    request.auth = target.auth.info();
+    request.query = target.topic.query.clone();
+    request.headers = target.topic.headers.clone();
+    request
 }
 
 /// For each target: `None` if it may not see the record, else whether the email is visible.
@@ -476,11 +486,7 @@ async fn check_access(
     let mut selects = Vec::new();
     let mut allowed_at_all = Vec::new();
     for target in targets {
-        let mut request = RequestInfo::new("GET");
-        request.registry = Some(core.registry());
-        request.auth = target.auth.info();
-        request.query = target.topic.query.clone();
-        request.headers = target.topic.headers.clone();
+        let request = target_request(core, target);
 
         let action = if target.topic.record_id.is_some() {
             RuleAction::View
@@ -544,9 +550,9 @@ async fn check_access(
         .collect())
 }
 
-fn deliver(
+async fn deliver(
     core: &Core,
-    c: &Collection,
+    c: &Arc<Collection>,
     action: Action,
     record: &Values,
     target: &Target,
@@ -562,7 +568,32 @@ fn deliver(
     if c.is_auth() && !email_visible {
         values.remove(crate::collections::model::FIELD_EMAIL);
     }
-    let record = pick_fields(record_json(c, values), target.topic.query.get("fields"));
+    let mut record = record_json(c, values);
+    // `expand` in the subscription's options, with the subscriber's rules for related records
+    if target
+        .topic
+        .query
+        .get("expand")
+        .is_some_and(|e| !e.trim().is_empty())
+    {
+        let request = target_request(core, target);
+        match crate::records::api::respond(
+            core,
+            &target.auth,
+            &request,
+            c,
+            record.clone(),
+            &target.topic.query,
+        )
+        .await
+        {
+            Ok(expanded) => record = expanded,
+            Err(err) => {
+                tracing::debug!(error = %err.message, "realtime expand failed; sending the record as is")
+            }
+        }
+    }
+    let record = pick_fields(record, target.topic.query.get("fields"));
     let message = Message {
         event: target.topic.raw.clone(),
         data: json!({ "action": action.as_str(), "record": record }).to_string(),

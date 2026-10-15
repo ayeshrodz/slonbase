@@ -337,7 +337,10 @@ record values, so delete events can be checked after the row is gone. The query 
 Hidden fields go only to superusers, and secrets go to no one. A client whose buffer (512
 events) fills up is disconnected.
 
-**Not yet:** `expand` in events, and events for changes made outside the
+`expand` in a subscription's options is applied to each event with the subscriber's auth and
+rules for the related records (the same expansion as the records API).
+
+**Not yet:** events for changes made outside the
 records API (auth flows that set `verified` or the password, or direct SQL).
 
 ### Phase 3: relation paths and expand
