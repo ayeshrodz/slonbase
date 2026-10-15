@@ -130,8 +130,50 @@ jobs:
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/run.sh ${{ matrix.target }}
 
+  # PocketBase data (seeded through its API, then its backup) imported into slonbase
+  import:
+    name: PocketBase import
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      POCKETBASE_VERSION: "0.40.5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: compat/package-lock.json
+      - run: npm ci
+        working-directory: compat
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - name: Download PocketBase
+        run: |
+          base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
+          zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
+          mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
+          curl -fsSLO "$base/$zip"
+          curl -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          unzip -q "$zip" pocketbase
+          echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
+      - run: compat/import/run.sh
+
   package:
-    needs: [lint, test, compat]
+    needs: [lint, test, compat, import]
     uses: ./.github/workflows/package.yml
     with:
       version: ""

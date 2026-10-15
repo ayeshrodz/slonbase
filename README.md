@@ -161,6 +161,35 @@ everything has a 3 minute timeout.
 | `slonbase serve` | Start the server (default). |
 | `slonbase setup` | Set up without the web wizard. |
 | `slonbase health` | Exit 0 if the local server is healthy (used by the Docker health check). |
+| `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation (see below). |
+
+### Migrating from PocketBase
+
+```sh
+slonbase setup --database-url 'postgres://...' --email you@example.com   # once
+slonbase import-pocketbase /path/to/pb_data      # or a PocketBase backup .zip
+slonbase serve
+```
+
+The importer reads PocketBase 0.23+ data (`data.db` and `storage/`) without changing it, and
+brings over:
+- collections with their ids, fields, rules, indexes and auth options (OAuth2 providers,
+  templates, MFA/OTP settings);
+- records with their ids and timestamps, including password hashes, so users sign in with their
+  passwords as before (both use bcrypt);
+- superusers (except emails slonbase already has), OAuth2 account links, files (thumbnails are
+  made again on request) and settings (SMTP, S3, backups, rate limits, ...).
+
+Stop PocketBase first, and import into an installation that doesn't have those collections yet.
+Things it can't carry over are reported instead of failing the import:
+- view collections whose queries use SQLite-only SQL (`strftime`, ...): recreate them with a
+  PostgreSQL query;
+- settings encrypted with `PB_ENCRYPTION`: set them again in the dashboard;
+- files kept in S3 by PocketBase: copy them to slonbase's storage under the same
+  `{collectionId}/{recordId}/` keys.
+
+Records are written directly: hooks and realtime events don't run for them. The import is
+tested end to end in CI against the PocketBase release (`compat/import/run.sh`).
 
 ## API
 

@@ -99,6 +99,16 @@ enum Command {
     },
     /// Check that a local server is healthy (exit code 0) - for container health checks.
     Health,
+    /// Import a PocketBase installation (a pb_data directory or a backup zip): collections,
+    /// records with their password hashes, superusers, OAuth2 links, files and settings.
+    /// Run it with the server stopped, against a database without those collections.
+    ImportPocketbase {
+        /// The pb_data directory (with data.db) or a PocketBase backup zip.
+        source: std::path::PathBuf,
+        /// Don't import PocketBase's settings (SMTP, S3, ...).
+        #[arg(long)]
+        no_settings: bool,
+    },
 }
 
 /// Runs the command line (`serve`, `setup`, `health`) with the given extensions. Logs go
@@ -156,6 +166,36 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         Command::Health => {
             let loaded = config::load(&cli.config, overrides)?;
             server::check_local_health(&loaded.effective.server.bind).await
+        }
+        Command::ImportPocketbase {
+            source,
+            no_settings,
+        } => {
+            // the operator already has the database: view queries may be created
+            let loaded = config::load(
+                &cli.config,
+                Overrides {
+                    sql_console: Some(true),
+                    ..overrides
+                },
+            )?;
+            let cfg = &loaded.effective;
+            let url = cfg.database.url.clone().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no database configured: run `slonbase setup` first, or pass --database-url"
+                )
+            })?;
+            let pool = db::connect(&url, &cfg.database)?;
+            crate::migrations::run(&pool).await?;
+            let core = crate::core::Core::load(
+                pool,
+                cfg,
+                std::sync::Arc::new(crate::hooks::Hooks::default()),
+            )
+            .await?;
+            let report = crate::import_pb::run(&core, &source, !no_settings).await?;
+            print!("{report}");
+            Ok(())
         }
         Command::Setup { email, password } => {
             // a URL given on the command line is meant to be saved,

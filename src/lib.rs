@@ -37,6 +37,7 @@ pub mod guard;
 pub mod hooks;
 pub mod http;
 pub mod ids;
+pub mod import_pb;
 pub mod ip;
 #[cfg(feature = "js")]
 pub mod js;

@@ -701,6 +701,29 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   record's first known device. The last 5 are kept; a failure here is logged and never blocks
   the sign-in. Unlike PocketBase, origins aren't a `_authOrigins` collection yet.
 
+### PocketBase import
+
+- `slonbase import-pocketbase` opens PocketBase's `data.db` read-only with `rusqlite` (SQLite
+  bundled, so nothing to install) on a blocking thread; a backup zip is extracted to a
+  temporary directory first. Nothing in the PocketBase data is written.
+- The schema goes through the collections import (`import_definitions`, shared with
+  `PUT /api/collections/import`): `_collections` rows become PocketBase's API JSON (the row's
+  columns over its `options`), base and auth collections in one transaction, then each view on
+  its own, so a view with SQLite-only SQL is reported and skipped instead of failing everything.
+  The CLI process runs with the SQL console on: the operator already holds the database.
+- Records are read in `rowid` order (chunks of 500) and inserted with multi-row `INSERT`s, one
+  transaction per collection, values converted by field type (0/1 booleans, JSON text for
+  multi-value fields, ...) and written with the usual casts. Hooks, validation and realtime
+  events are skipped on purpose: this is a copy of data that was valid in PocketBase. Superusers
+  and `_externalAuths` rows use `ON CONFLICT DO NOTHING`.
+- Files are copied (read and put, never moved) under the same keys; thumbnails and
+  `.attrs` files are left out. Settings (a JSON blob in `_params`) go through the settings
+  update, section by section of a known list.
+- Two general fixes came out of it: indexes may be partial (PocketBase's auth collections have
+  `... WHERE email != ''`; the condition is parsed and re-emitted, columns compared with
+  literals only), and JSON numbers round-trip exactly (`serde_json`'s `float_roundtrip`;
+  without it `23.400000000000002` read back as `23.4`).
+
 ### Planned
 
 - **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
@@ -784,6 +807,10 @@ the file.
   against the PocketBase release (checksum-verified), so an expectation only stays if PocketBase
   meets it too. Known, deliberate differences are left out of the shared assertions: emails are
   unique regardless of case in slonbase (PocketBase compares them as written).
+- PocketBase import (`compat/import/run.sh`): seeds a real PocketBase through the SDK (most field
+  types, relations, an auth collection, files, an OAuth2 link, two views), snapshots it through
+  its API, imports its backup zip into a fresh slonbase and checks the snapshot through
+  slonbase's API, including sign-ins with the old passwords.
 - Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase and PocketBase,
   with the server and the load generator on separate CPUs; results and how to read them are in
   [bench/README.md](../bench/README.md).

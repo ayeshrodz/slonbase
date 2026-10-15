@@ -512,9 +512,20 @@ pub async fn import(
             return Err(ApiError::invalid_data(failed, &errors));
         }
     };
+    import_definitions(&core, items, delete_missing).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
 
+/// Creates or updates collections from their PocketBase JSON definitions (and deletes the
+/// other non-system collections with `delete_missing`), all in one transaction.
+pub(crate) async fn import_definitions(
+    core: &Arc<Core>,
+    items: Vec<Value>,
+    delete_missing: bool,
+) -> Result<(), ApiError> {
+    let failed = "Failed to import collections.";
     let _guard = core.schema_lock.lock().await;
-    let registry = fresh_registry(&core).await?;
+    let registry = fresh_registry(core).await?;
 
     // the imported definitions, merged over the stored ones they match
     let mut pairs: Vec<(Option<Arc<Collection>>, Collection)> = Vec::new();
@@ -554,7 +565,7 @@ pub async fn import(
             None => {}
         }
         infer_view(
-            &core,
+            core,
             &mut c,
             old.as_deref(),
             &format!("collections.{i}."),
@@ -619,5 +630,5 @@ pub async fn import(
         deleted = deleted.len(),
         "imported collections"
     );
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok(())
 }

@@ -9,7 +9,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::GenericClient;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use crate::app::App;
 use crate::auth::RequestAuth;
@@ -422,7 +422,16 @@ pub async fn update(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
+    let settings = apply_patch(&core, body).await?;
+    Ok(Json(settings.public_json()))
+}
 
+/// Merges `body` (sections of settings) into the current settings, validates and saves them
+/// and tells the other instances.
+pub(crate) async fn apply_patch(
+    core: &crate::core::Core,
+    body: Map<String, Value>,
+) -> Result<Settings, ApiError> {
     let current = core.settings();
     let mut merged = serde_json::to_value(current.as_ref()).expect("settings serialize");
     for (section, value) in body {
@@ -457,7 +466,7 @@ pub async fn update(
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(settings.clone());
-    Ok(Json(settings.public_json()))
+    Ok(settings)
 }
 
 fn invalid_field(key: &str, message: &str) -> ApiError {
