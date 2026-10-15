@@ -1,3 +1,4 @@
 node_modules/
 .run/
 results/*.json
+results/*.raw.jsonl
