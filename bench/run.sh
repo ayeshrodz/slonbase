@@ -72,7 +72,7 @@ scenarios=(
   "list 30, filtered|32|GET|${records}?perPage=30&filter=${filter}||"
   "list 30, expand author|32|GET|${records}?perPage=30&expand=author||"
   "list 30, signed in|32|GET|${records}?perPage=30||Authorization: ${token}"
-  "create record|32|POST|${records}|{\"title\":\"bench\",\"body\":\"text\",\"views\":5,\"published\":true}|"
+  "create record|32|POST|${BENCH_URL}/api/collections/writes/records|{\"title\":\"bench\",\"body\":\"text\",\"views\":5,\"published\":true}|"
   "sign in (bcrypt)|8|POST|${BENCH_URL}/api/collections/bench_users/auth-with-password|{\"identity\":\"bench@example.com\",\"password\":\"bench-password-1\"}|"
 )
 

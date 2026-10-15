@@ -34,6 +34,18 @@ async function main() {
     ],
     indexes: ["CREATE INDEX idx_posts_views ON posts (views)"],
   });
+  // the write scenario's own collection, so writes don't change what the read scenarios see
+  await pb.collections.create({
+    name: "writes",
+    ...open,
+    fields: [
+      { name: "title", type: "text", required: true },
+      { name: "body", type: "text" },
+      { name: "views", type: "number" },
+      { name: "published", type: "bool" },
+      { name: "created", type: "autodate", onCreate: true },
+    ],
+  });
   await pb.collections.create({
     name: "bench_users",
     type: "auth",
