@@ -161,6 +161,7 @@ everything has a 3 minute timeout.
 | `slonbase serve` | Start the server (default). |
 | `slonbase setup` | Set up without the web wizard. |
 | `slonbase health` | Exit 0 if the local server is healthy (used by the Docker health check). |
+| `slonbase superuser upsert\|update\|delete\|otp ...` | Manage superusers from the command line; `otp <email>` prints a one-time password (to sign in with MFA when emails can't be sent). |
 | `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation (see below). |
 
 ### Migrating from PocketBase

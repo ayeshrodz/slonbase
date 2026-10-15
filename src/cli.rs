@@ -80,6 +80,19 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+enum SuperuserAction {
+    /// Create a superuser, or set the password of the one with this email.
+    Upsert { email: String, password: String },
+    /// Set the password of an existing superuser (signs out its sessions).
+    Update { email: String, password: String },
+    /// Delete a superuser (the last one can't be deleted).
+    Delete { email: String },
+    /// Print a one-time password for a superuser, to sign in when emails can't be sent
+    /// (for example to pass multi-factor auth). OTPs must be on for _superusers.
+    Otp { email: String },
+}
+
+#[derive(Subcommand)]
 enum Command {
     /// Start the server (default).
     Serve {
@@ -99,6 +112,11 @@ enum Command {
     },
     /// Check that a local server is healthy (exit code 0) - for container health checks.
     Health,
+    /// Manage superusers from the command line (with the database of the config).
+    Superuser {
+        #[command(subcommand)]
+        action: SuperuserAction,
+    },
     /// Import a PocketBase installation (a pb_data directory or a backup zip): collections,
     /// records with their password hashes, superusers, OAuth2 links, files and settings.
     /// Run it with the server stopped, against a database without those collections.
@@ -117,9 +135,13 @@ pub async fn run(extensions: Extensions) -> ExitCode {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
     let _ = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer().with_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        ))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_filter(
+                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+                ),
+        )
         // warnings and errors also go to the logs shown in the dashboard
         .with(crate::logs::AppLogsLayer)
         .try_init();
@@ -172,30 +194,21 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
             no_settings,
         } => {
             // the operator already has the database: view queries may be created
-            let loaded = config::load(
+            let core = offline_core(
                 &cli.config,
                 Overrides {
                     sql_console: Some(true),
                     ..overrides
                 },
-            )?;
-            let cfg = &loaded.effective;
-            let url = cfg.database.url.clone().ok_or_else(|| {
-                anyhow::anyhow!(
-                    "no database configured: run `slonbase setup` first, or pass --database-url"
-                )
-            })?;
-            let pool = db::connect(&url, &cfg.database)?;
-            crate::migrations::run(&pool).await?;
-            let core = crate::core::Core::load(
-                pool,
-                cfg,
-                std::sync::Arc::new(crate::hooks::Hooks::default()),
             )
             .await?;
             let report = crate::import_pb::run(&core, &source, !no_settings).await?;
             print!("{report}");
             Ok(())
+        }
+        Command::Superuser { action } => {
+            let core = offline_core(&cli.config, overrides).await?;
+            superuser_command(&core, action).await
         }
         Command::Setup { email, password } => {
             // a URL given on the command line is meant to be saved,
@@ -243,6 +256,124 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
             Ok(())
         }
     }
+}
+
+/// The core for a command that works on the database without serving (import, superuser).
+async fn offline_core(
+    config_path: &std::path::Path,
+    overrides: Overrides,
+) -> Result<std::sync::Arc<crate::core::Core>> {
+    let loaded = config::load(config_path, overrides)?;
+    let cfg = &loaded.effective;
+    let url = cfg.database.url.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "no database configured: run `slonbase setup` first, or pass --database-url"
+        )
+    })?;
+    let pool = db::connect(&url, &cfg.database)?;
+    crate::migrations::run(&pool).await?;
+    crate::core::Core::load(
+        pool,
+        cfg,
+        std::sync::Arc::new(crate::hooks::Hooks::default()),
+    )
+    .await
+}
+
+async fn superuser_command(
+    core: &std::sync::Arc<crate::core::Core>,
+    action: SuperuserAction,
+) -> Result<()> {
+    use crate::collections::model::SUPERUSERS_COLLECTION_NAME as SUPERUSERS;
+    let find = |email: String| {
+        let core = core.clone();
+        async move {
+            let mut params = serde_json::Map::new();
+            params.insert("email".into(), serde_json::Value::String(email.clone()));
+            core.find_records_by_filter(SUPERUSERS, "email = {:email}", "", 1, 0, &params)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))
+                .map(|found| found.into_iter().next())
+        }
+    };
+    let save = |data: serde_json::Map<String, serde_json::Value>| {
+        let core = core.clone();
+        async move {
+            core.save_record(SUPERUSERS, data).await.map_err(|e| {
+                let details: Vec<String> = e
+                    .data
+                    .iter()
+                    .map(|(k, v)| format!("{k}: {}", v["message"].as_str().unwrap_or_default()))
+                    .collect();
+                anyhow::anyhow!("{} {}", e.message, details.join("; "))
+            })
+        }
+    };
+    let password_data = |id: Option<&serde_json::Value>, email: &str, password: &str| {
+        let mut data = serde_json::Map::new();
+        if let Some(id) = id {
+            data.insert("id".into(), id.clone());
+        } else {
+            data.insert("email".into(), serde_json::Value::String(email.to_string()));
+        }
+        data.insert(
+            "password".into(),
+            serde_json::Value::String(password.to_string()),
+        );
+        data.insert(
+            "passwordConfirm".into(),
+            serde_json::Value::String(password.to_string()),
+        );
+        data
+    };
+    match action {
+        SuperuserAction::Upsert { email, password } => {
+            let existing = find(email.clone()).await?;
+            let id = existing.as_ref().and_then(|r| r.get("id"));
+            save(password_data(id, &email, &password)).await?;
+            println!(
+                "{} superuser {email}",
+                if existing.is_some() {
+                    "Updated"
+                } else {
+                    "Created"
+                }
+            );
+        }
+        SuperuserAction::Update { email, password } => {
+            let existing = find(email.clone())
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("no superuser has the email {email:?}"))?;
+            save(password_data(existing.get("id"), &email, &password)).await?;
+            println!("Updated superuser {email}");
+        }
+        SuperuserAction::Delete { email } => {
+            let existing = find(email.clone())
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("no superuser has the email {email:?}"))?;
+            let id = existing
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            core.delete_record(SUPERUSERS, &id)
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))?;
+            println!("Deleted superuser {email}");
+        }
+        SuperuserAction::Otp { email } => {
+            let (id, password) = crate::records::otp::issue(core, SUPERUSERS, &email).await?;
+            let minutes = core
+                .registry()
+                .get(SUPERUSERS)
+                .and_then(|c| c.auth_options().map(|o| o.otp.duration))
+                .unwrap_or(0)
+                / 60;
+            println!("One-time password for {email}: {password}");
+            println!("otpId: {id} (valid for about {minutes} min, single use)");
+        }
+    }
+    Ok(())
 }
 
 async fn serve(

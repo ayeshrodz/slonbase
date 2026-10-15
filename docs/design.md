@@ -291,7 +291,11 @@ overridden (e.g. self-hosted GitLab).
 The HTTP client is `reqwest` with rustls and ring, using the Mozilla roots (like the database and
 SMTP connections), so the binary stays OpenSSL-free and works in a `scratch` image.
 
-**Not yet:** OTP and MFA for superusers, OIDC `id_token` validation (the user info endpoint is
+Superusers can use OTP and MFA like any auth collection (the dashboard's sign-in asks for the
+code); `slonbase superuser otp <email>` issues an OTP without email (stored like a sent one,
+single use), so MFA can't lock out an installation without SMTP.
+
+**Not yet:** OIDC `id_token` validation (the user info endpoint is
 used instead), and Apple's and the other PocketBase presets.
 
 ### Phase 3: realtime and multi-instance sync

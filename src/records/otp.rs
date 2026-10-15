@@ -253,3 +253,50 @@ pub async fn auth_with_otp(
     )
     .await
 }
+
+/// Creates a one-time password for the auth record with `email` without sending it (the
+/// `slonbase superuser otp` command): its id and the password. Fails when the collection's
+/// OTPs are off or no record has the email.
+pub async fn issue(
+    core: &crate::core::Core,
+    collection: &str,
+    email: &str,
+) -> anyhow::Result<(String, String)> {
+    let c = core
+        .registry()
+        .get(collection)
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("no collection {collection:?}"))?;
+    let options = c
+        .auth_options()
+        .ok_or_else(|| anyhow::anyhow!("{collection} isn't an auth collection"))?
+        .otp
+        .clone();
+    anyhow::ensure!(
+        options.enabled,
+        "one-time passwords are off for {collection}: turn them on in the collection's sign-in options"
+    );
+    let record = find_by_email(core, &c, email)
+        .await
+        .map_err(|e| anyhow::anyhow!(e.message))?
+        .ok_or_else(|| anyhow::anyhow!("no {collection} record has the email {email:?}"))?;
+    let length = options.length.clamp(4, 32);
+    let password =
+        ids::generate_from_pattern(&format!("[0-9]{{{length}}}")).expect("valid pattern");
+    let plain = password.clone();
+    let hash = tokio::task::spawn_blocking(move || bcrypt::hash(plain, OTP_COST)).await??;
+    let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    client
+        .execute(
+            "INSERT INTO _slonbase.otps (id, collection_id, record_id, password_hash, sent_to)
+             VALUES ($1, $2, $3, $4, $5)",
+            &[&id, &c.id, &record.id(), &hash, &record.email()],
+        )
+        .await?;
+    Ok((id, password))
+}
