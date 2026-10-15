@@ -423,6 +423,16 @@ SLONBASE_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres
 SLONBASE_TEST_S3_ENDPOINT=http://127.0.0.1:9000 SLONBASE_TEST_S3_ACCESS_KEY=... SLONBASE_TEST_S3_SECRET=... cargo test
 ```
 
+The compatibility suite in [`compat/`](compat/) drives the official PocketBase JavaScript SDK
+against a running server: CI runs it against slonbase and against PocketBase itself, so its
+expectations are PocketBase's actual behavior.
+
+```sh
+(cd compat && npm ci)
+cargo build && DATABASE_URL='postgres://...an empty database...' compat/run.sh slonbase
+POCKETBASE_BIN=/path/to/pocketbase compat/run.sh pocketbase
+```
+
 Packages are built with [nfpm](https://nfpm.goreleaser.com):
 
 ```sh

@@ -776,8 +776,15 @@ the file.
 - API tests cover superuser auth, collection CRUD with real schema changes, records with
   filtering/sorting/pagination/modifiers, API rules, relations (validation, cascades, required
   references), and the filter type matrix.
-- Planned: running PocketBase's API test scenarios against slonbase to check compatibility, and
-  benchmarks against PocketBase.
+- Compatibility (`compat/`): Node's test runner with the official `pocketbase` SDK (pinned)
+  against a server started on a fresh store by `compat/run.sh`: records (CRUD, filters,
+  pagination, expand, modifiers, validation codes), auth (sign-up, sign-in, refresh, rules, email
+  visibility, password changes, impersonation), collections, settings, files (uploads,
+  thumbnails, protected files), batch requests and realtime. CI runs it against slonbase and
+  against the PocketBase release (checksum-verified), so an expectation only stays if PocketBase
+  meets it too. Known, deliberate differences are left out of the shared assertions: emails are
+  unique regardless of case in slonbase (PocketBase compares them as written).
+- Planned: benchmarks against PocketBase.
 
 ## Roadmap
 

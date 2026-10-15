@@ -1,0 +1,12 @@
+{
+  "name": "slonbase-compat",
+  "private": true,
+  "description": "Runs the official PocketBase JavaScript SDK against a server (slonbase or PocketBase) to check that they behave the same.",
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-eventsource --test --test-concurrency=1 \"tests/*.test.mjs\""
+  },
+  "dependencies": {
+    "pocketbase": "0.28.1"
+  }
+}

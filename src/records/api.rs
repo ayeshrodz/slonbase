@@ -344,7 +344,11 @@ fn check_password_confirm(c: &Collection, body: &Map<String, Value>, errors: &mu
         return;
     }
     if body.get("passwordConfirm").and_then(Value::as_str) != Some(password) {
-        errors.invalid("passwordConfirm", "Values don't match.");
+        errors.add(
+            "passwordConfirm",
+            "validation_values_mismatch",
+            "Values don't match.",
+        );
     }
 }
 
@@ -723,8 +727,14 @@ pub(crate) async fn update_in(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                if old.is_empty() || !values::verify_password(old, hash).await {
-                    errors.invalid("oldPassword", "Missing or invalid old password.");
+                if old.is_empty() {
+                    errors.add("oldPassword", "validation_required", "Cannot be blank.");
+                } else if !values::verify_password(old, hash).await {
+                    errors.add(
+                        "oldPassword",
+                        "validation_invalid_old_password",
+                        "Missing or invalid old password.",
+                    );
                 }
             }
         }
@@ -1354,7 +1364,11 @@ async fn check_relations(
             match registry.by_id(&options.collection_id) {
                 Some(t) => t.name.clone(),
                 None => {
-                    errors.invalid(&field.name, "The related collection doesn't exist.");
+                    errors.add(
+                        &field.name,
+                        "validation_missing_rel_collection",
+                        "Relation connection is missing or cannot be accessed.",
+                    );
                     continue;
                 }
             }
@@ -1372,8 +1386,9 @@ async fn check_relations(
             .map_err(db_error)?
             .get(0);
         if found != ids.len() as i64 {
-            errors.invalid(
+            errors.add(
                 &field.name,
+                "validation_missing_rel_records",
                 "Failed to find all relation records with the provided ids.",
             );
         }
@@ -1392,24 +1407,28 @@ fn write_error(err: tokio_postgres::Error, c: &Collection, message: &str) -> Api
     let constraint = db.constraint().unwrap_or_default();
     let mut errors = Errors::new();
     if constraint.ends_with("_pkey") {
-        errors.invalid("id", "Value must be unique.");
+        errors.add("id", "validation_not_unique", "Value must be unique.");
     } else if constraint == crate::collections::schema::email_index_name(&c.id) {
-        errors.invalid("email", "Value must be unique.");
+        errors.add("email", "validation_not_unique", "Value must be unique.");
     } else if constraint == crate::collections::schema::token_key_index_name(&c.id) {
-        errors.invalid("tokenKey", "Value must be unique.");
+        errors.add("tokenKey", "validation_not_unique", "Value must be unique.");
     } else {
         for raw in &c.indexes {
             if let Ok(index) = Index::parse(raw) {
                 if index.name == constraint {
                     for (column, _) in &index.columns {
-                        errors.invalid(column.clone(), "Value must be unique.");
+                        errors.add(
+                            column.clone(),
+                            "validation_not_unique",
+                            "Value must be unique.",
+                        );
                     }
                 }
             }
         }
     }
     if errors.is_empty() {
-        errors.invalid("id", "Value must be unique.");
+        errors.add("id", "validation_not_unique", "Value must be unique.");
     }
     ApiError::invalid_data(message, &errors)
 }

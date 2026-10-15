@@ -113,7 +113,7 @@ pub fn apply_body(
         let incoming = match normalize(field, raw) {
             Ok(v) => v,
             Err(message) => {
-                errors.invalid(&field.name, message);
+                errors.add(&field.name, input_error_code(field, &message), message);
                 continue;
             }
         };
@@ -332,13 +332,19 @@ fn validate_password(
     let max = if o.max == 0 { 71 } else { o.max };
     let len = plain.chars().count();
     if len < o.min {
-        return Err(invalid(format!("Must be at least {} character(s).", o.min)));
+        return Err(fail(
+            "validation_min_text_constraint",
+            format!("Must be at least {} character(s).", o.min),
+        ));
     }
     if len > max || plain.len() > 71 {
-        return Err(invalid(format!("Must be no more than {max} character(s).")));
+        return Err(fail(
+            "validation_max_text_constraint",
+            format!("Must be less than {max} character(s)."),
+        ));
     }
     if !o.pattern.is_empty() && !pattern_matches(&o.pattern, plain) {
-        return Err(invalid("Invalid value format."));
+        return Err(fail("validation_invalid_format", "Invalid value format."));
     }
     Ok(())
 }
@@ -370,6 +376,22 @@ fn invalid(message: impl Into<String>) -> Failure {
     ("validation_invalid", message.into())
 }
 
+/// PocketBase's code for input a field can't take.
+fn input_error_code(field: &Field, message: &str) -> &'static str {
+    match field.kind {
+        FieldKind::Number(_) => "validation_not_a_number",
+        FieldKind::Json(_) => "validation_invalid_json",
+        FieldKind::GeoPoint(_) if message.contains("latitude") => "validation_invalid_latitude",
+        FieldKind::GeoPoint(_) if message.contains("longitude") => "validation_invalid_longitude",
+        _ => "validation_invalid",
+    }
+}
+
+/// A failure with PocketBase's code for the check.
+fn fail(code: &'static str, message: impl Into<String>) -> Failure {
+    (code, message.into())
+}
+
 fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
     match &field.kind {
         FieldKind::Text(o) => {
@@ -380,13 +402,19 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
             let len = s.chars().count();
             let max = if o.max == 0 { DEFAULT_TEXT_MAX } else { o.max };
             if len < o.min {
-                return Err(invalid(format!("Must be at least {} character(s).", o.min)));
+                return Err(fail(
+                    "validation_min_text_constraint",
+                    format!("Must be at least {} character(s).", o.min),
+                ));
             }
             if len > max {
-                return Err(invalid(format!("Must be no more than {max} character(s).")));
+                return Err(fail(
+                    "validation_max_text_constraint",
+                    format!("Must be no more than {max} character(s)."),
+                ));
             }
             if !o.pattern.is_empty() && !pattern_matches(&o.pattern, s) {
-                return Err(invalid("Invalid value format."));
+                return Err(fail("validation_invalid_format", "Invalid value format."));
             }
             Ok(())
         }
@@ -401,7 +429,10 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 o.max_size
             };
             if s.len() as i64 > max {
-                return Err(invalid(format!("Must be less than {max} bytes.")));
+                return Err(fail(
+                    "validation_content_size_limit",
+                    format!("The maximum allowed content size is {max} bytes."),
+                ));
             }
             Ok(())
         }
@@ -417,19 +448,32 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 url_host(s)
             };
             let Some(domain) = domain else {
-                return Err(invalid(if is_email {
-                    "Must be a valid email address."
+                return Err(if is_email {
+                    fail("validation_is_email", "Must be a valid email address.")
                 } else {
-                    "Must be a valid url."
-                }));
+                    fail("validation_invalid_url", "Must be a valid url.")
+                });
             };
             let matches =
                 |list: &[String]| list.iter().any(|d| d.trim().eq_ignore_ascii_case(&domain));
+            let not_allowed = || {
+                if is_email {
+                    fail(
+                        "validation_email_domain_not_allowed",
+                        "Email domain is not allowed.",
+                    )
+                } else {
+                    fail(
+                        "validation_url_domain_not_allowed",
+                        "Url domain is not allowed.",
+                    )
+                }
+            };
             if !o.only_domains.is_empty() && !matches(&o.only_domains) {
-                return Err(invalid("The domain is not allowed."));
+                return Err(not_allowed());
             }
             if matches(&o.except_domains) {
-                return Err(invalid("The domain is not allowed."));
+                return Err(not_allowed());
             }
             Ok(())
         }
@@ -439,13 +483,22 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 return if o.required { Err(required()) } else { Ok(()) };
             }
             if o.only_int && n.fract() != 0.0 {
-                return Err(invalid("Decimal numbers are not allowed."));
+                return Err(fail(
+                    "validation_only_int_constraint",
+                    "Decimal numbers are not allowed.",
+                ));
             }
-            if o.min.is_some_and(|min| n < min) {
-                return Err(invalid(format!("Must be larger than {}.", o.min.unwrap())));
+            if let Some(min) = o.min.filter(|min| n < *min) {
+                return Err(fail(
+                    "validation_min_number_constraint",
+                    format!("Must be greater or equal than {min}."),
+                ));
             }
-            if o.max.is_some_and(|max| n > max) {
-                return Err(invalid(format!("Must be less than {}.", o.max.unwrap())));
+            if let Some(max) = o.max.filter(|max| n > *max) {
+                return Err(fail(
+                    "validation_max_number_constraint",
+                    format!("Must be less or equal than {max}."),
+                ));
             }
             Ok(())
         }
@@ -463,12 +516,18 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
             let dt = datetime::parse(s).ok_or_else(|| invalid("Must be a valid date."))?;
             if let Some(min) = datetime::parse(&o.min) {
                 if dt < min {
-                    return Err(invalid(format!("Must be after {}.", o.min)));
+                    return Err(fail(
+                        "validation_min_greater_equal_than_required",
+                        format!("Must be no less than {}.", o.min),
+                    ));
                 }
             }
             if let Some(max) = datetime::parse(&o.max) {
                 if dt > max {
-                    return Err(invalid(format!("Must be before {}.", o.max)));
+                    return Err(fail(
+                        "validation_max_less_equal_than_required",
+                        format!("Must be no greater than {}.", o.max),
+                    ));
                 }
             }
             Ok(())
@@ -480,10 +539,10 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 return if o.required { Err(required()) } else { Ok(()) };
             }
             if items.len() > o.max_select.max(1) {
-                return Err(invalid(format!(
-                    "Select no more than {} file(s).",
-                    o.max_select.max(1)
-                )));
+                return Err(fail(
+                    "validation_too_many_files",
+                    format!("The maximum allowed files is {}.", o.max_select.max(1)),
+                ));
             }
             Ok(())
         }
@@ -493,10 +552,16 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 return if o.required { Err(required()) } else { Ok(()) };
             }
             if let Some(bad) = items.iter().find(|v| !o.values.contains(v)) {
-                return Err(invalid(format!("Invalid value {bad:?}.")));
+                return Err(fail(
+                    "validation_invalid_value",
+                    format!("Invalid value {bad}."),
+                ));
             }
             if items.len() > o.max_select.max(1) {
-                return Err(invalid(format!("Select no more than {}.", o.max_select)));
+                return Err(fail(
+                    "validation_too_many_values",
+                    format!("Select no more than {}.", o.max_select.max(1)),
+                ));
             }
             Ok(())
         }
@@ -506,10 +571,16 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 return if o.required { Err(required()) } else { Ok(()) };
             }
             if items.len() < o.min_select {
-                return Err(invalid(format!("Select at least {}.", o.min_select)));
+                return Err(fail(
+                    "validation_not_enough_values",
+                    format!("Select at least {}.", o.min_select),
+                ));
             }
             if items.len() > o.max_select.max(1) {
-                return Err(invalid(format!("Select no more than {}.", o.max_select)));
+                return Err(fail(
+                    "validation_too_many_values",
+                    format!("Select no more than {}.", o.max_select.max(1)),
+                ));
             }
             Ok(())
         }
@@ -538,7 +609,10 @@ fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
                 o.max_size
             };
             if value.to_string().len() as i64 > max {
-                return Err(invalid(format!("The data must be less than {max} bytes.")));
+                return Err(fail(
+                    "validation_json_size_limit",
+                    format!("The maximum allowed JSON size is {max} bytes."),
+                ));
             }
             Ok(())
         }

@@ -79,8 +79,59 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
 
+  # the official PocketBase JavaScript SDK against slonbase, and against PocketBase itself
+  # (which keeps the suite's expectations honest)
+  compat:
+    name: compatibility (${{ matrix.target }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [slonbase, pocketbase]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+      POCKETBASE_VERSION: "0.40.5"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: compat/package-lock.json
+      - run: npm ci
+        working-directory: compat
+      - if: matrix.target == 'slonbase'
+        uses: dtolnay/rust-toolchain@stable
+      - if: matrix.target == 'slonbase'
+        uses: Swatinem/rust-cache@v2
+      - if: matrix.target == 'slonbase'
+        run: cargo build --locked
+      - if: matrix.target == 'pocketbase'
+        name: Download PocketBase
+        run: |
+          base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
+          zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
+          mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
+          curl -fsSLO "$base/$zip"
+          curl -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          unzip -q "$zip" pocketbase
+          echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
+      - run: compat/run.sh ${{ matrix.target }}
+
   package:
-    needs: [lint, test]
+    needs: [lint, test, compat]
     uses: ./.github/workflows/package.yml
     with:
       version: ""

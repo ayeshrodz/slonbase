@@ -117,7 +117,7 @@ pub async fn list(
     auth.require_superuser()?;
 
     let registry = core.registry();
-    let all = registry.all();
+    let all = filtered(&core, registry.all(), &query, &auth).await?;
     let page = query
         .get("page")
         .and_then(|p| p.parse::<usize>().ok())
@@ -143,6 +143,119 @@ pub async fn list(
         "totalPages": all.len().div_ceil(per_page),
         "items": items,
     })))
+}
+
+/// The columns `filter` and `sort` can use on collections.
+const META_COLUMNS: [(&str, &str, &str); 11] = [
+    ("id", "text", "text"),
+    ("name", "text", "text"),
+    ("type", "text", "text"),
+    ("system", "bool", "boolean"),
+    ("listRule", "text", "text"),
+    ("viewRule", "text", "text"),
+    ("createRule", "text", "text"),
+    ("updateRule", "text", "text"),
+    ("deleteRule", "text", "text"),
+    ("created", "date", "timestamptz"),
+    ("updated", "date", "timestamptz"),
+];
+
+/// The collections matching the `filter` query parameter, in the `sort` order (by name
+/// without one). The filter language runs in PostgreSQL over the collections' metadata.
+async fn filtered(
+    core: &Core,
+    all: &[Arc<Collection>],
+    query: &HashMap<String, String>,
+    auth: &RequestAuth,
+) -> Result<Vec<Arc<Collection>>, ApiError> {
+    let filter = query.get("filter").map(|f| f.trim()).unwrap_or_default();
+    let sort = query.get("sort").map(|s| s.trim()).unwrap_or_default();
+    if filter.is_empty() && sort.is_empty() {
+        return Ok(all.to_vec());
+    }
+    let fields: Vec<Value> = META_COLUMNS
+        .iter()
+        .map(|(name, kind, _)| json!({ "name": name, "type": kind }))
+        .collect();
+    let meta = parse(
+        json!({ "name": "collections", "type": "base", "fields": fields })
+            .as_object()
+            .cloned()
+            .unwrap_or_default(),
+    )?;
+    let alias = "_c";
+    let mut request = crate::filter::RequestInfo::new("GET");
+    request.auth = auth.info();
+    let scope = crate::filter::Scope {
+        collection: &meta,
+        alias,
+        request: &request,
+        allow_hidden: true,
+    };
+    let mut params = crate::filter::Params::default();
+    let invalid = |e: crate::filter::CompileError| {
+        ApiError::bad_request(format!("Invalid filter or sort: {}", e.0))
+    };
+    let where_sql = if filter.is_empty() {
+        "TRUE".to_string()
+    } else {
+        crate::filter::to_sql(filter, &scope, &mut params).map_err(invalid)?
+    };
+    let mut order = if sort.is_empty() {
+        Vec::new()
+    } else {
+        crate::filter::compile_sort(sort, &meta, alias, true).map_err(invalid)?
+    };
+    order.push(format!("{alias}.\"name\""));
+    let rows: Vec<Value> = all
+        .iter()
+        .enumerate()
+        .map(|(i, c)| {
+            let v = to_json(c);
+            let mut row = Map::new();
+            // the sort's tie-breaker, as in records tables
+            row.insert("_seq".into(), json!(i));
+            for (name, _, _) in META_COLUMNS {
+                row.insert(
+                    name.to_string(),
+                    v.get(name).cloned().unwrap_or(Value::Null),
+                );
+            }
+            Value::Object(row)
+        })
+        .collect();
+    let data = params.push(Value::Array(rows).to_string());
+    let columns: Vec<String> = META_COLUMNS
+        .iter()
+        .map(|(name, _, sql)| format!("{} {sql}", crate::filter::quote_ident(name)))
+        .chain(std::iter::once("_seq bigint".to_string()))
+        .collect();
+    let sql = format!(
+        "SELECT {alias}.id FROM jsonb_to_recordset(({data})::jsonb) AS {alias}({}) WHERE {where_sql} ORDER BY {}",
+        columns.join(", "),
+        order.join(", ")
+    );
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let ids = client.query(&sql, &params.as_refs()).await.map_err(|e| {
+        let detail = e
+            .as_db_error()
+            .map(|db| db.message().to_string())
+            .unwrap_or_else(|| e.to_string());
+        ApiError::bad_request(format!("Invalid filter or sort: {detail}"))
+    })?;
+    let by_id: HashMap<&str, &Arc<Collection>> = all.iter().map(|c| (c.id.as_str(), c)).collect();
+    Ok(ids
+        .iter()
+        .filter_map(|row| {
+            by_id
+                .get(row.get::<_, String>(0).as_str())
+                .map(|c| (*c).clone())
+        })
+        .collect())
 }
 
 /// `GET /api/collections/{collection}`

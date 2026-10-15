@@ -387,10 +387,11 @@ pub fn apply(
             let mut names = Vec::new();
             for upload in uploads {
                 if upload.data.len() as i64 > max_size {
-                    errors.invalid(
+                    errors.add(
                         name,
+                        "validation_file_size_limit",
                         format!(
-                            "The file {:?} is larger than {max_size} bytes.",
+                            "Failed to upload {} - the maximum allowed file size is {max_size} bytes.",
                             upload.original_name
                         ),
                     );
@@ -403,7 +404,14 @@ pub fn apply(
                         .iter()
                         .any(|m| m.eq_ignore_ascii_case(&mime))
                 {
-                    errors.invalid(name, format!("The file type {mime} is not allowed."));
+                    errors.add(
+                        name,
+                        "validation_invalid_mime_type",
+                        format!(
+                            "Failed to upload {:?} due to unsupported file type.",
+                            upload.original_name
+                        ),
+                    );
                     continue;
                 }
                 let stored = normalize_name(&upload.original_name, &upload.data);
