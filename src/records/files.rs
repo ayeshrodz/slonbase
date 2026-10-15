@@ -28,6 +28,7 @@ use crate::auth::{RequestAuth, TokenType, authenticate_as};
 use crate::collections::model::{Collection, Field, FieldKind, RuleAction};
 use crate::collections::schema::table_ref;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo};
@@ -652,12 +653,12 @@ pub async fn serve(
             Err(_) => false,
             Ok(None) => true,
             Ok(Some(rule)) => client
-                .query_opt(
+                .query_text_opt(
                     &format!(
                         "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {rule}",
                         table_ref(&c.name)
                     ),
-                    &params.as_refs(),
+                    &params,
                 )
                 .await
                 .map_err(|e| ApiError::internal(e.into()))?

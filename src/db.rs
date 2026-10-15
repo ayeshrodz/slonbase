@@ -216,3 +216,58 @@ pub fn describe_pg_error(err: &tokio_postgres::Error) -> String {
     }
     msg
 }
+
+/// Runs queries whose parameters are all text (the filter compiler's [`Params`]) in one
+/// round trip: the parameter types are sent with the statement, so it isn't prepared first.
+///
+/// [`Params`]: crate::filter::Params
+pub trait TextQuery: Sync {
+    type Inner: tokio_postgres::GenericClient + Sync;
+
+    fn inner(&self) -> &Self::Inner;
+
+    fn query_text(
+        &self,
+        sql: &str,
+        params: &crate::filter::Params,
+    ) -> impl std::future::Future<Output = Result<Vec<tokio_postgres::Row>, tokio_postgres::Error>> + Send
+    {
+        let typed = params.typed();
+        async move { tokio_postgres::GenericClient::query_typed(self.inner(), sql, &typed).await }
+    }
+
+    fn query_text_one(
+        &self,
+        sql: &str,
+        params: &crate::filter::Params,
+    ) -> impl std::future::Future<Output = Result<tokio_postgres::Row, tokio_postgres::Error>> + Send
+    {
+        let typed = params.typed();
+        async move { tokio_postgres::GenericClient::query_typed_one(self.inner(), sql, &typed).await }
+    }
+
+    fn query_text_opt(
+        &self,
+        sql: &str,
+        params: &crate::filter::Params,
+    ) -> impl std::future::Future<
+        Output = Result<Option<tokio_postgres::Row>, tokio_postgres::Error>,
+    > + Send {
+        let typed = params.typed();
+        async move { tokio_postgres::GenericClient::query_typed_opt(self.inner(), sql, &typed).await }
+    }
+}
+
+impl TextQuery for deadpool_postgres::Client {
+    type Inner = tokio_postgres::Client;
+    fn inner(&self) -> &Self::Inner {
+        self
+    }
+}
+
+impl<'a> TextQuery for deadpool_postgres::Transaction<'a> {
+    type Inner = tokio_postgres::Transaction<'a>;
+    fn inner(&self) -> &Self::Inner {
+        self
+    }
+}

@@ -33,6 +33,7 @@ use crate::collections::model::{
 use crate::collections::schema::table_ref;
 use crate::collections::store::Registry;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, quote_ident, to_sql};
@@ -214,15 +215,19 @@ pub async fn list(
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
-    let refs = params.as_refs();
-    let count_refs = count_params.as_refs();
     // pipelined on the same connection
     let (rows, total) = if skip_total {
-        (client.query(&items_sql, &refs).await.map_err(db_error)?, -1)
+        (
+            client
+                .query_text(&items_sql, &params)
+                .await
+                .map_err(db_error)?,
+            -1,
+        )
     } else {
         let (rows, count) = tokio::try_join!(
-            client.query(&items_sql, &refs),
-            client.query_one(&count_sql, &count_refs)
+            client.query_text(&items_sql, &params),
+            client.query_text_one(&count_sql, &count_params)
         )
         .map_err(db_error)?;
         (rows, count.get::<_, i64>(0))
@@ -308,7 +313,7 @@ pub async fn view(
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
     let row = client
-        .query_opt(&sql, &params.as_refs())
+        .query_text_opt(&sql, &params)
         .await
         .map_err(db_error)?
         .ok_or_else(ApiError::not_found)?;
@@ -583,7 +588,7 @@ pub(crate) async fn create_in(
         output_select(&fields, &email_visible)
     );
     let row = tx
-        .query_one(&sql, &params.as_refs())
+        .query_text_one(&sql, &params)
         .await
         .map_err(|e| write_error(e, c, failed))?;
 
@@ -601,7 +606,7 @@ pub(crate) async fn create_in(
             table_ref(&c.name)
         );
         if tx
-            .query_opt(&check, &rule_params.as_refs())
+            .query_text_opt(&check, &rule_params)
             .await
             .map_err(db_error)?
             .is_none()
@@ -644,13 +649,13 @@ pub(crate) async fn update_in(
         // read without the row lock, so a handler writing through the record service
         // can't wait on this transaction
         let row = tx
-            .query_opt(
+            .query_text_opt(
                 &format!(
                     "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
                     select_list(&stored),
                     table_ref(&c.name)
                 ),
-                &params.as_refs(),
+                &params,
             )
             .await
             .map_err(db_error)?
@@ -659,13 +664,13 @@ pub(crate) async fn update_in(
         model_hook(ctx, &core.hooks.on_record_update, c, record, &mut body).await?;
     }
     let current = tx
-        .query_opt(
+        .query_text_opt(
             &format!(
                 "SELECT {} FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
                 select_list(&stored),
                 table_ref(&c.name)
             ),
-            &params.as_refs(),
+            &params,
         )
         .await
         .map_err(db_error)?
@@ -677,24 +682,22 @@ pub(crate) async fn update_in(
     // auth records: email, verified and passwords need the right to manage the record
     let mut email_changed = false;
     if c.is_auth() {
-        let can_manage = auth.is_superuser() || {
-            let mut manage_params = Params::default();
-            let id_param = manage_params.push(id.to_string());
-            match manage_rule_sql(c, request, &mut manage_params)? {
+        let can_manage =
+            auth.is_superuser() || {
+                let mut manage_params = Params::default();
+                let id_param = manage_params.push(id.to_string());
+                match manage_rule_sql(c, request, &mut manage_params)? {
                 None => false,
                 Some(rule) => tx
-                    .query_opt(
-                        &format!(
+                    .query_text_opt(&format!(
                             "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {rule}",
                             table_ref(&c.name)
-                        ),
-                        &manage_params.as_refs(),
-                    )
+                        ), &manage_params)
                     .await
                     .map_err(db_error)?
                     .is_some(),
             }
-        };
+            };
 
         let current_email = values
             .get(FIELD_EMAIL)
@@ -786,7 +789,7 @@ pub(crate) async fn update_in(
         output_select(&fields, &email_visible)
     );
     let row = tx
-        .query_one(&sql, &params.as_refs())
+        .query_text_one(&sql, &params)
         .await
         .map_err(|e| write_error(e, c, failed))?;
     realtime::record_event(tx, c, Action::Update, &values)
@@ -831,13 +834,13 @@ pub(crate) async fn delete_in(
     if ctx.core.hooks.on_record_delete.has_handlers(Some(c)) {
         let stored = all_fields(c);
         let row = tx
-            .query_opt(
+            .query_text_opt(
                 &format!(
                     "SELECT {} FROM {} {ALIAS} WHERE {where_sql}",
                     select_list(&stored),
                     table_ref(&c.name)
                 ),
-                &params.as_refs(),
+                &params,
             )
             .await
             .map_err(db_error)?
@@ -854,12 +857,12 @@ pub(crate) async fn delete_in(
         )
         .await?;
     }
-    tx.query_opt(
+    tx.query_text_opt(
         &format!(
             "SELECT 1 FROM {} {ALIAS} WHERE {where_sql} FOR UPDATE OF {ALIAS}",
             table_ref(&c.name)
         ),
-        &params.as_refs(),
+        &params,
     )
     .await
     .map_err(db_error)?
@@ -917,7 +920,7 @@ async fn current_for_hook(
 /// The record a hook sees for an update or delete request, read with `client` (a batch's
 /// transaction sees the batch's earlier writes): 404 when the rule doesn't allow it.
 pub(crate) async fn current_in(
-    client: &impl GenericClient,
+    client: &impl TextQuery,
     c: &Collection,
     id: &str,
     action: RuleAction,
@@ -932,13 +935,13 @@ pub(crate) async fn current_in(
     }
     let fields = visible_fields(c, true);
     let row = client
-        .query_opt(
+        .query_text_opt(
             &format!(
                 "SELECT {} FROM {} {ALIAS} WHERE {where_sql} LIMIT 1",
                 select_list(&fields),
                 table_ref(&c.name)
             ),
-            &params.as_refs(),
+            &params,
         )
         .await
         .map_err(db_error)?

@@ -24,6 +24,7 @@ use crate::collections::model::{
 };
 use crate::collections::schema::table_ref;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
@@ -144,12 +145,12 @@ async fn record_matches(
         .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored rule: {e}")))?;
     let client = core.pool.get().await.map_err(pool_error)?;
     let row = client
-        .query_opt(
+        .query_text_opt(
             &format!(
                 "SELECT 1 FROM {} {ALIAS} WHERE {ALIAS}.\"id\" = {id_param} AND {condition}",
                 table_ref(&c.name)
             ),
-            &params.as_refs(),
+            &params,
         )
         .await
         .map_err(db_error)?;

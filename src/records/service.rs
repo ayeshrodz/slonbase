@@ -17,6 +17,7 @@ use crate::auth::RequestAuth;
 use crate::collections::model::{Collection, FIELD_PASSWORD};
 use crate::collections::schema::table_ref;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, to_sql_with_params};
@@ -116,7 +117,7 @@ impl Core {
         }
         let client = self.client().await?;
         let rows = client
-            .query(&sql, &sql_params.as_refs())
+            .query_text(&sql, &sql_params)
             .await
             .map_err(db_error)?;
         Ok(rows
@@ -152,12 +153,12 @@ impl Core {
         let where_sql = self.filter_sql(&c, filter, params, &request, &mut sql_params)?;
         let client = self.client().await?;
         let row = client
-            .query_one(
+            .query_text_one(
                 &format!(
                     "SELECT count(*) FROM {} {ALIAS} WHERE {where_sql}",
                     table_ref(&c.name)
                 ),
-                &sql_params.as_refs(),
+                &sql_params,
             )
             .await
             .map_err(db_error)?;

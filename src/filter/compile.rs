@@ -76,6 +76,24 @@ impl Params {
         format!("${}::text", self.0.len())
     }
 
+    /// The parameters with their (text) type, for `query_typed`.
+    pub fn typed(
+        &self,
+    ) -> Vec<(
+        &(dyn tokio_postgres::types::ToSql + Sync),
+        tokio_postgres::types::Type,
+    )> {
+        self.0
+            .iter()
+            .map(|p| {
+                (
+                    p as &(dyn tokio_postgres::types::ToSql + Sync),
+                    tokio_postgres::types::Type::TEXT,
+                )
+            })
+            .collect()
+    }
+
     pub fn as_refs(&self) -> Vec<&(dyn tokio_postgres::types::ToSql + Sync)> {
         self.0
             .iter()

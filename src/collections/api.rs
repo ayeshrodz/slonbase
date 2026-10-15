@@ -15,6 +15,7 @@ use super::validate;
 use crate::app::App;
 use crate::auth::RequestAuth;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 
@@ -240,7 +241,7 @@ async fn filtered(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    let ids = client.query(&sql, &params.as_refs()).await.map_err(|e| {
+    let ids = client.query_text(&sql, &params).await.map_err(|e| {
         let detail = e
             .as_db_error()
             .map(|db| db.message().to_string())

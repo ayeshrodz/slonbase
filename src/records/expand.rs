@@ -24,6 +24,7 @@ use crate::auth::RequestAuth;
 use crate::collections::model::{Collection, Field, FieldKind, RuleAction};
 use crate::collections::schema::table_ref;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, quote_ident};
@@ -237,7 +238,7 @@ async fn fetch(
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
     let rows = client
-        .query(&sql, &params.as_refs())
+        .query_text(&sql, &params)
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     Ok(rows

@@ -15,6 +15,8 @@ target="${1:?usage: run.sh slonbase|pocketbase}"
 port="${BENCH_PORT:-8098}"
 duration="${BENCH_DURATION:-10s}"
 warmup="${BENCH_WARMUP:-2s}"
+runs="${BENCH_RUNS:-3}"
+name="${BENCH_NAME:-$target}"
 server_cpus="${SERVER_CPUS:-0-2}"
 load_cpus="${LOAD_CPUS:-3}"
 hey="${HEY_BIN:-hey}"
@@ -74,16 +76,15 @@ scenarios=(
   "sign in (bcrypt)|8|POST|${BENCH_URL}/api/collections/bench_users/auth-with-password|{\"identity\":\"bench@example.com\",\"password\":\"bench-password-1\"}|"
 )
 
-out="results/${target}.json"
-{
-  printf '{"target":"%s","version":"%s","duration":"%s","cpus":"%s","scenarios":[' "$target" "$version" "$duration" "$(nproc)"
-  first=1
+raw="results/${name}.raw.jsonl"
+: > "$raw"
+for run in $(seq 1 "$runs"); do
   for s in "${scenarios[@]}"; do
-    IFS='|' read -r name conc method url body header <<< "$s"
+    IFS='|' read -r label conc method url body header <<< "$s"
     args=(-c "$conc" -m "$method" -cpus 1)
     [ -n "$body" ] && args+=(-T "application/json" -d "$body")
     [ -n "$header" ] && args+=(-H "$header")
-    echo "  ${name}" >&2
+    echo "  [${run}/${runs}] ${label}" >&2
     taskset -c "$load_cpus" "$hey" -z "$warmup" "${args[@]}" "$url" > /dev/null
     report="$(taskset -c "$load_cpus" "$hey" -z "$duration" "${args[@]}" "$url")"
     rps="$(awk '/Requests\/sec:/ {print $2}' <<< "$report")"
@@ -91,11 +92,9 @@ out="results/${target}.json"
     ok="$(awk '/\[2[0-9][0-9]\]/ {n += $2} END {print n + 0}' <<< "$report")"
     bad="$(awk '/\[[1345][0-9][0-9]\]/ {n += $2} END {print n + 0}' <<< "$report")"
     errors="$(awk '/Error distribution:/ {e = 1; next} e && /\[[0-9]+\]/ {gsub(/[][]/, "", $1); n += $1} END {print n + 0}' <<< "$report")"
-    [ $first -eq 1 ] || printf ','
-    first=0
-    printf '{"name":"%s","concurrency":%s,"rps":%s,"p50":%s,"p90":%s,"p99":%s,"ok":%s,"failed":%s}' \
-      "$name" "$conc" "${rps:-0}" "$(pct 50)" "$(pct 90)" "$(pct 99)" "$ok" "$((bad + ${errors:-0}))"
+    printf '{"name":"%s","concurrency":%s,"rps":%s,"p50":%s,"p90":%s,"p99":%s,"ok":%s,"failed":%s}\n' \
+      "$label" "$conc" "${rps:-0}" "$(pct 50)" "$(pct 90)" "$(pct 99)" "$ok" "$((bad + ${errors:-0}))" >> "$raw"
   done
-  printf ']}\n'
-} > "$out"
-echo "wrote ${out}" >&2
+done
+node aggregate.mjs "$raw" "$name" "$version" "$duration" "$(nproc)" "${BENCH_NOTE:-}" > "results/${name}.json"
+echo "wrote results/${name}.json" >&2

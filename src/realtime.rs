@@ -31,6 +31,7 @@ use crate::collections::model::{Collection, RuleAction};
 use crate::collections::store;
 use crate::config::DatabaseConfig;
 use crate::core::Core;
+use crate::db::TextQuery;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
@@ -86,7 +87,7 @@ impl Action {
 
 /// Records a change in the outbox. Call inside the transaction that makes the change.
 pub async fn record_event(
-    client: &impl GenericClient,
+    client: &impl db::TextQuery,
     c: &Collection,
     action: Action,
     record: &Values,
@@ -96,19 +97,26 @@ pub async fn record_event(
     for field in c.fields.iter().filter(|f| f.is_secret()) {
         stored.remove(&field.name);
     }
-    let id: i64 = client
-        .query_one(
-            "INSERT INTO _slonbase.events (collection_id, action, record) VALUES ($1, $2, $3) RETURNING id",
-            &[&c.id, &action.as_str(), &Value::Object(stored)],
-        )
-        .await?
-        .get(0);
-    client
-        .execute(
-            "SELECT pg_notify($1, $2)",
-            &[&CHANNEL, &format!("event:{id}")],
-        )
-        .await?;
+    use tokio_postgres::types::Type;
+    // one statement, sent with its parameter types: one round trip per write
+    let action = action.as_str().to_string();
+    let record = Value::Object(stored);
+    tokio_postgres::GenericClient::query_typed(
+        client.inner(),
+        "WITH e AS (INSERT INTO _slonbase.events (collection_id, action, record) \
+             VALUES ($1, $2, $3) RETURNING id) \
+             SELECT pg_notify($4, 'event:' || e.id) FROM e",
+        &[
+            (
+                &c.id as &(dyn tokio_postgres::types::ToSql + Sync),
+                Type::TEXT,
+            ),
+            (&action, Type::TEXT),
+            (&record, Type::JSONB),
+            (&CHANNEL, Type::TEXT),
+        ],
+    )
+    .await?;
     Ok(())
 }
 
@@ -525,7 +533,7 @@ async fn check_access(
         columns.join(", ")
     );
     let client = core.pool.get().await.map_err(db::describe_pool_error)?;
-    let row = client.query_one(&sql, &params.as_refs()).await?;
+    let row = client.query_text_one(&sql, &params).await?;
 
     Ok((0..targets.len())
         .map(|i| {
@@ -594,6 +602,10 @@ impl Seen {
 
 async fn deliver_event(core: &Core, id: i64, seen: &mut Seen) -> anyhow::Result<()> {
     if !seen.insert(id) {
+        return Ok(());
+    }
+    // nobody to deliver to on this instance: skip reading the event
+    if core.realtime.client_count() == 0 {
         return Ok(());
     }
     let client = core.pool.get().await.map_err(db::describe_pool_error)?;
