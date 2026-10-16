@@ -26,6 +26,8 @@ jobs:
             exit 1
           fi
           echo "version=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check CHANGELOG.md has the release notes
+        run: scripts/release-notes.sh "${{ steps.version.outputs.version }}" > /dev/null
 
   package:
     needs: verify
@@ -48,6 +50,22 @@ jobs:
           merge-multiple: true
       - name: Checksums
         run: cd dist && sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.verify.outputs.version }}
+        run: |
+          {
+            scripts/release-notes.sh "$VERSION"
+            echo
+            echo "## Install"
+            echo
+            echo "- Docker: \`ghcr.io/${{ github.repository }}:$VERSION\`"
+            echo "- Debian/Ubuntu: \`slonbase_${VERSION}_amd64.deb\` / \`_arm64.deb\`"
+            echo "- Fedora/RHEL: \`slonbase-${VERSION}-1.x86_64.rpm\` / \`.aarch64.rpm\`"
+            echo "- Binaries: \`slonbase-${VERSION}-linux-{amd64,arm64}.tar.gz\`"
+            echo
+            echo "Verify downloads with \`sha256sum --ignore-missing -c SHA256SUMS\`. See the [installation guide](https://github.com/${{ github.repository }}/blob/v$VERSION/docs/installation.md)."
+          } > release-notes.md
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -56,7 +74,7 @@ jobs:
             dist/*.rpm
             dist/*.tar.gz
             dist/SHA256SUMS
-          generate_release_notes: true
+          body_path: release-notes.md
 
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3

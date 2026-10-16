@@ -21,7 +21,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::GenericClient;
 use futures_util::StreamExt;
-use futures_util::stream::{self, Stream};
+use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
@@ -274,9 +274,7 @@ impl Drop for ClientGuard {
 
 /// `GET /api/realtime`: opens the event stream. The first event is `PB_CONNECT`
 /// with the client id used to set subscriptions.
-pub async fn connect(
-    State(app): State<Arc<App>>,
-) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+pub async fn connect(State(app): State<Arc<App>>) -> Result<impl IntoResponse, ApiError> {
     let core = app.core()?;
     let (id, receiver) = core.realtime.register();
     let guard = ClientGuard {
@@ -294,11 +292,15 @@ pub async fn connect(
             .id(guard.id.clone())
             .event(message.event)
             .data(message.data);
-        Some((Ok(event), (receiver, guard)))
+        Some((Ok::<_, Infallible>(event), (receiver, guard)))
     });
     let stream = stream::once(async move { Ok(connect) }).chain(events);
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(30))))
+    // proxies such as nginx buffer responses unless told not to
+    Ok((
+        [("x-accel-buffering", "no")],
+        Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(30))),
+    ))
 }
 
 fn same_auth(a: &RequestAuth, b: &RequestAuth) -> bool {

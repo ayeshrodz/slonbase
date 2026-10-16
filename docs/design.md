@@ -7,7 +7,7 @@ decision changes.
 
 - **PocketBase's developer experience on PostgreSQL**: collections defined at runtime, an
   auto-generated REST API, filtering and access rules, auth, realtime, files, an admin dashboard.
-- **A single small binary** (currently ~10 MB static) with low memory use and
+- **A single small binary** (currently ~17 MB static, an 8 MB download) with low memory use and
   predictable latency.
 - **Rock-solid operation**: safe startup ordering, safe concurrent instances, no data-loss paths,
   clear errors.

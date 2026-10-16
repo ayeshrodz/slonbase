@@ -7,6 +7,10 @@
 # The database URL is passed in through the environment, so the setup wizard
 # only asks for the first superuser. To use a database running elsewhere,
 # run only the slonbase service and enter the connection in the wizard instead.
+#
+# The slonbase image is pulled from ghcr.io (pin a release with SLONBASE_VERSION);
+# when it can't be pulled, or with `docker compose up --build`, it's built from
+# this checkout instead.
 
 services:
   postgres:
@@ -25,8 +29,8 @@ services:
       retries: 10
 
   slonbase:
+    image: ghcr.io/ayeshrodz/slonbase:${SLONBASE_VERSION:-latest}
     build: .
-    image: slonbase:local
     restart: unless-stopped
     depends_on:
       postgres:

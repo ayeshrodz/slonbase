@@ -30,6 +30,7 @@ impl Stream {
             .await
             .unwrap();
         assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()["x-accel-buffering"], "no");
         let mut stream = Self {
             body: res.into_body(),
             buffer: String::new(),

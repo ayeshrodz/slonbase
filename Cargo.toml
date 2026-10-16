@@ -7,6 +7,12 @@ description = "A lightweight, high-performance PocketBase-style backend powered 
 license = "MIT"
 repository = "https://github.com/ayeshrodz/slonbase"
 readme = "README.md"
+homepage = "https://github.com/ayeshrodz/slonbase"
+documentation = "https://github.com/ayeshrodz/slonbase/tree/main/docs"
+keywords = ["backend", "postgresql", "pocketbase", "rest-api", "realtime"]
+categories = ["web-programming::http-server", "database", "authentication"]
+# not on crates.io yet: depend on it from git (see docs/extending.md)
+publish = false
 
 [dependencies]
 anyhow = "1.0.104"

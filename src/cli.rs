@@ -416,6 +416,7 @@ async fn serve(
     let stopping = std::sync::Arc::new(tokio::sync::Notify::new());
     let shutdown = {
         let (fatal, restart, stopping) = (fatal.clone(), restart.clone(), stopping.clone());
+        let app = app.clone();
         async move {
             tokio::select! {
                 _ = server::shutdown_signal() => {}
@@ -427,6 +428,10 @@ async fn serve(
                     restart.store(true, std::sync::atomic::Ordering::SeqCst);
                 }
             }
+            // end the realtime streams, so only requests in flight hold up the stop
+            if let Ok(core) = app.core() {
+                core.realtime.disconnect_all();
+            }
             stopping.notify_one();
         }
     };
@@ -436,17 +441,12 @@ async fn serve(
         server::router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
     )
     .with_graceful_shutdown(shutdown);
-    let restarting = restart.clone();
     tokio::select! {
         result = serve => result.context("server error")?,
-        // long-lived connections (realtime) don't hold up a restart
+        // nor do connections that don't finish in time
         _ = async {
             stopping.notified().await;
-            if restarting.load(std::sync::atomic::Ordering::SeqCst) {
-                tokio::time::sleep(RESTART_GRACE).await;
-            } else {
-                std::future::pending::<()>().await;
-            }
+            tokio::time::sleep(SHUTDOWN_GRACE).await;
         } => {}
     }
 
@@ -459,8 +459,8 @@ async fn serve(
     Ok(())
 }
 
-/// How long a restart waits for open requests.
-const RESTART_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// How long a stop or restart waits for open requests.
+const SHUTDOWN_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Resolves when the hook files change (never, when watching is off or without the
 /// JavaScript engine).
