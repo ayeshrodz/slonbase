@@ -55,6 +55,8 @@ build step. See [ui/README.md](ui/README.md).
   "Unreleased" for user-visible changes.
 - Write commit messages that say what changed and why.
 
+Please follow the [code of conduct](CODE_OF_CONDUCT.md).
+
 By contributing, you agree that your contributions are licensed under the [MIT license](LICENSE).
 
 ## Releases

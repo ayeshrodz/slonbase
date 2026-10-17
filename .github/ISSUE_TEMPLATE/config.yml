@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/ayeshrodz/slonbase/security/advisories/new
+    about: Please report security problems privately, not as public issues.
+  - name: Documentation
+    url: https://github.com/ayeshrodz/slonbase/tree/main/docs
+    about: Installation, configuration, deployment, the API and hooks.

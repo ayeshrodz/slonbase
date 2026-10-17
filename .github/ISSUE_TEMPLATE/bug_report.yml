@@ -1,0 +1,51 @@
+name: Bug report
+description: Something doesn't work as documented, or differs from PocketBase.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! For security problems, please use
+        [private vulnerability reporting](https://github.com/ayeshrodz/slonbase/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Requests, SDK code, collection definitions or hook files that show the problem.
+      render: text
+  - type: textarea
+    id: pocketbase
+    attributes:
+      label: What does PocketBase do?
+      description: If this is a compatibility difference, what PocketBase (and which version) does instead.
+  - type: input
+    id: version
+    attributes:
+      label: slonbase version
+      description: The output of `slonbase --version`.
+      placeholder: slonbase 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: postgres
+    attributes:
+      label: PostgreSQL version
+      placeholder: "17.2 (Amazon RDS)"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options: [Docker / Compose, .deb / .rpm package, Binary, Built from source, Rust library]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server output (stderr or `journalctl -u slonbase`). Remove any secrets.
+      render: text

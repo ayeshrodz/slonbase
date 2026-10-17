@@ -7,7 +7,7 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-10-16
+## [0.1.0] - 2026-10-17
 
 The first release: a PocketBase-compatible backend on PostgreSQL.
 

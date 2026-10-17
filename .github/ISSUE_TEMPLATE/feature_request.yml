@@ -1,0 +1,21 @@
+name: Feature request
+description: Suggest an idea, or a PocketBase feature slonbase doesn't have yet.
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or use case, rather than a specific solution.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would help?
+      description: How you'd like it to work. Link PocketBase's docs if it's a PocketBase feature.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you're doing today instead, if anything.
