@@ -114,6 +114,18 @@ enum ProjectAction {
         /// Password of the project's first superuser (prefer the env var).
         #[arg(long, env = "SLONBASE_SUPERUSER_PASSWORD", hide_env_values = true)]
         password: String,
+        /// Give the project a PostgreSQL role of its own, owning its database (needs CREATEROLE).
+        #[arg(long)]
+        own_role: bool,
+    },
+    /// Show or set the host names a project is served on, besides /p/{name}/.
+    Hosts {
+        name: String,
+        /// The host names (replacing the current ones), e.g. shop.example.com.
+        hosts: Vec<String>,
+        /// Remove all host names.
+        #[arg(long, conflicts_with = "hosts")]
+        clear: bool,
     },
     /// Delete a project: back it up, then drop its database.
     Delete {
@@ -316,10 +328,10 @@ async fn offline_core(
     let Some(name) = project else {
         return Ok(main);
     };
-    let database = crate::projects::database_of(&main, name)
+    let (database, role) = crate::projects::database_of(&main, name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("there's no project named {name:?}"))?;
-    let project = crate::projects::project_config(&loaded, name, &database);
+    let project = crate::projects::project_config(&loaded, name, &database, role);
     core_for(&project.effective).await
 }
 
@@ -376,16 +388,56 @@ async fn project_command(loaded: config::Loaded, action: ProjectAction) -> Resul
             name,
             email,
             password,
+            own_role,
         } => {
             let project = app
                 .projects()
-                .create(&name, &email, &password)
+                .create(&name, &email, &password, own_role)
                 .await
                 .map_err(fail)?;
             println!(
-                "Created project {name} (database {}). Running servers serve it at /p/{name}/.",
-                project.database
+                "Created project {name} (database {}{}). Running servers serve it at /p/{name}/.",
+                project.database,
+                if own_role {
+                    ", with a role of its own"
+                } else {
+                    ""
+                }
             );
+            Ok(())
+        }
+        ProjectAction::Hosts { name, hosts, clear } => {
+            if hosts.is_empty() && !clear {
+                let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+                let row = client
+                    .query_opt(
+                        "SELECT hosts FROM _slonbase.projects WHERE name = $1",
+                        &[&name],
+                    )
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("there's no project named {name:?}"))?;
+                let hosts: Vec<String> = row.get(0);
+                if hosts.is_empty() {
+                    println!("{name} has no host names; it's served at /p/{name}/.");
+                }
+                for host in hosts {
+                    println!("{host}");
+                }
+                return Ok(());
+            }
+            let project = app
+                .projects()
+                .set_hosts(&name, &hosts)
+                .await
+                .map_err(fail)?;
+            if project.hosts.is_empty() {
+                println!("{name} has no host names now.");
+            } else {
+                println!(
+                    "{name} is served on {} (and /p/{name}/).",
+                    project.hosts.join(", ")
+                );
+            }
             Ok(())
         }
         ProjectAction::Delete {

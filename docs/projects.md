@@ -11,7 +11,7 @@ All of them run on the same PostgreSQL server and in the same slonbase process. 
 equivalent: there you run one process per app.
 
 > [!NOTE]
-> Projects are new in the next release (0.2). Custom hostnames for projects come next.
+> Projects are new in the next release (0.2).
 
 ## How it works
 
@@ -26,6 +26,8 @@ equivalent: there you run one process per app.
   const pb = new PocketBase("https://example.com/p/blog");
   ```
 
+  A project can also have [host names](#host-names) of its own.
+
 - **Isolation.** Superusers and tokens are separate. Signing in to one project gives no access
   to another, nor to the main installation. Settings are separate too, including SMTP, S3, rate
   limits and superuser IPs.
@@ -39,7 +41,9 @@ equivalent: there you run one process per app.
   | `<name>/backups/` | backups |
   | `<name>/hooks/` | JavaScript hooks (`*.pb.js`) |
 
-  A project's hooks are loaded when the project starts. Restart slonbase after changing them.
+  When a project's hook files change, only that project restarts (unless `hooks.watch` is
+  off). Requests already in progress finish on the old version, and realtime clients
+  reconnect.
 - **Connections.** Each project opens up to `projects.max_connections` (4) pooled connections,
   plus one for realtime. Keep the total within PostgreSQL's `max_connections`.
 - **Several instances.** Every slonbase instance on the main database serves every project.
@@ -47,6 +51,40 @@ equivalent: there you run one process per app.
 
 Only **superusers of the main installation** manage projects. Rust extensions apply to the main
 installation only.
+
+## Host names
+
+Besides `/p/<name>/`, a project can be served on host names of its own, such as
+`shop.example.com`. Requests whose `Host` header matches go to the project at the root path:
+its API at `https://shop.example.com/api/` and its dashboard at `/_/`.
+
+1. Point the name's DNS at the server.
+2. Have your reverse proxy accept it, with a certificate, and pass the `Host` header on. Caddy
+   and the [nginx example](deployment.md#reverse-proxy) do.
+3. Add the name in the dashboard (the project's menu → Host names), with
+   `slonbase project hosts shop shop.example.com`, or with
+   `PATCH /api/projects/shop {"hosts": ["shop.example.com"]}`.
+4. Set the project's app URL in its settings to the new address, so emails link to it.
+
+A host name belongs to one project at most. Ports and letter case are ignored.
+
+## An own database role
+
+By default, a project's database belongs to the main installation's role. With **own role**
+(a switch when creating a project, `--own-role` on the command line, or `"ownRole": true` in the
+API), the project gets a PostgreSQL role of its own, named like its database. That role:
+- owns the project's database and tables;
+- is the role the project connects with;
+- is, apart from the main installation's role, the only one that can connect: `PUBLIC` loses
+  `CONNECT` on the database.
+
+So a project's hooks and SQL console can't reach other projects' data. The role is created with
+a random password, kept in the main database, and dropped with the project. This needs
+`CREATEROLE` as well as `CREATEDB`:
+
+```sql
+ALTER ROLE slonbase CREATEDB CREATEROLE;
+```
 
 ## Requirements
 
@@ -79,6 +117,9 @@ slonbase project list
 SLONBASE_SUPERUSER_PASSWORD='...' slonbase project create blog --email owner@example.com
 slonbase project delete blog                # asks for the name again; --confirm blog skips the question
 slonbase project delete blog --no-backup    # without the backup first
+slonbase project create shop --email owner@example.com --own-role
+slonbase project hosts shop shop.example.com www.shop.example.com   # --clear removes them
+slonbase project hosts shop                 # lists them
 ```
 
 Use the same `--config` (or environment) as the server; for the packages that's
@@ -101,7 +142,8 @@ All endpoints need a superuser of the main installation.
 |---|---|
 | `GET /api/projects` | The projects: `name`, `database`, `path`, `status`, `created` |
 | `GET /api/projects/{name}` | One project |
-| `POST /api/projects` | Create a project: `{"name", "superuserEmail", "superuserPassword"}` |
+| `POST /api/projects` | Create a project: `{"name", "superuserEmail", "superuserPassword", "ownRole"}` |
+| `PATCH /api/projects/{name}` | Set its host names: `{"hosts": [...]}` |
 | `DELETE /api/projects/{name}?confirm={name}` | Delete a project (`&backup=false` skips the backup); answers `{"backup", "files"}` |
 
 ```sh

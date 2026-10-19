@@ -120,6 +120,27 @@ pub async fn index(State(app): State<Arc<App>>, headers: HeaderMap) -> Response 
     file("index.html", &headers)
 }
 
+/// `GET /_/context.js`: what the dashboard manages, before its modules load. `base` is the
+/// path the installation is served under, `main` the main installation's dashboard.
+pub async fn context(
+    State(app): State<Arc<App>>,
+    routed: Option<axum::Extension<crate::projects::Routed>>,
+) -> Response {
+    let (base, main) = match &routed {
+        Some(axum::Extension(r)) => (r.base.clone(), r.main_dashboard.clone()),
+        None => (String::new(), "/_/".to_string()),
+    };
+    let context = serde_json::json!({ "project": app.project(), "base": base, "main": main });
+    (
+        [
+            (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
+        format!("window.SLONBASE_CONTEXT = {context};\n"),
+    )
+        .into_response()
+}
+
 /// `GET /_/{*path}`
 pub async fn asset(Path(path): Path<String>, headers: HeaderMap) -> Response {
     file(&path, &headers)

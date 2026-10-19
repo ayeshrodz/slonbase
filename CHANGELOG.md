@@ -20,6 +20,11 @@ changes, and they'll be listed here.
     name, and backs up first). A switcher next to the logo shows which installation you're
     managing and moves between the main installation and its projects.
   - Deleting a project backs it up first, and keeps the backup with its files.
+  - Host names: a project can be served on domains of its own (for example
+    `shop.example.com`), set from the dashboard, the API or `slonbase project hosts`.
+  - An own database role, as an option: the project's database belongs to a PostgreSQL role
+    of its own, which the project connects with and nobody else can.
+  - Changing a project's hook files restarts only that project.
   - `slonbase project list|create|delete` on the command line. `--project <name>` runs
     `superuser` and `import-pocketbase` on a project, for example to move a PocketBase app into
     one.

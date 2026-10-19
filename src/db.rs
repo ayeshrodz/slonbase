@@ -26,6 +26,10 @@ fn parse_url(url: &str, cfg: &DatabaseConfig) -> Result<tokio_postgres::Config> 
     if let Some(dbname) = &cfg.dbname {
         pg.dbname(dbname);
     }
+    if let Some((user, password)) = &cfg.user {
+        pg.user(user);
+        pg.password(password);
+    }
     if pg.get_application_name().is_none() {
         pg.application_name("slonbase");
     }

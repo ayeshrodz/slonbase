@@ -4,7 +4,7 @@ import { html, useState, useEffect } from "../lib/core.js";
 import { app } from "../lib/state.js";
 import { api, enc, dashboardUrl } from "../lib/api.js";
 import { Icon } from "../lib/icons.js";
-import { Button, IconButton, Field, Input, Switch, Modal, SheetHead, Empty, Callout, CopyButton, Skeleton, Menu, toast } from "../lib/ui.js";
+import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Empty, Callout, CopyButton, Skeleton, Menu, toast } from "../lib/ui.js";
 import { formatDate, relativeTime } from "../lib/format.js";
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/;
@@ -19,6 +19,7 @@ export function Projects() {
   const [items, setItems] = useState(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
+  const [editingHosts, setEditingHosts] = useState(null);
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
@@ -68,13 +69,23 @@ export function Projects() {
             </${Empty}>
           </div>`
         : html`<div class="project-grid">
-            ${items.map((p, i) => html`<${ProjectCard} key=${p.name} project=${p} index=${i} onDelete=${() => setDeleting(p)} />`)}
+            ${items.map((p, i) => html`<${ProjectCard} key=${p.name} project=${p} index=${i} onDelete=${() => setDeleting(p)} onHosts=${() => setEditingHosts(p)} />`)}
           </div>`}
     ${creating &&
     html`<${CreateProject}
       onClose=${() => setCreating(false)}
       onCreated=${(project) => {
         const list = [...(items || []), project].sort((a, b) => a.name.localeCompare(b.name));
+        setItems(list);
+        app.set({ projects: list });
+      }}
+    />`}
+    ${editingHosts &&
+    html`<${EditHosts}
+      project=${editingHosts}
+      onClose=${() => setEditingHosts(null)}
+      onSaved=${(project) => {
+        const list = (items || []).map((p) => (p.name === project.name ? project : p));
         setItems(list);
         app.set({ projects: list });
       }}
@@ -92,7 +103,7 @@ export function Projects() {
   </div>`;
 }
 
-function ProjectCard({ project, index, onDelete }) {
+function ProjectCard({ project, index, onDelete, onHosts }) {
   const [label, tone] = STATUS[project.status] || [project.status, "outline"];
   const url = location.origin + project.path.replace(/\/$/, "");
   return html`<div class="card pad project-card" style=${{ "--i": index }}>
@@ -108,6 +119,7 @@ function ProjectCard({ project, index, onDelete }) {
         items=${[
           { icon: "external", label: "Open dashboard", onClick: () => (location.href = dashboardUrl(project.name)) },
           { icon: "copy", label: "Copy API URL", onClick: () => navigator.clipboard.writeText(url).then(() => toast("Copied.")) },
+          { icon: "globe", label: "Host names…", onClick: onHosts },
           "-",
           { icon: "trash", label: "Delete project", danger: true, onClick: onDelete },
         ]}
@@ -115,7 +127,9 @@ function ProjectCard({ project, index, onDelete }) {
     </div>
     ${project.statusDetail && html`<${Callout} kind="warn">${project.statusDetail}</${Callout}>`}
     <dl class="project-facts small">
-      <dt>Database</dt><dd class="mono">${project.database}</dd>
+      <dt>Database</dt><dd class="mono">${project.database}${project.role && html` <span class="muted">· own role</span>`}</dd>
+      ${project.hosts.length > 0 &&
+      html`<dt>Hosts</dt><dd>${project.hosts.map((h, i) => html`${i > 0 && ", "}<a href=${`//${h}/_/`} class="mono">${h}</a>`)}</dd>`}
       <dt>Created</dt><dd><span class="tip" data-tip=${formatDate(project.created)}>${relativeTime(project.created)}</span></dd>
     </dl>
     <div class="row" style="margin-top:auto">
@@ -130,6 +144,7 @@ function CreateProject({ onClose, onCreated }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [ownRole, setOwnRole] = useState(false);
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
@@ -140,7 +155,7 @@ function CreateProject({ onClose, onCreated }) {
     setBusy(true);
     setErrors({});
     try {
-      const project = await api.post("/api/projects", { name, superuserEmail: email, superuserPassword: password });
+      const project = await api.post("/api/projects", { name, superuserEmail: email, superuserPassword: password, ownRole });
       onCreated(project);
       setCreated(project);
     } catch (err) {
@@ -189,6 +204,12 @@ function CreateProject({ onClose, onCreated }) {
               <${Field} label="Password" error=${errors.superuserPassword} help="At least 10 characters">
                 <${Input} type="password" value=${password} onInput=${setPassword} autocomplete="new-password" required />
               </${Field}>
+              <div class="stack tight" style="margin-top:4px">
+                <${Switch} checked=${ownRole} onChange=${setOwnRole} label="Own database role" />
+                <span class="small muted">
+                  The project connects with a PostgreSQL role of its own that owns its database, and other roles can't connect to it. Needs CREATEROLE.
+                </span>
+              </div>
             </div>
             <div class="sheet-foot">
               <span class="spacer"></span>
@@ -259,5 +280,47 @@ function DeleteProject({ project, onClose, onDeleted }) {
                 ${backup ? "Back up and delete" : "Delete"}
               </${Button}>
             </div>`}
+  </${Modal}>`;
+}
+
+function EditHosts({ project, onClose, onSaved }) {
+  const [text, setText] = useState(project.hosts.join("\n"));
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async (e, close) => {
+    e.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      const hosts = text.split(/[\s,]+/).map((h) => h.trim()).filter(Boolean);
+      const updated = await api.patch(`/api/projects/${enc(project.name)}`, { hosts });
+      onSaved(updated);
+      toast(hosts.length ? "Host names saved." : "Host names removed.");
+      close();
+    } catch (err) {
+      const fields = err.fieldErrors ? err.fieldErrors() : {};
+      setError(fields.hosts || err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<${Modal} size="narrow" onClose=${onClose}>
+    ${(close) => html`<form onSubmit=${(e) => save(e, close)}>
+      <${SheetHead} title="Host names" subtitle=${project.name} icon="globe" onClose=${close} />
+      <div class="sheet-body stack">
+        <p class="muted small">
+          Requests for these host names go to ${project.name}, at the root path: its API at <code>https://host/api/</code>, its dashboard at <code>/_/</code>. It stays available at <code>${project.path}</code> too.
+        </p>
+        <${Field} label="One host name per line" error=${error}>
+          <${TextArea} rows=${4} class="mono" value=${text} onInput=${setText} placeholder="shop.example.com" autofocus />
+        </${Field}>
+        <${Callout}>Point each name's DNS at this server, and give your reverse proxy a certificate for it. Set the project's app URL in its settings so emails link to the new address.</${Callout}>
+      </div>
+      <div class="sheet-foot">
+        <span class="spacer"></span>
+        <${Button} variant="ghost" onClick=${close}>Cancel</${Button}>
+        <${Button} variant="primary" type="submit" loading=${busy}>Save</${Button}>
+      </div>
+    </form>`}
   </${Modal}>`;
 }

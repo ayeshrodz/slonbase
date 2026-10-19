@@ -16,7 +16,7 @@ const PROJECT_EMAIL: &str = "owner@example.com";
 const PROJECT_PASSWORD: &str = "project-password-1";
 
 async fn eventually(mut check: impl AsyncFnMut() -> bool) -> bool {
-    for _ in 0..150 {
+    for _ in 0..250 {
         if check().await {
             return true;
         }
@@ -422,6 +422,412 @@ async fn project_commands() {
         "the running server stopped the project"
     );
 
+    drop(app);
+    tdb.drop_db().await;
+}
+
+/// Host names route to a project, and the dashboard learns where it's served.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn host_names() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let bearer = format!("Bearer {token}");
+    let admin = [("authorization", bearer.as_str())];
+    for name in ["shop", "blog"] {
+        let (status, res) = request(&app, "POST", "/api/projects", &admin, Some(json!({
+            "name": name, "superuserEmail": PROJECT_EMAIL, "superuserPassword": PROJECT_PASSWORD,
+        }))).await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/projects/shop",
+        &admin,
+        Some(json!({ "hosts": ["not a host"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["hosts"].is_object(), "{res}");
+    let (status, _) = request(
+        &app,
+        "PATCH",
+        "/api/projects/shop",
+        &[],
+        Some(json!({ "hosts": ["shop.test"] })),
+    )
+    .await;
+    assert!(
+        status == StatusCode::FORBIDDEN || status == StatusCode::UNAUTHORIZED,
+        "{status}"
+    );
+    let (status, shop) = request(
+        &app,
+        "PATCH",
+        "/api/projects/shop",
+        &admin,
+        Some(json!({
+            "hosts": ["Shop.Example.com:443", "shop.example.com", "www.shop.test."],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{shop}");
+    assert_eq!(shop["hosts"], json!(["shop.example.com", "www.shop.test"]));
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/projects/blog",
+        &admin,
+        Some(json!({ "hosts": ["shop.example.com"] })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "another project has it: {res}"
+    );
+
+    // the project answers on its host name, at the root path
+    let (status, res) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[("host", "shop.example.com")],
+        Some(json!({ "identity": PROJECT_EMAIL, "password": PROJECT_PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, _) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[("host", "localhost:8090")],
+        Some(json!({ "identity": PROJECT_EMAIL, "password": PROJECT_PASSWORD })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "other hosts reach the main installation"
+    );
+    let (status, res) = request(
+        &app,
+        "GET",
+        "/api/projects",
+        &[
+            ("host", "www.shop.test"),
+            ("authorization", bearer.as_str()),
+        ],
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the project has no projects API: {res}"
+    );
+
+    // the dashboard's context
+    let context = |host: &'static str, path: &'static str| {
+        let app = app.clone();
+        async move {
+            let (status, headers, body) =
+                raw_request(&app, "GET", path, &[("host", host)], vec![]).await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(
+                headers["content-type"]
+                    .to_str()
+                    .unwrap()
+                    .starts_with("text/javascript")
+            );
+            let body = String::from_utf8(body).unwrap();
+            let json = body
+                .trim()
+                .trim_start_matches("window.SLONBASE_CONTEXT = ")
+                .trim_end_matches(';');
+            serde_json::from_str::<serde_json::Value>(json).unwrap()
+        }
+    };
+    let main = context("localhost", "/_/context.js").await;
+    assert_eq!(main, json!({ "project": null, "base": "", "main": "/_/" }));
+    let by_path = context("localhost", "/p/blog/_/context.js").await;
+    assert_eq!(
+        by_path,
+        json!({ "project": "blog", "base": "/p/blog", "main": "/_/" })
+    );
+    let by_host = context("shop.example.com", "/_/context.js").await;
+    assert_eq!(by_host["project"], "shop");
+    assert_eq!(by_host["base"], "");
+    assert!(
+        by_host["main"].as_str().unwrap().ends_with("/_/"),
+        "{by_host}"
+    );
+
+    // another instance routes the host names too
+    let (_dir2, config2) = temp_config();
+    let app2 = new_app(&config2, Some(tdb.url.clone()));
+    app2.bootstrap().await.unwrap();
+    assert!(
+        eventually(async || request(
+            &app2,
+            "GET",
+            "/_/context.js",
+            &[("host", "www.shop.test")],
+            None
+        )
+        .await
+        .0 == StatusCode::OK
+            && raw_request(
+                &app2,
+                "GET",
+                "/_/context.js",
+                &[("host", "www.shop.test")],
+                vec![]
+            )
+            .await
+            .2
+            .windows(6)
+            .any(|w| w == b"\"shop\""))
+        .await
+    );
+
+    // removing them
+    let (status, shop) = request(
+        &app,
+        "PATCH",
+        "/api/projects/shop",
+        &admin,
+        Some(json!({ "hosts": [] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{shop}");
+    let by_host = context("shop.example.com", "/_/context.js").await;
+    assert_eq!(by_host["project"], json!(null));
+
+    drop(app2);
+    for name in ["shop", "blog"] {
+        request(
+            &app,
+            "DELETE",
+            &format!("/api/projects/{name}?confirm={name}&backup=false"),
+            &admin,
+            None,
+        )
+        .await;
+    }
+    drop(app);
+    tdb.drop_db().await;
+}
+
+/// A project with a role of its own, created by a main role that isn't a superuser.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn own_role() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // the main installation's role: CREATEDB and CREATEROLE, no superuser
+    let main_role = format!("{}_main", tdb.name);
+    admin_exec(
+        &tdb.admin_url,
+        &format!(
+            "CREATE ROLE {main_role} LOGIN PASSWORD 'main-role-password' CREATEDB CREATEROLE;
+         ALTER DATABASE {} OWNER TO {main_role};",
+            tdb.name
+        ),
+    )
+    .await;
+    let main_url = {
+        let (scheme, rest) = tdb.url.split_once("://").unwrap();
+        let rest = rest.split_once('@').map(|(_, host)| host).unwrap_or(rest);
+        format!("{scheme}://{main_role}:main-role-password@{rest}")
+    };
+    let (dir, config) = temp_config();
+    let app = new_app(&config, Some(main_url.clone()));
+    app.bootstrap().await.unwrap();
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/setup/complete",
+        Some(app.setup_token()),
+        Some(json!({ "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, auth) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": ADMIN_EMAIL, "password": ADMIN_PASSWORD })),
+    )
+    .await;
+    let bearer = format!("Bearer {}", auth["token"].as_str().unwrap());
+    let admin = [("authorization", bearer.as_str())];
+
+    let (status, project) = request(&app, "POST", "/api/projects", &admin, Some(json!({
+        "name": "vault", "superuserEmail": PROJECT_EMAIL, "superuserPassword": PROJECT_PASSWORD, "ownRole": true,
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    let database = format!("{}_vault", tdb.name);
+    assert_eq!(project["role"], database.as_str());
+
+    // the role owns the database and its tables; other roles can't connect
+    let (client, conn) = tokio_postgres::connect(&tdb.admin_url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    let row = client
+        .query_one(
+            "SELECT pg_get_userbyid(datdba), has_database_privilege('public', datname, 'CONNECT')
+         FROM pg_database WHERE datname = $1",
+            &[&database],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), database);
+    assert!(!row.get::<_, bool>(1), "PUBLIC can't connect");
+    let other = format!("{}_other", tdb.name);
+    admin_exec(
+        &tdb.admin_url,
+        &format!("CREATE ROLE {other} LOGIN PASSWORD 'other-password'"),
+    )
+    .await;
+    let other_url = {
+        let (scheme, rest) = tdb.url.split_once("://").unwrap();
+        let rest = rest.split_once('@').map(|(_, host)| host).unwrap_or(rest);
+        let rest = rest.replacen(&tdb.name, &database, 1);
+        format!("{scheme}://{other}:other-password@{rest}")
+    };
+    assert!(
+        tokio_postgres::connect(&other_url, tokio_postgres::NoTls)
+            .await
+            .is_err(),
+        "another role is refused"
+    );
+
+    // the project works, with tables owned by its role
+    let (_, owner) = request(
+        &app,
+        "POST",
+        "/p/vault/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": PROJECT_EMAIL, "password": PROJECT_PASSWORD })),
+    )
+    .await;
+    let owner_bearer = format!("Bearer {}", owner["token"].as_str().unwrap());
+    let (status, res) = request(&app, "POST", "/p/vault/api/collections", &[("authorization", owner_bearer.as_str())],
+        Some(json!({ "name": "secrets", "createRule": "", "fields": [{ "name": "v", "type": "text" }] }))).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, _) = request(
+        &app,
+        "POST",
+        "/p/vault/api/collections/secrets/records",
+        &[],
+        Some(json!({ "v": "x" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // deleting drops the role too (after a backup made with it)
+    let (status, deleted) = request(
+        &app,
+        "DELETE",
+        "/api/projects/vault?confirm=vault",
+        &admin,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert!(deleted["backup"].is_string(), "{deleted}");
+    let roles = client
+        .query_one(
+            "SELECT count(*) FROM pg_roles WHERE rolname = $1",
+            &[&database],
+        )
+        .await
+        .unwrap();
+    assert_eq!(roles.get::<_, i64>(0), 0, "the role was dropped");
+    assert!(!database_exists(&tdb, &database).await);
+
+    drop(app);
+    drop(dir);
+    let admin_url = tdb.admin_url.clone();
+    tdb.drop_db().await;
+    admin_exec(
+        &admin_url,
+        &format!("DROP ROLE IF EXISTS {other}; DROP ROLE IF EXISTS {main_role};"),
+    )
+    .await;
+}
+
+/// Changing a project's hook files restarts that project, not the server.
+#[cfg(feature = "js")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn project_hooks_reload() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, dir) = ready_app(&tdb).await;
+    let bearer = format!("Bearer {token}");
+    let admin = [("authorization", bearer.as_str())];
+    let (status, res) = request(&app, "POST", "/api/projects", &admin, Some(json!({
+        "name": "hooked", "superuserEmail": PROJECT_EMAIL, "superuserPassword": PROJECT_PASSWORD,
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, _) = request(&app, "GET", "/p/hooked/api/hello", &[], None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    let hooks = dir.path().join("projects").join("hooked").join("hooks");
+    std::fs::create_dir_all(&hooks).unwrap();
+    let write = |version: u32| {
+        std::fs::write(
+            hooks.join("main.pb.js"),
+            format!(
+                "routerAdd('GET', '/api/hello', (e) => e.json(200, {{ version: {version} }}));"
+            ),
+        )
+        .unwrap()
+    };
+    write(1);
+    assert!(
+        eventually(
+            async || request(&app, "GET", "/p/hooked/api/hello", &[], None)
+                .await
+                .1["version"]
+                == 1
+        )
+        .await,
+        "the project restarted with its new hook"
+    );
+    write(2);
+    assert!(
+        eventually(
+            async || request(&app, "GET", "/p/hooked/api/hello", &[], None)
+                .await
+                .1["version"]
+                == 2
+        )
+        .await,
+        "and again"
+    );
+    let (status, _) = request(&app, "GET", "/api/hello", &[], None).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the main installation doesn't have the route"
+    );
+
+    request(
+        &app,
+        "DELETE",
+        "/api/projects/hooked?confirm=hooked&backup=false",
+        &admin,
+        None,
+    )
+    .await;
     drop(app);
     tdb.drop_db().await;
 }

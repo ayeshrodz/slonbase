@@ -127,6 +127,9 @@ pub struct DatabaseConfig {
     /// Connects to this database instead of the URL's (set for projects, never saved).
     #[serde(skip)]
     pub dbname: Option<String>,
+    /// Connects as this role instead of the URL's (projects with a role of their own).
+    #[serde(skip)]
+    pub user: Option<(String, String)>,
 }
 
 impl Default for DatabaseConfig {
@@ -136,6 +139,7 @@ impl Default for DatabaseConfig {
             max_connections: DEFAULT_MAX_CONNECTIONS,
             ca_file: None,
             dbname: None,
+            user: None,
         }
     }
 }

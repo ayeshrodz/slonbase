@@ -1,9 +1,15 @@
 // The API client: JSON requests with the superuser token, errors as ApiError.
 
-// "" for the main installation, "/p/{name}" for a project (the dashboard is at BASE + "/_/")
-export const BASE = location.pathname.replace(/\/_(\/.*)?$/, "");
+// set by /_/context.js: the project this dashboard manages, the path it's served under and
+// the main installation's dashboard (on another host when the project has a host name)
+const CONTEXT = window.SLONBASE_CONTEXT || {};
+// "" for the main installation or a project on its own host name, "/p/{name}" for a project
+// under the main installation's (the dashboard is at BASE + "/_/")
+export const BASE = CONTEXT.base ?? location.pathname.replace(/\/_(\/.*)?$/, "");
 // the project this dashboard manages, or null for the main installation
-export const PROJECT = BASE.startsWith("/p/") ? decodeURIComponent(BASE.slice(3)) : null;
+export const PROJECT = CONTEXT.project ?? (BASE.startsWith("/p/") ? decodeURIComponent(BASE.slice(3)) : null);
+// the main installation's dashboard
+const MAIN_DASHBOARD = CONTEXT.main || "/_/";
 // each project has its own superusers, so its own session
 const MAIN_TOKEN_KEY = "slonbase.auth";
 const TOKEN_KEY = MAIN_TOKEN_KEY + BASE;
@@ -128,6 +134,8 @@ export const enc = encodeURIComponent;
 // main dashboard, or one stored in this browser when managing a project. Null without one.
 export async function listProjects() {
   let token = session.token;
+  // a project on a host name of its own: the main installation's session is on another origin
+  if (PROJECT && !BASE) return null;
   if (PROJECT) {
     try {
       token = (JSON.parse(localStorage.getItem(MAIN_TOKEN_KEY) || "null") || {}).token;
@@ -146,7 +154,8 @@ export async function listProjects() {
 
 // the dashboard of a project (or of the main installation, for null)
 export function dashboardUrl(project) {
-  return project ? `/p/${encodeURIComponent(project)}/_/` : "/_/";
+  const main = MAIN_DASHBOARD.replace(/\/_\/$/, "");
+  return project ? `${main}/p/${encodeURIComponent(project)}/_/` : MAIN_DASHBOARD;
 }
 
 export async function refreshAuth() {

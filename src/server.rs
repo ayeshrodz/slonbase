@@ -36,8 +36,14 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/p/{project}", any(crate::projects::dispatch))
         .route("/p/{project}/", any(crate::projects::dispatch))
         .route("/p/{project}/{*rest}", any(crate::projects::dispatch))
-        .with_state(app)
+        .with_state(app.clone())
         .merge(main)
+        .fallback(|| async { StatusCode::NOT_FOUND })
+        // a project's own host names take precedence over every route
+        .layer(axum::middleware::from_fn_with_state(
+            app,
+            crate::projects::host_dispatch,
+        ))
 }
 
 /// The routes of the main installation, without the projects.
@@ -50,7 +56,9 @@ fn project_api(app: &App) -> Router<Arc<App>> {
         .route("/api/projects", get(projects::list).post(projects::create))
         .route(
             "/api/projects/{name}",
-            get(projects::view).delete(projects::delete),
+            get(projects::view)
+                .patch(projects::update)
+                .delete(projects::delete),
         )
 }
 
@@ -60,6 +68,7 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/", get(|| async { Redirect::temporary("./_/") }))
         .route("/_/", get(crate::ui::index))
         .route("/_/setup", get(setup::page))
+        .route("/_/context.js", get(crate::ui::context))
         .route("/_/{*path}", get(crate::ui::asset))
         .route("/api/health", get(health))
         .route("/api/setup", get(setup::status))
