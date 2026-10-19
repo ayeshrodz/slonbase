@@ -2,6 +2,7 @@
 import { html, useState } from "../lib/core.js";
 import { Icon } from "../lib/icons.js";
 import { Segmented, CopyButton, Callout } from "../lib/ui.js";
+import { BASE } from "../lib/api.js";
 
 function sample(field) {
   switch (field.type) {
@@ -163,7 +164,7 @@ export function ApiDocs({ collection: c }) {
     <div class="row">
       <${Callout}>
         slonbase speaks PocketBase's API, so the official <a href="https://github.com/pocketbase/js-sdk" target="_blank" rel="noopener">JavaScript</a> and
-        Dart SDKs work as they are: <code>new PocketBase("${location.origin}")</code>.
+        Dart SDKs work as they are: <code>new PocketBase("${location.origin + BASE}")</code>.
       </${Callout}>
     </div>
     <div class="row"><span class="grow section-title">Endpoints</span><${Segmented} value=${lang} onChange=${setLang} options=${[{ value: "sdk", label: "JS SDK" }, { value: "curl", label: "curl" }]} /></div>
@@ -185,8 +186,8 @@ export function ApiDocs({ collection: c }) {
               <tbody>${e.params.map(([k, v]) => html`<tr style="cursor:default"><td style="width:140px"><code>${k}</code></td><td class="muted">${v}</td></tr>`)}</tbody>
             </table>`}
             <div style="position:relative">
-              <pre class="code">${lang === "sdk" ? e.sdk : e.curl.replace(/\$URL/g, location.origin)}</pre>
-              <span style="position:absolute;top:8px;right:8px"><${CopyButton} text=${lang === "sdk" ? e.sdk : e.curl.replace(/\$URL/g, location.origin)} /></span>
+              <pre class="code">${lang === "sdk" ? e.sdk : e.curl.replace(/\$URL/g, location.origin + BASE)}</pre>
+              <span style="position:absolute;top:8px;right:8px"><${CopyButton} text=${lang === "sdk" ? e.sdk : e.curl.replace(/\$URL/g, location.origin + BASE)} /></span>
             </div>
           </div>`}
         </div>`

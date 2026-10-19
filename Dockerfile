@@ -19,7 +19,8 @@ ENV SLONBASE_BIND=0.0.0.0:8090 \
     SLONBASE_CONFIG=/data/slonbase.toml \
     SLONBASE_STORAGE_PATH=/data/storage \
     SLONBASE_BACKUPS_PATH=/data/backups \
-    SLONBASE_HOOKS_DIR=/data/hooks
+    SLONBASE_HOOKS_DIR=/data/hooks \
+    SLONBASE_PROJECTS_PATH=/data/projects
 VOLUME /data
 EXPOSE 8090
 HEALTHCHECK --interval=10s --timeout=6s --start-period=5s CMD ["/slonbase", "health"]

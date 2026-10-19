@@ -75,6 +75,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
     hooks_watch: Option<bool>,
 
+    /// Directory for the projects' files, backups and hooks [default: slonbase_data/projects].
+    #[arg(long, global = true, env = "SLONBASE_PROJECTS_PATH")]
+    projects_path: Option<PathBuf>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -174,6 +178,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,
+        projects_path: cli.projects_path,
     };
 
     match cli.command.unwrap_or(Command::Serve { setup_token: None }) {

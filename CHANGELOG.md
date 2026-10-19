@@ -7,6 +7,17 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **Projects:** one installation can host several isolated projects. Each runs in a PostgreSQL
+  database of its own, on the same server, and is served under `/p/<name>/`, dashboard
+  included. A project has its own collections, superusers, settings, files, backups, logs and
+  hooks.
+  - Superusers of the main installation create, list and delete projects with `/api/projects`.
+  - Every instance serves every project, and changes reach all of them.
+  - See [docs/projects.md](https://github.com/ayeshrodz/slonbase/blob/main/docs/projects.md).
+- `projects.path` (`--projects-path`) and `projects.max_connections` settings.
+
 ## [0.1.0] - 2026-10-17
 
 The first release: a PocketBase-compatible backend on PostgreSQL.

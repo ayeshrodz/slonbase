@@ -45,6 +45,7 @@ pub mod logs;
 pub mod mail;
 pub mod migrations;
 pub mod oauth2;
+pub mod projects;
 pub mod realtime;
 pub mod records;
 pub mod s3;

@@ -94,6 +94,7 @@ pub fn new_app_configured(
         // uploads go next to the test's config file
         storage_path: Some(config_path.parent().unwrap().join("storage")),
         backups_path: Some(config_path.parent().unwrap().join("backups")),
+        projects_path: Some(config_path.parent().unwrap().join("projects")),
         ..Default::default()
     };
     configure(&mut overrides);

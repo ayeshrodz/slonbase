@@ -81,8 +81,22 @@ impl Core {
         config: &Config,
         hooks: Arc<crate::hooks::Hooks>,
     ) -> Result<Arc<Self>> {
+        Self::start_with(pool, url, config, hooks, true).await
+    }
+
+    /// Like [`Core::start`]; `app_logs` makes this core's logs receive the process's
+    /// warnings and errors (the main installation's, not a project's).
+    pub(crate) async fn start_with(
+        pool: Pool,
+        url: &str,
+        config: &Config,
+        hooks: Arc<crate::hooks::Hooks>,
+        app_logs: bool,
+    ) -> Result<Arc<Self>> {
         let core = Self::load(pool, config, hooks).await?;
-        crate::logs::capture_app_logs(&core.logs);
+        if app_logs {
+            crate::logs::capture_app_logs(&core.logs);
+        }
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         core.hooks.ready(&core).await;
         Ok(core)

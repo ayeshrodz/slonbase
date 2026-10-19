@@ -27,6 +27,8 @@ file, and then the defaults.
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
+| `--projects-path` | `SLONBASE_PROJECTS_PATH` | `projects.path` | `slonbase_data/projects` |
+| | | `projects.max_connections` | `4` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 
 Relative paths are relative to the working directory. The Docker image sets
@@ -55,6 +57,10 @@ path = "slonbase_data/backups"
 dir = "slonbase_hooks"
 pool_size = 10
 watch = true
+
+[projects]            # see projects.md
+path = "slonbase_data/projects"
+max_connections = 4
 ```
 
 The setup wizard writes `database.url` into this file with `0600` permissions, since it contains
@@ -66,8 +72,8 @@ password. `sslmode` can be `disable`, `prefer` (the default) or `require`. TLS c
 certificate against the Mozilla root certificates; for providers with their own CA (such as
 Amazon RDS), pass it with `--database-ca-file`.
 
-**Connections:** each instance opens up to `max_connections` to PostgreSQL, plus one for
-`LISTEN`. With several instances, keep the total below the server's `max_connections`, or use a
+**Connections:** each instance opens up to `max_connections` to PostgreSQL, plus two for
+`LISTEN` (realtime and projects), and each [project](projects.md) adds its own. With several instances, keep the total below the server's `max_connections`, or use a
 pooler in session mode. Transaction-mode poolers (PgBouncer `pool_mode = transaction`) don't
 support `LISTEN`, so slonbase needs a direct or session-mode connection.
 

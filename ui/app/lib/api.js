@@ -1,6 +1,9 @@
 // The API client: JSON requests with the superuser token, errors as ApiError.
 
-const TOKEN_KEY = "slonbase.auth";
+// "" for the main installation, "/p/{name}" for a project (the dashboard is at BASE + "/_/")
+export const BASE = location.pathname.replace(/\/_(\/.*)?$/, "");
+// each project has its own superusers, so its own session
+const TOKEN_KEY = "slonbase.auth" + BASE;
 
 export class ApiError extends Error {
   constructor(status, message, data) {
@@ -80,7 +83,7 @@ export async function request(method, path, body, options = {}) {
   }
   let res;
   try {
-    res = await fetch(path, { method, headers, body: payload, signal: options.signal });
+    res = await fetch(path.startsWith("/") ? BASE + path : path, { method, headers, body: payload, signal: options.signal });
   } catch (err) {
     if (err.name === "AbortError") throw err;
     throw new ApiError(0, "Can't reach the server.");
@@ -141,7 +144,7 @@ export function fileUrl(record, name, opts = {}) {
   if (opts.thumb) params.thumb = opts.thumb;
   if (opts.token) params.token = opts.token;
   if (opts.download) params.download = 1;
-  return `/api/files/${enc(record.collectionId)}/${enc(record.id)}/${enc(name)}${qs(params)}`;
+  return `${BASE}/api/files/${enc(record.collectionId)}/${enc(record.id)}/${enc(name)}${qs(params)}`;
 }
 
 // realtime: one SSE connection, subscriptions by topic
@@ -149,7 +152,7 @@ export function realtime(topics, onEvent) {
   let source = null;
   let closed = false;
   const connect = () => {
-    source = new EventSource("/api/realtime");
+    source = new EventSource(BASE + "/api/realtime");
     source.addEventListener("PB_CONNECT", async (e) => {
       const { clientId } = JSON.parse(e.data);
       try {

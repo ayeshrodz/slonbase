@@ -22,6 +22,25 @@ pub struct Config {
     pub storage: StorageConfig,
     pub backups: BackupsConfig,
     pub hooks: HooksConfig,
+    pub projects: ProjectsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ProjectsConfig {
+    /// Directory with each project's files, backups and hooks (`<path>/<project>/...`).
+    pub path: PathBuf,
+    /// Maximum number of pooled connections of each project.
+    pub max_connections: usize,
+}
+
+impl Default for ProjectsConfig {
+    fn default() -> Self {
+        Self {
+            path: PathBuf::from("slonbase_data/projects"),
+            max_connections: 4,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -105,6 +124,9 @@ pub struct DatabaseConfig {
     /// Extra PEM CA bundle to trust for TLS connections (e.g. a managed provider's CA).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_file: Option<PathBuf>,
+    /// Connects to this database instead of the URL's (set for projects, never saved).
+    #[serde(skip)]
+    pub dbname: Option<String>,
 }
 
 impl Default for DatabaseConfig {
@@ -113,6 +135,7 @@ impl Default for DatabaseConfig {
             url: None,
             max_connections: DEFAULT_MAX_CONNECTIONS,
             ca_file: None,
+            dbname: None,
         }
     }
 }
@@ -130,6 +153,7 @@ pub struct Overrides {
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
     pub hooks_watch: Option<bool>,
+    pub projects_path: Option<PathBuf>,
 }
 
 /// The result of loading the configuration.
@@ -189,9 +213,15 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     if let Some(watch) = overrides.hooks_watch {
         effective.hooks.watch = watch;
     }
+    if let Some(path) = overrides.projects_path {
+        effective.projects.path = path;
+    }
 
     if effective.database.max_connections == 0 {
         anyhow::bail!("database.max_connections must be greater than 0");
+    }
+    if effective.projects.max_connections == 0 {
+        anyhow::bail!("projects.max_connections must be greater than 0");
     }
 
     Ok(Loaded {

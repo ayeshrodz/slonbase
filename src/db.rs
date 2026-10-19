@@ -19,10 +19,13 @@ pub const MIN_SERVER_VERSION_NUM: i32 = 140_000;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const POOL_TIMEOUT: Duration = Duration::from_secs(10);
 
-fn parse_url(url: &str) -> Result<tokio_postgres::Config> {
+fn parse_url(url: &str, cfg: &DatabaseConfig) -> Result<tokio_postgres::Config> {
     let mut pg: tokio_postgres::Config = url
         .parse()
         .map_err(|e| anyhow::anyhow!("invalid database URL: {e}"))?;
+    if let Some(dbname) = &cfg.dbname {
+        pg.dbname(dbname);
+    }
     if pg.get_application_name().is_none() {
         pg.application_name("slonbase");
     }
@@ -35,7 +38,7 @@ fn parse_url(url: &str) -> Result<tokio_postgres::Config> {
 /// Builds a connection pool. Connections are opened lazily,
 /// so call [`check_server`] to verify the database is reachable.
 pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
-    let pg = parse_url(url)?;
+    let pg = parse_url(url, cfg)?;
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let manager = Manager::from_config(
         pg,
@@ -65,7 +68,7 @@ pub async fn listen(
     tokio_postgres::Client,
     tokio::sync::mpsc::UnboundedReceiver<tokio_postgres::Notification>,
 )> {
-    let pg = parse_url(url)?;
+    let pg = parse_url(url, cfg)?;
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let (client, mut connection) = pg.connect(tls).await?;
 

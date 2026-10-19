@@ -115,7 +115,7 @@ fn file(path: &str, headers: &HeaderMap) -> Response {
 /// `GET /_/`
 pub async fn index(State(app): State<Arc<App>>, headers: HeaderMap) -> Response {
     if let Mode::Setup(_) = app.mode() {
-        return Redirect::temporary("/_/setup").into_response();
+        return Redirect::temporary("setup").into_response();
     }
     file("index.html", &headers)
 }

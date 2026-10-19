@@ -1,6 +1,6 @@
 // Settings: application, mail, file storage, backups, security, logs, crons, import/export.
 import { html, useState, useEffect, useMemo, useStore, navigate, cx } from "../lib/core.js";
-import { api, qs, enc, getFileToken } from "../lib/api.js";
+import { api, qs, enc, getFileToken, BASE } from "../lib/api.js";
 import { app, loadCollections } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
 import {
@@ -282,7 +282,7 @@ function Backups({ s }) {
   const download = async (key) => {
     try {
       const token = await getFileToken();
-      window.open(`/api/backups/${enc(key)}${qs({ token })}`, "_blank");
+      window.open(`${BASE}/api/backups/${enc(key)}${qs({ token })}`, "_blank");
     } catch (err) {
       toast.error(err);
     }

@@ -482,8 +482,8 @@ async fn listener_catches_up_after_reconnecting() {
         .unwrap()
         .query_one(
             "SELECT count(pg_terminate_backend(pid)) FROM pg_stat_activity
-             WHERE datname = current_database() AND query LIKE 'LISTEN%'",
-            &[],
+             WHERE datname = current_database() AND query = $1",
+            &[&format!("LISTEN {}", slonbase::realtime::CHANNEL)],
         )
         .await
         .unwrap()

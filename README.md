@@ -46,6 +46,8 @@ API, and puts it on **PostgreSQL**:
   brings users' password hashes, so nobody has to reset a password.
 - 🐘 **Your data in PostgreSQL.** Each collection is a real table that you can query with SQL,
   replicate, back up with `pg_dump`, or run on a managed service.
+- 🗂️ **Many projects, one server.** Host several isolated apps from one installation. Each is
+  served under `/p/<name>/` and kept in a database of its own.
 - ↔️ **Scales out.** Run several instances on one database behind a load balancer. Realtime
   events, schema changes and settings reach every instance through `LISTEN/NOTIFY`.
 - ⚡ **Fast where it matters.** It's built in Rust with tokio and axum, its filters compile to
@@ -153,6 +155,7 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime
 - [Extending](docs/extending.md): JavaScript hooks and the Rust library
+- [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
 - [Benchmarks](bench/README.md): slonbase and PocketBase on the same workloads
 - [Design](docs/design.md): the decisions behind slonbase

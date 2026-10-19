@@ -239,7 +239,7 @@ pub async fn complete(
     let core = crate::core::Core::start(pool, &url, &config.effective, app.hooks.clone())
         .await
         .map_err(ApiError::internal)?;
-    app.set_mode(Mode::Ready { core });
+    app.ready(core);
     tracing::info!("setup completed");
 
     Ok(Json(json!({ "message": "Setup completed." })))

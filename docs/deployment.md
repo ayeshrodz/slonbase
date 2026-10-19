@@ -89,8 +89,9 @@ The image runs as an unprivileged user and writes only to `/data`. Its health ch
 - **Role:** slonbase needs a role that can create schemas in its database (`CREATE` on the
   database), such as the database owner. It doesn't need to be a PostgreSQL superuser, and
   shouldn't be one if you enable the SQL console.
-- **Connections:** each instance uses up to `--database-max-connections` (16) plus one for
-  `LISTEN/NOTIFY`. Poolers must run in session mode, since transaction mode can't carry
+- **Connections:** each instance uses up to `--database-max-connections` (16) plus two for
+  `LISTEN/NOTIFY`, and up to `projects.max_connections` (4) plus one more for each
+  [project](projects.md). Poolers must run in session mode, since transaction mode can't carry
   `LISTEN`.
 - **Managed services:** use `sslmode=require`, and `--database-ca-file` when the provider has its
   own CA.

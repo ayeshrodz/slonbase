@@ -9,7 +9,7 @@ use axum::extract::DefaultBodyLimit;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{any, get, post};
 
 use crate::records::{auth_api, oauth2_api};
 use crate::{collections, logs, realtime, records, settings};
@@ -27,8 +27,37 @@ fn upload_limit() -> DefaultBodyLimit {
 }
 
 pub fn router(app: Arc<App>) -> Router {
+    let main = app_router(app.clone());
+    if app.project().is_some() {
+        return main;
+    }
+    // projects run their own router (and middleware) under /p/{name}/
     Router::new()
-        .route("/", get(|| async { Redirect::temporary("/_/") }))
+        .route("/p/{project}", any(crate::projects::dispatch))
+        .route("/p/{project}/", any(crate::projects::dispatch))
+        .route("/p/{project}/{*rest}", any(crate::projects::dispatch))
+        .with_state(app)
+        .merge(main)
+}
+
+/// The routes of the main installation, without the projects.
+fn project_api(app: &App) -> Router<Arc<App>> {
+    if app.project().is_some() {
+        return Router::new();
+    }
+    use crate::projects;
+    Router::new()
+        .route("/api/projects", get(projects::list).post(projects::create))
+        .route(
+            "/api/projects/{name}",
+            get(projects::view).delete(projects::delete),
+        )
+}
+
+fn app_router(app: Arc<App>) -> Router {
+    Router::new()
+        // relative, so it works under a project's /p/{name}/ too
+        .route("/", get(|| async { Redirect::temporary("./_/") }))
         .route("/_/", get(crate::ui::index))
         .route("/_/setup", get(setup::page))
         .route("/_/{*path}", get(crate::ui::asset))
@@ -177,6 +206,7 @@ pub fn router(app: Arc<App>) -> Router {
         .route("/api/logs", get(logs::list).delete(logs::truncate))
         .route("/api/logs/stats", get(logs::stats))
         .route("/api/logs/{id}", get(logs::view))
+        .merge(project_api(&app))
         .merge(app.extra_routes())
         // global middleware from extensions (`routerUse`), after the guard's checks
         .layer(axum::middleware::from_fn_with_state(

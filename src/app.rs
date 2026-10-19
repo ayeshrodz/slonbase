@@ -44,6 +44,10 @@ pub struct App {
     pub(crate) hooks: Arc<crate::hooks::Hooks>,
     /// Extra routes, merged into the router.
     routes: axum::Router<Arc<App>>,
+    /// The project's name, for the apps of projects (`None` for the main installation).
+    project: Option<String>,
+    /// The projects hosted by the main installation (empty for projects).
+    pub(crate) projects: crate::projects::Projects,
 }
 
 impl App {
@@ -59,6 +63,24 @@ impl App {
         setup_token: Option<String>,
         extensions: crate::Extensions,
     ) -> Result<Arc<Self>> {
+        Self::build(config, setup_token, extensions, None)
+    }
+
+    /// Creates the app of a project.
+    pub(crate) fn for_project(
+        name: &str,
+        config: Loaded,
+        extensions: crate::Extensions,
+    ) -> Result<Arc<Self>> {
+        Self::build(config, None, extensions, Some(name.to_string()))
+    }
+
+    fn build(
+        config: Loaded,
+        setup_token: Option<String>,
+        extensions: crate::Extensions,
+        project: Option<String>,
+    ) -> Result<Arc<Self>> {
         let token = match setup_token {
             Some(t) if t.len() < MIN_SETUP_TOKEN_LENGTH => {
                 anyhow::bail!(
@@ -69,7 +91,7 @@ impl App {
             None => ids::random_secret(32),
         };
 
-        Ok(Arc::new(Self {
+        Ok(Arc::new_cyclic(|app| Self {
             mode: RwLock::new(Mode::Starting {
                 status: "starting".into(),
             }),
@@ -78,7 +100,27 @@ impl App {
             setup_lock: tokio::sync::Mutex::new(()),
             hooks: Arc::new(extensions.hooks),
             routes: extensions.routes,
+            project: project.clone(),
+            projects: crate::projects::Projects::new(app.clone()),
         }))
+    }
+
+    /// The project this app serves, or `None` for the main installation.
+    pub fn project(&self) -> Option<&str> {
+        self.project.as_deref()
+    }
+
+    /// The projects hosted by this installation.
+    pub fn projects(&self) -> &crate::projects::Projects {
+        &self.projects
+    }
+
+    /// Switches to `Ready`, and for the main installation starts its projects.
+    pub(crate) fn ready(&self, core: Arc<Core>) {
+        if self.project.is_none() {
+            self.projects.activate();
+        }
+        self.set_mode(Mode::Ready { core });
     }
 
     /// The ready state, or a 503 while starting or in setup.
@@ -141,8 +183,14 @@ impl App {
             let attempt = async {
                 if prepare(&pool).await? {
                     Ok(Some(
-                        Core::start(pool.clone(), &url, &config.effective, self.hooks.clone())
-                            .await?,
+                        Core::start_with(
+                            pool.clone(),
+                            &url,
+                            &config.effective,
+                            self.hooks.clone(),
+                            self.project.is_none(),
+                        )
+                        .await?,
                     ))
                 } else {
                     anyhow::Ok(None)
@@ -150,8 +198,11 @@ impl App {
             };
             match attempt.await {
                 Ok(Some(core)) => {
-                    tracing::info!("database ready");
-                    self.set_mode(Mode::Ready { core });
+                    match &self.project {
+                        Some(project) => tracing::info!(%project, "project ready"),
+                        None => tracing::info!("database ready"),
+                    }
+                    self.ready(core);
                     return Ok(());
                 }
                 Ok(None) => {
