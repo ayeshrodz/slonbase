@@ -7,28 +7,50 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-19
+
+**Projects:** one slonbase installation can now host several isolated projects. Each project is
+a complete installation of its own, with its own collections, superusers, settings, files,
+backups, logs and hooks, in a PostgreSQL database of its own on the same server. PocketBase has
+no equivalent. See [docs/projects.md](https://github.com/ayeshrodz/slonbase/blob/v0.2.0/docs/projects.md).
+
 ### Added
 
-- **Projects:** one installation can host several isolated projects. Each runs in a PostgreSQL
-  database of its own, on the same server, and is served under `/p/<name>/`, dashboard
-  included. A project has its own collections, superusers, settings, files, backups, logs and
-  hooks.
-  - Superusers of the main installation create, list and delete projects with `/api/projects`.
-  - Every instance serves every project, and changes reach all of them.
-  - See [docs/projects.md](https://github.com/ayeshrodz/slonbase/blob/main/docs/projects.md).
-  - The dashboard has a Projects page: create, open and delete projects (deleting asks for the
-    name, and backs up first). A switcher next to the logo shows which installation you're
-    managing and moves between the main installation and its projects.
-  - Deleting a project backs it up first, and keeps the backup with its files.
-  - Host names: a project can be served on domains of its own (for example
-    `shop.example.com`), set from the dashboard, the API or `slonbase project hosts`.
-  - An own database role, as an option: the project's database belongs to a PostgreSQL role
-    of its own, which the project connects with and nobody else can.
-  - Changing a project's hook files restarts only that project.
-  - `slonbase project list|create|delete` on the command line. `--project <name>` runs
-    `superuser` and `import-pocketbase` on a project, for example to move a PocketBase app into
-    one.
-- `projects.path` (`--projects-path`) and `projects.max_connections` settings.
+- **Projects**, served under `/p/<name>/`, API and dashboard included. Point the SDK at
+  `https://example.com/p/<name>`.
+  - Superusers of the main installation create and delete them from the dashboard's Projects
+    page, `slonbase project create|list|delete`, or `/api/projects`.
+  - Creating a project makes its database, slonbase's system tables in it and its first
+    superuser. If a step fails, everything is removed again.
+  - Deleting a project asks for its name again and backs it up first. The backup is kept with
+    the project's files.
+  - Every instance on the main database serves every project, and changes reach all of them
+    within moments.
+- **Host names** for projects (`shop.example.com`), set from the dashboard,
+  `slonbase project hosts` or `PATCH /api/projects/{name}`. Requests are routed by their
+  `Host` header.
+- **An own database role** for a project, as an option: a PostgreSQL role that owns the
+  project's database, which the project connects with and nobody else can.
+- Changing a project's hook files restarts only that project.
+- A project switcher in the dashboard's top bar, and projects in the command palette.
+- `--project <name>` runs `superuser` and `import-pocketbase` on a project, for example to
+  move a PocketBase app into one.
+- The `projects.path` (`--projects-path`, `SLONBASE_PROJECTS_PATH`) and
+  `projects.max_connections` settings.
+
+### Upgrading from 0.1
+
+Install the new version as usual (see
+[upgrading](https://github.com/ayeshrodz/slonbase/blob/v0.2.0/docs/installation.md#upgrading)).
+
+- Two system migrations (7 and 8) apply automatically on start.
+- The packages and the Docker image keep projects in `/var/lib/slonbase/projects` and
+  `/data/projects`.
+- Creating projects needs the database role to have `CREATEDB`, and `CREATEROLE` for projects
+  with an own role: `ALTER ROLE slonbase CREATEDB CREATEROLE;`. Nothing changes until you
+  create a project.
+- The main installation opens one more `LISTEN` connection to its database, and each project
+  adds up to `projects.max_connections` (4) plus one.
 
 ## [0.1.0] - 2026-10-17
 
@@ -123,5 +145,6 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ayeshrodz/slonbase/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ayeshrodz/slonbase/releases/tag/v0.1.0

@@ -11,7 +11,7 @@ All of them run on the same PostgreSQL server and in the same slonbase process. 
 equivalent: there you run one process per app.
 
 > [!NOTE]
-> Projects are new in the next release (0.2).
+> Projects are new in 0.2.
 
 ## How it works
 

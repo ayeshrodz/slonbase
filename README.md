@@ -94,7 +94,7 @@ API, and puts it on **PostgreSQL**:
 </table>
 
 > [!NOTE]
-> **0.1 is the first release.** The API is tested against PocketBase 0.40 with its official
+> **slonbase is young (0.2).** The API is tested against PocketBase 0.40 with its official
 > JavaScript SDK, on every commit ([compat/](compat/)). Expect rough edges, and back up your data.
 
 ## Quick start
@@ -115,7 +115,7 @@ docker compose logs slonbase | grep "setup?token"
 [releases](https://github.com/ayeshrodz/slonbase/releases), then:
 
 ```sh
-sudo apt install ./slonbase_0.1.0_amd64.deb        # or: sudo dnf install ./slonbase-0.1.0-1.x86_64.rpm
+sudo apt install ./slonbase_0.2.0_amd64.deb        # or: sudo dnf install ./slonbase-0.2.0-1.x86_64.rpm
 sudo journalctl -u slonbase | grep "setup?token"
 ```
 
