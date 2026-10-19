@@ -16,6 +16,10 @@ changes, and they'll be listed here.
   - Superusers of the main installation create, list and delete projects with `/api/projects`.
   - Every instance serves every project, and changes reach all of them.
   - See [docs/projects.md](https://github.com/ayeshrodz/slonbase/blob/main/docs/projects.md).
+  - Deleting a project backs it up first, and keeps the backup with its files.
+  - `slonbase project list|create|delete` on the command line. `--project <name>` runs
+    `superuser` and `import-pocketbase` on a project, for example to move a PocketBase app into
+    one.
 - `projects.path` (`--projects-path`) and `projects.max_connections` settings.
 
 ## [0.1.0] - 2026-10-17

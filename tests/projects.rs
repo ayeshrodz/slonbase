@@ -223,7 +223,7 @@ async fn projects_are_separate_installations() {
     // deleting needs the name repeated, then stops the project everywhere
     let (status, _) = request(&app, "DELETE", "/api/projects/blog", &admin, None).await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    let (status, _) = request(
+    let (status, deleted) = request(
         &app,
         "DELETE",
         "/api/projects/blog?confirm=blog",
@@ -231,7 +231,18 @@ async fn projects_are_separate_installations() {
         None,
     )
     .await;
-    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    // backed up first, kept with the project's files
+    let backup = std::path::PathBuf::from(deleted["backup"].as_str().unwrap());
+    assert!(backup.is_file(), "{deleted}");
+    assert!(
+        backup.starts_with(deleted["files"].as_str().unwrap()),
+        "{deleted}"
+    );
+    assert!(
+        backup.to_string_lossy().contains("blog.deleted-"),
+        "{deleted}"
+    );
     let (status, _) = request(&app, "GET", "/p/blog/api/health", &[], None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert!(
@@ -251,7 +262,166 @@ async fn projects_are_separate_installations() {
     let (_, list) = request(&app, "GET", "/api/projects", &admin, None).await;
     assert_eq!(list["items"], json!([]));
 
+    // without a backup
+    let (status, res) = request(
+        &app,
+        "POST",
+        "/api/projects",
+        &admin,
+        Some(json!({
+            "name": "scratch", "superuserEmail": PROJECT_EMAIL, "superuserPassword": PROJECT_PASSWORD,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, deleted) = request(
+        &app,
+        "DELETE",
+        "/api/projects/scratch?confirm=scratch&backup=false",
+        &admin,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert!(deleted["backup"].is_null(), "{deleted}");
+    assert!(!database_exists(&tdb, &format!("{}_scratch", tdb.name)).await);
+
     drop(app2);
+    drop(app);
+    tdb.drop_db().await;
+}
+
+/// The `project` commands, and `--project` for the other commands, through the binary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn project_commands() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let run = |args: &[&str]| {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_slonbase"))
+            .args(args)
+            .arg("--config")
+            .arg(dir.path().join("slonbase.toml"))
+            .arg("--projects-path")
+            .arg(dir.path().join("projects"))
+            .env("SLONBASE_DATABASE_URL", &tdb.url)
+            .env("RUST_LOG", "error")
+            .output()
+            .unwrap();
+        let text = format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        (output.status.success(), text)
+    };
+
+    let (ok, out) = run(&[
+        "setup",
+        "--email",
+        ADMIN_EMAIL,
+        "--password",
+        ADMIN_PASSWORD,
+    ]);
+    assert!(ok, "{out}");
+    let (ok, out) = run(&["project", "list"]);
+    assert!(ok && out.contains("No projects yet"), "{out}");
+    let (ok, out) = run(&[
+        "project",
+        "create",
+        "Bad Name",
+        "--email",
+        PROJECT_EMAIL,
+        "--password",
+        PROJECT_PASSWORD,
+    ]);
+    assert!(!ok && out.contains("name:"), "{out}");
+    let (ok, out) = run(&[
+        "project",
+        "create",
+        "shop",
+        "--email",
+        PROJECT_EMAIL,
+        "--password",
+        PROJECT_PASSWORD,
+    ]);
+    assert!(ok && out.contains("Created project shop"), "{out}");
+    let (ok, out) = run(&["project", "list"]);
+    assert!(
+        ok && out.contains("/p/shop/") && out.contains(&format!("{}_shop", tdb.name)),
+        "{out}"
+    );
+
+    // the other commands work on a project with --project
+    let (ok, out) = run(&[
+        "superuser",
+        "upsert",
+        "second@example.com",
+        "second-password-1",
+        "--project",
+        "shop",
+    ]);
+    assert!(ok, "{out}");
+    let (ok, out) = run(&[
+        "superuser",
+        "otp",
+        "second@example.com",
+        "--project",
+        "nope",
+    ]);
+    assert!(!ok && out.contains("no project named"), "{out}");
+
+    // a server picks the project up, and the new superuser signs in to it, not to the main one
+    let (_dir2, config) = temp_config();
+    let app = new_app(&config, Some(tdb.url.clone()));
+    app.bootstrap().await.unwrap();
+    let mut signed_in = false;
+    for _ in 0..150 {
+        let (status, _) = request(
+            &app,
+            "POST",
+            "/p/shop/api/collections/_superusers/auth-with-password",
+            &[],
+            Some(json!({ "identity": "second@example.com", "password": "second-password-1" })),
+        )
+        .await;
+        if status == StatusCode::OK {
+            signed_in = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    assert!(signed_in);
+    let (status, _) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": "second@example.com", "password": "second-password-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let (ok, out) = run(&["project", "delete", "shop", "--confirm", "shp"]);
+    assert!(!ok && out.contains("didn't match"), "{out}");
+    let (ok, out) = run(&["project", "delete", "shop", "--confirm", "shop"]);
+    assert!(
+        ok && out.contains("Deleted project shop") && out.contains("Backup: "),
+        "{out}"
+    );
+    assert!(!database_exists(&tdb, &format!("{}_shop", tdb.name)).await);
+    assert!(
+        eventually(
+            async || request(&app, "GET", "/p/shop/api/health", &[], None)
+                .await
+                .0
+                == StatusCode::NOT_FOUND
+        )
+        .await,
+        "the running server stopped the project"
+    );
+
     drop(app);
     tdb.drop_db().await;
 }

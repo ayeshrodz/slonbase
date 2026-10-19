@@ -79,6 +79,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_PROJECTS_PATH")]
     projects_path: Option<PathBuf>,
 
+    /// Run `superuser` or `import-pocketbase` on this project instead of the main installation.
+    #[arg(long, global = true, env = "SLONBASE_PROJECT")]
+    project: Option<String>,
+
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -94,6 +98,33 @@ enum SuperuserAction {
     /// Print a one-time password for a superuser, to sign in when emails can't be sent
     /// (for example to pass multi-factor auth). OTPs must be on for _superusers.
     Otp { email: String },
+}
+
+#[derive(Subcommand)]
+enum ProjectAction {
+    /// List the projects.
+    List,
+    /// Create a project: a new database on the same server, with its first superuser.
+    Create {
+        /// The project's name (lowercase letters, digits and dashes); it's served at /p/{name}/.
+        name: String,
+        /// Email of the project's first superuser.
+        #[arg(long, env = "SLONBASE_SUPERUSER_EMAIL")]
+        email: String,
+        /// Password of the project's first superuser (prefer the env var).
+        #[arg(long, env = "SLONBASE_SUPERUSER_PASSWORD", hide_env_values = true)]
+        password: String,
+    },
+    /// Delete a project: back it up, then drop its database.
+    Delete {
+        name: String,
+        /// The project's name again, to confirm (asked for when missing).
+        #[arg(long)]
+        confirm: Option<String>,
+        /// Don't back the project up first.
+        #[arg(long)]
+        no_backup: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -130,6 +161,11 @@ enum Command {
         /// Don't import PocketBase's settings (SMTP, S3, ...).
         #[arg(long)]
         no_settings: bool,
+    },
+    /// Manage projects: further installations, each in its own database (see docs/projects.md).
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
     },
 }
 
@@ -205,6 +241,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
                     sql_console: Some(true),
                     ..overrides
                 },
+                cli.project.as_deref(),
             )
             .await?;
             let report = crate::import_pb::run(&core, &source, !no_settings).await?;
@@ -212,8 +249,12 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
             Ok(())
         }
         Command::Superuser { action } => {
-            let core = offline_core(&cli.config, overrides).await?;
+            let core = offline_core(&cli.config, overrides, cli.project.as_deref()).await?;
             superuser_command(&core, action).await
+        }
+        Command::Project { action } => {
+            let loaded = config::load(&cli.config, overrides)?;
+            project_command(loaded, action).await
         }
         Command::Setup { email, password } => {
             // a URL given on the command line is meant to be saved,
@@ -263,13 +304,26 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
     }
 }
 
-/// The core for a command that works on the database without serving (import, superuser).
+/// The core for a command that works on the database without serving (import, superuser):
+/// the main installation's, or a project's.
 async fn offline_core(
     config_path: &std::path::Path,
     overrides: Overrides,
+    project: Option<&str>,
 ) -> Result<std::sync::Arc<crate::core::Core>> {
     let loaded = config::load(config_path, overrides)?;
-    let cfg = &loaded.effective;
+    let main = core_for(&loaded.effective).await?;
+    let Some(name) = project else {
+        return Ok(main);
+    };
+    let database = crate::projects::database_of(&main, name)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("there's no project named {name:?}"))?;
+    let project = crate::projects::project_config(&loaded, name, &database);
+    core_for(&project.effective).await
+}
+
+async fn core_for(cfg: &config::Config) -> Result<std::sync::Arc<crate::core::Core>> {
     let url = cfg.database.url.clone().ok_or_else(|| {
         anyhow::anyhow!(
             "no database configured: run `slonbase setup` first, or pass --database-url"
@@ -283,6 +337,91 @@ async fn offline_core(
         std::sync::Arc::new(crate::hooks::Hooks::default()),
     )
     .await
+}
+
+async fn project_command(loaded: config::Loaded, action: ProjectAction) -> Result<()> {
+    let core = core_for(&loaded.effective).await?;
+    // the main installation, ready but without starting its projects
+    let app = App::new(loaded, None)?;
+    app.set_mode(crate::app::Mode::Ready { core: core.clone() });
+    let fail = |err: crate::error::ApiError| {
+        let mut message = err.message;
+        for (field, detail) in &err.data {
+            if let Some(detail) = detail["message"].as_str() {
+                message.push_str(&format!("\n  {field}: {detail}"));
+            }
+        }
+        anyhow::anyhow!(message)
+    };
+    match action {
+        ProjectAction::List => {
+            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            let rows = client
+                .query(
+                    "SELECT name, database, to_char(created, 'YYYY-MM-DD HH24:MI') FROM _slonbase.projects ORDER BY name",
+                    &[],
+                )
+                .await?;
+            if rows.is_empty() {
+                println!("No projects yet. Create one with `slonbase project create <name>`.");
+            }
+            for row in rows {
+                let (name, database, created): (String, String, String) =
+                    (row.get(0), row.get(1), row.get(2));
+                println!("{name:<24} /p/{name}/  database {database}, created {created}");
+            }
+            Ok(())
+        }
+        ProjectAction::Create {
+            name,
+            email,
+            password,
+        } => {
+            let project = app
+                .projects()
+                .create(&name, &email, &password)
+                .await
+                .map_err(fail)?;
+            println!(
+                "Created project {name} (database {}). Running servers serve it at /p/{name}/.",
+                project.database
+            );
+            Ok(())
+        }
+        ProjectAction::Delete {
+            name,
+            confirm,
+            no_backup,
+        } => {
+            let confirm = match confirm {
+                Some(confirm) => confirm,
+                None => {
+                    use std::io::Write;
+                    print!("This drops the database of project {name}. Type its name to confirm: ");
+                    std::io::stdout().flush()?;
+                    let mut line = String::new();
+                    std::io::stdin().read_line(&mut line)?;
+                    line.trim().to_string()
+                }
+            };
+            if confirm != name {
+                anyhow::bail!("the name didn't match, nothing was deleted");
+            }
+            let deleted = app
+                .projects()
+                .delete(&name, !no_backup)
+                .await
+                .map_err(fail)?;
+            println!("Deleted project {name}.");
+            if let Some(backup) = deleted.backup {
+                println!("Backup: {backup}");
+            }
+            if let Some(files) = deleted.files {
+                println!("Files: {files}");
+            }
+            Ok(())
+        }
+    }
 }
 
 async fn superuser_command(

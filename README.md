@@ -170,6 +170,7 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
 | `slonbase health` | Exit 0 if the local server is healthy (for container health checks). |
 | `slonbase superuser upsert\|update\|delete\|otp ...` | Manage superusers. `otp <email>` prints a one-time password for signing in with MFA when emails can't be sent. |
 | `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation. |
+| `slonbase project list\|create\|delete ...` | Manage [projects](docs/projects.md); `--project <name>` runs `superuser` and `import-pocketbase` on one. |
 
 `slonbase --help` lists every option.
 

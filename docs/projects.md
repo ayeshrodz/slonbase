@@ -11,9 +11,8 @@ All of them run on the same PostgreSQL server and in the same slonbase process. 
 equivalent: there you run one process per app.
 
 > [!NOTE]
-> Projects are new in the next release (0.2). This first part covers creating, serving and
-> deleting projects through the API. Management in the dashboard, CLI commands and custom
-> hostnames come next.
+> Projects are new in the next release (0.2). They can be managed with the API and the command
+> line; the dashboard's Projects page and custom hostnames come next.
 
 ## How it works
 
@@ -60,6 +59,27 @@ ALTER ROLE slonbase CREATEDB;
 
 Without it, creating a project fails with an explanation.
 
+## Command line
+
+```sh
+slonbase project list
+SLONBASE_SUPERUSER_PASSWORD='...' slonbase project create blog --email owner@example.com
+slonbase project delete blog                # asks for the name again; --confirm blog skips the question
+slonbase project delete blog --no-backup    # without the backup first
+```
+
+Use the same `--config` (or environment) as the server; for the packages that's
+`sudo -u slonbase slonbase --config /etc/slonbase/config.toml project ...`. Running servers start
+and stop projects created or deleted from the command line within moments.
+
+`--project <name>` runs the other offline commands on a project instead of the main
+installation:
+
+```sh
+slonbase superuser upsert owner@example.com 'new password' --project blog
+slonbase import-pocketbase /path/to/pb_data --project blog    # move a PocketBase app into a project
+```
+
 ## API
 
 All endpoints need a superuser of the main installation.
@@ -69,7 +89,7 @@ All endpoints need a superuser of the main installation.
 | `GET /api/projects` | The projects: `name`, `database`, `path`, `status`, `created` |
 | `GET /api/projects/{name}` | One project |
 | `POST /api/projects` | Create a project: `{"name", "superuserEmail", "superuserPassword"}` |
-| `DELETE /api/projects/{name}?confirm={name}` | Delete a project |
+| `DELETE /api/projects/{name}?confirm={name}` | Delete a project (`&backup=false` skips the backup); answers `{"backup", "files"}` |
 
 ```sh
 curl -X POST localhost:8090/api/projects -H "Authorization: $TOKEN" -H 'content-type: application/json' \
@@ -91,6 +111,11 @@ A project's `status` is one of:
   hooks failed to load);
 - `setup`.
 
-**Deleting a project drops its database**, which can't be undone, so the name must be repeated
-in `confirm`. Back up the project first (`/p/<name>/api/backups`, or `pg_dump`). Its files are
-kept, renamed to `<name>.deleted-<time>` in the projects directory.
+**Deleting a project drops its database**, so the name must be repeated (`confirm`). Before
+that, slonbase backs the project up (`pre-delete-<time>.zip`). If the backup fails, nothing is
+deleted. The project's files and backups are kept, renamed to `<name>.deleted-<time>` in the
+projects directory, so the backup survives the delete. If the project's backups go to S3, the
+backup is kept there. To restore a deleted project:
+1. create a new project;
+2. upload the backup to it (`/p/<name>/api/backups/upload`, or its dashboard's Backups page);
+3. restore it.

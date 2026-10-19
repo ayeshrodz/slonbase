@@ -12,7 +12,6 @@ use std::sync::{Arc, RwLock, Weak};
 use std::time::Duration;
 
 use axum::Json;
-use axum::body::Body;
 use axum::extract::{Query, Request, State};
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -393,9 +392,10 @@ impl Projects {
         }
     }
 
-    /// Deletes a project: stops it on every instance and drops its database. Its files
-    /// are kept, renamed to `<name>.deleted-<time>` in the projects directory.
-    pub async fn delete(&self, name: &str) -> Result<(), ApiError> {
+    /// Deletes a project: backs it up (unless `backup` is false), stops it on every
+    /// instance and drops its database. Its files, and the backup unless it's in S3, are
+    /// kept in `<name>.deleted-<time>` in the projects directory.
+    pub async fn delete(&self, name: &str, backup: bool) -> Result<Deleted, ApiError> {
         let _guard = self.lock.lock().await;
         let root = self
             .root
@@ -409,13 +409,55 @@ impl Projects {
             .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
         let row = client
             .query_opt(
-                "DELETE FROM _slonbase.projects WHERE name = $1 RETURNING database",
+                "SELECT database FROM _slonbase.projects WHERE name = $1",
                 &[&name],
             )
             .await
             .map_err(|e| ApiError::internal(e.into()))?
             .ok_or_else(ApiError::not_found)?;
         let database: String = row.get(0);
+        let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
+
+        // the backup comes first: no backup, no delete
+        let mut backup_in_s3 = false;
+        let backup_name = format!("pre-delete-{stamp}.zip");
+        if backup {
+            let project_core = match self.get(name).map(|p| p.app.core()) {
+                Some(Ok(core)) => core,
+                // not running here (e.g. from the command line): start it for the backup
+                _ => {
+                    let row = Row {
+                        name: name.to_string(),
+                        database: database.clone(),
+                        hosts: Vec::new(),
+                        created: String::new(),
+                    };
+                    let project = start(&root, row).await.map_err(ApiError::internal)?;
+                    project.app.bootstrap().await.map_err(ApiError::internal)?;
+                    project.app.core().map_err(|e| {
+                        ApiError::bad_request(format!(
+                            "The project can't be backed up ({}). Delete it without a backup \
+                             to go ahead anyway.",
+                            e.message
+                        ))
+                    })?
+                }
+            };
+            backup_in_s3 = project_core.settings().backups.s3.enabled;
+            crate::backups::create(&project_core, &backup_name)
+                .await
+                .map_err(|err| {
+                    let mut err = ApiError::from(err);
+                    err.message = format!("The project couldn't be backed up: {}", err.message);
+                    err
+                })?;
+            tracing::info!(project = %name, backup = %backup_name, "backed up the project before deleting it");
+        }
+
+        client
+            .execute("DELETE FROM _slonbase.projects WHERE name = $1", &[&name])
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
         self.stop(name);
         let _ = client
             .execute("SELECT pg_notify($1, $2)", &[&CHANNEL, &name])
@@ -433,18 +475,40 @@ impl Projects {
             })?;
 
         let dir = root.config().effective.projects.path.join(name);
+        let mut kept = None;
         if dir.exists() {
-            let kept = dir.with_file_name(format!(
-                "{name}.deleted-{}",
-                chrono::Utc::now().format("%Y%m%d%H%M%S")
-            ));
-            if let Err(err) = std::fs::rename(&dir, &kept) {
-                tracing::warn!(dir = %dir.display(), error = %err, "failed to move a deleted project's files");
+            let target = dir.with_file_name(format!("{name}.deleted-{stamp}"));
+            match std::fs::rename(&dir, &target) {
+                Ok(()) => kept = Some(target),
+                Err(err) => {
+                    tracing::warn!(dir = %dir.display(), error = %err, "failed to move a deleted project's files");
+                    kept = Some(dir);
+                }
             }
         }
+        let backup = backup.then(|| {
+            if backup_in_s3 {
+                format!("{backup_name} in the project's backups bucket")
+            } else {
+                kept.as_ref()
+                    .map(|dir| dir.join("backups").join(&backup_name).display().to_string())
+                    .unwrap_or(backup_name)
+            }
+        });
         tracing::info!(project = %name, %database, "deleted project");
-        Ok(())
+        Ok(Deleted {
+            backup,
+            files: kept.map(|dir| dir.display().to_string()),
+        })
     }
+}
+
+/// What's left of a deleted project.
+pub struct Deleted {
+    /// Where the backup made before deleting is.
+    pub backup: Option<String>,
+    /// Where the project's files were moved.
+    pub files: Option<String>,
 }
 
 async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
@@ -475,21 +539,7 @@ async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
 /// Builds a project's app (not started yet): the main configuration, with the project's
 /// database and its own directories under `projects.path`.
 async fn start(root: &App, row: Row) -> anyhow::Result<Project> {
-    let main = root.config();
-    let dir = main.effective.projects.path.join(&row.name);
-    let mut effective = main.effective.clone();
-    effective.database.dbname = Some(row.database.clone());
-    effective.database.max_connections = main.effective.projects.max_connections;
-    effective.storage.path = dir.join("storage");
-    effective.backups.path = dir.join("backups");
-    effective.hooks.dir = dir.join("hooks");
-    let config = Loaded {
-        path: main.path.clone(),
-        file: main.file.clone(),
-        effective,
-        // a project never saves the main configuration
-        database_url_locked: true,
-    };
+    let config = project_config(&root.config(), &row.name, &row.database);
 
     #[allow(unused_mut)]
     let mut extensions = crate::Extensions::default();
@@ -518,6 +568,41 @@ async fn start(root: &App, row: Row) -> anyhow::Result<Project> {
         app,
         router,
     })
+}
+
+/// The configuration of a project: the main one, with the project's database and its own
+/// directories under `projects.path`.
+pub fn project_config(main: &Loaded, name: &str, database: &str) -> Loaded {
+    let dir = main.effective.projects.path.join(name);
+    let mut effective = main.effective.clone();
+    effective.database.dbname = Some(database.to_string());
+    effective.database.max_connections = main.effective.projects.max_connections;
+    effective.storage.path = dir.join("storage");
+    effective.backups.path = dir.join("backups");
+    effective.hooks.dir = dir.join("hooks");
+    Loaded {
+        path: main.path.clone(),
+        file: main.file.clone(),
+        effective,
+        // a project never saves the main configuration
+        database_url_locked: true,
+    }
+}
+
+/// The database of the project with this name, from the main installation's list.
+pub async fn database_of(core: &Core, name: &str) -> anyhow::Result<Option<String>> {
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    Ok(client
+        .query_opt(
+            "SELECT database FROM _slonbase.projects WHERE name = $1",
+            &[&name],
+        )
+        .await?
+        .map(|r| r.get(0)))
 }
 
 /// Project names: lowercase letters, digits and dashes, starting with a letter.
@@ -657,24 +742,32 @@ pub(crate) async fn create(
 pub(crate) struct DeleteQuery {
     #[serde(default)]
     confirm: String,
+    #[serde(default = "default_true")]
+    backup: bool,
 }
 
-/// `DELETE /api/projects/{name}?confirm={name}`: the name is repeated so a project is
-/// never deleted by mistake.
+fn default_true() -> bool {
+    true
+}
+
+/// `DELETE /api/projects/{name}?confirm={name}[&backup=false]`: the name is repeated so a
+/// project is never deleted by mistake. Answers where the backup and files were kept.
 pub(crate) async fn delete(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
     axum::extract::Path(name): axum::extract::Path<String>,
     Query(query): Query<DeleteQuery>,
-) -> Result<Response, ApiError> {
+) -> Result<Json<Value>, ApiError> {
     require_superuser(&auth)?;
     if query.confirm != name {
         return Err(ApiError::bad_request(
             "Repeat the project's name in the confirm parameter to delete it.",
         ));
     }
-    app.projects.delete(&name).await?;
-    Ok((StatusCode::NO_CONTENT, Body::empty()).into_response())
+    let deleted = app.projects.delete(&name, query.backup).await?;
+    Ok(Json(
+        json!({ "backup": deleted.backup, "files": deleted.files }),
+    ))
 }
 
 #[cfg(test)]
