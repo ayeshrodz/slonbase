@@ -111,13 +111,17 @@ docker compose up -d
 docker compose logs slonbase | grep "setup?token"
 ```
 
-**Debian / Ubuntu / Fedora / RHEL:** download the package for your architecture from the
-[releases](https://github.com/ayeshrodz/slonbase/releases), then:
+**Debian / Ubuntu:** from the apt repository, so `apt upgrade` keeps it up to date:
 
 ```sh
-sudo apt install ./slonbase_0.2.0_amd64.deb        # or: sudo dnf install ./slonbase-0.2.0-1.x86_64.rpm
+curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.gpg | sudo tee /usr/share/keyrings/slonbase.gpg > /dev/null
+curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.list | sudo tee /etc/apt/sources.list.d/slonbase.list
+sudo apt update && sudo apt install slonbase
 sudo journalctl -u slonbase | grep "setup?token"
 ```
+
+**Fedora / RHEL:** `sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo && sudo dnf install slonbase`.
+The `.deb` and `.rpm` files are also on the [releases](https://github.com/ayeshrodz/slonbase/releases) page.
 
 **Binary:** extract the `.tar.gz` from the releases and run `./slonbase serve`.
 

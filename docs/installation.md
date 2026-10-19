@@ -54,7 +54,29 @@ Without `SLONBASE_DATABASE_URL` the setup wizard asks for the connection and sav
 
 ## Debian, Ubuntu, Fedora, RHEL packages
 
-Download the `.deb` or `.rpm` for your architecture from the
+The packages are in signed apt and dnf repositories at
+<https://ayeshrodz.github.io/slonbase/>, for amd64 and arm64. Installing from them means
+`apt upgrade` and `dnf upgrade` bring new versions.
+
+**Debian, Ubuntu:**
+
+```sh
+curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.gpg | sudo tee /usr/share/keyrings/slonbase.gpg > /dev/null
+curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.list | sudo tee /etc/apt/sources.list.d/slonbase.list
+sudo apt update && sudo apt install slonbase
+sudo journalctl -u slonbase | grep "setup?token"     # the one-time setup link
+```
+
+**Fedora, RHEL, Rocky, Alma:**
+
+```sh
+sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
+sudo dnf install slonbase                            # accept the signing key when asked
+sudo journalctl -u slonbase | grep "setup?token"
+```
+
+The signing key's fingerprint is shown on the repository page. To install a package file
+instead, download the `.deb` or `.rpm` for your architecture from the
 [releases page](https://github.com/ayeshrodz/slonbase/releases) and check it against
 `SHA256SUMS`:
 
@@ -159,8 +181,10 @@ Back up first (a slonbase backup, a database dump, or both; see
 
 - **Compose:** `docker compose pull && docker compose up -d` (or set `SLONBASE_VERSION`).
 - **Docker:** run the new tag with the same volume and environment.
-- **Packages:** install the new `.deb`/`.rpm` the same way; the service restarts with it, and
-  `/etc/default/slonbase` and `/etc/slonbase/config.toml` are kept.
+- **Packages:** `sudo apt update && sudo apt upgrade` or `sudo dnf upgrade` with the
+  [repositories](#debian-ubuntu-fedora-rhel-packages) (an installation from a package file
+  can add them at any time), or install the new `.deb`/`.rpm` file. The service restarts with
+  the new version, and `/etc/default/slonbase` and `/etc/slonbase/config.toml` are kept.
 - **Binary:** replace the file and restart.
 
 A new version applies its system migrations on start, in one transaction under an advisory lock,
@@ -170,7 +194,9 @@ Downgrading after a migration isn't supported: restore the backup instead.
 ## Uninstalling
 
 - **Packages:** `sudo apt remove slonbase` / `sudo dnf remove slonbase`. The config and
-  `/var/lib/slonbase` are kept (`apt purge` removes them).
+  `/var/lib/slonbase` are kept (`apt purge` removes them). To remove the repository too:
+  `sudo rm /etc/apt/sources.list.d/slonbase.list /usr/share/keyrings/slonbase.gpg` or
+  `sudo rm /etc/yum.repos.d/slonbase.repo`.
 - **Docker:** remove the container and, if you no longer need it, the `/data` volume.
 
 slonbase never drops the database. To remove its data from PostgreSQL:

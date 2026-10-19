@@ -7,6 +7,12 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- Signed apt and dnf repositories at https://ayeshrodz.github.io/slonbase/, updated with every
+  release, so `apt upgrade` and `dnf upgrade` install new versions. They include 0.1.0 and
+  0.2.0. See [installation](docs/installation.md#debian-ubuntu-fedora-rhel-packages).
+
 ## [0.2.0] - 2026-10-19
 
 **Projects:** one slonbase installation can now host several isolated projects. Each project is

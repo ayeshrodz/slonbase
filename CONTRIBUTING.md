@@ -69,4 +69,21 @@ Maintainers release by:
 
 The release workflow checks that the tag matches `Cargo.toml` and that the changelog has the
 version's section. It then builds the packages and publishes the GitHub release, with those notes,
-and the Docker image.
+and the Docker image. Last, it starts the **Package repositories** workflow, which rebuilds the
+apt and dnf repositories from every release's packages and publishes them on GitHub Pages.
+
+The repositories need, once:
+
+1. a signing key without a passphrase, kept in the `REPO_GPG_PRIVATE_KEY` secret:
+
+   ```sh
+   gpg --batch --passphrase '' --quick-gen-key "slonbase packages <you@example.com>" rsa4096 sign never
+   gpg --armor --export-secret-keys "slonbase packages" | gh secret set REPO_GPG_PRIVATE_KEY
+   ```
+
+   Keep a copy of the key somewhere safe. A new key means every user has to download the
+   public key again.
+2. Settings → Pages → Source: **GitHub Actions**.
+
+The workflow can also be run by hand (Actions → Package repositories → Run workflow), for
+example after editing a release.
