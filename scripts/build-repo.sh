@@ -59,7 +59,7 @@ gpg --batch --yes --local-user "$key" --armor --detach-sign "$rpm/repodata/repom
 gpg --armor --export "$key" > "$out/slonbase.asc"
 gpg --export "$key" > "$out/slonbase.gpg"
 cat > "$out/slonbase.list" <<EOF
-deb [signed-by=/usr/share/keyrings/slonbase.gpg] $url/apt stable main
+deb [arch=amd64,arm64 signed-by=/usr/share/keyrings/slonbase.gpg] $url/apt stable main
 EOF
 cat > "$out/slonbase.repo" <<EOF
 [slonbase]
