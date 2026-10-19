@@ -11,8 +11,7 @@ All of them run on the same PostgreSQL server and in the same slonbase process. 
 equivalent: there you run one process per app.
 
 > [!NOTE]
-> Projects are new in the next release (0.2). They can be managed with the API and the command
-> line; the dashboard's Projects page and custom hostnames come next.
+> Projects are new in the next release (0.2). Custom hostnames for projects come next.
 
 ## How it works
 
@@ -58,6 +57,20 @@ ALTER ROLE slonbase CREATEDB;
 ```
 
 Without it, creating a project fails with an explanation.
+
+## Dashboard
+
+The main installation's dashboard has a **Projects** page, where you can:
+- create a project, with its first superuser;
+- see each project's status, database and SDK URL;
+- open a project's dashboard;
+- delete a project. You type its name to confirm, and a backup is made first unless you switch
+  it off.
+
+The **switcher** next to the logo shows which installation a dashboard manages. When the
+browser is also signed in to the main installation, it lists the projects too, so you can go
+from one to another. Each dashboard keeps its own session, because each project has its own
+superusers.
 
 ## Command line
 

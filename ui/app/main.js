@@ -1,6 +1,6 @@
 // The dashboard: auth gate, shell (top navigation, command palette) and routes.
 import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx } from "./lib/core.js";
-import { session, refreshAuth, api } from "./lib/api.js";
+import { session, refreshAuth, api, PROJECT, listProjects, dashboardUrl } from "./lib/api.js";
 import { app, initTheme, setTheme, loadCollections } from "./lib/state.js";
 import { Icon, Logo } from "./lib/icons.js";
 import { Toasts, Menu, CollectionGlyph, useAutofocus } from "./lib/ui.js";
@@ -12,16 +12,48 @@ import { DataWorkspace } from "./pages/data.js";
 import { Logs } from "./pages/logs.js";
 import { Settings, applyAccent } from "./pages/settings.js";
 import { SqlConsole } from "./pages/sql.js";
+import { Projects } from "./pages/projects.js";
 
 initTheme();
+if (PROJECT) document.title = `${PROJECT} · slonbase`;
 
 const NAV = [
   { path: "/", match: (p) => p === "/", icon: "overview", label: "Overview" },
   { path: "/data", match: (p) => p.startsWith("/data"), icon: "data", label: "Data" },
   { path: "/logs", match: (p) => p.startsWith("/logs"), icon: "logs", label: "Logs" },
   { path: "/sql", match: (p) => p.startsWith("/sql"), icon: "terminal", label: "SQL" },
+  // projects are managed from the main installation
+  !PROJECT && { path: "/projects", match: (p) => p.startsWith("/projects"), icon: "layers", label: "Projects" },
   { path: "/settings", match: (p) => p.startsWith("/settings"), icon: "settings", label: "Settings" },
-];
+].filter(Boolean);
+
+// Shows which installation this dashboard manages, and switches between the main one and its
+// projects (when this browser is signed in to the main installation).
+function ProjectSwitcher() {
+  const projects = useStore(app, (s) => s.projects);
+  useEffect(() => {
+    listProjects().then((list) => app.set({ projects: list }));
+  }, []);
+  if (!PROJECT && !(projects && projects.length)) return null;
+  const go = (name) => (location.href = dashboardUrl(name));
+  const items = [
+    { icon: PROJECT ? "server" : "check", label: "Main installation", onClick: () => go(null) },
+    ...(projects || []).map((p) => ({ icon: p.name === PROJECT ? "check" : "layers", label: p.name, onClick: () => go(p.name) })),
+    "-",
+    PROJECT
+      ? { icon: "layers", label: "Manage projects", onClick: () => (location.href = dashboardUrl(null) + "#/projects") }
+      : { icon: "layers", label: "Manage projects", onClick: () => navigate("/projects") },
+  ];
+  return html`<${Menu}
+    align="left"
+    trigger=${(toggle, open) => html`<button class=${cx("project-switch", { on: open })} onClick=${toggle} aria-label="Switch project">
+      <span class=${cx("project-dot", { main: !PROJECT })}></span>
+      <span class="project-switch-name">${PROJECT || "Main"}</span>
+      <${Icon} name="chevronDown" size=${14} />
+    </button>`}
+    items=${items}
+  />`;
+}
 
 function TopNav({ path }) {
   const ref = useRef();
@@ -61,6 +93,7 @@ function Palette({ onClose }) {
     return () => window.removeEventListener("keydown", fn);
   }, []);
   const theme = useStore(app, (s) => s.theme);
+  const projects = useStore(app, (s) => s.projects) || [];
   const items = [
     ...NAV.map((n) => ({ icon: n.icon, label: n.label, hint: "Go to", run: () => navigate(n.path) })),
     ...collections.map((c) => ({
@@ -76,13 +109,17 @@ function Palette({ onClose }) {
       run: () => navigate(`/data/${encodeURIComponent(c.name)}/schema`),
     })),
     { icon: "plus", label: "New collection", hint: "Create", run: () => navigate("/data?new=1") },
+    ...projects
+      .filter((p) => p.name !== PROJECT)
+      .map((p) => ({ icon: "layers", label: p.name, hint: "Open project", run: () => (location.href = dashboardUrl(p.name)) })),
+    PROJECT && { icon: "server", label: "Main installation", hint: "Open dashboard", run: () => (location.href = dashboardUrl(null)) },
     { icon: "archive", label: "Backups", hint: "Settings", run: () => navigate("/settings/backups") },
     { icon: "mail", label: "Mail settings", hint: "Settings", run: () => navigate("/settings/mail") },
     { icon: "cloud", label: "File storage", hint: "Settings", run: () => navigate("/settings/storage") },
     { icon: "zap", label: "Rate limits", hint: "Settings", run: () => navigate("/settings/security") },
     { icon: theme === "dark" ? "sun" : "moon", label: "Toggle theme", hint: "Appearance", run: () => setTheme(document.documentElement.dataset.theme === "dark" ? "light" : "dark") },
     { icon: "logout", label: "Sign out", hint: "Account", run: () => session.clear() },
-  ];
+  ].filter(Boolean);
   const q = query.trim().toLowerCase();
   const filtered = q
     ? items
@@ -198,6 +235,7 @@ function Shell() {
   else if ((params = match("/data/:collection?/:tab?/:record?", path))) page = html`<${DataWorkspace} ...${params} />`;
   else if (path.startsWith("/logs")) page = html`<${Logs} />`;
   else if (path.startsWith("/sql")) page = html`<${SqlConsole} />`;
+  else if (path.startsWith("/projects") && !PROJECT) page = html`<${Projects} />`;
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;
   else page = html`<div class="page"><div class="empty"><h3>Page not found</h3><a href="#/">Back to the overview</a></div></div>`;
 
@@ -205,6 +243,7 @@ function Shell() {
   return html`<div class="shell">
     <header class="topbar">
       <a class="brand" href="#/"><${Logo} size=${26} /><span class="brand-name">slon<b>base</b></span></a>
+      <${ProjectSwitcher} />
       <${TopNav} path=${path} />
       <span class="spacer"></span>
       <button class="search-trigger" onClick=${() => setPalette(true)} aria-label="Search">

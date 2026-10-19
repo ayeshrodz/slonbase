@@ -9,6 +9,8 @@ export const app = createStore({
   theme: "system",
   // settings.meta.hideControls: schema editing is locked in the dashboard
   hideControls: false,
+  // the projects (null: unknown, or not signed in to the main installation)
+  projects: null,
 });
 
 export async function loadCollections() {

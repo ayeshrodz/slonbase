@@ -2,8 +2,11 @@
 
 // "" for the main installation, "/p/{name}" for a project (the dashboard is at BASE + "/_/")
 export const BASE = location.pathname.replace(/\/_(\/.*)?$/, "");
+// the project this dashboard manages, or null for the main installation
+export const PROJECT = BASE.startsWith("/p/") ? decodeURIComponent(BASE.slice(3)) : null;
 // each project has its own superusers, so its own session
-const TOKEN_KEY = "slonbase.auth" + BASE;
+const MAIN_TOKEN_KEY = "slonbase.auth";
+const TOKEN_KEY = MAIN_TOKEN_KEY + BASE;
 
 export class ApiError extends Error {
   constructor(status, message, data) {
@@ -121,6 +124,31 @@ export function qs(params) {
 export const enc = encodeURIComponent;
 
 // keeps the token fresh while the dashboard is open
+// The projects, listed with the main installation's session: this dashboard's own in the
+// main dashboard, or one stored in this browser when managing a project. Null without one.
+export async function listProjects() {
+  let token = session.token;
+  if (PROJECT) {
+    try {
+      token = (JSON.parse(localStorage.getItem(MAIN_TOKEN_KEY) || "null") || {}).token;
+    } catch (_) {
+      token = null;
+    }
+  }
+  if (!token) return null;
+  try {
+    const res = await fetch("/api/projects", { headers: { Authorization: token } });
+    return res.ok ? (await res.json()).items : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// the dashboard of a project (or of the main installation, for null)
+export function dashboardUrl(project) {
+  return project ? `/p/${encodeURIComponent(project)}/_/` : "/_/";
+}
+
 export async function refreshAuth() {
   if (!session.token) return;
   try {

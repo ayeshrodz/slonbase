@@ -1,6 +1,6 @@
 // Superuser sign-in (password, then OTP when MFA is on) and password reset.
 import { html, useState, useRef, navigate } from "../lib/core.js";
-import { api, session, ApiError } from "../lib/api.js";
+import { api, session, ApiError, PROJECT } from "../lib/api.js";
 import { Logo, Icon } from "../lib/icons.js";
 import { Button, Field, Input, Callout, toast, useAutofocus } from "../lib/ui.js";
 
@@ -11,7 +11,7 @@ export function AuthFrame({ children, title, subtitle }) {
   useAutofocus(ref);
   return html`<div class="auth-page" ref=${ref}>
     <div class="auth-form">
-      <div class="auth-brand"><${Logo} size=${28} /><span>slonbase</span></div>
+      <div class="auth-brand"><${Logo} size=${28} /><span>slonbase</span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
       <div class="stack loose">
         <div class="stack tight">
           <h1>${title}</h1>
@@ -19,7 +19,7 @@ export function AuthFrame({ children, title, subtitle }) {
         </div>
         ${children}
       </div>
-      <div class="auth-foot row"><${Icon} name="shield" size=${14} /> Superuser access to this slonbase installation.</div>
+      <div class="auth-foot row"><${Icon} name="shield" size=${14} /> <span>${PROJECT ? html`Superuser access to the project <b>${PROJECT}</b>.` : "Superuser access to this slonbase installation."}</span></div>
     </div>
   </div>`;
 }
