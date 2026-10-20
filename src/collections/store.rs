@@ -280,7 +280,20 @@ pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteErr
 }
 
 /// Applies validated changes in one transaction and returns the reloaded registry.
-pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+    let mut client = pool.get().await.map_err(describe_pool_error)?;
+    let tx = client.transaction().await?;
+    let registry = apply_in(&tx, changes).await?;
+    tx.commit().await?;
+    Ok(registry)
+}
+
+/// Applies validated changes in the caller's transaction and returns the registry as it is
+/// in it. Other instances reload their collections when the transaction commits.
+pub async fn apply_in(
+    tx: &deadpool_postgres::Transaction<'_>,
+    mut changes: Vec<Change<'_>>,
+) -> Result<Registry, WriteError> {
     // views go after the tables they read, and are dropped before them
     changes.sort_by_key(|change| match change {
         Change::Delete(c) if c.is_view() => 0,
@@ -288,8 +301,6 @@ pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Regi
         Change::Create(c) | Change::Update { new: c, .. } if !c.is_view() => 2,
         _ => 3,
     });
-    let mut client = pool.get().await.map_err(describe_pool_error)?;
-    let tx = client.transaction().await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
 
@@ -309,7 +320,7 @@ pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Regi
                 Change::Update { new, .. } => new.id.as_str(),
             })
             .collect();
-        for view in load(&tx).await?.all().iter().filter(|c| c.is_view()) {
+        for view in load(tx).await?.all().iter().filter(|c| c.is_view()) {
             if changed.contains(&view.id.as_str()) {
                 continue;
             }
@@ -321,15 +332,14 @@ pub async fn apply_all(pool: &Pool, mut changes: Vec<Change<'_>>) -> Result<Regi
     }
 
     for change in &changes {
-        apply_one(&tx, change).await?;
+        apply_one(tx, change).await?;
     }
     for mut view in rebuild {
-        rebuild_view(&tx, &mut view).await?;
+        rebuild_view(tx, &mut view).await?;
     }
 
-    let registry = load(&tx).await?;
+    let registry = load(tx).await?;
     // other instances reload their collections when this commits
-    crate::realtime::notify(&tx, "collections").await?;
-    tx.commit().await?;
+    crate::realtime::notify(tx, "collections").await?;
     Ok(registry)
 }

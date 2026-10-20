@@ -281,7 +281,7 @@ impl Settings {
         })
     }
 
-    async fn save(&self, client: &impl GenericClient) -> anyhow::Result<()> {
+    pub(crate) async fn save(&self, client: &impl GenericClient) -> anyhow::Result<()> {
         client
             .execute(
                 "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2)
@@ -432,8 +432,26 @@ pub(crate) async fn apply_patch(
     core: &crate::core::Core,
     body: Map<String, Value>,
 ) -> Result<Settings, ApiError> {
-    let current = core.settings();
-    let mut merged = serde_json::to_value(current.as_ref()).expect("settings serialize");
+    let settings = prepare_patch(&core.settings(), body)?;
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    settings.save(&client).await.map_err(ApiError::internal)?;
+    crate::realtime::notify(&client, "settings")
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    core.set_settings(settings.clone());
+    Ok(settings)
+}
+
+/// `current` with the sections of `body` merged in, validated.
+pub(crate) fn prepare_patch(
+    current: &Settings,
+    body: Map<String, Value>,
+) -> Result<Settings, ApiError> {
+    let mut merged = serde_json::to_value(current).expect("settings serialize");
     for (section, value) in body {
         let Some(target) = merged.get_mut(&section) else {
             continue; // unknown sections are ignored
@@ -447,7 +465,7 @@ pub(crate) async fn apply_patch(
     }
     let mut settings: Settings = serde_json::from_value(merged)
         .map_err(|e| ApiError::bad_request(format!("Invalid settings: {e}.")))?;
-    settings.keep_secrets(&current);
+    settings.keep_secrets(current);
     let errors = validate(&settings);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(
@@ -455,17 +473,6 @@ pub(crate) async fn apply_patch(
             &errors,
         ));
     }
-
-    let client = core
-        .pool
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    settings.save(&client).await.map_err(ApiError::internal)?;
-    crate::realtime::notify(&client, "settings")
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
-    core.set_settings(settings.clone());
     Ok(settings)
 }
 

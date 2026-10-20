@@ -239,6 +239,13 @@ pub async fn complete(
     let core = crate::core::Core::start(pool, &url, &config.effective, app.hooks.clone())
         .await
         .map_err(ApiError::internal)?;
+    if let Err(err) = app.migrate(&core).await {
+        // the setup itself is done: keep trying the migrations in the background
+        let message = format!("Setup completed, but a migration failed: {err:#}");
+        let app = app.clone();
+        tokio::spawn(async move { app.migrate_and_ready(core).await });
+        return Err(ApiError::bad_request(message));
+    }
     app.ready(core);
     tracing::info!("setup completed");
 

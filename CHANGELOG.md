@@ -7,6 +7,32 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **JavaScript migrations**, compatible with PocketBase's `pb_migrations`: `*.js` files in the
+  migrations directory (`--migrations-dir`, `slonbase_migrations` by default) that call
+  `migrate(up, down)`. See [docs/migrations.md](docs/migrations.md).
+  - The server applies pending migrations when it starts. Each runs in a transaction of its
+    own, so a failing migration changes nothing; the server then waits, with the error as its
+    status, and tries again.
+  - Several instances apply each migration once. The applied list is kept in the database and
+    in backups.
+  - `slonbase migrate up|down|create|collections|history-sync|list`, with `--project`.
+  - Automigrate (`--automigrate`, off by default) writes a migration for each collection
+    change made in the dashboard or with the collections API.
+  - PocketBase's own migration files, automigrate output and snapshots run as they are, and
+    `import-pocketbase` marks PocketBase's applied migrations as applied.
+- In hooks and migrations, `$app.save()` and `$app.delete()` take collections (and `save` the
+  settings) as well as records, with `new Collection({...})`, `new Field({...})` (and
+  `TextField`, `NumberField`, ...), `collection.fields.add/addAt/removeById/...`,
+  `unmarshal()`, `$app.importCollections()` and `$app.findAllCollections()`.
+
+### Fixed
+
+- Importing collections (the dashboard's import or the API) creates view collections whose
+  queries read tables created by the same import, and accepts PocketBase's exports with its
+  system collections.
+
 ## [0.2.1] - 2026-10-20
 
 Package repositories, so `apt upgrade` and `dnf upgrade` bring new versions, and a new look

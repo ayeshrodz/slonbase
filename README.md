@@ -41,7 +41,8 @@
 and get a REST API, auth, realtime and files right away. slonbase keeps that experience and its
 API, and puts it on **PostgreSQL**:
 
-- 🧩 **Drop-in for PocketBase apps.** The official SDKs work unchanged, and so do most `pb_hooks`.
+- 🧩 **Drop-in for PocketBase apps.** The official SDKs work unchanged, and so do most `pb_hooks`
+  and `pb_migrations`.
   `slonbase import-pocketbase` brings over collections, records, files and settings. It even
   brings users' password hashes, so nobody has to reset a password.
 - 🐘 **Your data in PostgreSQL.** Each collection is a real table that you can query with SQL,
@@ -88,6 +89,7 @@ API, and puts it on **PostgreSQL**:
 - Request logs, rate limits, superuser IP restrictions
 - Backups (on a schedule, to S3) and one-click restores
 - JavaScript hooks (`*.pb.js`), cron jobs, and a Rust library API
+- JavaScript migrations (`pb_migrations`), each in a transaction, with automigrate
 
 </td>
 </tr>
@@ -159,6 +161,7 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime
 - [Extending](docs/extending.md): JavaScript hooks and the Rust library
+- [Migrations](docs/migrations.md): collections in code, PocketBase's `pb_migrations` included
 - [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
 - [Benchmarks](bench/README.md): slonbase and PocketBase on the same workloads
@@ -174,7 +177,8 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
 | `slonbase health` | Exit 0 if the local server is healthy (for container health checks). |
 | `slonbase superuser upsert\|update\|delete\|otp ...` | Manage superusers. `otp <email>` prints a one-time password for signing in with MFA when emails can't be sent. |
 | `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation. |
-| `slonbase project list\|create\|delete ...` | Manage [projects](docs/projects.md); `--project <name>` runs `superuser` and `import-pocketbase` on one. |
+| `slonbase migrate up\|down\|create\|collections\|list ...` | Apply, revert or write [migrations](docs/migrations.md). |
+| `slonbase project list\|create\|delete ...` | Manage [projects](docs/projects.md); `--project <name>` runs `superuser`, `import-pocketbase` and `migrate` on one. |
 
 `slonbase --help` lists every option.
 

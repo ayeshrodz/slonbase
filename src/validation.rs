@@ -35,6 +35,13 @@ impl Errors {
         self.0.is_empty()
     }
 
+    /// Adds another set of errors (keeping the ones already there).
+    pub fn extend(&mut self, other: Errors) {
+        for (path, issue) in other.0 {
+            self.0.entry(path).or_insert(issue);
+        }
+    }
+
     /// Adds another set of errors under `prefix` (e.g. `collections.2`).
     pub fn extend_prefixed(&mut self, prefix: &str, other: Errors) {
         for (path, issue) in other.0 {

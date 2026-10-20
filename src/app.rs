@@ -198,11 +198,11 @@ impl App {
             };
             match attempt.await {
                 Ok(Some(core)) => {
+                    self.migrate_and_ready(core).await;
                     match &self.project {
                         Some(project) => tracing::info!(%project, "project ready"),
                         None => tracing::info!("database ready"),
                     }
-                    self.ready(core);
                     return Ok(());
                 }
                 Ok(None) => {
@@ -218,6 +218,45 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Applies the pending JavaScript migrations, then switches to `Ready`. While a
+    /// migration fails, the app stays starting (with the error as its status) and tries
+    /// again with backoff, so a fixed file is picked up without a restart.
+    pub(crate) async fn migrate_and_ready(&self, core: Arc<Core>) {
+        let mut delay = Duration::from_secs(1);
+        while let Err(err) = self.migrate(&core).await {
+            let status = format!("{err:#}");
+            tracing::error!(error = %status, retry_in = ?delay, "a migration failed");
+            self.set_mode(Mode::Starting { status });
+            tokio::time::sleep(delay).await;
+            delay = (delay * 2).min(Duration::from_secs(60));
+        }
+        self.ready(core);
+    }
+
+    /// Applies the pending JavaScript migrations once.
+    pub(crate) async fn migrate(&self, core: &Arc<Core>) -> Result<()> {
+        let config = self.config().effective;
+        #[cfg(feature = "js")]
+        {
+            let applied =
+                crate::js::migrate::up(core, &config.migrations.dir, &config.hooks.dir).await?;
+            if !applied.is_empty() {
+                tracing::info!(?applied, "applied migrations");
+            }
+        }
+        #[cfg(not(feature = "js"))]
+        {
+            let _ = core;
+            if config.migrations.dir.is_dir() {
+                tracing::warn!(
+                    dir = %config.migrations.dir.display(),
+                    "this build has no JavaScript engine, so migrations aren't applied"
+                );
+            }
+        }
+        Ok(())
     }
 
     fn enter_setup(&self, pool: Option<Pool>) {

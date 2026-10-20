@@ -883,6 +883,7 @@ pub fn project_config(
     effective.storage.path = dir.join("storage");
     effective.backups.path = dir.join("backups");
     effective.hooks.dir = dir.join("hooks");
+    effective.migrations.dir = dir.join("migrations");
     Loaded {
         path: main.path.clone(),
         file: main.file.clone(),

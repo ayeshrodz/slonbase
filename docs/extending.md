@@ -57,9 +57,12 @@ collections.
 **Globals:**
 
 - `$app`: `findRecordById`, `findRecordsByFilter`, `findFirstRecordByFilter`,
-  `findAuthRecordByEmail`, `countRecords`, `findCollectionByNameOrId`, `save`, `delete`,
-  `db().newQuery(sql).bind({...}).execute()` / `.one()` / `.all()` (PostgreSQL SQL, with
-  `{:name}` placeholders), `settings()`, `newMailClient().send(...)`.
+  `findAuthRecordByEmail`, `countRecords`, `findCollectionByNameOrId`, `findAllCollections`,
+  `save` and `delete` (of records, collections and, for `save`, the settings),
+  `importCollections`, `db().newQuery(sql).bind({...}).execute()` / `.one()` / `.all()`
+  (PostgreSQL SQL, with `{:name}` placeholders), `settings()`, `newMailClient().send(...)`.
+- `Collection`, `Field` (and `TextField`, `NumberField`, ...), `unmarshal`: collection
+  definitions, as in [migrations](migrations.md#whats-available).
 - `Record`: `new Record(collection)`, `get`/`set`/`getString`/`getInt`/`getBool`/...,
   `email()`, `setPassword`, `validatePassword`, `newAuthToken`.
 - `$filesystem`: `fileFromBytes`, `fileFromPath`, `fileFromURL` (`http(s)` only); in routes,
@@ -87,7 +90,7 @@ collections.
   `onRecordDelete` too, and a handler's error cancels the whole delete.
 - **Validation hooks** run after the built-in validation passed. Throw (e.g. a
   `BadRequestError` with field data) to reject the record.
-- **Collection hooks** see `e.collection`, the collection's JSON. Create and update handlers
+- **Collection hooks** see `e.collection`, a `Collection` with the collection's JSON. Create and update handlers
   may change it before it's validated and applied.
 - **Mail hooks** see `e.message` (`to`, `subject`, `html`) and, for auth emails, `e.record` and
   `e.kind`. A handler that doesn't call `e.next()` skips the email.

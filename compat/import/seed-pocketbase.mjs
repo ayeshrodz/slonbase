@@ -10,20 +10,26 @@ async function main() {
   await pb.settings.update({ meta: { appName: "Imported App", appURL: "https://imported.example.com" } });
 
   const open = { listRule: "", viewRule: "", createRule: "", updateRule: "", deleteRule: "" };
-  const tags = await pb.collections.create({
+  // PocketBase's automigrate names its files by the second: one collection per second keeps
+  // the files in creation order, so they replay (see run.sh)
+  const createCollection = async (data) => {
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    return pb.collections.create(data);
+  };
+  const tags = await createCollection({
     name: "tags",
     ...open,
     fields: [{ name: "label", type: "text", required: true }],
     indexes: ["CREATE UNIQUE INDEX idx_tags_label ON tags (label)"],
   });
-  const members = await pb.collections.create({
+  const members = await createCollection({
     name: "members",
     type: "auth",
     ...open,
     listRule: "id = @request.auth.id",
     fields: [{ name: "nickname", type: "text" }],
   });
-  await pb.collections.create({
+  await createCollection({
     name: "articles",
     ...open,
     listRule: "published = true || @request.auth.id != ''",
@@ -49,14 +55,14 @@ async function main() {
     ],
   });
   // a view whose query runs on both, and one with SQLite-only SQL
-  await pb.collections.create({
+  await createCollection({
     name: "article_stats",
     type: "view",
     listRule: "",
     viewRule: "",
     viewQuery: "SELECT id, title, views FROM articles WHERE published = true",
   });
-  await pb.collections.create({
+  await createCollection({
     name: "yearly",
     type: "view",
     listRule: "",

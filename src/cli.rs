@@ -75,11 +75,19 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
     hooks_watch: Option<bool>,
 
+    /// Directory with JavaScript migrations (`*.js`) [default: slonbase_migrations].
+    #[arg(long, global = true, env = "SLONBASE_MIGRATIONS_DIR")]
+    migrations_dir: Option<PathBuf>,
+
+    /// Write a migration file for every collection change made in the dashboard [default: false].
+    #[arg(long, global = true, env = "SLONBASE_AUTOMIGRATE")]
+    automigrate: Option<bool>,
+
     /// Directory for the projects' files, backups and hooks [default: slonbase_data/projects].
     #[arg(long, global = true, env = "SLONBASE_PROJECTS_PATH")]
     projects_path: Option<PathBuf>,
 
-    /// Run `superuser` or `import-pocketbase` on this project instead of the main installation.
+    /// Run `superuser`, `import-pocketbase` or `migrate` on this project instead of the main installation.
     #[arg(long, global = true, env = "SLONBASE_PROJECT")]
     project: Option<String>,
 
@@ -98,6 +106,29 @@ enum SuperuserAction {
     /// Print a one-time password for a superuser, to sign in when emails can't be sent
     /// (for example to pass multi-factor auth). OTPs must be on for _superusers.
     Otp { email: String },
+}
+
+#[derive(Subcommand)]
+enum MigrateAction {
+    /// Apply the pending migrations (the server also does when it starts).
+    Up,
+    /// Revert the last applied migrations.
+    Down {
+        /// How many to revert.
+        #[arg(default_value_t = 1)]
+        count: usize,
+    },
+    /// Write a new, blank migration file.
+    Create {
+        /// What the migration does, for its file name (e.g. add_posts).
+        name: String,
+    },
+    /// Write a migration that recreates every collection as it is now.
+    Collections,
+    /// Forget applied migrations whose files were deleted.
+    HistorySync,
+    /// List the migration files and whether they're applied.
+    List,
 }
 
 #[derive(Subcommand)]
@@ -179,6 +210,11 @@ enum Command {
         #[command(subcommand)]
         action: ProjectAction,
     },
+    /// Apply, revert or write JavaScript migrations (see docs/migrations.md).
+    Migrate {
+        #[command(subcommand)]
+        action: MigrateAction,
+    },
 }
 
 /// Runs the command line (`serve`, `setup`, `health`) with the given extensions. Logs go
@@ -226,6 +262,8 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,
+        migrations_dir: cli.migrations_dir,
+        automigrate: cli.automigrate,
         projects_path: cli.projects_path,
     };
 
@@ -267,6 +305,11 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         Command::Project { action } => {
             let loaded = config::load(&cli.config, overrides)?;
             project_command(loaded, action).await
+        }
+        Command::Migrate { action } => {
+            let (core, cfg) =
+                offline_core_with_config(&cli.config, overrides, cli.project.as_deref()).await?;
+            migrate_command(&core, &cfg, action).await
         }
         Command::Setup { email, password } => {
             // a URL given on the command line is meant to be saved,
@@ -323,16 +366,117 @@ async fn offline_core(
     overrides: Overrides,
     project: Option<&str>,
 ) -> Result<std::sync::Arc<crate::core::Core>> {
+    Ok(offline_core_with_config(config_path, overrides, project)
+        .await?
+        .0)
+}
+
+/// [`offline_core`] with the configuration it runs with.
+async fn offline_core_with_config(
+    config_path: &std::path::Path,
+    overrides: Overrides,
+    project: Option<&str>,
+) -> Result<(std::sync::Arc<crate::core::Core>, config::Config)> {
     let loaded = config::load(config_path, overrides)?;
     let main = core_for(&loaded.effective).await?;
     let Some(name) = project else {
-        return Ok(main);
+        return Ok((main, loaded.effective));
     };
     let (database, role) = crate::projects::database_of(&main, name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("there's no project named {name:?}"))?;
     let project = crate::projects::project_config(&loaded, name, &database, role);
-    core_for(&project.effective).await
+    Ok((core_for(&project.effective).await?, project.effective))
+}
+
+#[cfg(feature = "js")]
+async fn migrate_command(
+    core: &std::sync::Arc<crate::core::Core>,
+    cfg: &config::Config,
+    action: MigrateAction,
+) -> Result<()> {
+    use crate::js::migrate;
+    let dir = &cfg.migrations.dir;
+    match action {
+        MigrateAction::Up => {
+            let applied = migrate::up(core, dir, &cfg.hooks.dir).await?;
+            if applied.is_empty() {
+                println!("No pending migrations in {}.", dir.display());
+            }
+            for name in applied {
+                println!("Applied {name}");
+            }
+        }
+        MigrateAction::Down { count } => {
+            let reverted = migrate::down(core, dir, &cfg.hooks.dir, count).await?;
+            if reverted.is_empty() {
+                println!("No applied migrations to revert.");
+            }
+            for name in reverted {
+                println!("Reverted {name}");
+            }
+        }
+        MigrateAction::Create { name } => {
+            let path = migrate::write_blank(dir, &name)?;
+            println!("Wrote {}", path.display());
+        }
+        MigrateAction::Collections => {
+            let path = migrate::write_snapshot(dir, &core.registry())?;
+            // it describes the collections as they are: there's nothing to apply
+            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            let file = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            client
+                .execute(
+                    "INSERT INTO _slonbase.app_migrations (file) VALUES ($1) ON CONFLICT DO NOTHING",
+                    &[&file],
+                )
+                .await?;
+            println!("Wrote {} (marked as applied here)", path.display());
+        }
+        MigrateAction::HistorySync => {
+            let removed = migrate::sync_history(core, dir).await?;
+            if removed.is_empty() {
+                println!("The history matches the files in {}.", dir.display());
+            }
+            for name in removed {
+                println!("Forgot {name}");
+            }
+        }
+        MigrateAction::List => {
+            let files = migrate::files(dir)?;
+            let applied = migrate::applied(core).await?;
+            if files.is_empty() && applied.is_empty() {
+                println!("No migrations in {}.", dir.display());
+            }
+            for (name, _) in &files {
+                let state = if applied.contains(name) {
+                    "applied"
+                } else {
+                    "pending"
+                };
+                println!("{state:<8} {name}");
+            }
+            for name in applied
+                .iter()
+                .filter(|a| !files.iter().any(|(n, _)| n == *a))
+            {
+                println!("{:<8} {name} (the file is missing)", "applied");
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "js"))]
+async fn migrate_command(
+    _core: &std::sync::Arc<crate::core::Core>,
+    _cfg: &config::Config,
+    _action: MigrateAction,
+) -> Result<()> {
+    anyhow::bail!("this build has no JavaScript engine, which migrations need")
 }
 
 async fn core_for(cfg: &config::Config) -> Result<std::sync::Arc<crate::core::Core>> {

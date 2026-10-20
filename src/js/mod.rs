@@ -8,6 +8,7 @@
 //! the hook chain (and the action) and resumes the thread with the result. Native calls
 //! (`$app.findRecordById`, `$http.send`, ...) block their thread on the async runtime.
 
+pub mod migrate;
 mod native;
 
 use std::cell::RefCell;

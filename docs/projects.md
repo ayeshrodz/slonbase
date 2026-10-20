@@ -40,6 +40,7 @@ equivalent: there you run one process per app.
   | `<name>/storage/` | uploaded files (unless the project's settings use S3) |
   | `<name>/backups/` | backups |
   | `<name>/hooks/` | JavaScript hooks (`*.pb.js`) |
+  | `<name>/migrations/` | [migrations](migrations.md) |
 
   When a project's hook files change, only that project restarts (unless `hooks.watch` is
   off). Requests already in progress finish on the old version, and realtime clients

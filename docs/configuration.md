@@ -27,6 +27,8 @@ file, and then the defaults.
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
+| `--migrations-dir` | `SLONBASE_MIGRATIONS_DIR` | `migrations.dir` | `slonbase_migrations` |
+| `--automigrate` | `SLONBASE_AUTOMIGRATE` | `migrations.automigrate` | `false` |
 | `--projects-path` | `SLONBASE_PROJECTS_PATH` | `projects.path` | `slonbase_data/projects` |
 | | | `projects.max_connections` | `4` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
@@ -57,6 +59,10 @@ path = "slonbase_data/backups"
 dir = "slonbase_hooks"
 pool_size = 10
 watch = true
+
+[migrations]          # see migrations.md
+dir = "slonbase_migrations"
+automigrate = false
 
 [projects]            # see projects.md
 path = "slonbase_data/projects"

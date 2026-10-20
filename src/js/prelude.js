@@ -286,6 +286,129 @@
     }
   }
 
+  // ------------------------------------------------------------------ collections
+
+  // a field of a collection: its JSON definition (`new Field({type: "text", name: "title"})`)
+  class Field {
+    constructor(data) {
+      Object.assign(this, clone(data || {}));
+    }
+  }
+  // typed fields: `new TextField({name: "title"})`
+  const fieldClasses = {};
+  for (const [name, type] of [
+    ["TextField", "text"],
+    ["EditorField", "editor"],
+    ["NumberField", "number"],
+    ["BoolField", "bool"],
+    ["EmailField", "email"],
+    ["URLField", "url"],
+    ["DateField", "date"],
+    ["AutodateField", "autodate"],
+    ["SelectField", "select"],
+    ["FileField", "file"],
+    ["RelationField", "relation"],
+    ["JSONField", "json"],
+    ["GeoPointField", "geoPoint"],
+    ["PasswordField", "password"],
+  ]) {
+    fieldClasses[name] = class extends Field {
+      constructor(data) {
+        super(data);
+        this.type = type;
+      }
+    };
+    Object.defineProperty(fieldClasses[name], "name", { value: name });
+  }
+
+  // a collection's list of fields, with PocketBase's FieldsList methods
+  function fieldsList(items) {
+    const list = (items || []).map((f) => (f instanceof Field ? f : new Field(f)));
+    const at = (f) => {
+      const byId = f.id ? list.findIndex((x) => x.id === f.id) : -1;
+      return byId >= 0 ? byId : list.findIndex((x) => !f.id && x.name === f.name);
+    };
+    const methods = {
+      // replaces the fields with the same id (or name, without an id), or appends them
+      add: (...fields) => {
+        for (const f of fields) {
+          const field = f instanceof Field ? f : new Field(f);
+          const i = at(field);
+          if (i >= 0) list[i] = field;
+          else list.push(field);
+        }
+      },
+      // like add(), but moves the fields to `pos`
+      addAt: (pos, ...fields) => {
+        if (pos < 0) return methods.add(...fields);
+        let p = pos;
+        for (const f of fields) {
+          const field = f instanceof Field ? f : new Field(f);
+          const i = at(field);
+          if (i >= 0) list.splice(i, 1);
+          list.splice(Math.min(p, list.length), 0, field);
+          p++;
+        }
+      },
+      getById: (id) => list.find((f) => f.id === id) || null,
+      getByName: (name) => list.find((f) => f.name === name) || null,
+      removeById: (id) => {
+        const i = list.findIndex((f) => f.id === id);
+        if (i >= 0) list.splice(i, 1);
+      },
+      removeByName: (name) => {
+        const i = list.findIndex((f) => f.name === name);
+        if (i >= 0) list.splice(i, 1);
+      },
+      fieldNames: () => list.map((f) => f.name),
+      asMap: () => Object.fromEntries(list.map((f) => [f.name, f])),
+      clone: () => fieldsList(clone(list)),
+    };
+    for (const [name, fn] of Object.entries(methods)) Object.defineProperty(list, name, { value: fn });
+    return list;
+  }
+
+  // a collection definition, as $app.findCollectionByNameOrId() returns and $app.save() takes
+  class Collection {
+    constructor(data) {
+      const d = clone(data || {});
+      if (!d.type) d.type = "base";
+      Object.assign(this, d);
+      this.fields = fieldsList(this.fields);
+      if (!Array.isArray(this.indexes)) this.indexes = [];
+    }
+    isBase() {
+      return this.type === "base";
+    }
+    isAuth() {
+      return this.type === "auth";
+    }
+    isView() {
+      return this.type === "view";
+    }
+    _load(data) {
+      for (const key of Object.keys(this)) delete this[key];
+      Object.assign(this, new Collection(data));
+    }
+  }
+
+  // copies the JSON data into a model (a collection, a record or any object)
+  function unmarshal(data, target) {
+    const d = typeof data === "string" ? JSON.parse(data) : clone(data || {});
+    if (target instanceof Record) {
+      target.load(d);
+    } else {
+      Object.assign(target, d);
+      if (target instanceof Collection) target.fields = fieldsList(target.fields);
+    }
+    return target;
+  }
+
+  function settingsModel(raw) {
+    Object.defineProperty(raw, "_settings", { value: true });
+    return raw;
+  }
+
   // ------------------------------------------------------------------ $app
 
   function stored(raw) {
@@ -339,8 +462,16 @@
   }
 
   const $app = {
-    findCollectionByNameOrId: (nameOrId) => call("collection", nameOrId),
-    findAllCollections: () => call("collections"),
+    findCollectionByNameOrId: (nameOrId) => new Collection(call("collection", collectionName(nameOrId))),
+    findAllCollections: (...types) =>
+      call("collections")
+        .map((c) => new Collection(c))
+        .filter((c) => !types.length || types.includes(c.type)),
+    // creates or updates collections from their definitions (and with deleteMissing, deletes
+    // the other non-system collections)
+    importCollections: (collections, deleteMissing) => {
+      call("importCollections", JSON.parse(JSON.stringify(collections || [])), !!deleteMissing);
+    },
     findRecordById: (collection, id) => {
       const raw = call("findRecordById", collectionName(collection), id);
       if (!raw) throw new NotFoundError("sql: no rows in result set");
@@ -370,20 +501,35 @@
     },
     countRecords: (collection, filter, params) =>
       call("countRecords", collectionName(collection), filter || "", params || {}),
-    save: (record) => {
-      if (!(record instanceof Record)) throw new BadRequestError("$app.save() expects a Record.");
-      const saved = call("save", record._ref.name || record._ref.id, record._changes());
-      record._data = {};
-      record.load(saved);
-      record._ref = { id: saved.collectionId, name: saved.collectionName };
-      record._original = clone(record._data);
+    save: (model) => {
+      if (model instanceof Collection) {
+        model._load(call("saveCollection", JSON.parse(JSON.stringify(model))));
+        return;
+      }
+      if (model && model._settings) {
+        const saved = call("saveSettings", JSON.parse(JSON.stringify(model)));
+        Object.assign(model, saved);
+        return;
+      }
+      if (!(model instanceof Record)) throw new BadRequestError("$app.save() expects a Record, a Collection or the settings.");
+      const saved = call("save", model._ref.name || model._ref.id, model._changes());
+      model._data = {};
+      model.load(saved);
+      model._ref = { id: saved.collectionId, name: saved.collectionName };
+      model._original = clone(model._data);
     },
-    delete: (record) => {
-      if (!(record instanceof Record)) throw new BadRequestError("$app.delete() expects a Record.");
-      call("delete", record._ref.name || record._ref.id, record.id);
+    delete: (model) => {
+      if (model instanceof Collection) {
+        call("deleteCollection", model.id || model.name);
+        return;
+      }
+      if (!(model instanceof Record)) throw new BadRequestError("$app.delete() expects a Record or a Collection.");
+      call("delete", model._ref.name || model._ref.id, model.id);
     },
+    // in migrations everything already runs in the migration's transaction
+    runInTransaction: (fn) => fn($app),
     db: () => ({ newQuery: (sql) => new Query(sql) }),
-    settings: () => call("settings"),
+    settings: () => settingsModel(call("settings")),
     newMailClient: () => ({
       send: (message) => {
         const to = (Array.isArray(message.to) ? message.to : [message.to])
@@ -589,10 +735,10 @@
   }
 
   function collectionEvent(raw) {
-    const e = { app: $app, collection: raw.collection };
+    const e = { app: $app, collection: new Collection(raw.collection) };
     e.next = () => {
       const res = callNext({ collection: e.collection });
-      e.collection = res.collection;
+      e.collection = new Collection(res.collection);
     };
     e._state = () => ({ collection: e.collection });
     return e;
@@ -775,6 +921,32 @@
     },
   };
 
+  // ------------------------------------------------------------------ migrations
+
+  // a migration file calls migrate(up, down); each gets the app (in the migration's transaction)
+  let migration = null;
+  g.migrate = (up, down) => {
+    if (typeof up !== "function") throw new TypeError("migrate: up must be a function");
+    migration = { up, down: typeof down === "function" ? down : null };
+  };
+  // called by the runtime after evaluating a migration file: runs its up or down function
+  g.__runMigration = (direction) => {
+    const m = migration;
+    migration = null;
+    try {
+      if (!m) throw new Error("the file doesn't call migrate()");
+      const fn = direction === "down" ? m.down : m.up;
+      if (fn) fn($app);
+      return JSON.stringify({ ok: null });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const data = err.data && Object.keys(err.data).length ? " " + JSON.stringify(err.data) : "";
+        return JSON.stringify({ err: err.message + data });
+      }
+      return JSON.stringify({ err: err && err.stack ? String(err) + "\n" + err.stack : String(err) });
+    }
+  };
+
   // called by the runtime: runs handler `index` with the event JSON, returns {ok}/{err} JSON
   g.__dispatch = (index, json) => {
     try {
@@ -797,6 +969,10 @@
     TooManyRequestsError,
     InternalServerError,
     Record,
+    Collection,
+    Field,
+    ...fieldClasses,
+    unmarshal,
     DynamicModel,
     MailerMessage,
     arrayOf,

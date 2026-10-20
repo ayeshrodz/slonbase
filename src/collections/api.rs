@@ -352,6 +352,8 @@ pub async fn create(
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
     after_hook(&core, |h| &h.on_collection_after_create_success, &saved);
+    #[cfg(feature = "js")]
+    crate::js::migrate::automigrate(&core, vec![crate::js::migrate::Change::Created(&saved)]).await;
 
     Ok(Json(to_json(&saved)))
 }
@@ -397,6 +399,17 @@ pub async fn update(
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "updated collection");
     after_hook(&core, |h| &h.on_collection_after_update_success, &saved);
+    #[cfg(feature = "js")]
+    if saved.as_ref() != old.as_ref() {
+        crate::js::migrate::automigrate(
+            &core,
+            vec![crate::js::migrate::Change::Updated {
+                old: &old,
+                new: &saved,
+            }],
+        )
+        .await;
+    }
 
     Ok(Json(to_json(&saved)))
 }
@@ -409,11 +422,24 @@ pub async fn delete(
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let failed = "Failed to delete collection.";
+    let before = core.registry();
+    delete_collection(&core, &id_or_name).await?;
+    #[cfg(feature = "js")]
+    if let Some(c) = before.get(&id_or_name) {
+        crate::js::migrate::automigrate(&core, vec![crate::js::migrate::Change::Deleted(c)]).await;
+    }
+    #[cfg(not(feature = "js"))]
+    let _ = before;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
 
+/// Deletes a collection with its records and files (not system collections, nor ones
+/// other collections refer to).
+pub(crate) async fn delete_collection(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiError> {
+    let failed = "Failed to delete collection.";
     let _guard = core.schema_lock.lock().await;
-    let registry = fresh_registry(&core).await?;
-    let c = registry.get(&id_or_name).cloned().ok_or_else(not_found)?;
+    let registry = fresh_registry(core).await?;
+    let c = registry.get(id_or_name).cloned().ok_or_else(not_found)?;
     if c.system {
         return Err(ApiError::bad_request(
             "System collections can't be deleted.",
@@ -433,18 +459,28 @@ pub async fn delete(
     }
 
     // changes are ignored: the collection is deleted
-    before_hook(&core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+    before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
     let registry = store::apply(&core.pool, Change::Delete(&c))
         .await
         .map_err(|e| write_error(e, failed))?;
     core.set_registry(registry);
-    after_hook(&core, |h| &h.on_collection_after_delete_success, &c);
+    after_hook(core, |h| &h.on_collection_after_delete_success, &c);
     if let Err(err) = core.storage().delete_prefix(&c.id).await {
         tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
     }
     tracing::info!(collection = %c.name, "deleted collection");
+    Ok(())
+}
 
-    Ok(StatusCode::NO_CONTENT.into_response())
+/// Creates or updates one collection from its JSON definition (see
+/// [`import_definitions`]) and returns it as saved.
+#[cfg(feature = "js")]
+pub(crate) async fn save_definition(
+    core: &Arc<Core>,
+    definition: Value,
+) -> Result<Arc<Collection>, ApiError> {
+    let saved = import_definitions(core, vec![definition], false).await?;
+    saved.into_iter().next().ok_or_else(not_found)
 }
 
 /// `GET /api/collections/meta/scaffolds`: the default definition of each collection type
@@ -512,29 +548,56 @@ pub async fn import(
             return Err(ApiError::invalid_data(failed, &errors));
         }
     };
-    import_definitions(&core, items, delete_missing).await?;
+    let before = fresh_registry(&core).await?;
+    let saved = import_definitions(&core, items, delete_missing).await?;
+    #[cfg(feature = "js")]
+    {
+        use crate::js::migrate::Change as Written;
+        let after = core.registry();
+        let mut changes: Vec<Written> = Vec::new();
+        for c in &saved {
+            match before.by_id(&c.id) {
+                Some(old) if old.as_ref() == c.as_ref() => {}
+                Some(old) => changes.push(Written::Updated { old, new: c }),
+                None => changes.push(Written::Created(c)),
+            }
+        }
+        for c in before.all() {
+            if !c.system && after.by_id(&c.id).is_none() {
+                changes.push(Written::Deleted(c));
+            }
+        }
+        crate::js::migrate::automigrate(&core, changes).await;
+    }
+    #[cfg(not(feature = "js"))]
+    let _ = (before, saved);
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 /// Creates or updates collections from their PocketBase JSON definitions (and deletes the
-/// other non-system collections with `delete_missing`), all in one transaction.
+/// other non-system collections with `delete_missing`), all in one transaction: the
+/// collection hooks run around [`super::tx::import`].
 pub(crate) async fn import_definitions(
     core: &Arc<Core>,
     items: Vec<Value>,
     delete_missing: bool,
-) -> Result<(), ApiError> {
+) -> Result<Vec<Arc<Collection>>, ApiError> {
     let failed = "Failed to import collections.";
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(core).await?;
 
-    // the imported definitions, merged over the stored ones they match
-    let mut pairs: Vec<(Option<Arc<Collection>>, Collection)> = Vec::new();
+    // the collection hooks see each definition merged over the stored one it matches
+    let mut definitions = Vec::with_capacity(items.len());
+    let mut olds: Vec<Option<Arc<Collection>>> = Vec::with_capacity(items.len());
     for (i, item) in items.into_iter().enumerate() {
-        let Value::Object(map) = item else {
+        let Value::Object(mut map) = item else {
             return Err(ApiError::bad_request(format!(
                 "{failed} Collection {i} must be an object."
             )));
         };
+        if !super::tx::importable_system(&registry, &mut map) {
+            continue;
+        }
         let id = map.get("id").and_then(Value::as_str).unwrap_or_default();
         let name = map.get("name").and_then(Value::as_str).unwrap_or_default();
         let old = registry
@@ -558,100 +621,77 @@ pub(crate) async fn import_definitions(
         })?;
         match &old {
             Some(old) => c.id = old.id.clone(),
-            // new collections get their ids now, so others can be validated against them
             None if c.id.is_empty() => {
                 c.id = format!("pbc_{}", crate::ids::random_id(10));
             }
             None => {}
         }
-        // the collection hooks, as for single changes
         let hook = if old.is_some() {
             &core.hooks.on_collection_update
         } else {
             &core.hooks.on_collection_create
         };
-        let mut c = before_hook(core, hook, c).await?;
-        infer_view(
-            core,
-            &mut c,
-            old.as_deref(),
-            &format!("collections.{i}."),
-            failed,
-        )
-        .await?;
-        pairs.push((old, c));
+        let c = before_hook(core, hook, c).await?;
+        if c.is_view()
+            && !core.sql_console
+            && old.as_ref().is_none_or(|o| o.view_query != c.view_query)
+        {
+            return Err(ApiError::forbidden(
+                "View queries run SQL with the database role's privileges, so creating or changing \
+                 them needs the SQL console: start slonbase with --sql-console.",
+            ));
+        }
+        definitions.push(serde_json::to_value(&c).expect("serializes"));
+        olds.push(old);
     }
-
-    // validate everything against the registry as it will be after the import
-    let imported_ids: Vec<String> = pairs.iter().map(|(_, c)| c.id.clone()).collect();
-    let deleted: Vec<Arc<Collection>> = if delete_missing {
-        registry
+    if delete_missing {
+        let ids: Vec<&str> = definitions
+            .iter()
+            .filter_map(|d| d.get("id").and_then(Value::as_str))
+            .collect();
+        for c in registry
             .all()
             .iter()
-            .filter(|c| !c.system && !imported_ids.contains(&c.id))
-            .cloned()
-            .collect()
-    } else {
-        vec![]
-    };
-    let mut target: Vec<Collection> = registry
-        .all()
-        .iter()
-        .filter(|c| !deleted.iter().any(|d| d.id == c.id))
-        .filter(|c| !imported_ids.contains(&c.id))
-        .map(|c| c.as_ref().clone())
-        .collect();
-    target.extend(pairs.iter().map(|(_, c)| c.clone()));
-    let mut errors = crate::validation::Errors::new();
-    for (i, (old, c)) in pairs.iter_mut().enumerate() {
-        // checked against every other collection (its own id and name aren't taken)
-        let others = Registry::new(target.iter().filter(|o| o.id != c.id).cloned().collect());
-        errors.extend_prefixed(
-            &format!("collections.{i}"),
-            validate::prepare(c, old.as_deref(), &others),
-        );
-    }
-    if !errors.is_empty() {
-        return Err(ApiError::invalid_data(failed, &errors));
+            .filter(|c| !c.system && !ids.contains(&c.id.as_str()))
+        {
+            before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+        }
     }
 
-    for c in &deleted {
-        before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
-    }
-    let mut changes: Vec<Change> = deleted.iter().map(|c| Change::Delete(c)).collect();
-    for (old, new) in &pairs {
-        changes.push(match old {
-            Some(old) if old.as_ref() == new => continue,
-            Some(old) => Change::Update { old, new },
-            None => Change::Create(new),
-        });
-    }
-    let registry = store::apply_all(&core.pool, changes)
+    let mut client = core
+        .pool
+        .get()
         .await
-        .map_err(|e| write_error(e, failed))?;
-    for (old, new) in &pairs {
-        let Some(saved) = registry.by_id(&new.id) else {
-            continue;
-        };
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    let imported = super::tx::import(&tx, &registry, definitions, delete_missing, false).await?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+
+    for (old, saved) in olds.iter().zip(&imported.saved) {
         match old {
-            Some(old) if old.as_ref() == new => {}
+            Some(old) if old.as_ref() == saved.as_ref() => {}
             Some(_) => after_hook(core, |h| &h.on_collection_after_update_success, saved),
             None => after_hook(core, |h| &h.on_collection_after_create_success, saved),
         }
     }
-    for c in &deleted {
+    for c in &imported.deleted {
         after_hook(core, |h| &h.on_collection_after_delete_success, c);
     }
-    core.set_registry(registry);
-    for c in &deleted {
+    core.set_registry(imported.registry);
+    for c in &imported.deleted {
         if let Err(err) = core.storage().delete_prefix(&c.id).await {
             tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
         }
     }
     tracing::info!(
-        imported = pairs.len(),
-        deleted = deleted.len(),
+        imported = imported.saved.len(),
+        deleted = imported.deleted.len(),
         "imported collections"
     );
-    Ok(())
+    Ok(imported.saved)
 }

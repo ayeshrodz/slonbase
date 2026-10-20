@@ -30,7 +30,9 @@ wait_up() {
 
 # 1. PocketBase with data
 "$POCKETBASE_BIN" superuser upsert "$COMPAT_EMAIL" "$COMPAT_PASSWORD" --dir "$work/pb_data" > /dev/null
-"$POCKETBASE_BIN" serve --dir "$work/pb_data" --http "127.0.0.1:${port}" > "$work/pocketbase.log" 2>&1 &
+# with automigrate, the seeding also writes migration files (and marks them applied)
+"$POCKETBASE_BIN" serve --dir "$work/pb_data" --http "127.0.0.1:${port}" \
+  --automigrate --migrationsDir "$work/pb_migrations" > "$work/pocketbase.log" 2>&1 &
 pb=$!
 trap 'kill $pb 2>/dev/null || true' EXIT
 wait_up "$work/pocketbase.log"
@@ -38,7 +40,7 @@ node import/seed-pocketbase.mjs "$work/snapshot.json"
 kill "$pb" && wait "$pb" 2> /dev/null || true
 
 # 2. the import into a slonbase with its own superuser
-common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-path "$work/backups" --hooks-dir "$work/hooks")
+common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-path "$work/backups" --hooks-dir "$work/hooks" --migrations-dir "$work/pb_migrations" --projects-path "$work/projects")
 "$bin" "${common[@]}" setup --database-url "$DATABASE_URL" --email slon-admin@example.com --password slon-admin-password-1 > /dev/null
 # from PocketBase's backup zip
 "$bin" "${common[@]}" import-pocketbase "$work/pb_data/backups/import-test.zip"
@@ -48,6 +50,13 @@ if "$bin" "${common[@]}" import-pocketbase "$work/pb_data" > "$work/again.log" 2
   exit 1
 fi
 grep -q "already has collections" "$work/again.log"
+# PocketBase's applied migrations came along, so its pb_migrations don't run again
+"$bin" "${common[@]}" migrate list > "$work/migrations.log" 2> /dev/null
+cat "$work/migrations.log"
+if grep -q "^pending" "$work/migrations.log" || ! grep -q "^applied" "$work/migrations.log"; then
+  echo "PocketBase's migrations should all be marked applied" >&2
+  exit 1
+fi
 
 # 3. the checks, against slonbase
 "$bin" "${common[@]}" --bind "127.0.0.1:${port}" serve > "$work/slonbase.log" 2>&1 &
@@ -55,3 +64,14 @@ server=$!
 trap 'kill $server 2>/dev/null || true; wait $server 2>/dev/null || true' EXIT
 wait_up "$work/slonbase.log"
 SNAPSHOT="$work/snapshot.json" node --test import/check-slonbase.mjs
+
+# 4. PocketBase's migration files, applied to a new database (a project), give the same
+# collections; the SQLite query of one view is ported to PostgreSQL first, as a user would
+export REPLAY_PROJECT=replay REPLAY_EMAIL=replay@example.com REPLAY_PASSWORD=replay-password-1
+SLONBASE_SUPERUSER_PASSWORD="$REPLAY_PASSWORD" "$bin" "${common[@]}" project create "$REPLAY_PROJECT" --email "$REPLAY_EMAIL" > /dev/null
+mkdir -p "$work/projects/$REPLAY_PROJECT/migrations"
+cp "$work"/pb_migrations/*.js "$work/projects/$REPLAY_PROJECT/migrations/"
+sed -i "s/strftime('%Y', created)/to_char(created, 'YYYY')/" "$work/projects/$REPLAY_PROJECT/migrations/"*_yearly.js
+# (the running server may have applied them already: it starts new projects within moments)
+"$bin" "${common[@]}" --project "$REPLAY_PROJECT" migrate up 2> /dev/null
+node --test import/check-replay.mjs

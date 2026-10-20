@@ -22,7 +22,28 @@ pub struct Config {
     pub storage: StorageConfig,
     pub backups: BackupsConfig,
     pub hooks: HooksConfig,
+    pub migrations: MigrationsConfig,
     pub projects: ProjectsConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MigrationsConfig {
+    /// Directory with the JavaScript migrations (`*.js`, PocketBase's `pb_migrations`);
+    /// ignored when it doesn't exist.
+    pub dir: PathBuf,
+    /// Writes a migration file for every collection change made in the dashboard or with
+    /// the collections API.
+    pub automigrate: bool,
+}
+
+impl Default for MigrationsConfig {
+    fn default() -> Self {
+        Self {
+            dir: PathBuf::from("slonbase_migrations"),
+            automigrate: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -157,6 +178,8 @@ pub struct Overrides {
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
     pub hooks_watch: Option<bool>,
+    pub migrations_dir: Option<PathBuf>,
+    pub automigrate: Option<bool>,
     pub projects_path: Option<PathBuf>,
 }
 
@@ -216,6 +239,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(watch) = overrides.hooks_watch {
         effective.hooks.watch = watch;
+    }
+    if let Some(dir) = overrides.migrations_dir {
+        effective.migrations.dir = dir;
+    }
+    if let Some(on) = overrides.automigrate {
+        effective.migrations.automigrate = on;
     }
     if let Some(path) = overrides.projects_path {
         effective.projects.path = path;

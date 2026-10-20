@@ -47,7 +47,9 @@ const FORMAT_VERSION: u32 = 1;
 /// Held (as a session lock) while a backup or restore runs on any instance.
 const BACKUP_LOCK_KEY: i64 = SCHEMA_LOCK_KEY + 1;
 /// System tables in backups; the others are rebuilt or short-lived.
-const SYSTEM_TABLES: &[&str] = &["collections", "params"];
+/// The applied migrations go with the collections they created; backups made before they
+/// existed (0.2 and older) leave the current list alone when restored.
+const SYSTEM_TABLES: &[&str] = &["collections", "params", "app_migrations"];
 /// Names of automatic backups start with this.
 pub const AUTO_PREFIX: &str = "auto_backup_";
 
@@ -518,6 +520,14 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
          TRUNCATE _slonbase.events, _slonbase.otps, _slonbase.mfas;",
     )
     .await?;
+    if manifest
+        .tables
+        .iter()
+        .any(|t| t.schema == "_slonbase" && t.table == "app_migrations")
+    {
+        tx.batch_execute("DELETE FROM _slonbase.app_migrations")
+            .await?;
+    }
 
     let column_list = |columns: &[String]| {
         columns

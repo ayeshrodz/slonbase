@@ -48,6 +48,8 @@ pub struct Report {
     pub files: usize,
     pub file_bytes: u64,
     pub settings: bool,
+    /// PocketBase's applied JavaScript migrations, now marked applied here too.
+    pub migrations: usize,
     pub warnings: Vec<String>,
 }
 
@@ -73,6 +75,13 @@ impl std::fmt::Display for Report {
                 "not imported"
             }
         )?;
+        if self.migrations > 0 {
+            writeln!(
+                f,
+                "Migrations: {} marked as applied (copy pb_migrations to the migrations directory)",
+                self.migrations
+            )?;
+        }
         for w in &self.warnings {
             writeln!(f, "warning: {w}")?;
         }
@@ -441,7 +450,7 @@ pub async fn run(core: &Arc<Core>, path: &Path, with_settings: bool) -> Result<R
         )
         .await
         {
-            Ok(()) => imported_views.push(name),
+            Ok(_) => imported_views.push(name),
             Err(e) => report.warnings.push(format!(
                 "view collection {name:?} wasn't imported: {}; its query may use SQLite-only SQL, \
                  recreate it with a PostgreSQL query",
@@ -548,5 +557,43 @@ pub async fn run(core: &Arc<Core>, path: &Path, with_settings: bool) -> Result<R
     if let Ok(client) = core.pool.get().await {
         let _ = crate::realtime::notify(&client, "collections").await;
     }
+    report.migrations = import_migration_history(core, &source).await?;
     Ok(report)
+}
+
+/// Marks PocketBase's applied JavaScript migrations (`*.js` in its `_migrations` table) as
+/// applied, so its `pb_migrations` don't run again on the imported collections.
+async fn import_migration_history(core: &Core, source: &Source) -> Result<usize> {
+    let files: Vec<String> = sqlite(&source.db, |db| {
+        let exists: bool = db.query_row(
+            "SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = '_migrations'",
+            [],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Ok(Vec::new());
+        }
+        let mut stmt = db.prepare(
+            "SELECT file FROM _migrations WHERE file LIKE '%.js' ORDER BY applied, file",
+        )?;
+        let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+        rows.collect()
+    })
+    .await
+    .context("failed to read PocketBase's migrations")?;
+    if files.is_empty() {
+        return Ok(0);
+    }
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let n = client
+        .execute(
+            "INSERT INTO _slonbase.app_migrations (file) SELECT unnest($1::text[]) ON CONFLICT DO NOTHING",
+            &[&files],
+        )
+        .await?;
+    Ok(n as usize)
 }

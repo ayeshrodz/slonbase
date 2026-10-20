@@ -153,7 +153,7 @@ fn upload_of(value: &Value) -> Option<Result<Upload, ApiError>> {
 
 /// Moves the files in record data to uploads: a field set to files (or to a list mixing
 /// kept file names and files) keeps those names and appends the files.
-fn take_files(data: &mut Map<String, Value>) -> Result<Vec<Upload>, ApiError> {
+pub(super) fn take_files(data: &mut Map<String, Value>) -> Result<Vec<Upload>, ApiError> {
     let mut uploads = Vec::new();
     for (key, value) in data.iter_mut() {
         let items: Vec<Value> = match value {
@@ -185,11 +185,11 @@ const MAX_SLEEP_MS: u64 = 60_000;
 /// Longest `$http.send` timeout (seconds).
 const MAX_HTTP_TIMEOUT: u64 = 300;
 
-fn bad(message: impl Into<String>) -> ApiError {
+pub(super) fn bad(message: impl Into<String>) -> ApiError {
     ApiError::bad_request(message)
 }
 
-fn internal(err: impl Into<anyhow::Error>) -> ApiError {
+pub(super) fn internal(err: impl Into<anyhow::Error>) -> ApiError {
     ApiError::internal(err.into())
 }
 
@@ -198,23 +198,23 @@ pub(super) fn call(shared: &Arc<Shared>, name: &str, args: &str) -> String {
     envelope(run(shared, name, &args))
 }
 
-struct Args<'a>(&'a [Value]);
+pub(super) struct Args<'a>(pub(super) &'a [Value]);
 
 impl Args<'_> {
-    fn value(&self, i: usize) -> Value {
+    pub(super) fn value(&self, i: usize) -> Value {
         self.0.get(i).cloned().unwrap_or(Value::Null)
     }
-    fn str(&self, i: usize) -> String {
+    pub(super) fn str(&self, i: usize) -> String {
         match self.0.get(i) {
             Some(Value::String(s)) => s.clone(),
             Some(Value::Null) | None => String::new(),
             Some(other) => other.to_string(),
         }
     }
-    fn int(&self, i: usize) -> i64 {
+    pub(super) fn int(&self, i: usize) -> i64 {
         self.0.get(i).and_then(Value::as_f64).unwrap_or(0.0) as i64
     }
-    fn object(&self, i: usize) -> Map<String, Value> {
+    pub(super) fn object(&self, i: usize) -> Map<String, Value> {
         match self.0.get(i) {
             Some(Value::Object(map)) => map.clone(),
             _ => Map::new(),
@@ -259,7 +259,39 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
     }
 
     let core = shared.core()?;
+    // in a migration, the database calls run in its transaction
+    if let Some(tx) = super::migrate::current() {
+        if let Some(result) = super::migrate::call_in_tx(&tx, handle, name, &a) {
+            return result;
+        }
+    }
     match name {
+        "saveCollection" => {
+            let saved =
+                handle.block_on(crate::collections::api::save_definition(&core, a.value(0)))?;
+            Ok(collection_json(&saved))
+        }
+        "deleteCollection" => {
+            handle.block_on(crate::collections::api::delete_collection(&core, &a.str(0)))?;
+            Ok(Value::Null)
+        }
+        "importCollections" => {
+            let items = match a.value(0) {
+                Value::Array(items) => items,
+                _ => return Err(bad("importCollections expects a list of collections.")),
+            };
+            let delete_missing = a.value(1).as_bool().unwrap_or(false);
+            handle.block_on(crate::collections::api::import_definitions(
+                &core,
+                items,
+                delete_missing,
+            ))?;
+            Ok(Value::Null)
+        }
+        "saveSettings" => {
+            let settings = handle.block_on(crate::settings::apply_patch(&core, a.object(0)))?;
+            serde_json::to_value(&settings).map_err(internal)
+        }
         "collection" => Ok(collection_json(core.collection(&a.str(0))?.as_ref())),
         "collections" => Ok(Value::Array(
             core.registry()
@@ -508,12 +540,23 @@ async fn db_query(
     params: &Map<String, Value>,
     mode: &str,
 ) -> Result<Value, ApiError> {
-    let sql = bind(sql.trim().trim_end_matches(';'), params)?;
     let client = core
         .pool
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    db_query_in(&client, sql, params, mode).await
+}
+
+/// `$app.db().newQuery(sql)` run with `client`: `execute` returns the affected rows, `all`
+/// the rows as JSON objects.
+pub(super) async fn db_query_in(
+    client: &impl deadpool_postgres::GenericClient,
+    sql: &str,
+    params: &Map<String, Value>,
+    mode: &str,
+) -> Result<Value, ApiError> {
+    let sql = bind(sql.trim().trim_end_matches(';'), params)?;
     let query_error = |e: tokio_postgres::Error| {
         let message = e
             .as_db_error()

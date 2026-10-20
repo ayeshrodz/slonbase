@@ -55,12 +55,18 @@ everything that's available. The differences to watch for:
   needs porting. Collections are tables in the `slonbase` schema, named after the collection.
 - **Not available yet:** auth request hooks (`onRecordAuthRequest`,
   `onRecordAuthWithPasswordRequest`, ...), realtime, file, backup and settings hooks,
-  `onRecordEnrich`, `$template`, `$mails`, `$tokens`, the `$dbx` query builder,
-  `$app.runInTransaction`, and JavaScript migrations (`pb_migrations`). Registering a missing
-  hook fails with a `ReferenceError` when the file loads, so you'll know right away.
+  `onRecordEnrich`, `$template`, `$mails`, `$tokens` and the `$dbx` query builder.
+  Registering a missing hook fails with a `ReferenceError` when the file loads, so you'll know
+  right away.
 - **The engine is QuickJS** rather than Goja. It's standard JavaScript (ES2023), with no Go types.
 - Go extensions (`main.go`) can't be carried over. slonbase's equivalent is its
   [Rust library](extending.md#rust).
+
+## Migrations
+
+Copy `pb_migrations/*.js` to slonbase's migrations directory: PocketBase's migration files,
+automigrate output and snapshots run as they are (see [migrations](migrations.md)). The import
+marks PocketBase's applied migrations as applied, so they don't run again.
 
 ## Other differences
 
