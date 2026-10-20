@@ -7,11 +7,16 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-20
+
+Package repositories, so `apt upgrade` and `dnf upgrade` bring new versions, and a new look
+for the dashboard. Nothing changes in the database or the API.
+
 ### Added
 
 - Signed apt and dnf repositories at https://ayeshrodz.github.io/slonbase/, updated with every
-  release, so `apt upgrade` and `dnf upgrade` install new versions. They include 0.1.0 and
-  0.2.0. See [installation](docs/installation.md#debian-ubuntu-fedora-rhel-packages).
+  release, so `apt upgrade` and `dnf upgrade` install new versions. They have every release since 0.1.0.
+  See [installation](https://github.com/ayeshrodz/slonbase/blob/v0.2.1/docs/installation.md#debian-ubuntu-fedora-rhel-packages).
 
 ### Changed
 
@@ -157,6 +162,7 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ayeshrodz/slonbase/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ayeshrodz/slonbase/releases/tag/v0.1.0
