@@ -7,11 +7,18 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-20
+
+**Migrations:** slonbase runs JavaScript migrations, PocketBase's `pb_migrations` included, so
+collections can live in code and reach every installation the same way. Each migration runs
+in a transaction of its own. See
+[docs/migrations.md](https://github.com/ayeshrodz/slonbase/blob/v0.3.0/docs/migrations.md).
+
 ### Added
 
 - **JavaScript migrations**, compatible with PocketBase's `pb_migrations`: `*.js` files in the
   migrations directory (`--migrations-dir`, `slonbase_migrations` by default) that call
-  `migrate(up, down)`. See [docs/migrations.md](docs/migrations.md).
+  `migrate(up, down)`.
   - The server applies pending migrations when it starts. Each runs in a transaction of its
     own, so a failing migration changes nothing; the server then waits, with the error as its
     status, and tries again.
@@ -32,6 +39,17 @@ changes, and they'll be listed here.
 - Importing collections (the dashboard's import or the API) creates view collections whose
   queries read tables created by the same import, and accepts PocketBase's exports with its
   system collections.
+
+### Upgrading from 0.2
+
+Install the new version as usual (with the package repositories, `apt upgrade` or
+`dnf upgrade`).
+
+- System migration 9 (the list of applied JavaScript migrations) applies on start.
+- Nothing runs until there are migration files. The packages look for them in
+  `/var/lib/slonbase/migrations`, the Docker image in `/data/migrations`, and projects in
+  `<projects.path>/<name>/migrations`.
+- Backups made with 0.2 restore as before; they leave the list of applied migrations alone.
 
 ## [0.2.1] - 2026-10-20
 
@@ -188,7 +206,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ayeshrodz/slonbase/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ayeshrodz/slonbase/releases/tag/v0.1.0

@@ -96,7 +96,7 @@ API, and puts it on **PostgreSQL**:
 </table>
 
 > [!NOTE]
-> **slonbase is young (0.2).** The API is tested against PocketBase 0.40 with its official
+> **slonbase is young (0.3).** The API is tested against PocketBase 0.40 with its official
 > JavaScript SDK, on every commit ([compat/](compat/)). Expect rough edges, and back up your data.
 
 ## Quick start
