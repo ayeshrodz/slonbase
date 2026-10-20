@@ -1,39 +1,67 @@
-# Publishes a release when a version tag (e.g. v0.1.0) is pushed:
-# GitHub release with packages + checksums, and a multi-arch image on ghcr.io.
+# Publishes a release: GitHub release with packages + checksums, a multi-arch image on ghcr.io,
+# and the apt and dnf repositories. It runs
+# - when CI passes on main and Cargo.toml has a version without a tag: it releases that commit
+#   and creates the tag (bumping the version on main is how a release is made);
+# - when a version tag (e.g. v0.1.0) is pushed by hand.
 name: Release
 
 on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   push:
     tags: ["v*"]
 
 permissions:
   contents: read
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   verify:
+    if: github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
+      sha: ${{ steps.version.outputs.sha }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 0
       - id: version
-        name: Check the tag matches Cargo.toml
+        name: Find the version to release
         run: |
-          tag="${GITHUB_REF_NAME#v}"
           cargo_version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
-          if [ "$tag" != "$cargo_version" ]; then
-            echo "::error::tag v$tag does not match Cargo.toml version $cargo_version"
-            exit 1
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            tag="${GITHUB_REF_NAME#v}"
+            if [ "$tag" != "$cargo_version" ]; then
+              echo "::error::tag v$tag does not match Cargo.toml version $cargo_version"
+              exit 1
+            fi
+          elif git ls-remote --exit-code --tags origin "refs/tags/v$cargo_version" > /dev/null; then
+            echo "v$cargo_version is already released; nothing to do"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
-          echo "version=$tag" >> "$GITHUB_OUTPUT"
+          echo "release=true" >> "$GITHUB_OUTPUT"
       - name: Check CHANGELOG.md has the release notes
+        if: steps.version.outputs.release == 'true'
         run: scripts/release-notes.sh "${{ steps.version.outputs.version }}" > /dev/null
 
   package:
     needs: verify
+    if: needs.verify.outputs.release == 'true'
     uses: ./.github/workflows/package.yml
     with:
       version: ${{ needs.verify.outputs.version }}
+      ref: ${{ needs.verify.outputs.sha }}
 
   publish:
     needs: [verify, package]
@@ -43,6 +71,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.verify.outputs.sha }}
       - uses: actions/download-artifact@v8
         with:
           pattern: dist-*
@@ -67,8 +97,11 @@ jobs:
             echo "Verify downloads with \`sha256sum --ignore-missing -c SHA256SUMS\`. See the [installation guide](https://github.com/${{ github.repository }}/blob/v$VERSION/docs/installation.md)."
           } > release-notes.md
 
+      # creates the tag on that commit when it doesn't exist yet
       - uses: softprops/action-gh-release@v3
         with:
+          tag_name: v${{ needs.verify.outputs.version }}
+          target_commitish: ${{ needs.verify.outputs.sha }}
           files: |
             dist/*.deb
             dist/*.rpm

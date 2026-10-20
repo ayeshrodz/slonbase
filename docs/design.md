@@ -760,8 +760,10 @@ the file.
 - **Docker**: `Dockerfile` builds from source (used by Compose). Releases use
   `packaging/Dockerfile.release`, which copies the CI-built binaries into a `scratch` image, so
   multi-arch images need no emulation.
-- **Releases**: a `v*` tag must match the `Cargo.toml` version. It publishes a GitHub release
-  (packages, tarballs, `SHA256SUMS`) and `ghcr.io/ayeshrodz/slonbase`.
+- **Releases**: bumping the `Cargo.toml` version on main makes one. When CI passes on main and
+  that version has no tag, `release.yml` tags the commit and publishes a GitHub release
+  (packages, tarballs, `SHA256SUMS`), `ghcr.io/ayeshrodz/slonbase` and the apt and dnf
+  repositories. Pushing a `v*` tag by hand works too; it must match the `Cargo.toml` version.
 - **Next**: a signed apt repository (`aptly`/`reprepro`, hosted on GitHub Pages or object
   storage) so users get updates with `apt upgrade`. This needs a GPG signing key stored as a
   repository secret.

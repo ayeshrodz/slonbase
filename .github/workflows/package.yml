@@ -8,6 +8,10 @@ on:
         description: Package version (defaults to the Cargo.toml version)
         type: string
         default: ""
+      ref:
+        description: Commit to build (defaults to the triggering one)
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -28,6 +32,8 @@ jobs:
             arch: arm64
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
