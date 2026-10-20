@@ -51,7 +51,11 @@ gpg --batch --yes --local-user "$key" --armor --detach-sign \
 rpm="$out/rpm"
 mkdir -p "$rpm"
 cp "$packages"/*.rpm "$rpm/"
-rpmsign --define "_gpg_name $key" --addsign "$rpm"/*.rpm > /dev/null
+# rpmsign warns that it can't set GPG_TTY when there's no terminal; only show its output on failure
+if ! log=$(rpmsign --define "_gpg_name $key" --addsign "$rpm"/*.rpm 2>&1); then
+    echo "$log" >&2
+    exit 1
+fi
 createrepo_c --quiet "$rpm"
 gpg --batch --yes --local-user "$key" --armor --detach-sign "$rpm/repodata/repomd.xml"
 
