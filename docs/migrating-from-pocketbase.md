@@ -78,7 +78,7 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | Write durability | `synchronous = NORMAL` | `synchronous_commit = on` by default ([details](deployment.md#postgresql)) |
 | Backups | Zip with the SQLite file | Zip in slonbase's own format, plus any PostgreSQL backup tool |
 | Settings encryption | `PB_ENCRYPTION` | Not supported; protect the database instead |
-| Migrations | Go/JS migrations, automigrate | Collection changes through the dashboard or API; export and import collections as JSON |
+| Migrations | Go/JS migrations, automigrate | [JS migrations](migrations.md) and automigrate; Go migrations aren't supported |
 | Rate limits | Per process | Per instance |
 | Dashboard | PocketBase's | slonbase's own, with the same features |
 
