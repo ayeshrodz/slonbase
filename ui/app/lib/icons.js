@@ -112,20 +112,20 @@ export function Logo({ size = 28 }) {
 
 // field type metadata: icon, label, description
 export const FIELD_TYPES = [
-  { type: "text", icon: "text", label: "Text", hint: "Plain text, with length and pattern checks" },
-  { type: "editor", icon: "editor", label: "Rich text", hint: "Long-form HTML content" },
-  { type: "number", icon: "hash", label: "Number", hint: "Integers or decimals with bounds" },
-  { type: "bool", icon: "toggle", label: "Boolean", hint: "A yes / no switch" },
-  { type: "email", icon: "at", label: "Email", hint: "An email address, with domain rules" },
-  { type: "url", icon: "globe", label: "URL", hint: "A web address, with domain rules" },
-  { type: "date", icon: "calendar", label: "Date", hint: "A date and time" },
-  { type: "autodate", icon: "autodate", label: "Autodate", hint: "Set on create and/or update" },
-  { type: "select", icon: "list", label: "Select", hint: "One or more predefined values" },
-  { type: "file", icon: "image", label: "File", hint: "Uploads, with thumbnails for images" },
-  { type: "relation", icon: "relation", label: "Relation", hint: "Links to records of a collection" },
-  { type: "json", icon: "braces", label: "JSON", hint: "Any JSON value" },
-  { type: "geoPoint", icon: "pin", label: "Geo point", hint: "Longitude and latitude, filterable by distance" },
-  { type: "password", icon: "asterisk", label: "Password", hint: "A hashed secret, never returned" },
+  { type: "text", tone: 1, icon: "text", label: "Text", hint: "Plain text, with length and pattern checks" },
+  { type: "editor", tone: 1, icon: "editor", label: "Rich text", hint: "Long-form HTML content" },
+  { type: "number", tone: 3, icon: "hash", label: "Number", hint: "Integers or decimals with bounds" },
+  { type: "bool", tone: 2, icon: "toggle", label: "Boolean", hint: "A yes / no switch" },
+  { type: "email", tone: 8, icon: "at", label: "Email", hint: "An email address, with domain rules" },
+  { type: "url", tone: 8, icon: "globe", label: "URL", hint: "A web address, with domain rules" },
+  { type: "date", tone: 4, icon: "calendar", label: "Date", hint: "A date and time" },
+  { type: "autodate", tone: 4, icon: "autodate", label: "Autodate", hint: "Set on create and/or update" },
+  { type: "select", tone: 6, icon: "list", label: "Select", hint: "One or more predefined values" },
+  { type: "file", tone: 5, icon: "image", label: "File", hint: "Uploads, with thumbnails for images" },
+  { type: "relation", tone: 7, icon: "relation", label: "Relation", hint: "Links to records of a collection" },
+  { type: "json", tone: 2, icon: "braces", label: "JSON", hint: "Any JSON value" },
+  { type: "geoPoint", tone: 3, icon: "pin", label: "Geo point", hint: "Longitude and latitude, filterable by distance" },
+  { type: "password", tone: 5, icon: "asterisk", label: "Password", hint: "A hashed secret, never returned" },
 ];
 
 export function fieldMeta(type) {

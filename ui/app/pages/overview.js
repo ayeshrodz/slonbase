@@ -65,13 +65,13 @@ export function Overview() {
 
     <div class="grid-3 stagger" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:18px">
       ${[
-        { label: "Collections", value: loaded ? user.length : undefined, icon: "data", to: "/data" },
-        { label: "Records", value: Object.keys(counts).length || (loaded && !user.length) ? totalRecords : undefined, icon: "table", to: "/data" },
-        { label: "Requests (24h)", value: stats ? requests : undefined, icon: "chart", to: "/logs" },
+        { label: "Collections", value: loaded ? user.length : undefined, icon: "data", to: "/data", color: "var(--tone-1)" },
+        { label: "Records", value: Object.keys(counts).length || (loaded && !user.length) ? totalRecords : undefined, icon: "table", to: "/data", color: "var(--tone-2)" },
+        { label: "Requests (24h)", value: stats ? requests : undefined, icon: "chart", to: "/logs", color: "var(--tone-8)" },
         { label: "Server errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent("data.status >= 500"), tone: errors ? "danger" : "" },
       ].map(
         (s, i) => html`<a class="card stat" href=${"#" + s.to} style=${{ "--i": i, color: "inherit", textDecoration: "none" }}>
-          <span class="stat-icon" style=${s.tone === "danger" ? "color:var(--danger)" : ""}><${Icon} name=${s.icon} /></span>
+          <span class="stat-icon" style=${{ "--c": s.tone === "danger" ? "var(--danger)" : s.color || "var(--ok)" }}><${Icon} name=${s.icon} /></span>
           <span class="small muted">${s.label}</span>
           <span class="stat-value">${s.value === undefined ? html`<${Skeleton} width="60px" height=${28} />` : html`<${CountUp} value=${s.value} />`}</span>
         </a>`

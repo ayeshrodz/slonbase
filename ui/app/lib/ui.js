@@ -388,9 +388,16 @@ export function confirmDialog({ title, message, confirm = "Confirm", danger = fa
 
 // ------------------------------------------------------------------ collection glyphs
 
+// one of the eight muted tones, picked by a hash of the text, so a name keeps its color
+export function tone(text) {
+  let h = 0;
+  for (const ch of String(text)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return `var(--tone-${(h % 8) + 1})`;
+}
+
 export function CollectionGlyph({ collection, size }) {
   const name = collection.name.replace(/^_/, "");
-  const style = size ? { width: size + "px", height: size + "px" } : null;
+  const style = { "--c": collection.system ? "var(--ink-3)" : tone(name), ...(size ? { width: size + "px", height: size + "px" } : {}) };
   const icon = collection.type === "auth" ? "users" : collection.type === "view" ? "view" : null;
   return html`<span class="coll-glyph" style=${style}>
     ${icon ? html`<${Icon} name=${icon} size=${size ? Math.round(size / 2.1) : 13} />` : name.slice(0, 1)}

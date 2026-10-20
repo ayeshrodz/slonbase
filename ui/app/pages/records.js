@@ -2,7 +2,7 @@
 import { html, useState, useEffect, useRef, navigate, cx, route, useStore } from "../lib/core.js";
 import { api, qs, enc, fileUrl, realtime, getFileToken } from "../lib/api.js";
 import { Icon, fieldMeta } from "../lib/icons.js";
-import { Button, IconButton, Check, Skeleton, Empty, Menu, Switch, toast, confirmDialog, CopyButton, Portal } from "../lib/ui.js";
+import { Button, IconButton, Check, Skeleton, Empty, Menu, Switch, toast, confirmDialog, CopyButton, Portal, tone } from "../lib/ui.js";
 import { formatDate, relativeTime, truncate, stripHtml, isImage, plural, recordLabel } from "../lib/format.js";
 import { RecordEditor } from "./record-editor.js";
 import { app } from "../lib/state.js";
@@ -38,7 +38,7 @@ export function Cell({ field, record, collections, fileToken }) {
       return v ? html`<span class="tip" data-tip=${v}>${formatDate(v)}</span>` : empty;
     case "select": {
       const list = Array.isArray(v) ? v : v ? [v] : [];
-      return list.length ? html`<span class="chips" style="flex-wrap:nowrap">${list.map((x) => html`<span class="chip accent">${x}</span>`)}</span>` : empty;
+      return list.length ? html`<span class="chips" style="flex-wrap:nowrap">${list.map((x) => html`<span class="chip tone" style=${{ "--c": tone(x) }}>${x}</span>`)}</span>` : empty;
     }
     case "file": {
       const list = Array.isArray(v) ? v : v ? [v] : [];

@@ -1,48 +1,57 @@
-/* slonbase dashboard: a quiet, neutral design. Tokens first, then components. */
+/* slonbase dashboard: a quiet design with muted color. Tokens first, then components. */
 
+/* Tokens: cool, slightly blue-tinted neutrals, one muted indigo accent (overridable from the
+   settings), muted status colors, and eight muted tones for glyphs and select values. */
 :root {
-  /* one muted accent (overridable from the settings), used sparingly */
-  --accent: #4a5a72;
-  --accent-strong: color-mix(in srgb, var(--accent), black 18%);
-  --accent-soft: color-mix(in srgb, var(--accent), transparent 92%);
-  --accent-ring: color-mix(in srgb, var(--accent), transparent 72%);
+  --accent: #5062a6;
+  --accent-strong: color-mix(in srgb, var(--accent), black 16%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 90%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 70%);
 
-  --canvas: #f6f6f4;
-  --canvas-2: #efefec;
+  --canvas: #f4f5f8;
+  --canvas-2: #eceef3;
   --surface: #ffffff;
-  --surface-2: #fafaf8;
+  --surface-2: #f8f9fb;
   --raised: #ffffff;
-  --ink: #1b1b1e;
-  --ink-2: #3d3d43;
-  --ink-3: #5e5e66;
-  --muted: #74747c;
-  --faint: #a4a4aa;
-  --line: #e6e6e2;
-  --line-2: #d7d7d2;
-  --hover: rgba(27, 27, 30, 0.04);
-  --press: rgba(27, 27, 30, 0.07);
-  --primary: #1b1b1e;
-  --primary-ink: #fafaf8;
+  --ink: #161a25;
+  --ink-2: #353b4c;
+  --ink-3: #576074;
+  --muted: #6b7387;
+  --faint: #a1a7b6;
+  --line: #e3e6ed;
+  --line-2: #d2d7e1;
+  --hover: rgba(38, 50, 92, 0.045);
+  --press: rgba(38, 50, 92, 0.08);
+  --primary: var(--accent);
+  --primary-ink: #ffffff;
 
-  /* muted status colors: shown as text and dots, rarely as fills */
-  --ok: #4f7a63;
-  --warn: #93723a;
-  --danger: #a34a4c;
-  --info: #4d6583;
-  --ok-soft: color-mix(in srgb, var(--ok), transparent 92%);
-  --warn-soft: color-mix(in srgb, var(--warn), transparent 92%);
-  --danger-soft: color-mix(in srgb, var(--danger), transparent 92%);
-  --info-soft: color-mix(in srgb, var(--info), transparent 93%);
+  --ok: #3e8763;
+  --warn: #ab7826;
+  --danger: #bb4a4f;
+  --info: #4870ad;
+  --ok-soft: color-mix(in srgb, var(--ok), transparent 90%);
+  --warn-soft: color-mix(in srgb, var(--warn), transparent 90%);
+  --danger-soft: color-mix(in srgb, var(--danger), transparent 91%);
+  --info-soft: color-mix(in srgb, var(--info), transparent 91%);
 
-  --shadow-1: 0 1px 2px rgba(20, 20, 24, 0.04);
-  --shadow-2: 0 4px 14px -6px rgba(20, 20, 24, 0.12);
-  --shadow-3: 0 18px 48px -16px rgba(20, 20, 24, 0.22), 0 2px 6px rgba(20, 20, 24, 0.05);
+  --tone-1: #5468a8; /* indigo */
+  --tone-2: #3b8481; /* teal */
+  --tone-3: #5a8750; /* sage */
+  --tone-4: #a57a30; /* amber */
+  --tone-5: #b0644b; /* clay */
+  --tone-6: #a5537a; /* rose */
+  --tone-7: #7a5ea8; /* violet */
+  --tone-8: #4b7ca3; /* steel */
+
+  --shadow-1: 0 1px 2px rgba(22, 30, 60, 0.05);
+  --shadow-2: 0 6px 16px -8px rgba(22, 30, 60, 0.16);
+  --shadow-3: 0 20px 50px -18px rgba(22, 30, 60, 0.28), 0 2px 6px rgba(22, 30, 60, 0.06);
 
   --r-xs: 4px;
   --r-sm: 6px;
   --r-md: 8px;
-  --r-lg: 10px;
-  --r-xl: 12px;
+  --r-lg: 12px;
+  --r-xl: 14px;
   --r-pill: 999px;
 
   --font: "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -60,36 +69,45 @@
 }
 
 :root[data-theme="dark"] {
-  --accent: #8796ad;
-  --accent-strong: color-mix(in srgb, var(--accent), white 16%);
-  --accent-soft: color-mix(in srgb, var(--accent), transparent 90%);
-  --accent-ring: color-mix(in srgb, var(--accent), transparent 66%);
+  --accent: #8e9ddb;
+  --accent-strong: color-mix(in srgb, var(--accent), white 14%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 88%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 64%);
 
-  --canvas: #111113;
-  --canvas-2: #18181b;
-  --surface: #161618;
-  --surface-2: #1a1a1d;
-  --raised: #1c1c1f;
-  --ink: #ececee;
-  --ink-2: #c9c9ce;
-  --ink-3: #a0a0a8;
-  --muted: #8b8b93;
-  --faint: #5d5d65;
-  --line: #262629;
-  --line-2: #323236;
-  --hover: rgba(236, 236, 238, 0.045);
-  --press: rgba(236, 236, 238, 0.08);
-  --primary: #ececee;
-  --primary-ink: #141416;
+  --canvas: #0e1117;
+  --canvas-2: #141821;
+  --surface: #151a23;
+  --surface-2: #191f29;
+  --raised: #1c222d;
+  --ink: #e7eaf1;
+  --ink-2: #c4c9d5;
+  --ink-3: #9ba2b2;
+  --muted: #858c9d;
+  --faint: #596172;
+  --line: #232937;
+  --line-2: #2f3646;
+  --hover: rgba(160, 175, 230, 0.055);
+  --press: rgba(160, 175, 230, 0.09);
+  --primary: color-mix(in srgb, var(--accent), #0e1117 48%);
+  --primary-ink: #ffffff;
 
-  --ok: #7fa48f;
-  --warn: #c2a06a;
-  --danger: #c97b7c;
-  --info: #8ea2bd;
+  --ok: #6db892;
+  --warn: #d3a65c;
+  --danger: #df8185;
+  --info: #84a5da;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-2: 0 6px 18px -8px rgba(0, 0, 0, 0.5);
-  --shadow-3: 0 22px 56px -18px rgba(0, 0, 0, 0.7), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --tone-1: #929fdf;
+  --tone-2: #6db9b5;
+  --tone-3: #8dbb80;
+  --tone-4: #d3a962;
+  --tone-5: #da9479;
+  --tone-6: #d78aaa;
+  --tone-7: #ac95db;
+  --tone-8: #82add0;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-2: 0 8px 20px -10px rgba(0, 0, 0, 0.6);
+  --shadow-3: 0 24px 60px -20px rgba(0, 0, 0, 0.75), 0 2px 6px rgba(0, 0, 0, 0.35);
   color-scheme: dark;
 }
 
@@ -387,6 +405,7 @@ p {
 
 .btn {
   --btn-bg: var(--surface);
+  box-shadow: var(--shadow-1);
   --btn-fg: var(--ink);
   --btn-line: var(--line-2);
   display: inline-flex;
@@ -425,14 +444,17 @@ p {
 .btn.primary {
   --btn-bg: var(--primary);
   --btn-fg: var(--primary-ink);
-  --btn-line: var(--primary);
+  --btn-line: color-mix(in srgb, var(--primary), black 12%);
+  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0));
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary), transparent 70%), inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 .btn.primary:hover {
-  background: color-mix(in srgb, var(--primary), var(--canvas) 14%);
+  background-color: color-mix(in srgb, var(--primary), black 8%);
 }
 .btn.ghost {
   --btn-bg: transparent;
   --btn-line: transparent;
+  box-shadow: none;
   color: var(--ink-2);
 }
 .btn.ghost:hover {
@@ -449,6 +471,7 @@ p {
 .btn.danger-ghost {
   --btn-bg: transparent;
   --btn-line: transparent;
+  box-shadow: none;
   color: var(--danger);
 }
 .btn.danger-ghost:hover {
@@ -744,28 +767,37 @@ select.input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.chip.accent,
+.chip.ok,
+.chip.warn,
+.chip.danger,
+.chip.info,
+.chip.tone {
+  border-color: color-mix(in srgb, var(--c), transparent 74%);
+  background: color-mix(in srgb, var(--c), transparent 90%);
+  color: var(--c);
+}
 .chip.accent {
-  border-color: color-mix(in srgb, var(--accent), transparent 55%);
-  color: var(--accent);
+  --c: var(--accent);
 }
 .chip.ok {
-  border-color: color-mix(in srgb, var(--ok), transparent 55%);
-  color: var(--ok);
+  --c: var(--ok);
 }
 .chip.warn {
-  border-color: color-mix(in srgb, var(--warn), transparent 55%);
-  color: var(--warn);
+  --c: var(--warn);
 }
 .chip.danger {
-  border-color: color-mix(in srgb, var(--danger), transparent 55%);
-  color: var(--danger);
+  --c: var(--danger);
 }
 .chip.info {
-  border-color: color-mix(in srgb, var(--info), transparent 55%);
-  color: var(--info);
+  --c: var(--info);
+}
+.chip.tone {
+  --c: var(--tone-1);
 }
 .chip.outline {
   color: var(--ink-3);
+  background: var(--surface-2);
 }
 .chip button {
   border: 0;
@@ -789,7 +821,7 @@ select.input {
   color: var(--ink);
 }
 .chip.selectable.accent {
-  background: var(--accent-soft);
+  background: color-mix(in srgb, var(--accent), transparent 86%);
 }
 
 .kbd {
@@ -816,15 +848,19 @@ select.input {
 }
 .dot.ok {
   background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
 }
 .dot.warn {
   background: var(--warn);
+  box-shadow: 0 0 0 3px var(--warn-soft);
 }
 .dot.danger {
   background: var(--danger);
+  box-shadow: 0 0 0 3px var(--danger-soft);
 }
 .dot.live {
   background: var(--ok);
+  box-shadow: 0 0 0 3px var(--ok-soft);
   animation: breathe 2.4s ease-in-out infinite;
 }
 
@@ -834,6 +870,7 @@ select.input {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
 }
 .card.pad {
   padding: 18px;
@@ -942,8 +979,8 @@ select.input {
   align-items: center;
   gap: 22px;
   padding: 0 20px;
-  background: color-mix(in srgb, var(--canvas), transparent 8%);
-  backdrop-filter: saturate(1.2) blur(10px);
+  background: color-mix(in srgb, var(--surface), transparent 12%);
+  backdrop-filter: saturate(1.4) blur(12px);
   -webkit-backdrop-filter: saturate(1.2) blur(10px);
   border-bottom: 1px solid var(--line);
 }
@@ -990,13 +1027,17 @@ select.input {
 .nav a.on {
   color: var(--ink);
 }
+.nav a.on .icon {
+  color: var(--accent);
+}
 .nav .nav-thumb {
   position: absolute;
   z-index: 0;
   top: auto;
   bottom: -1px;
-  height: 1.5px;
-  background: var(--ink);
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
   transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
 }
 
@@ -1030,14 +1071,14 @@ select.input {
   place-items: center;
   font-weight: 600;
   font-size: 12px;
-  color: var(--ink-2);
-  background: var(--canvas-2);
-  border: 1px solid var(--line-2);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent), transparent 72%);
   cursor: pointer;
   transition: border-color var(--t-fast);
 }
 .avatar:hover {
-  border-color: var(--ink-3);
+  border-color: var(--accent);
 }
 
 .page {
@@ -1152,7 +1193,17 @@ select.input {
   background: var(--surface);
   color: var(--ink);
   font-weight: 540;
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-1);
+}
+.coll-item.on::before {
+  content: "";
+  position: absolute;
+  left: -10px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
 }
 .coll-glyph {
   width: 22px;
@@ -1161,16 +1212,13 @@ select.input {
   display: grid;
   place-items: center;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--ink-3);
-  background: var(--canvas-2);
-  border: 1px solid var(--line);
+  font-weight: 650;
+  --c: var(--ink-3);
+  color: var(--c);
+  background: color-mix(in srgb, var(--c), transparent 88%);
+  border: 1px solid color-mix(in srgb, var(--c), transparent 78%);
   flex: none;
   text-transform: uppercase;
-}
-.coll-item.on .coll-glyph {
-  color: var(--ink);
-  border-color: var(--line-2);
 }
 
 .workspace-main {
@@ -1232,11 +1280,15 @@ select.input {
 .tabs .on {
   color: var(--ink);
 }
+.tabs .on > .icon {
+  color: var(--accent);
+}
 .tabs .tab-ink {
   position: absolute;
   bottom: -1px;
-  height: 1.5px;
-  background: var(--ink);
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--accent);
   transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
 }
 .tabs .badge {
@@ -1453,9 +1505,9 @@ table.grid .col-actions {
   color: var(--ink);
 }
 .pager .pages button.on {
-  color: var(--ink);
-  box-shadow: inset 0 0 0 1px var(--line-2);
-  background: var(--surface);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 70%);
+  background: var(--accent-soft);
 }
 
 /* ------------------------------------------------------------------ overlays */
@@ -1656,7 +1708,7 @@ table.grid .col-actions {
 .palette-item.on {
   background: var(--hover);
   color: var(--ink);
-  box-shadow: inset 2px 0 0 var(--ink);
+  box-shadow: inset 2px 0 0 var(--accent);
 }
 .palette-item .hint {
   margin-left: auto;
@@ -1793,6 +1845,7 @@ table.grid .col-actions {
 }
 .stat:hover {
   border-color: var(--line-2);
+  box-shadow: var(--shadow-2);
 }
 .stat .stat-value {
   font-size: 26px;
@@ -1802,9 +1855,16 @@ table.grid .col-actions {
 }
 .stat .stat-icon {
   position: absolute;
-  right: 16px;
-  top: 16px;
-  color: var(--faint);
+  right: 14px;
+  top: 14px;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  --c: var(--accent);
+  color: var(--c);
+  background: color-mix(in srgb, var(--c), transparent 89%);
 }
 
 .bars {
@@ -1817,9 +1877,9 @@ table.grid .col-actions {
 .bars .bar {
   flex: 1;
   min-width: 3px;
-  border-radius: 2px 2px 0 0;
-  background: var(--ink-3);
-  opacity: 0.5;
+  border-radius: 3px 3px 1px 1px;
+  background: linear-gradient(to top, color-mix(in srgb, var(--accent), transparent 45%), color-mix(in srgb, var(--accent), transparent 8%));
+  opacity: 0.9;
   transform-origin: bottom;
   animation: grow-up 0.5s var(--ease-out) backwards;
   animation-delay: calc(var(--i, 0) * 8ms);
@@ -1828,7 +1888,7 @@ table.grid .col-actions {
 }
 .bars .bar:hover {
   opacity: 1;
-  background: var(--accent);
+  background: var(--accent-strong);
 }
 .bars .bar.zero {
   background: var(--line-2);
@@ -1894,9 +1954,10 @@ table.grid .col-actions {
   border-radius: var(--r-sm);
   display: grid;
   place-items: center;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  color: var(--ink-3);
+  --c: var(--accent);
+  background: color-mix(in srgb, var(--c), transparent 90%);
+  border: 1px solid color-mix(in srgb, var(--c), transparent 80%);
+  color: var(--c);
   flex: none;
 }
 .field-name-input {
@@ -1999,21 +2060,23 @@ table.grid .col-actions {
   min-width: 52px;
   text-align: center;
   letter-spacing: 0.03em;
-  border: 1px solid var(--line-2);
-  color: var(--ink-3);
+  --c: var(--ink-3);
+  border: 1px solid color-mix(in srgb, var(--c), transparent 74%);
+  background: color-mix(in srgb, var(--c), transparent 90%);
+  color: var(--c);
 }
 .method.GET {
-  color: var(--info);
+  --c: var(--info);
 }
 .method.POST {
-  color: var(--ok);
+  --c: var(--ok);
 }
 .method.PATCH,
 .method.PUT {
-  color: var(--warn);
+  --c: var(--warn);
 }
 .method.DELETE {
-  color: var(--danger);
+  --c: var(--danger);
 }
 
 pre.code {
@@ -2169,7 +2232,10 @@ pre.code {
   background: var(--surface);
   color: var(--ink);
   font-weight: 540;
-  box-shadow: 0 0 0 1px var(--line);
+  box-shadow: 0 0 0 1px var(--line), var(--shadow-1);
+}
+.settings-nav a.on .icon {
+  color: var(--accent);
 }
 @media (max-width: 860px) {
   .settings-layout {
@@ -2215,7 +2281,7 @@ pre.code {
   transition: box-shadow var(--t-fast);
 }
 .swatch.on {
-  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink);
+  box-shadow: 0 0 0 2px var(--surface), 0 0 0 3.5px var(--ink-2);
 }
 
 .map-preview {

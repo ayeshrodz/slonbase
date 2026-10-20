@@ -4,7 +4,7 @@ import { html, useState, useEffect } from "../lib/core.js";
 import { app } from "../lib/state.js";
 import { api, enc, dashboardUrl } from "../lib/api.js";
 import { Icon } from "../lib/icons.js";
-import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Empty, Callout, CopyButton, Skeleton, Menu, toast } from "../lib/ui.js";
+import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Empty, Callout, CopyButton, Skeleton, Menu, toast, tone } from "../lib/ui.js";
 import { formatDate, relativeTime } from "../lib/format.js";
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/;
@@ -108,7 +108,7 @@ function ProjectCard({ project, index, onDelete, onHosts }) {
   const url = location.origin + project.path.replace(/\/$/, "");
   return html`<div class="card pad project-card" style=${{ "--i": index }}>
     <div class="row">
-      <span class="coll-glyph project-glyph">${project.name.slice(0, 1)}</span>
+      <span class="coll-glyph project-glyph" style=${{ "--c": tone(project.name) }}>${project.name.slice(0, 1)}</span>
       <div class="grow" style="min-width:0">
         <a class="project-name" href=${dashboardUrl(project.name)}>${project.name}</a>
         <div class="small muted mono truncate">${project.path}</div>

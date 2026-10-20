@@ -153,7 +153,7 @@ function FieldCard({ field, index, open, onToggle, onChange, onRemove, onRestore
   >
     <div class="field-card-head">
       <span class="drag-handle" onMouseDown=${() => drag.grab(index)} onMouseUp=${() => drag.grab(null)} title="Drag to reorder"><${Icon} name="grip" size=${16} /></span>
-      <span class="field-type-badge tip" data-tip=${meta.label}><${Icon} name=${meta.icon} size=${16} /></span>
+      <span class="field-type-badge tip" data-tip=${meta.label} style=${{ "--c": `var(--tone-${meta.tone || 1})` }}><${Icon} name=${meta.icon} size=${16} /></span>
       <input
         class="field-name-input"
         value=${field.name}
@@ -203,7 +203,7 @@ function TypePicker({ onPick, onClose, auth }) {
               onPick(t.type);
               close();
             }}>
-              <span class="field-type-badge"><${Icon} name=${t.icon} size=${16} /></span>
+              <span class="field-type-badge" style=${{ "--c": `var(--tone-${t.tone})` }}><${Icon} name=${t.icon} size=${16} /></span>
               <span><b>${t.label}</b><div class="small muted">${t.hint}</div></span>
             </button>`
           )}

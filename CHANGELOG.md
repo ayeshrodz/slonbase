@@ -13,6 +13,12 @@ changes, and they'll be listed here.
   release, so `apt upgrade` and `dnf upgrade` install new versions. They include 0.1.0 and
   0.2.0. See [installation](docs/installation.md#debian-ubuntu-fedora-rhel-packages).
 
+### Changed
+
+- The dashboard has a new palette: cool neutrals, a muted indigo accent for buttons, tabs and
+  charts, and muted colors for collections, field types, select values and status. Light and
+  dark themes both. A custom dashboard accent from the settings still applies.
+
 ## [0.2.0] - 2026-10-19
 
 **Projects:** one slonbase installation can now host several isolated projects. Each project is
