@@ -23,7 +23,7 @@ use std::sync::Arc;
 use axum::response::Response;
 use serde_json::{Map, Value};
 
-use crate::auth::RequestAuth;
+use crate::auth::{AuthRecord, RequestAuth};
 use crate::collections::model::Collection;
 use crate::core::Core;
 use crate::error::ApiError;
@@ -153,6 +153,44 @@ pub struct RecordsListEvent {
     pub response: Option<Response>,
 }
 
+/// An auth request (signing in, refreshing a token, verification, password resets, email
+/// changes and OTPs), before it's handled. `next` runs the action, which sets `response`;
+/// a handler that doesn't call it answers with its own `response` (or an empty 200).
+///
+/// `data` holds what the hook has besides the record, by PocketBase's names, and changes
+/// to it are used by the action:
+///
+/// | Hook | `data` |
+/// |---|---|
+/// | `on_record_auth_request` (every sign-in and refresh) | `token`, `meta`, `authMethod` |
+/// | `on_record_auth_with_password_request` | `identity`, `identityField`, `password` |
+/// | `on_record_auth_with_oauth2_request` | `providerName`, `oauth2User`, `createData`, `isNewRecord` |
+/// | `on_record_request_otp_request` | `password` (the one-time password to send) |
+/// | `on_record_auth_with_otp_request` | `otp` (`id`, `collectionRef`, `recordRef`, `sentTo`) |
+/// | `on_record_request_email_change_request`, `on_record_confirm_email_change_request` | `newEmail` |
+pub struct AuthRequestEvent {
+    pub core: Arc<Core>,
+    pub collection: Arc<Collection>,
+    /// The auth record, with its secrets. `None` when no record matched the identity or
+    /// email (password sign-ins and OTP requests); a handler can set it, to find records
+    /// its own way.
+    pub record: Option<AuthRecord>,
+    pub data: Map<String, Value>,
+    pub auth: RequestAuth,
+    pub request: Arc<RequestInfo>,
+    pub response: Option<Response>,
+}
+
+impl AuthRequestEvent {
+    /// A string of `data` (empty when missing).
+    pub fn str(&self, key: &str) -> &str {
+        self.data
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    }
+}
+
 /// Any request (the API, the dashboard and custom routes), before it's routed: global
 /// middleware. `next` hands the request to the router and sets the response; a handler
 /// that doesn't call it answers with its own response (or an empty 200).
@@ -215,6 +253,20 @@ pub struct Hooks {
     pub on_record_delete_request: Hook<RecordRequestEvent>,
     pub on_record_view_request: Hook<RecordRequestEvent>,
     pub on_records_list_request: Hook<RecordsListEvent>,
+    /// Every sign-in (password, OTP, OAuth2), token refresh and impersonation, before the
+    /// token and record are sent back (and before the MFA check).
+    pub on_record_auth_request: Hook<AuthRequestEvent>,
+    pub on_record_auth_with_password_request: Hook<AuthRequestEvent>,
+    pub on_record_auth_with_oauth2_request: Hook<AuthRequestEvent>,
+    pub on_record_auth_refresh_request: Hook<AuthRequestEvent>,
+    pub on_record_request_otp_request: Hook<AuthRequestEvent>,
+    pub on_record_auth_with_otp_request: Hook<AuthRequestEvent>,
+    pub on_record_request_verification_request: Hook<AuthRequestEvent>,
+    pub on_record_confirm_verification_request: Hook<AuthRequestEvent>,
+    pub on_record_request_password_reset_request: Hook<AuthRequestEvent>,
+    pub on_record_confirm_password_reset_request: Hook<AuthRequestEvent>,
+    pub on_record_request_email_change_request: Hook<AuthRequestEvent>,
+    pub on_record_confirm_email_change_request: Hook<AuthRequestEvent>,
     /// Model hooks: every create, update and delete (the API, batches and the record
     /// service), before it's written, inside its transaction. Changes to `record` are
     /// written; an error aborts the write.

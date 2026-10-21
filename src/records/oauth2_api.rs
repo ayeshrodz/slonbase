@@ -20,8 +20,9 @@ use serde_json::{Map, Value, json};
 use super::api;
 use super::auth_api::{
     METHOD_OAUTH2, auth_collection, auth_rule_allows, body_str, db_error, find_by_email,
-    finish_auth, mfa_id, new_token_key, pool_error,
+    new_token_key, pool_error, with_response,
 };
+use super::auth_hooks::{self, Ctx};
 use super::files::{RecordBody, Upload};
 use super::store;
 use super::values::{self, Values};
@@ -50,10 +51,7 @@ fn str_of<'a>(values: &'a Values, key: &str) -> &'a str {
 pub async fn auth_with_oauth2(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    auth: RequestAuth,
-    origin: crate::ip::Client,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -125,7 +123,7 @@ pub async fn auth_with_oauth2(
     // the linked record, else the signed-in one, else the one with the same email
     let client = core.pool.get().await.map_err(pool_error)?;
     let mut found = None;
-    let mut linked = false;
+    let mut linked_to = None;
     if let Some(row) = client
         .query_opt(
             &format!(
@@ -141,10 +139,13 @@ pub async fn auth_with_oauth2(
         found = store::find_by_id(&client, &c, &record_id)
             .await
             .map_err(db_error)?;
-        linked = found.is_some();
+        if found.is_some() {
+            linked_to = Some(record_id);
+        }
     }
     drop(client);
-    let signed_in = auth
+    let signed_in = ctx
+        .auth
         .any_record()
         .cloned()
         .filter(|r| r.collection.id == c.id);
@@ -159,75 +160,115 @@ pub async fn auth_with_oauth2(
     }
 
     let is_new = found.is_none();
-    let values = match found {
-        Some(values) => {
-            let is_signed_in = signed_in
-                .as_ref()
-                .is_some_and(|r| r.id() == str_of(&values, "id"));
-            update_existing(&core, &c, values, &user, is_signed_in).await?
-        }
-        None => create(&app, &core, &c, create_data, &user).await?,
-    };
-    let record_id = str_of(&values, "id").to_string();
-
-    if !linked {
-        let client = core.pool.get().await.map_err(pool_error)?;
-        client
-            .execute(
-                &format!(
-                    r#"INSERT INTO {EXTERNAL_AUTHS_TABLE}
-                           (id, "collectionRef", "recordRef", provider, "providerId", created, updated)
-                       VALUES ($1, $2, $3, $4, $5, now(), now()) ON CONFLICT DO NOTHING"#
-                ),
-                &[
-                    &ids::random_id(ids::DEFAULT_ID_LENGTH),
-                    &c.id,
-                    &record_id,
-                    &provider.name,
-                    &user.id,
-                ],
-            )
-            .await
-            .map_err(db_error)?;
-        let owner: Option<String> = client
-            .query_opt(
-                &format!(
-                    r#"SELECT "recordRef" FROM {EXTERNAL_AUTHS_TABLE}
-                       WHERE "collectionRef" = $1 AND provider = $2 AND "providerId" = $3"#
-                ),
-                &[&c.id, &provider.name, &user.id],
-            )
-            .await
-            .map_err(db_error)?
-            .map(|row| row.get(0));
-        if owner.as_deref() != Some(record_id.as_str()) {
-            return Err(ApiError::bad_request(format!(
-                "The record is already linked to another {} account.",
-                provider.display_name
-            )));
-        }
-    }
-
-    let record = AuthRecord {
-        collection: c,
-        values,
-        refreshable: true,
-    };
-    if !auth_rule_allows(&core, &record, &method).await? {
-        return Err(ApiError::forbidden(
-            "The request doesn't satisfy the collection requirements to authenticate.",
-        ));
-    }
-    finish_auth(
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(
         &core,
-        &record,
-        METHOD_OAUTH2,
-        &method,
-        &origin,
-        mfa_id(&body, &query),
-        Some(user.meta(is_new)),
+        &c,
+        found.map(|values| AuthRecord {
+            collection: c.clone(),
+            values,
+            refreshable: true,
+        }),
+        auth_hooks::data([
+            ("providerName", Value::String(provider.name.clone())),
+            ("oauth2User", user.to_json()),
+            ("createData", Value::Object(create_data)),
+            ("isNewRecord", Value::Bool(is_new)),
+        ]),
+    );
+    auth_hooks::run(
+        |h| &h.on_record_auth_with_oauth2_request,
+        e,
+        move |e| async move {
+            let user = AuthUser::from_json(&e.data["oauth2User"]);
+            let create_data = match &e.data["createData"] {
+                Value::Object(data) => data.clone(),
+                _ => Map::new(),
+            };
+            let (core, c) = (e.core.clone(), e.collection.clone());
+            let values = match e.record.clone() {
+                Some(record) => {
+                    let is_signed_in = signed_in.as_ref().is_some_and(|r| r.id() == record.id());
+                    update_existing(&core, &c, record.values, &user, is_signed_in).await?
+                }
+                None => create(&app, &core, &c, create_data, &user).await?,
+            };
+            let record_id = str_of(&values, "id").to_string();
+            if linked_to.as_deref() != Some(record_id.as_str()) {
+                link(&core, &c, &provider, &user, &record_id).await?;
+            }
+
+            let record = AuthRecord {
+                collection: c,
+                values,
+                refreshable: true,
+            };
+            if !auth_rule_allows(&core, &record, &ctx.method).await? {
+                return Err(ApiError::forbidden(
+                    "The request doesn't satisfy the collection requirements to authenticate.",
+                ));
+            }
+            let is_new = e.data["isNewRecord"].as_bool().unwrap_or(false);
+            let token = record.issue_auth_token(&core, None, true);
+            let response = auth_hooks::respond(
+                &core,
+                record,
+                token,
+                METHOD_OAUTH2,
+                Some(user.meta(is_new)),
+                ctx,
+            )
+            .await?;
+            Ok(with_response(e, response))
+        },
     )
     .await
+}
+
+/// Links the provider's account to the record; fails when it's linked to another one.
+async fn link(
+    core: &Core,
+    c: &Collection,
+    provider: &Provider,
+    user: &AuthUser,
+    record_id: &str,
+) -> Result<(), ApiError> {
+    let client = core.pool.get().await.map_err(pool_error)?;
+    client
+        .execute(
+            &format!(
+                r#"INSERT INTO {EXTERNAL_AUTHS_TABLE}
+                       (id, "collectionRef", "recordRef", provider, "providerId", created, updated)
+                   VALUES ($1, $2, $3, $4, $5, now(), now()) ON CONFLICT DO NOTHING"#
+            ),
+            &[
+                &ids::random_id(ids::DEFAULT_ID_LENGTH),
+                &c.id,
+                &record_id,
+                &provider.name,
+                &user.id,
+            ],
+        )
+        .await
+        .map_err(db_error)?;
+    let owner: Option<String> = client
+        .query_opt(
+            &format!(
+                r#"SELECT "recordRef" FROM {EXTERNAL_AUTHS_TABLE}
+                   WHERE "collectionRef" = $1 AND provider = $2 AND "providerId" = $3"#
+            ),
+            &[&c.id, &provider.name, &user.id],
+        )
+        .await
+        .map_err(db_error)?
+        .map(|row| row.get(0));
+    if owner.as_deref() != Some(record_id) {
+        return Err(ApiError::bad_request(format!(
+            "The record is already linked to another {} account.",
+            provider.display_name
+        )));
+    }
+    Ok(())
 }
 
 /// Updates an existing record signing in with a provider. An unverified record with the

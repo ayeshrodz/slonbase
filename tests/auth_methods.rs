@@ -31,8 +31,12 @@ struct Env {
 
 impl Env {
     async fn new() -> Option<Self> {
+        Self::new_with(slonbase::Extensions::default()).await
+    }
+
+    async fn new_with(ext: slonbase::Extensions) -> Option<Self> {
         let tdb = TestDb::create().await?;
-        let (app, admin, dir) = ready_app(&tdb).await;
+        let (app, admin, dir) = ready_app_with(&tdb, ext).await;
         let mailer = Arc::new(MemoryMailer::default());
         app.core().unwrap().set_mailer(mailer.clone());
         Some(Self {
@@ -993,4 +997,126 @@ async fn oauth2_redirect_reaches_the_realtime_client() {
 
     drop(stream);
     env.finish().await;
+}
+
+/// Auth request hooks from Rust: the OAuth2 hook changes the provider's user and the
+/// create data, and the confirm hooks run around their changes.
+#[tokio::test]
+async fn rust_auth_request_hooks() {
+    let confirmed = Arc::new(Mutex::new(Vec::<String>::new()));
+    let mut ext = slonbase::Extensions::default();
+    ext.hooks
+        .on_record_auth_with_oauth2_request
+        .add(&["users"], |mut e, next| async move {
+            assert_eq!(e.str("providerName"), "oidc");
+            e.data["oauth2User"]["name"] = json!("Renamed By Hook");
+            e.data["createData"]["role"] = json!("from-hook");
+            next.run(e).await
+        });
+    for (hook, name) in [
+        (
+            &mut ext.hooks.on_record_confirm_verification_request,
+            "verification",
+        ),
+        (
+            &mut ext.hooks.on_record_confirm_password_reset_request,
+            "password reset",
+        ),
+    ] {
+        let confirmed = confirmed.clone();
+        hook.add(&[], move |e, next| {
+            let confirmed = confirmed.clone();
+            async move {
+                let email = e.record.as_ref().unwrap().email().to_string();
+                let e = next.run(e).await?;
+                confirmed.lock().unwrap().push(format!("{name}: {email}"));
+                Ok(e)
+            }
+        });
+    }
+    let Some(env) = Env::new_with(ext).await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    users_collection(
+        &env,
+        json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "oidc", "clientId": "client-1", "clientSecret": "s3cret",
+                "authURL": format!("{url}/authorize"),
+                "tokenURL": format!("{url}/token"),
+                "userInfoURL": format!("{url}/userinfo"),
+            }],
+            "mappedFields": { "name": "name" },
+        } }),
+    )
+    .await;
+
+    provider.set_user(
+        "cy",
+        json!({ "sub": "p-cy", "email": "cy@example.com", "email_verified": true, "name": "Cy" }),
+    );
+    let (status, res) = oauth2(&env, None, "cy", json!({})).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["record"]["name"], "Renamed By Hook", "{res}");
+    assert_eq!(res["record"]["role"], "from-hook", "{res}");
+    assert_eq!(res["meta"]["name"], "Renamed By Hook", "{res}");
+    assert_eq!(res["meta"]["isNew"], true, "{res}");
+
+    env.signup("dee@example.com", "password-123").await;
+    let skip = env.mail_count();
+    env.ok(
+        None,
+        "POST",
+        "/api/collections/users/request-verification",
+        Some(json!({ "email": "dee@example.com" })),
+    )
+    .await;
+    let mail = env.mail_after(skip, "dee@example.com").await;
+    let token = link_token(&mail.html);
+    env.ok(
+        None,
+        "POST",
+        "/api/collections/users/confirm-verification",
+        Some(json!({ "token": token })),
+    )
+    .await;
+    let skip = env.mail_count();
+    env.ok(
+        None,
+        "POST",
+        "/api/collections/users/request-password-reset",
+        Some(json!({ "email": "dee@example.com" })),
+    )
+    .await;
+    let mail = env.mail_after(skip, "dee@example.com").await;
+    let token = link_token(&mail.html);
+    env.ok(
+        None,
+        "POST",
+        "/api/collections/users/confirm-password-reset",
+        Some(json!({ "token": token, "password": "password-456", "passwordConfirm": "password-456" })),
+    )
+    .await;
+    let (status, _) = env
+        .login(json!({ "identity": "dee@example.com", "password": "password-456" }))
+        .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        *confirmed.lock().unwrap(),
+        [
+            "verification: dee@example.com",
+            "password reset: dee@example.com"
+        ]
+    );
+    env.finish().await;
+}
+
+/// The token at the end of an email's confirm link.
+fn link_token(html: &str) -> String {
+    let start = html.find("/confirm-").expect("a confirm link");
+    let link = &html[start..];
+    let link = &link[..link.find('"').unwrap()];
+    link.rsplit('/').next().unwrap().to_string()
 }

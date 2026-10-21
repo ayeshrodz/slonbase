@@ -9,16 +9,17 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::{Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 
+use super::auth_hooks::{self, Ctx};
 use super::store::{self, ALIAS, record_json, visible_fields};
 use super::values::{self, Values};
 use crate::app::App;
-use crate::auth::{AuthRecord, RequestAuth, TokenType, verify_record_token};
+use crate::auth::{AuthRecord, TokenType, verify_record_token};
 use crate::collections::model::{
     Collection, EmailTemplate, FIELD_EMAIL, FIELD_PASSWORD, FIELD_TOKEN_KEY, FIELD_VERIFIED,
 };
@@ -29,6 +30,7 @@ use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
+use crate::hooks::AuthRequestEvent;
 use crate::ip::Client;
 use crate::mail;
 use crate::validation::Errors;
@@ -92,18 +94,6 @@ pub(super) fn self_json(c: &Collection, values: &Values) -> Value {
     record_json(c, out)
 }
 
-fn auth_response(
-    core: &Core,
-    record: &AuthRecord,
-    refreshable: bool,
-    duration: Option<i64>,
-) -> Json<Value> {
-    Json(json!({
-        "token": record.issue_auth_token(core, duration, refreshable),
-        "record": self_json(&record.collection, &record.values),
-    }))
-}
-
 /// Whether the collection's `authRule` lets this record sign in.
 pub(super) async fn auth_rule_allows(
     core: &Core,
@@ -164,87 +154,65 @@ pub(super) const METHOD_PASSWORD: &str = "password";
 pub(super) const METHOD_OTP: &str = "otp";
 pub(super) const METHOD_OAUTH2: &str = "oauth2";
 
-/// The `mfaId` of a sign-in request, from the body or the query string.
-pub(super) fn mfa_id<'a>(
-    body: &'a Map<String, Value>,
-    query: &'a HashMap<String, String>,
-) -> &'a str {
-    match body_str(body, "mfaId") {
-        "" => query.get("mfaId").map(String::as_str).unwrap_or_default(),
-        id => id,
-    }
-}
-
-/// Completes a sign-in made with `method`. When the collection requires MFA for the
-/// record, the first sign-in answers `401 {"mfaId"}` and the sign-in with another method
-/// that sends that `mfaId` gets the token.
-pub(super) async fn finish_auth(
+/// The MFA step of a sign-in made with `method`: when the collection requires MFA for the
+/// record, the first sign-in answers `401 {"mfaId"}` (returned here), and the sign-in with
+/// another method that sends that `mfaId` passes (`None`).
+pub(super) async fn check_mfa(
     core: &Core,
     record: &AuthRecord,
     method: &str,
     http_method: &Method,
-    client: &Client,
     mfa_id: &str,
-    meta: Option<Value>,
-) -> Result<Response, ApiError> {
+) -> Result<Option<Response>, ApiError> {
     let c = &record.collection;
     let mfa = &c.auth_options().expect("auth collection").mfa;
-    if mfa.enabled && record_matches(core, record, Some(&mfa.rule), http_method).await? {
-        let client = core.pool.get().await.map_err(pool_error)?;
-        if mfa_id.is_empty() {
-            let id = crate::ids::random_id(crate::ids::DEFAULT_ID_LENGTH);
-            client
-                .execute(
-                    "INSERT INTO _slonbase.mfas (id, collection_id, record_id, method) VALUES ($1, $2, $3, $4)",
-                    &[&id, &c.id, &record.id(), &method],
-                )
-                .await
-                .map_err(db_error)?;
-            return Ok((StatusCode::UNAUTHORIZED, Json(json!({ "mfaId": id }))).into_response());
-        }
-
-        let row = client
-            .query_opt(
-                "SELECT collection_id, record_id, method FROM _slonbase.mfas
-                 WHERE id = $1 AND created > now() - $2::bigint * interval '1 second'",
-                &[&mfa_id, &mfa.duration],
+    if !mfa.enabled || !record_matches(core, record, Some(&mfa.rule), http_method).await? {
+        return Ok(None);
+    }
+    let client = core.pool.get().await.map_err(pool_error)?;
+    if mfa_id.is_empty() {
+        let id = crate::ids::random_id(crate::ids::DEFAULT_ID_LENGTH);
+        client
+            .execute(
+                "INSERT INTO _slonbase.mfas (id, collection_id, record_id, method) VALUES ($1, $2, $3, $4)",
+                &[&id, &c.id, &record.id(), &method],
             )
             .await
-            .map_err(db_error)?
-            .ok_or_else(|| ApiError::bad_request("Invalid or expired MFA session."))?;
-        let (collection_id, record_id, first): (String, String, String) =
-            (row.get(0), row.get(1), row.get(2));
-        if collection_id != c.id || record_id != record.id() {
-            return Err(ApiError::bad_request("Invalid MFA session."));
-        }
-        if first == method {
-            return Err(ApiError::bad_request(
-                "A different authentication method is required.",
-            ));
-        }
-        // single use, also when two requests race
-        if client
-            .execute("DELETE FROM _slonbase.mfas WHERE id = $1", &[&mfa_id])
-            .await
-            .map_err(db_error)?
-            == 0
-        {
-            return Err(ApiError::bad_request("Invalid or expired MFA session."));
-        }
+            .map_err(db_error)?;
+        return Ok(Some(
+            (StatusCode::UNAUTHORIZED, Json(json!({ "mfaId": id }))).into_response(),
+        ));
     }
 
-    if let Err(err) = auth_alert(core, record, client).await {
-        tracing::warn!("auth alert for record {}: {err:#}", record.id());
+    let row = client
+        .query_opt(
+            "SELECT collection_id, record_id, method FROM _slonbase.mfas
+             WHERE id = $1 AND created > now() - $2::bigint * interval '1 second'",
+            &[&mfa_id, &mfa.duration],
+        )
+        .await
+        .map_err(db_error)?
+        .ok_or_else(|| ApiError::bad_request("Invalid or expired MFA session."))?;
+    let (collection_id, record_id, first): (String, String, String) =
+        (row.get(0), row.get(1), row.get(2));
+    if collection_id != c.id || record_id != record.id() {
+        return Err(ApiError::bad_request("Invalid MFA session."));
     }
-
-    let mut out = json!({
-        "token": record.issue_auth_token(core, None, true),
-        "record": self_json(c, &record.values),
-    });
-    if let Some(meta) = meta {
-        out["meta"] = meta;
+    if first == method {
+        return Err(ApiError::bad_request(
+            "A different authentication method is required.",
+        ));
     }
-    Ok(Json(out).into_response())
+    // single use, also when two requests race
+    if client
+        .execute("DELETE FROM _slonbase.mfas WHERE id = $1", &[&mfa_id])
+        .await
+        .map_err(db_error)?
+        == 0
+    {
+        return Err(ApiError::bad_request("Invalid or expired MFA session."));
+    }
+    Ok(None)
 }
 
 /// Known devices kept per record.
@@ -252,7 +220,11 @@ const MAX_ORIGINS: i64 = 5;
 
 /// Remembers the device a record signed in from, and emails the record when it's a new
 /// one (but not on its first sign-in, or the first since a password change).
-async fn auth_alert(core: &Core, record: &AuthRecord, client: &Client) -> anyhow::Result<()> {
+pub(super) async fn auth_alert(
+    core: &Core,
+    record: &AuthRecord,
+    client: &Client,
+) -> anyhow::Result<()> {
     let c = &record.collection;
     let settings = core.settings();
     let ip = client
@@ -394,9 +366,7 @@ pub(super) fn new_token_key() -> String {
 pub async fn auth_with_password(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    origin: Client,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -449,49 +419,66 @@ pub async fn auth_with_password(
     }
     drop(client);
 
-    // compare against something even when nothing matched, so timing doesn't reveal it
-    let hash = found
-        .as_ref()
-        .and_then(|v| v.get(FIELD_PASSWORD))
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| dummy_hash(&c));
-    let valid = values::verify_password(password, hash).await;
-    let Some(values) = found.filter(|_| valid) else {
-        return Err(failed());
-    };
-
-    let record = AuthRecord {
-        collection: c,
+    let ctx = ctx.with_body(&body);
+    let record = found.map(|values| AuthRecord {
+        collection: c.clone(),
         values,
         refreshable: true,
-    };
-    if !auth_rule_allows(&core, &record, &method).await? {
-        return Err(failed());
-    }
-    let mfa_id = mfa_id(&body, &query);
-    finish_auth(
+    });
+    let e = ctx.event(
         &core,
-        &record,
-        METHOD_PASSWORD,
-        &method,
-        &origin,
-        mfa_id,
-        None,
+        &c,
+        record,
+        auth_hooks::data([
+            ("identity", Value::String(identity)),
+            ("identityField", Value::String(requested_field.to_string())),
+            ("password", Value::String(password)),
+        ]),
+    );
+    auth_hooks::run(
+        |h| &h.on_record_auth_with_password_request,
+        e,
+        move |e| async move {
+            // compare against something even when nothing matched, so timing doesn't
+            // reveal it
+            let hash = e
+                .record
+                .as_ref()
+                .map(|r| r.str(FIELD_PASSWORD).to_string())
+                .unwrap_or_else(|| dummy_hash(&e.collection));
+            let valid = values::verify_password(e.str("password").to_string(), hash).await;
+            let failed = || ApiError::bad_request("Failed to authenticate.");
+            let Some(record) = e.record.clone().filter(|_| valid) else {
+                return Err(failed());
+            };
+            if !auth_rule_allows(&e.core, &record, &ctx.method).await? {
+                return Err(failed());
+            }
+            let token = record.issue_auth_token(&e.core, None, true);
+            let response =
+                auth_hooks::respond(&e.core, record, token, METHOD_PASSWORD, None, ctx).await?;
+            Ok(with_response(e, response))
+        },
     )
     .await
+}
+
+/// Sets the event's response (for actions that end with another hooked response).
+pub(super) fn with_response(mut e: AuthRequestEvent, response: Response) -> AuthRequestEvent {
+    e.response = Some(response);
+    e
 }
 
 /// `POST /api/collections/{collection}/auth-refresh`
 pub async fn auth_refresh(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
-    method: Method,
-    auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+    ctx: Ctx,
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
-    let record = auth
+    let record = ctx
+        .auth
         .any_record()
         .cloned()
         .filter(|r| r.collection.id == c.id)
@@ -503,12 +490,24 @@ pub async fn auth_refresh(
             "The current auth token is not refreshable.",
         ));
     }
-    if !auth_rule_allows(&core, &record, &method).await? {
-        return Err(ApiError::forbidden(
-            "The authenticated record is not allowed to sign in.",
-        ));
-    }
-    Ok(auth_response(&core, &record, true, None))
+
+    let e = ctx.event(&core, &c, Some(record), Map::new());
+    auth_hooks::run(
+        |h| &h.on_record_auth_refresh_request,
+        e,
+        move |e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            if !auth_rule_allows(&e.core, &record, &ctx.method).await? {
+                return Err(ApiError::forbidden(
+                    "The authenticated record is not allowed to sign in.",
+                ));
+            }
+            let token = record.issue_auth_token(&e.core, None, true);
+            let response = auth_hooks::respond(&e.core, record, token, "", None, ctx).await?;
+            Ok(with_response(e, response))
+        },
+    )
+    .await
 }
 
 /// `GET /api/collections/{collection}/auth-methods`
@@ -546,11 +545,11 @@ pub async fn auth_methods(
 pub async fn impersonate(
     State(app): State<Arc<App>>,
     Path((collection, id)): Path<(String, String)>,
-    auth: RequestAuth,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
-    auth.require_superuser()?;
+    ctx.auth.require_superuser()?;
     let c = auth_collection(&core, &collection)?;
     let duration = match body.get("duration").and_then(Value::as_i64) {
         None | Some(0) => None,
@@ -567,7 +566,9 @@ pub async fn impersonate(
         values,
         refreshable: false,
     };
-    Ok(auth_response(&core, &record, false, duration))
+    let token = record.issue_auth_token(&core, duration, false);
+    let ctx = ctx.with_body(&body);
+    auth_hooks::respond(&core, record, token, "", None, ctx).await
 }
 
 // ---------------------------------------------------------------------------
@@ -577,53 +578,78 @@ pub async fn impersonate(
 pub async fn request_verification(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     let email = body_str(&body, "email");
     if email.trim().is_empty() {
-        let mut errors = Errors::new();
-        errors.add("email", "validation_required", "Cannot be blank.");
-        return Err(ApiError::invalid_data(
-            "An error occurred while validating the submitted data.",
-            &errors,
-        ));
+        return Err(blank("email"));
     }
+    let Some(record) = find_by_email(&core, &c, email).await? else {
+        return Ok(no_content());
+    };
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(&core, &c, Some(record), Map::new());
+    auth_hooks::run(
+        |h| &h.on_record_request_verification_request,
+        e,
+        |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let verified = record
+                .values
+                .get(FIELD_VERIFIED)
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            if !verified {
+                let options = e.collection.auth_options().expect("auth collection");
+                let token = record.issue(
+                    &e.core,
+                    TokenType::Verification,
+                    email_claims(&record, None),
+                    options.verification_token.duration,
+                );
+                send_template(
+                    &e.core,
+                    &options.verification_template,
+                    record.email(),
+                    &token,
+                    "verification",
+                    &record,
+                );
+            }
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
+}
 
-    if let Some(record) = find_by_email(&core, &c, email).await? {
-        let verified = record
-            .values
-            .get(FIELD_VERIFIED)
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        if !verified {
-            let options = c.auth_options().expect("auth collection");
-            let mut claims = Map::new();
-            claims.insert("email".into(), Value::String(record.email().to_string()));
-            let token = record.issue(
-                &core,
-                TokenType::Verification,
-                claims,
-                options.verification_token.duration,
-            );
-            send_template(
-                &core,
-                &options.verification_template,
-                record.email(),
-                &token,
-                "verification",
-                &record,
-            );
-        }
+/// `{"email"}` (and `"newEmail"`) claims of a token sent by email.
+fn email_claims(record: &AuthRecord, new_email: Option<&str>) -> Map<String, Value> {
+    let mut claims = Map::new();
+    claims.insert("email".into(), Value::String(record.email().to_string()));
+    if let Some(new_email) = new_email {
+        claims.insert("newEmail".into(), Value::String(new_email.to_string()));
     }
-    Ok(no_content())
+    claims
+}
+
+fn blank(key: &str) -> ApiError {
+    let mut errors = Errors::new();
+    errors.add(key, "validation_required", "Cannot be blank.");
+    ApiError::invalid_data(
+        "An error occurred while validating the submitted data.",
+        &errors,
+    )
 }
 
 /// `POST /api/collections/{collection}/confirm-verification`
 pub async fn confirm_verification(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -643,19 +669,30 @@ pub async fn confirm_verification(
         return Err(invalid());
     }
 
-    let client = core.pool.get().await.map_err(pool_error)?;
-    client
-        .execute(
-            &format!(
-                "UPDATE {} SET {} = TRUE WHERE id = $1::text",
-                table_ref(&c.name),
-                quote_ident(FIELD_VERIFIED)
-            ),
-            &[&record.id()],
-        )
-        .await
-        .map_err(db_error)?;
-    Ok(no_content())
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(&core, &c, Some(record), Map::new());
+    auth_hooks::run(
+        |h| &h.on_record_confirm_verification_request,
+        e,
+        |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let client = e.core.pool.get().await.map_err(pool_error)?;
+            client
+                .execute(
+                    &format!(
+                        "UPDATE {} SET {} = TRUE WHERE id = $1::text",
+                        table_ref(&e.collection.name),
+                        quote_ident(FIELD_VERIFIED)
+                    ),
+                    &[&record.id()],
+                )
+                .await
+                .map_err(db_error)?;
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -665,46 +702,52 @@ pub async fn confirm_verification(
 pub async fn request_password_reset(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     let email = body_str(&body, "email");
     if email.trim().is_empty() {
-        let mut errors = Errors::new();
-        errors.add("email", "validation_required", "Cannot be blank.");
-        return Err(ApiError::invalid_data(
-            "An error occurred while validating the submitted data.",
-            &errors,
-        ));
+        return Err(blank("email"));
     }
-
-    if let Some(record) = find_by_email(&core, &c, email).await? {
-        let options = c.auth_options().expect("auth collection");
-        let mut claims = Map::new();
-        claims.insert("email".into(), Value::String(record.email().to_string()));
-        let token = record.issue(
-            &core,
-            TokenType::PasswordReset,
-            claims,
-            options.password_reset_token.duration,
-        );
-        send_template(
-            &core,
-            &options.reset_password_template,
-            record.email(),
-            &token,
-            "passwordReset",
-            &record,
-        );
-    }
-    Ok(no_content())
+    let Some(record) = find_by_email(&core, &c, email).await? else {
+        return Ok(no_content());
+    };
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(&core, &c, Some(record), Map::new());
+    auth_hooks::run(
+        |h| &h.on_record_request_password_reset_request,
+        e,
+        |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let options = e.collection.auth_options().expect("auth collection");
+            let token = record.issue(
+                &e.core,
+                TokenType::PasswordReset,
+                email_claims(&record, None),
+                options.password_reset_token.duration,
+            );
+            send_template(
+                &e.core,
+                &options.reset_password_template,
+                record.email(),
+                &token,
+                "passwordReset",
+                &record,
+            );
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 /// `POST /api/collections/{collection}/confirm-password-reset`
 pub async fn confirm_password_reset(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -744,26 +787,41 @@ pub async fn confirm_password_reset(
     }
     let (record, _) = token_result.expect("checked above");
 
-    let hash = values::hash_password(field, password)
-        .await
-        .map_err(ApiError::internal)?;
-    let client = core.pool.get().await.map_err(pool_error)?;
-    // a new token key signs out every session and makes the reset token single-use;
-    // receiving the email also proves ownership of the address
-    client
-        .execute(
-            &format!(
-                "UPDATE {} SET {} = $2::text, {} = $3::text, {} = TRUE WHERE id = $1::text",
-                table_ref(&c.name),
-                quote_ident(FIELD_PASSWORD),
-                quote_ident(FIELD_TOKEN_KEY),
-                quote_ident(FIELD_VERIFIED)
-            ),
-            &[&record.id(), &hash, &new_token_key()],
-        )
-        .await
-        .map_err(db_error)?;
-    Ok(no_content())
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(&core, &c, Some(record), Map::new());
+    auth_hooks::run(
+        |h| &h.on_record_confirm_password_reset_request,
+        e,
+        move |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let field = e
+                .collection
+                .field(FIELD_PASSWORD)
+                .expect("auth collections have a password field");
+            let hash = values::hash_password(field, password)
+                .await
+                .map_err(ApiError::internal)?;
+            let client = e.core.pool.get().await.map_err(pool_error)?;
+            // a new token key signs out every session and makes the reset token
+            // single-use; receiving the email also proves ownership of the address
+            client
+                .execute(
+                    &format!(
+                        "UPDATE {} SET {} = $2::text, {} = $3::text, {} = TRUE WHERE id = $1::text",
+                        table_ref(&e.collection.name),
+                        quote_ident(FIELD_PASSWORD),
+                        quote_ident(FIELD_TOKEN_KEY),
+                        quote_ident(FIELD_VERIFIED)
+                    ),
+                    &[&record.id(), &hash, &new_token_key()],
+                )
+                .await
+                .map_err(db_error)?;
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 // ---------------------------------------------------------------------------
@@ -773,12 +831,13 @@ pub async fn confirm_password_reset(
 pub async fn request_email_change(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
-    auth: RequestAuth,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
-    let record = auth
+    let record = ctx
+        .auth
         .any_record()
         .cloned()
         .filter(|r| r.collection.id == c.id)
@@ -805,31 +864,46 @@ pub async fn request_email_change(
         ));
     }
 
-    let options = c.auth_options().expect("auth collection");
-    let mut claims = Map::new();
-    claims.insert("email".into(), Value::String(record.email().to_string()));
-    claims.insert("newEmail".into(), Value::String(new_email.clone()));
-    let token = record.issue(
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(
         &core,
-        TokenType::EmailChange,
-        claims,
-        options.email_change_token.duration,
+        &c,
+        Some(record),
+        auth_hooks::data([("newEmail", Value::String(new_email))]),
     );
-    send_template(
-        &core,
-        &options.confirm_email_change_template,
-        &new_email,
-        &token,
-        "emailChange",
-        &record,
-    );
-    Ok(no_content())
+    auth_hooks::run(
+        |h| &h.on_record_request_email_change_request,
+        e,
+        |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let new_email = e.str("newEmail").to_string();
+            let options = e.collection.auth_options().expect("auth collection");
+            let token = record.issue(
+                &e.core,
+                TokenType::EmailChange,
+                email_claims(&record, Some(&new_email)),
+                options.email_change_token.duration,
+            );
+            send_template(
+                &e.core,
+                &options.confirm_email_change_template,
+                &new_email,
+                &token,
+                "emailChange",
+                &record,
+            );
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 /// `POST /api/collections/{collection}/confirm-email-change`
 pub async fn confirm_email_change(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -866,30 +940,47 @@ pub async fn confirm_email_change(
         .unwrap_or_default()
         .to_string();
 
-    let client = core.pool.get().await.map_err(pool_error)?;
-    let result = client
-        .execute(
-            &format!(
-                "UPDATE {} SET {} = $2::text, {} = $3::text, {} = TRUE WHERE id = $1::text",
-                table_ref(&c.name),
-                quote_ident(FIELD_EMAIL),
-                quote_ident(FIELD_TOKEN_KEY),
-                quote_ident(FIELD_VERIFIED)
-            ),
-            &[&record.id(), &new_email, &new_token_key()],
-        )
-        .await;
-    if let Err(e) = result {
-        if e.as_db_error().map(|d| d.code())
-            == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
-        {
-            errors.invalid("token", "The new email address is already in use.");
-            return Err(ApiError::invalid_data(
-                "Failed to confirm the email change.",
-                &errors,
-            ));
-        }
-        return Err(db_error(e));
-    }
-    Ok(no_content())
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(
+        &core,
+        &c,
+        Some(record),
+        auth_hooks::data([("newEmail", Value::String(new_email))]),
+    );
+    auth_hooks::run(
+        |h| &h.on_record_confirm_email_change_request,
+        e,
+        |mut e| async move {
+            let record = auth_hooks::record_of(&e)?;
+            let client = e.core.pool.get().await.map_err(pool_error)?;
+            let result = client
+                .execute(
+                    &format!(
+                        "UPDATE {} SET {} = $2::text, {} = $3::text, {} = TRUE WHERE id = $1::text",
+                        table_ref(&e.collection.name),
+                        quote_ident(FIELD_EMAIL),
+                        quote_ident(FIELD_TOKEN_KEY),
+                        quote_ident(FIELD_VERIFIED)
+                    ),
+                    &[&record.id(), &e.str("newEmail"), &new_token_key()],
+                )
+                .await;
+            if let Err(err) = result {
+                if err.as_db_error().map(|d| d.code())
+                    == Some(&tokio_postgres::error::SqlState::UNIQUE_VIOLATION)
+                {
+                    let mut errors = Errors::new();
+                    errors.invalid("token", "The new email address is already in use.");
+                    return Err(ApiError::invalid_data(
+                        "Failed to confirm the email change.",
+                        &errors,
+                    ));
+                }
+                return Err(db_error(err));
+            }
+            e.response = Some(no_content());
+            Ok(e)
+        },
+    )
+    .await
 }

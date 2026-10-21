@@ -3,25 +3,25 @@
 //! expires after the collection's `otp.duration` and is invalidated after a few wrong
 //! attempts.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, Query, State};
-use axum::http::Method;
-use axum::response::Response;
+use axum::extract::{Path, State};
+use axum::response::{IntoResponse, Response};
 use serde_json::{Value, json};
 
 use super::auth_api::{
-    METHOD_OTP, auth_collection, auth_rule_allows, body_str, db_error, find_by_email, finish_auth,
-    mfa_id, pool_error,
+    METHOD_OTP, auth_collection, auth_rule_allows, body_str, db_error, find_by_email, pool_error,
+    with_response,
 };
+use super::auth_hooks::{self, Ctx};
 use super::store;
 use super::values;
 use crate::app::App;
 use crate::auth::AuthRecord;
 use crate::collections::model::{Collection, FIELD_VERIFIED};
 use crate::collections::schema::table_ref;
+use crate::core::Core;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::quote_ident;
@@ -49,8 +49,9 @@ fn otp_enabled(c: &Collection) -> Result<(), ApiError> {
 pub async fn request_otp(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     otp_enabled(&c)?;
@@ -63,14 +64,54 @@ pub async fn request_otp(
             &errors,
         ));
     }
-    let options = &c.auth_options().expect("auth collection").otp;
+    let record = find_by_email(&core, &c, email).await?;
+    let length = c
+        .auth_options()
+        .expect("auth collection")
+        .otp
+        .length
+        .clamp(4, 32);
+    let password =
+        ids::generate_from_pattern(&format!("[0-9]{{{length}}}")).expect("valid pattern");
 
-    let Some(record) = find_by_email(&core, &c, email).await? else {
-        // an id that looks like a real one
-        return Ok(Json(
-            json!({ "otpId": ids::random_id(ids::DEFAULT_ID_LENGTH) }),
-        ));
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(
+        &core,
+        &c,
+        record,
+        auth_hooks::data([("password", Value::String(password))]),
+    );
+    auth_hooks::run(
+        |h| &h.on_record_request_otp_request,
+        e,
+        |mut e| async move {
+            let otp_id = create_otp(
+                e.core.clone(),
+                e.collection.clone(),
+                e.record.clone(),
+                e.str("password").to_string(),
+            )
+            .await?;
+            e.response = Some(Json(json!({ "otpId": otp_id })).into_response());
+            Ok(e)
+        },
+    )
+    .await
+}
+
+/// Creates and emails the event's one-time password, returning its id: an id that
+/// looks like a real one when there's no record, and the last one when the record has
+/// too many.
+async fn create_otp(
+    core: Arc<Core>,
+    c: Arc<Collection>,
+    record: Option<AuthRecord>,
+    password: String,
+) -> Result<String, ApiError> {
+    let Some(record) = record else {
+        return Ok(ids::random_id(ids::DEFAULT_ID_LENGTH));
     };
+    let options = c.auth_options().expect("auth collection").otp.clone();
 
     let client = core.pool.get().await.map_err(pool_error)?;
     let active = client
@@ -84,22 +125,15 @@ pub async fn request_otp(
         .await
         .map_err(db_error)?;
     if active.len() as i64 >= MAX_ACTIVE {
-        return Ok(Json(json!({ "otpId": active[0].get::<_, String>(0) })));
+        return Ok(active[0].get::<_, String>(0));
     }
-
     drop(client);
 
     // hashing, saving and sending happen in the background, so the answer takes as long
     // as for an unknown email
     let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
     let otp_id = id.clone();
-    let options = options.clone();
-    let collection_id = c.id.clone();
-    let core = core.clone();
     tokio::spawn(async move {
-        let length = options.length.clamp(4, 32);
-        let password =
-            ids::generate_from_pattern(&format!("[0-9]{{{length}}}")).expect("valid pattern");
         let plain = password.clone();
         let saved = async {
             let hash = tokio::task::spawn_blocking(move || bcrypt::hash(plain, OTP_COST)).await??;
@@ -108,7 +142,7 @@ pub async fn request_otp(
                 .execute(
                     "INSERT INTO _slonbase.otps (id, collection_id, record_id, password_hash, sent_to)
                      VALUES ($1, $2, $3, $4, $5)",
-                    &[&id, &collection_id, &record.id(), &hash, &record.email()],
+                    &[&id, &c.id, &record.id(), &hash, &record.email()],
                 )
                 .await?;
             anyhow::Ok(())
@@ -137,16 +171,14 @@ pub async fn request_otp(
             Some(&record),
         );
     });
-    Ok(Json(json!({ "otpId": otp_id })))
+    Ok(otp_id)
 }
 
 /// `POST /api/collections/{collection}/auth-with-otp` (`{"otpId", "password"}`)
 pub async fn auth_with_otp(
     State(app): State<Arc<App>>,
     Path(collection): Path<String>,
-    Query(query): Query<HashMap<String, String>>,
-    method: Method,
-    origin: crate::ip::Client,
+    ctx: Ctx,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -193,65 +225,85 @@ pub async fn auth_with_otp(
             .map_err(db_error)?;
         return Err(invalid());
     }
+    let values = store::find_by_id(&client, &c, &record_id)
+        .await
+        .map_err(db_error)?
+        .ok_or_else(invalid)?;
+    drop(client);
+
+    let record = AuthRecord {
+        collection: c.clone(),
+        values,
+        refreshable: true,
+    };
+    let otp = json!({
+        "id": otp_id,
+        "collectionRef": c.id,
+        "recordRef": record_id,
+        "sentTo": sent_to,
+    });
+    let ctx = ctx.with_body(&body);
+    let e = ctx.event(&core, &c, Some(record), auth_hooks::data([("otp", otp)]));
+    auth_hooks::run(
+        |h| &h.on_record_auth_with_otp_request,
+        e,
+        move |e| async move {
+            let record =
+                use_otp(&e.core, auth_hooks::record_of(&e)?, e.data["otp"].clone()).await?;
+            if !auth_rule_allows(&e.core, &record, &ctx.method).await? {
+                return Err(ApiError::forbidden(
+                    "The request doesn't satisfy the collection requirements to authenticate.",
+                ));
+            }
+            let token = record.issue_auth_token(&e.core, None, true);
+            let response =
+                auth_hooks::respond(&e.core, record, token, METHOD_OTP, None, ctx).await?;
+            Ok(with_response(e, response))
+        },
+    )
+    .await
+}
+
+/// Uses up the event's OTP, and marks the record verified when the password was sent to
+/// its email (receiving it proves the address). Returns the record.
+async fn use_otp(core: &Core, mut record: AuthRecord, otp: Value) -> Result<AuthRecord, ApiError> {
+    let invalid = || ApiError::bad_request("Invalid or expired OTP.");
+    let client = core.pool.get().await.map_err(pool_error)?;
     // single use, also when two requests race
     if client
-        .execute("DELETE FROM _slonbase.otps WHERE id = $1", &[&otp_id])
+        .execute(
+            "DELETE FROM _slonbase.otps WHERE id = $1",
+            &[&otp["id"].as_str().unwrap_or_default()],
+        )
         .await
         .map_err(db_error)?
         == 0
     {
         return Err(invalid());
     }
-
-    let mut values = store::find_by_id(&client, &c, &record_id)
-        .await
-        .map_err(db_error)?
-        .ok_or_else(invalid)?;
-    // receiving the password proves the email address
-    let email = values
-        .get(crate::collections::model::FIELD_EMAIL)
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let verified = values
+    let sent_to = otp["sentTo"].as_str().unwrap_or_default();
+    let verified = record
+        .values
         .get(FIELD_VERIFIED)
         .and_then(Value::as_bool)
         .unwrap_or(false);
-    if !verified && !email.is_empty() && email.eq_ignore_ascii_case(&sent_to) {
+    if !verified && !record.email().is_empty() && record.email().eq_ignore_ascii_case(sent_to) {
         client
             .execute(
                 &format!(
                     "UPDATE {} SET {} = TRUE WHERE id = $1::text",
-                    table_ref(&c.name),
+                    table_ref(&record.collection.name),
                     quote_ident(FIELD_VERIFIED)
                 ),
-                &[&record_id],
+                &[&record.id()],
             )
             .await
             .map_err(db_error)?;
-        values.insert(FIELD_VERIFIED.into(), Value::Bool(true));
+        record
+            .values
+            .insert(FIELD_VERIFIED.into(), Value::Bool(true));
     }
-    drop(client);
-
-    let record = AuthRecord {
-        collection: c,
-        values,
-        refreshable: true,
-    };
-    if !auth_rule_allows(&core, &record, &method).await? {
-        return Err(ApiError::forbidden(
-            "The request doesn't satisfy the collection requirements to authenticate.",
-        ));
-    }
-    finish_auth(
-        &core,
-        &record,
-        METHOD_OTP,
-        &method,
-        &origin,
-        mfa_id(&body, &query),
-        None,
-    )
-    .await
+    Ok(record)
 }
 
 /// Creates a one-time password for the auth record with `email` without sending it (the

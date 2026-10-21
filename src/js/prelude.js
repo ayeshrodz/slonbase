@@ -759,6 +759,37 @@
     return e;
   }
 
+  // auth requests: e.record (null when no record matched) and the hook's own data
+  // (e.identity, e.password, e.token, e.meta, e.oauth2User, e.createData, e.newEmail, ...)
+  function authRequestEvent(raw) {
+    const e = requestEvent(raw);
+    e.collection = raw.collection;
+    const setRecord = (r) => {
+      e.record = r ? new Record(raw.collection, r) : null;
+      if (e.record) e.record._original = clone(e.record._data);
+    };
+    setRecord(raw.record);
+    const keys = Object.keys(raw.data || {});
+    for (const key of keys) e[key] = clone(raw.data[key]);
+    if (e.otp) {
+      const otp = e.otp;
+      otp.get = (k) => (otp[k] === undefined ? null : otp[k]);
+    }
+    const state = () => {
+      const data = {};
+      for (const key of keys) data[key] = e[key];
+      const record = e.record instanceof Record ? e.record._fields() : e.record || null;
+      return { record, data };
+    };
+    e.next = () => {
+      const res = callNext(state());
+      setRecord(res.record);
+      for (const key of keys) if (key in res.data) e[key] = res.data[key];
+    };
+    e._state = () => Object.assign(state(), { response: e._response });
+    return e;
+  }
+
   function routeEvent(raw) {
     const e = requestEvent(raw);
     e._state = () => ({ response: e._response });
@@ -788,6 +819,7 @@
     recordModel: recordModelEvent,
     collection: collectionEvent,
     mailer: mailerEvent,
+    auth: authRequestEvent,
     route: routeEvent,
     middleware: middlewareEvent,
     simple: simpleEvent,
@@ -856,6 +888,23 @@
   };
   for (const name of Object.keys(afterHooks)) {
     g[name] = (fn, ...c) => register(afterHooks[name], "record", fn, { collections: collections(c) });
+  }
+  const authHooks = {
+    onRecordAuthRequest: "recordAuthRequest",
+    onRecordAuthWithPasswordRequest: "recordAuthWithPasswordRequest",
+    onRecordAuthWithOAuth2Request: "recordAuthWithOAuth2Request",
+    onRecordAuthRefreshRequest: "recordAuthRefreshRequest",
+    onRecordRequestOTPRequest: "recordRequestOTPRequest",
+    onRecordAuthWithOTPRequest: "recordAuthWithOTPRequest",
+    onRecordRequestVerificationRequest: "recordRequestVerificationRequest",
+    onRecordConfirmVerificationRequest: "recordConfirmVerificationRequest",
+    onRecordRequestPasswordResetRequest: "recordRequestPasswordResetRequest",
+    onRecordConfirmPasswordResetRequest: "recordConfirmPasswordResetRequest",
+    onRecordRequestEmailChangeRequest: "recordRequestEmailChangeRequest",
+    onRecordConfirmEmailChangeRequest: "recordConfirmEmailChangeRequest",
+  };
+  for (const name of Object.keys(authHooks)) {
+    g[name] = (fn, ...c) => register(authHooks[name], "auth", fn, { collections: collections(c) });
   }
   g.onBootstrap = (fn) => register("ready", "simple", fn);
   g.onServe = (fn) => register("ready", "simple", fn);

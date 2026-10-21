@@ -336,19 +336,41 @@ pub struct AuthUser {
 }
 
 impl AuthUser {
-    pub fn meta(&self, is_new: bool) -> Value {
+    /// The user as PocketBase's hooks see it (`e.oauth2User`).
+    pub fn to_json(&self) -> Value {
         json!({
             "id": self.id,
             "name": self.name,
             "username": self.username,
             "email": self.email,
-            "isNew": is_new,
             "avatarURL": self.avatar_url,
             "rawUser": self.raw,
             "accessToken": self.access_token,
             "refreshToken": self.refresh_token,
             "expiry": self.expiry,
         })
+    }
+
+    pub fn from_json(v: &Value) -> Self {
+        let s = |key: &str| text(&v[key]);
+        Self {
+            id: s("id"),
+            name: s("name"),
+            username: s("username"),
+            email: s("email"),
+            avatar_url: s("avatarURL"),
+            access_token: s("accessToken"),
+            refresh_token: s("refreshToken"),
+            expiry: s("expiry"),
+            raw: v["rawUser"].clone(),
+        }
+    }
+
+    /// The `meta` of the sign-in response.
+    pub fn meta(&self, is_new: bool) -> Value {
+        let mut meta = self.to_json();
+        meta["isNew"] = Value::Bool(is_new);
+        meta
     }
 }
 

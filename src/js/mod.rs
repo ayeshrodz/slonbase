@@ -34,8 +34,8 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEvent, RecordRequestEvent,
-    RecordsListEvent, RequestEvent,
+    AuthRequestEvent, BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEvent,
+    RecordRequestEvent, RecordsListEvent, RequestEvent,
 };
 use crate::records::files::Upload;
 
@@ -532,6 +532,42 @@ fn register(
             );
             continue;
         }
+        let auth_hook = match reg.kind.as_str() {
+            "recordAuthRequest" => Some(&mut hooks.on_record_auth_request),
+            "recordAuthWithPasswordRequest" => {
+                Some(&mut hooks.on_record_auth_with_password_request)
+            }
+            "recordAuthWithOAuth2Request" => Some(&mut hooks.on_record_auth_with_oauth2_request),
+            "recordAuthRefreshRequest" => Some(&mut hooks.on_record_auth_refresh_request),
+            "recordRequestOTPRequest" => Some(&mut hooks.on_record_request_otp_request),
+            "recordAuthWithOTPRequest" => Some(&mut hooks.on_record_auth_with_otp_request),
+            "recordRequestVerificationRequest" => {
+                Some(&mut hooks.on_record_request_verification_request)
+            }
+            "recordConfirmVerificationRequest" => {
+                Some(&mut hooks.on_record_confirm_verification_request)
+            }
+            "recordRequestPasswordResetRequest" => {
+                Some(&mut hooks.on_record_request_password_reset_request)
+            }
+            "recordConfirmPasswordResetRequest" => {
+                Some(&mut hooks.on_record_confirm_password_reset_request)
+            }
+            "recordRequestEmailChangeRequest" => {
+                Some(&mut hooks.on_record_request_email_change_request)
+            }
+            "recordConfirmEmailChangeRequest" => {
+                Some(&mut hooks.on_record_confirm_email_change_request)
+            }
+            _ => None,
+        };
+        if let Some(hook) = auth_hook {
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| Box::pin(auth_request(pool.clone(), index, e, next))),
+            );
+            continue;
+        }
         if reg.kind == "mailerSend" {
             let mail = reg.mail.clone();
             hooks.on_mailer_send.add_boxed(
@@ -764,6 +800,114 @@ async fn record_request(
         e.response = Some(response);
     }
     Ok(e)
+}
+
+/// An auth request hook (`onRecordAuthRequest`, `onRecordAuthWithPasswordRequest`, ...):
+/// changes to the record and the hook's data are used by the action.
+async fn auth_request(
+    pool: Pool,
+    index: usize,
+    e: AuthRequestEvent,
+    next: Next<AuthRequestEvent>,
+) -> HookResult<AuthRequestEvent> {
+    let record_of = |e: &AuthRequestEvent| match &e.record {
+        Some(r) => record_json(&r.collection, r.values.clone()),
+        None => Value::Null,
+    };
+    let event = json!({
+        "collection": collection_json(&e.collection),
+        "record": record_of(&e),
+        "data": e.data,
+        "auth": auth_json(&e.auth),
+        "requestInfo": request_info_json(&e.request),
+    });
+    let rebuild = (
+        e.core.clone(),
+        e.collection.clone(),
+        e.auth.clone(),
+        e.request.clone(),
+    );
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                apply_auth_state(&mut e, &state).await?;
+                let e = next.run(e).await?;
+                let out = json!({ "record": record_of(&e), "data": e.data });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot.lock().expect("event lock").take().unwrap_or_else(|| {
+        let (core, collection, auth, request) = rebuild;
+        AuthRequestEvent {
+            core,
+            collection,
+            record: None,
+            data: Map::new(),
+            auth,
+            request,
+            response: None,
+        }
+    });
+    apply_auth_state(&mut e, &state).await?;
+    if let Some(response) = response_from(&state["response"]) {
+        e.response = Some(response);
+    }
+    Ok(e)
+}
+
+/// Applies a handler's changes to an auth request event. The record comes back without
+/// its secrets: changes to the same record are applied to its values, and another record
+/// (found by the handler) is loaded with them.
+async fn apply_auth_state(e: &mut AuthRequestEvent, state: &Value) -> Result<(), ApiError> {
+    if let Value::Object(data) = &state["data"] {
+        for (key, value) in data {
+            e.data.insert(key.clone(), value.clone());
+        }
+    }
+    let record = match state.get("record") {
+        None => return Ok(()),
+        Some(Value::Object(record)) => record,
+        Some(_) => {
+            e.record = None;
+            return Ok(());
+        }
+    };
+    let id = record.get("id").and_then(Value::as_str).unwrap_or_default();
+    if let Some(current) = e.record.as_mut().filter(|r| r.id() == id) {
+        for field in e.collection.fields.iter().filter(|f| !f.is_secret()) {
+            if let Some(value) = record.get(&field.name) {
+                current.values.insert(field.name.clone(), value.clone());
+            }
+        }
+        return Ok(());
+    }
+    let client = e
+        .core
+        .pool
+        .get()
+        .await
+        .map_err(|err| ApiError::internal(crate::db::describe_pool_error(err)))?;
+    let values = crate::records::store::find_by_id(&client, &e.collection, id)
+        .await
+        .map_err(|err| ApiError::internal(err.into()))?
+        .ok_or_else(|| {
+            ApiError::bad_request(format!(
+                "The record {id:?} isn't in the {} collection.",
+                e.collection.name
+            ))
+        })?;
+    e.record = Some(crate::auth::AuthRecord {
+        collection: e.collection.clone(),
+        values,
+        refreshable: true,
+    });
+    Ok(())
 }
 
 /// A model hook (`onRecordCreate`, ...): the handler's record changes are kept.
