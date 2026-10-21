@@ -7,6 +7,44 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-21
+
+**Hooks parity:** most of what `pb_hooks` files use is now there: PocketBase's auth request
+hooks, `onRecordEnrich`, `$template`, `$mails` and the record token methods. The
+compatibility suite runs the same hooks in PocketBase and slonbase and checks they behave
+alike.
+
+### Added
+
+- **Auth request hooks**, from JavaScript and Rust (`Hooks::on_record_auth_request`, ...):
+  - `onRecordAuthRequest`: every sign-in, token refresh and impersonation, before the MFA
+    check. Handlers can change the record in the response, `e.token` and `e.meta`, or throw.
+  - `onRecordAuthWithPasswordRequest`, `onRecordAuthWithOAuth2Request`,
+    `onRecordAuthWithOTPRequest` and `onRecordAuthRefreshRequest`, with the hook's data
+    (`e.identity`, `e.password`, `e.oauth2User`, `e.createData`, `e.otp`, ...). Handlers can
+    find the record their own way.
+  - `onRecordRequestOTPRequest`, and the request and confirm hooks of verifications, password
+    resets and email changes. A handler that doesn't call `e.next()` skips the action.
+- **`onRecordEnrich`**: every record sent to a client (responses, batches, auth responses,
+  expanded relations, realtime messages). Handlers can add keys and `hide()` or `unhide()`
+  fields.
+- **`$template`**: Go's `html/template` language, with `loadFiles()`, `loadString()` and
+  `addFuncs()`. Output is HTML-escaped, but not by context like Go's: use `js` and `urlquery`
+  inside scripts and URLs.
+- **`$mails`**: `sendRecordVerification`, `sendRecordPasswordReset`, `sendRecordChangeEmail`,
+  `sendRecordOTP` and `sendRecordAuthAlert`.
+- Record token methods: `newVerificationToken()`, `newPasswordResetToken()`,
+  `newEmailChangeToken()`, `newFileToken()` and `newStaticAuthToken()`.
+
+### Fixed
+
+- A panic in a JavaScript native function fails that call instead of stopping its runtime.
+
+### Upgrading from 0.3
+
+Install the new version as usual. Nothing changes in the database, and hooks written for 0.3
+keep working.
+
 ## [0.3.0] - 2026-10-20
 
 **Migrations:** slonbase runs JavaScript migrations, PocketBase's `pb_migrations` included, so
@@ -206,7 +244,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/ayeshrodz/slonbase/compare/v0.1.0...v0.2.0

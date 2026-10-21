@@ -81,7 +81,7 @@ are disconnected; the SDKs reconnect and resubscribe on their own.
 
 The image runs as an unprivileged user and writes only to `/data`. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:0.3.0`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:0.4.0`) rather than `latest` in production.
 
 ## PostgreSQL
 

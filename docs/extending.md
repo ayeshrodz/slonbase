@@ -45,6 +45,10 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onRecordValidate` | Every create and update, after the built-in validation passed |
 | `onRecordAfter{Create,Update,Delete}Success` | After the change is committed, in the background |
 | `onCollection{Create,Update,Delete}`, `onCollectionAfter{Create,Update,Delete}Success` | Changes through the collections API, imports included |
+| `onRecordAuthRequest` | Every sign-in, token refresh and impersonation, before the MFA check. A handler can change `e.record` (in the response only), `e.token` and `e.meta` (`e.authMethod` says how the record signed in), or throw. |
+| `onRecordAuthWithPasswordRequest`, `onRecordAuthWithOAuth2Request`, `onRecordAuthWithOTPRequest`, `onRecordAuthRefreshRequest` | Around each sign-in. `e.record` is null when no record matched the identity, and a handler can set it, to find records its own way. Password: `e.identity`, `e.identityField`, `e.password`; OAuth2: `e.providerName`, `e.oauth2User`, `e.createData`, `e.isNewRecord`; OTP: `e.otp`. |
+| `onRecordRequestOTPRequest`, `onRecordRequest{Verification,PasswordReset,EmailChange}Request`, `onRecordConfirm{Verification,PasswordReset,EmailChange}Request` | Around the email flows. `e.password` is the one-time password about to be sent, `e.newEmail` the new address. A handler that doesn't call `e.next()` skips the action (and the email). |
+| `onRecordEnrich` | Every record sent to a client: in responses, batches, auth responses, expanded relations and realtime messages. `e.record.set()` adds keys, `hide()` and `unhide()` change which fields are sent (superusers always get every field). |
 | `onMailerSend`, `onMailerRecord{Verification,PasswordReset,EmailChange,OTP,AuthAlert}Send` | Before an email is sent |
 | `onBootstrap` | Once the app is ready |
 | `routerAdd(method, path, handler, ...middlewares)` | A custom route. Middlewares: `$apis.requireAuth(...collections)`, `requireSuperuserAuth()`, `requireSuperuserOrOwnerAuth(param)`, `requireGuestOnly()`. |
@@ -64,7 +68,14 @@ collections.
 - `Collection`, `Field` (and `TextField`, `NumberField`, ...), `unmarshal`: collection
   definitions, as in [migrations](migrations.md#whats-available).
 - `Record`: `new Record(collection)`, `get`/`set`/`getString`/`getInt`/`getBool`/...,
-  `email()`, `setPassword`, `validatePassword`, `newAuthToken`.
+  `email()`, `setPassword`, `validatePassword`, `hide`/`unhide`, and tokens:
+  `newAuthToken`, `newStaticAuthToken(duration)`, `newVerificationToken`,
+  `newPasswordResetToken`, `newEmailChangeToken(newEmail)`, `newFileToken`.
+- `$mails`: `sendRecordVerification($app, record)`, `sendRecordPasswordReset`,
+  `sendRecordChangeEmail(app, record, newEmail)`, `sendRecordOTP(app, record, otpId, password)`,
+  `sendRecordAuthAlert(app, record, info)`: the emails the auth endpoints send, with the
+  collection's templates.
+- `$template`: Go templates, rendered to HTML (see [below](#templates)).
 - `$filesystem`: `fileFromBytes`, `fileFromPath`, `fileFromURL` (`http(s)` only); in routes,
   `e.findUploadedFiles(key)` returns a multipart request's files. Files are limited to 32 MiB.
 - `$http.send({url, method, headers, body, timeout})`.
@@ -75,6 +86,26 @@ collections.
 - Errors: `BadRequestError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError` and
   `ApiError(status, message, data)` become API errors with that status. Other errors answer 400
   and are logged.
+
+### Templates
+
+`$template` renders Go's `html/template` language, like PocketBase:
+
+```js
+routerAdd("GET", "/hello/{name}", (e) => {
+  const html = $template
+    .loadFiles(`${__hooks}/views/layout.html`, `${__hooks}/views/hello.html`)
+    .render({ name: e.request.pathValue("name") });
+  return e.html(200, html);
+});
+```
+
+The first file is rendered, and it usually uses blocks the others `define`
+(`{{template "content" .}}`). `loadString(text)` works the same for a single template, and
+`$template.addFuncs({ upper: (s) => s.toUpperCase() })` adds functions templates can call.
+Everything printed is HTML-escaped, except what `raw` returns. Unlike Go, the escaping doesn't
+depend on where the value is: inside `<script>` or a URL, use the `js` and `urlquery`
+functions. The compatibility suite checks templates against PocketBase's output.
 
 ### How it runs
 
@@ -110,7 +141,7 @@ crate that depends on slonbase and runs its command line from your own `main`:
 
 ```toml
 [dependencies]
-slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v0.3.0" }
+slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v0.4.0" }
 axum = "0.8"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
