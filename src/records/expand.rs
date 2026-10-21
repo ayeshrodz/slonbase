@@ -59,7 +59,7 @@ impl Tree {
 }
 
 pub struct Context<'a> {
-    pub core: &'a Core,
+    pub core: &'a std::sync::Arc<Core>,
     pub auth: &'a RequestAuth,
     pub request: &'a RequestInfo,
 }
@@ -241,10 +241,12 @@ async fn fetch(
         .query_text(&sql, &params)
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    Ok(rows
+    let mut records: Vec<Value> = rows
         .iter()
         .map(|row| output_record(c, &fields, row, &email_visible))
-        .collect())
+        .collect();
+    super::api::enrich(ctx.core, ctx.request, c, &mut records).await?;
+    Ok(records)
 }
 
 #[cfg(test)]

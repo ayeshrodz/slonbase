@@ -34,12 +34,12 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    AuthRequestEvent, BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEvent,
-    RecordRequestEvent, RecordsListEvent, RequestEvent,
+    AuthRequestEvent, BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEnrichEvent,
+    RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
 };
 use crate::records::files::Upload;
 
-const PRELUDE: &str = include_str!("prelude.js");
+const PRELUDE: &str = concat!(include_str!("template.js"), include_str!("prelude.js"));
 /// Largest body a JavaScript route reads.
 const MAX_ROUTE_BODY: usize = 32 << 20;
 
@@ -568,6 +568,13 @@ fn register(
             );
             continue;
         }
+        if reg.kind == "recordEnrich" {
+            hooks.on_record_enrich.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| Box::pin(enrich_event(pool.clone(), index, e, next))),
+            );
+            continue;
+        }
         if reg.kind == "mailerSend" {
             let mail = reg.mail.clone();
             hooks.on_mailer_send.add_boxed(
@@ -800,6 +807,98 @@ async fn record_request(
         e.response = Some(response);
     }
     Ok(e)
+}
+
+/// `onRecordEnrich`: the record as the client will see it; `unhide` adds hidden fields.
+async fn enrich_event(
+    pool: Pool,
+    index: usize,
+    e: RecordEnrichEvent,
+    next: Next<RecordEnrichEvent>,
+) -> HookResult<RecordEnrichEvent> {
+    let auth = match &e.request.auth {
+        Some(info) => e
+            .core
+            .registry()
+            .get(&info.collection_id)
+            .map(|c| record_json(c, info.values.clone()))
+            .unwrap_or(Value::Null),
+        None => Value::Null,
+    };
+    let event = json!({
+        "collection": collection_json(&e.collection),
+        "record": e.record,
+        "auth": auth,
+        "requestInfo": request_info_json(&e.request),
+    });
+    let rebuild = (e.core.clone(), e.collection.clone(), e.request.clone());
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                apply_enrich_state(&mut e, &state).await?;
+                let e = next.run(e).await?;
+                let out = json!({ "record": e.record });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot.lock().expect("event lock").take().unwrap_or_else(|| {
+        let (core, collection, request) = rebuild;
+        RecordEnrichEvent {
+            core,
+            collection,
+            record: Map::new(),
+            request,
+        }
+    });
+    apply_enrich_state(&mut e, &state).await?;
+    Ok(e)
+}
+
+/// The record a handler left, plus the hidden fields it unhid (loaded from the record).
+async fn apply_enrich_state(e: &mut RecordEnrichEvent, state: &Value) -> Result<(), ApiError> {
+    let Value::Object(record) = &state["record"] else {
+        return Ok(());
+    };
+    e.record = record.clone();
+    let unhide: Vec<&crate::collections::model::Field> = state["unhide"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter_map(|name| e.collection.field(name))
+        .filter(|f| !f.is_secret() && !e.record.contains_key(&f.name))
+        .collect();
+    let id = e
+        .record
+        .get("id")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if unhide.is_empty() || id.is_empty() {
+        return Ok(());
+    }
+    let client = e
+        .core
+        .pool
+        .get()
+        .await
+        .map_err(|err| ApiError::internal(crate::db::describe_pool_error(err)))?;
+    if let Some(values) = crate::records::store::find_by_id(&client, &e.collection, id)
+        .await
+        .map_err(|err| ApiError::internal(err.into()))?
+    {
+        for field in unhide {
+            if let Some(value) = values.get(&field.name) {
+                e.record.insert(field.name.clone(), value.clone());
+            }
+        }
+    }
+    Ok(())
 }
 
 /// An auth request hook (`onRecordAuthRequest`, `onRecordAuthWithPasswordRequest`, ...):

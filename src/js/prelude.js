@@ -134,6 +134,9 @@
       Object.defineProperty(this, "_data", { value: {}, writable: true });
       Object.defineProperty(this, "_original", { value: null, writable: true });
       Object.defineProperty(this, "_expand", { value: {}, writable: true });
+      // fields left out of publicExport() (hide), and hidden ones to send (unhide)
+      Object.defineProperty(this, "_hidden", { value: new Set(), writable: true });
+      Object.defineProperty(this, "_unhidden", { value: new Set(), writable: true });
       if (typeof collection === "string") {
         this._ref = { id: "", name: collection };
       } else if (collection) {
@@ -235,6 +238,23 @@
     newAuthToken() {
       return call("authToken", this._ref.name || this._ref.id, this.id);
     }
+    newStaticAuthToken(duration) {
+      // PocketBase takes a Go duration (nanoseconds); 0 uses the collection's
+      const seconds = Math.floor(Number(duration || 0) / 1e9);
+      return call("recordToken", this._ref.name || this._ref.id, this.id, "staticAuth", seconds);
+    }
+    newVerificationToken() {
+      return call("recordToken", this._ref.name || this._ref.id, this.id, "verification");
+    }
+    newPasswordResetToken() {
+      return call("recordToken", this._ref.name || this._ref.id, this.id, "passwordReset");
+    }
+    newEmailChangeToken(newEmail) {
+      return call("recordToken", this._ref.name || this._ref.id, this.id, "emailChange", String(newEmail));
+    }
+    newFileToken() {
+      return call("recordToken", this._ref.name || this._ref.id, this.id, "file");
+    }
     isSuperuser() {
       return this._ref && this._ref.name === "_superusers";
     }
@@ -267,9 +287,31 @@
     _fields() {
       return clone(this._data);
     }
+    hide(...names) {
+      for (const name of names) {
+        this._hidden.add(name);
+        this._unhidden.delete(name);
+      }
+      return this;
+    }
+    unhide(...names) {
+      for (const name of names) {
+        this._hidden.delete(name);
+        this._unhidden.add(name);
+      }
+      return this;
+    }
+    // custom keys set on a record are always exported (PocketBase needs this for them)
+    withCustomData(_state) {
+      return this;
+    }
+    ignoreEmailVisibility(_state) {
+      return this;
+    }
     publicExport() {
       const out = { collectionId: this._ref ? this._ref.id : "", collectionName: this._ref ? this._ref.name : "" };
       for (const key of Object.keys(this._data)) {
+        if (this._hidden.has(key)) continue;
         if (key !== "password" && key !== "passwordConfirm" && key !== "oldPassword") out[key] = this._data[key];
       }
       if (Object.keys(this._expand).length) out.expand = clone(this._expand);
@@ -576,6 +618,23 @@
     getenv: (name) => call("env", String(name)),
   };
 
+  // the auth emails, as the auth endpoints send them (the first argument, the app, is
+  // ignored: PocketBase's functions take it)
+  const recordRef = (record) => {
+    if (!(record instanceof Record)) throw new TypeError("$mails: expected a record");
+    return [record._ref.name || record._ref.id, record.id];
+  };
+  const $mails = {
+    sendRecordVerification: (_app, record) => call("sendRecordMail", "verification", ...recordRef(record)),
+    sendRecordPasswordReset: (_app, record) => call("sendRecordMail", "passwordReset", ...recordRef(record)),
+    sendRecordChangeEmail: (_app, record, newEmail) => call("sendRecordMail", "emailChange", ...recordRef(record), String(newEmail)),
+    sendRecordOTP: (_app, record, otpId, password) => call("sendRecordMail", "otp", ...recordRef(record), String(otpId), String(password)),
+    sendRecordAuthAlert: (_app, record, info) => call("sendRecordMail", "authAlert", ...recordRef(record), String(info || "")),
+  };
+
+  // Go's html/template (template.js): $template.loadFiles(`${__hooks}/views/page.html`).render(data)
+  const $template = g.__newTemplateRegistry((path) => call("readTextFile", String(path)));
+
   function sleep(ms) {
     call("sleep", ms || 0);
   }
@@ -759,6 +818,28 @@
     return e;
   }
 
+  // a record about to be sent to a client: changes to e.record (set, hide, unhide) are sent
+  function enrichEvent(raw) {
+    const e = { app: $app, collection: raw.collection, record: Record._stored(raw.record) };
+    const info = raw.requestInfo || {};
+    const auth = raw.auth ? stored(raw.auth) : null;
+    e.requestInfo = () => ({
+      method: info.method,
+      query: Object.assign({}, info.query || {}),
+      headers: Object.assign({}, info.headers || {}),
+      body: clone(info.body || {}),
+      auth,
+      context: "default",
+    });
+    const state = () => ({ record: e.record.publicExport(), unhide: Array.from(e.record._unhidden) });
+    e.next = () => {
+      const res = callNext(state());
+      e.record = Record._stored(res.record);
+    };
+    e._state = state;
+    return e;
+  }
+
   // auth requests: e.record (null when no record matched) and the hook's own data
   // (e.identity, e.password, e.token, e.meta, e.oauth2User, e.createData, e.newEmail, ...)
   function authRequestEvent(raw) {
@@ -820,6 +901,7 @@
     collection: collectionEvent,
     mailer: mailerEvent,
     auth: authRequestEvent,
+    enrich: enrichEvent,
     route: routeEvent,
     middleware: middlewareEvent,
     simple: simpleEvent,
@@ -906,6 +988,7 @@
   for (const name of Object.keys(authHooks)) {
     g[name] = (fn, ...c) => register(authHooks[name], "auth", fn, { collections: collections(c) });
   }
+  g.onRecordEnrich = (fn, ...c) => register("recordEnrich", "enrich", fn, { collections: collections(c) });
   g.onBootstrap = (fn) => register("ready", "simple", fn);
   g.onServe = (fn) => register("ready", "simple", fn);
 
@@ -1031,6 +1114,8 @@
     $security,
     $http,
     $os,
+    $mails,
+    $template,
     sleep,
     toString,
     require,

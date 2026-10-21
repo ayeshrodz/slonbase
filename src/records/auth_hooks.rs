@@ -164,10 +164,13 @@ pub(super) async fn respond(
                     tracing::warn!("auth alert for record {}: {err:#}", record.id());
                 }
             }
-            let mut out = json!({
-                "token": e.str("token"),
-                "record": self_json(&record.collection, &record.values),
-            });
+            // enriched as seen by the record itself
+            let mut request = (*ctx.request).clone();
+            request.auth = Some(record.info());
+            let mut records = [self_json(&record.collection, &record.values)];
+            super::api::enrich(&e.core, &request, &record.collection, &mut records).await?;
+            let [record_json] = records;
+            let mut out = json!({ "token": e.str("token"), "record": record_json });
             if let Some(meta) = e.data.get("meta").filter(|m| !m.is_null()) {
                 out["meta"] = meta.clone();
             }

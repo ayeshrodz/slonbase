@@ -151,27 +151,37 @@ async fn create_otp(
             tracing::error!(error = %format!("{err:#}"), "failed to create an OTP");
             return;
         }
-        let settings = core.settings();
-        let fill = |template: &str| {
-            mail::render(
-                &template
-                    .replace("{OTP}", &password)
-                    .replace("{OTP_ID}", &id),
-                &settings,
-                "",
-            )
-        };
-        core.send_mail_for(
-            mail::Message {
-                to: record.email().to_string(),
-                subject: fill(&options.email_template.subject),
-                html: fill(&options.email_template.body),
-            },
-            "otp",
-            Some(&record),
-        );
+        send_otp(&core, &record, &id, &password);
     });
     Ok(otp_id)
+}
+
+/// Emails the record a one-time password (with its id).
+pub(crate) fn send_otp(core: &Core, record: &AuthRecord, otp_id: &str, password: &str) {
+    let options = &record
+        .collection
+        .auth_options()
+        .expect("auth collection")
+        .otp;
+    let settings = core.settings();
+    let fill = |template: &str| {
+        mail::render(
+            &template
+                .replace("{OTP}", password)
+                .replace("{OTP_ID}", otp_id),
+            &settings,
+            "",
+        )
+    };
+    core.send_mail_for(
+        mail::Message {
+            to: record.email().to_string(),
+            subject: fill(&options.email_template.subject),
+            html: fill(&options.email_template.body),
+        },
+        "otp",
+        Some(record),
+    );
 }
 
 /// `POST /api/collections/{collection}/auth-with-otp` (`{"otpId", "password"}`)

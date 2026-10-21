@@ -399,7 +399,7 @@ struct Target {
 }
 
 /// Delivers a change to every subscriber allowed to see it.
-pub async fn dispatch(core: &Core, collection_id: &str, action: Action, record: Values) {
+pub async fn dispatch(core: &Arc<Core>, collection_id: &str, action: Action, record: Values) {
     let registry = core.registry();
     let Some(c) = registry.by_id(collection_id).cloned() else {
         return;
@@ -553,7 +553,7 @@ async fn check_access(
 }
 
 async fn deliver(
-    core: &Core,
+    core: &Arc<Core>,
     c: &Arc<Collection>,
     action: Action,
     record: &Values,
@@ -570,31 +570,26 @@ async fn deliver(
     if c.is_auth() && !email_visible {
         values.remove(crate::collections::model::FIELD_EMAIL);
     }
-    let mut record = record_json(c, values);
-    // `expand` in the subscription's options, with the subscriber's rules for related records
-    if target
-        .topic
-        .query
-        .get("expand")
-        .is_some_and(|e| !e.trim().is_empty())
+    let record = record_json(c, values);
+    // enriched, and with the `expand` of the subscription's options (the subscriber's rules
+    // apply to related records)
+    let request = target_request(core, target);
+    let record = match crate::records::api::respond(
+        core,
+        &target.auth,
+        &request,
+        c,
+        record.clone(),
+        &target.topic.query,
+    )
+    .await
     {
-        let request = target_request(core, target);
-        match crate::records::api::respond(
-            core,
-            &target.auth,
-            &request,
-            c,
-            record.clone(),
-            &target.topic.query,
-        )
-        .await
-        {
-            Ok(expanded) => record = expanded,
-            Err(err) => {
-                tracing::debug!(error = %err.message, "realtime expand failed; sending the record as is")
-            }
+        Ok(record) => record,
+        Err(err) => {
+            tracing::debug!(error = %err.message, "realtime enrich or expand failed; sending the record as is");
+            record
         }
-    }
+    };
     let record = pick_fields(record, target.topic.query.get("fields"));
     let message = Message {
         event: target.topic.raw.clone(),
@@ -633,7 +628,7 @@ impl Seen {
     }
 }
 
-async fn deliver_event(core: &Core, id: i64, seen: &mut Seen) -> anyhow::Result<()> {
+async fn deliver_event(core: &Arc<Core>, id: i64, seen: &mut Seen) -> anyhow::Result<()> {
     if !seen.insert(id) {
         return Ok(());
     }

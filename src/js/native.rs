@@ -195,7 +195,15 @@ pub(super) fn internal(err: impl Into<anyhow::Error>) -> ApiError {
 
 pub(super) fn call(shared: &Arc<Shared>, name: &str, args: &str) -> String {
     let args: Vec<Value> = serde_json::from_str(args).unwrap_or_default();
-    envelope(run(shared, name, &args))
+    // a panic in a native function fails the call, not the runtime
+    let result =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(shared, name, &args)))
+            .unwrap_or_else(|_| {
+                Err(internal(anyhow::anyhow!(
+                    "the native function {name:?} panicked"
+                )))
+            });
+    envelope(result)
 }
 
 pub(super) struct Args<'a>(pub(super) &'a [Value]);
@@ -251,6 +259,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             return Ok(Value::Null);
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
+        "readTextFile" => return read_text_file(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
         "fileFromPath" => return file_from_path(&a.str(0)),
         "fileFromURL" => return handle.block_on(file_from_url(&a.str(0))),
@@ -348,17 +357,53 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             )))
         }
         "authToken" => {
-            let collection = core.collection(&a.str(0))?;
-            if !collection.is_auth() {
-                return Err(bad("The record isn't from an auth collection."));
-            }
-            let values = handle.block_on(stored_values(&core, &a.str(0), &a.str(1)))?;
-            let record = AuthRecord {
-                collection,
-                values,
-                refreshable: true,
-            };
+            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
             Ok(Value::String(record.issue_auth_token(&core, None, true)))
+        }
+        // record.newVerificationToken(), newPasswordResetToken(), newEmailChangeToken(email),
+        // newFileToken(), newStaticAuthToken(seconds)
+        "recordToken" => {
+            use crate::auth::TokenType;
+            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
+            let kind = match a.str(2).as_str() {
+                "verification" => TokenType::Verification,
+                "passwordReset" => TokenType::PasswordReset,
+                "emailChange" => TokenType::EmailChange,
+                "file" => TokenType::File,
+                "staticAuth" => {
+                    let duration = Some(a.int(3)).filter(|d| *d > 0);
+                    return Ok(Value::String(
+                        record.issue_auth_token(&core, duration, false),
+                    ));
+                }
+                other => return Err(bad(format!("Unknown token type {other:?}."))),
+            };
+            let new_email = a.str(3);
+            Ok(Value::String(crate::records::auth_api::record_token(
+                &core,
+                &record,
+                kind,
+                Some(new_email.as_str()).filter(|e| !e.is_empty()),
+            )))
+        }
+        // $mails.sendRecordVerification(app, record), ...
+        "sendRecordMail" => {
+            use crate::records::{auth_api, otp};
+            // the emails are sent in the background, on the async runtime
+            let _runtime = handle.enter();
+            let record = handle.block_on(auth_record(&core, &a.str(1), &a.str(2)))?;
+            if record.email().is_empty() {
+                return Err(bad("The record has no email."));
+            }
+            match a.str(0).as_str() {
+                "verification" => auth_api::send_verification(&core, &record),
+                "passwordReset" => auth_api::send_password_reset(&core, &record),
+                "emailChange" => auth_api::send_email_change(&core, &record, &a.str(3)),
+                "otp" => otp::send_otp(&core, &record, &a.str(3), &a.str(4)),
+                "authAlert" => auth_api::send_auth_alert(&core, &record, &a.str(3)),
+                other => return Err(bad(format!("Unknown email {other:?}."))),
+            }
+            Ok(Value::Null)
         }
         "dbQuery" => handle.block_on(db_query(&core, &a.str(0), &a.object(1), &a.str(2))),
         "settings" => serde_json::to_value(&*core.settings()).map_err(internal),
@@ -386,6 +431,38 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
         }
         other => Err(bad(format!("Unknown native function {other:?}."))),
     }
+}
+
+/// Largest template file `$template.loadFiles()` reads.
+const MAX_TEMPLATE_BYTES: u64 = 8 << 20;
+
+/// A text file for `$template.loadFiles()` (relative paths are relative to the hooks
+/// directory).
+fn read_text_file(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+    let path = shared.dir.join(path);
+    let size = std::fs::metadata(&path)
+        .map_err(|e| bad(format!("Failed to read {}: {e}.", path.display())))?
+        .len();
+    if size > MAX_TEMPLATE_BYTES {
+        return Err(bad(format!("{} is too large.", path.display())));
+    }
+    std::fs::read_to_string(&path)
+        .map(Value::String)
+        .map_err(|e| bad(format!("Failed to read {}: {e}.", path.display())))
+}
+
+/// A record of an auth collection, with its secrets.
+async fn auth_record(core: &Core, collection: &str, id: &str) -> Result<AuthRecord, ApiError> {
+    let c = core.collection(collection)?;
+    if !c.is_auth() {
+        return Err(bad("The record isn't from an auth collection."));
+    }
+    let values = stored_values(core, collection, id).await?;
+    Ok(AuthRecord {
+        collection: c,
+        values,
+        refreshable: true,
+    })
 }
 
 /// All values of a record, secrets included.

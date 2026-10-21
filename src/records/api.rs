@@ -106,7 +106,7 @@ fn bad_filter(e: impl std::fmt::Display) -> ApiError {
 
 /// Applies the `expand` query parameter to response records.
 async fn expand_records(
-    core: &Core,
+    core: &Arc<Core>,
     auth: &RequestAuth,
     request: &RequestInfo,
     c: &Arc<Collection>,
@@ -125,9 +125,48 @@ async fn expand_records(
     expand::apply(&ctx, c.clone(), records, &tree).await
 }
 
-/// A single record response, with `expand` applied.
+/// Runs the [`Hooks::on_record_enrich`] handlers on records of `c` about to be sent to a
+/// client, in place.
+pub(crate) async fn enrich(
+    core: &Arc<Core>,
+    request: &RequestInfo,
+    c: &Collection,
+    records: &mut [Value],
+) -> Result<(), ApiError> {
+    let hook = &core.hooks.on_record_enrich;
+    if records.is_empty() || !hook.has_handlers(Some(c)) {
+        return Ok(());
+    }
+    // superusers see every field, whatever the handlers hide (like PocketBase)
+    let superuser = request.auth.as_ref().is_some_and(|a| {
+        a.collection_name == crate::collections::model::SUPERUSERS_COLLECTION_NAME
+    });
+    let (collection, request) = (Arc::new(c.clone()), Arc::new(request.clone()));
+    for record in records.iter_mut() {
+        let Value::Object(values) = std::mem::take(record) else {
+            continue;
+        };
+        let original = superuser.then(|| values.clone());
+        let e = crate::hooks::RecordEnrichEvent {
+            core: core.clone(),
+            collection: collection.clone(),
+            record: values,
+            request: request.clone(),
+        };
+        let mut e = hook.trigger(Some(c), e, |e| async { Ok(e) }).await?;
+        for (key, value) in original.into_iter().flatten() {
+            if c.field(&key).is_some() {
+                e.record.entry(key).or_insert(value);
+            }
+        }
+        *record = Value::Object(e.record);
+    }
+    Ok(())
+}
+
+/// A single record response, enriched and with `expand` applied.
 pub(crate) async fn respond(
-    core: &Core,
+    core: &Arc<Core>,
     auth: &RequestAuth,
     request: &RequestInfo,
     c: &Arc<Collection>,
@@ -135,6 +174,7 @@ pub(crate) async fn respond(
     query: &HashMap<String, String>,
 ) -> Result<Value, ApiError> {
     let mut records = [record];
+    enrich(core, request, c, &mut records).await?;
     expand_records(core, auth, request, c, &mut records, query).await?;
     let [record] = records;
     Ok(record)
@@ -263,6 +303,7 @@ pub async fn list(
     if let Some(response) = e.response {
         return Ok(response);
     }
+    enrich(&core, &e.request, &c, &mut e.records).await?;
     expand_records(&core, &e.auth, &e.request, &c, &mut e.records, &query).await?;
     let items: Vec<Value> = e
         .records
@@ -960,7 +1001,7 @@ pub(crate) fn into_map(record: Value) -> Map<String, Value> {
 /// The response of a create, update or view request: the hook's response, or the record
 /// with `expand` and `fields` applied.
 async fn record_response(
-    core: &Core,
+    core: &Arc<Core>,
     e: RecordRequestEvent,
     query: &HashMap<String, String>,
 ) -> Result<Response, ApiError> {

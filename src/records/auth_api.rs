@@ -284,17 +284,7 @@ pub(super) async fn auth_alert(
     if !options.enabled || !is_new || known == 0 || email.is_empty() {
         return Ok(());
     }
-    let info = alert_info(&ip, user_agent);
-    let fill = |text: &str| mail::render(&text.replace("{ALERT_INFO}", &info), &settings, "");
-    core.send_mail_for(
-        mail::Message {
-            to: email.to_string(),
-            subject: fill(&options.email_template.subject),
-            html: fill(&options.email_template.body),
-        },
-        "authAlert",
-        Some(record),
-    );
+    send_auth_alert(core, record, &alert_info(&ip, user_agent));
     Ok(())
 }
 
@@ -353,6 +343,91 @@ pub(super) fn send_template(
         kind,
         Some(record),
     );
+}
+
+/// Emails the record a link to verify its email.
+pub(crate) fn send_verification(core: &Core, record: &AuthRecord) {
+    let options = record.collection.auth_options().expect("auth collection");
+    let token = record_token(core, record, TokenType::Verification, None);
+    send_template(
+        core,
+        &options.verification_template,
+        record.email(),
+        &token,
+        "verification",
+        record,
+    );
+}
+
+/// Emails the record a link to reset its password.
+pub(crate) fn send_password_reset(core: &Core, record: &AuthRecord) {
+    let options = record.collection.auth_options().expect("auth collection");
+    let token = record_token(core, record, TokenType::PasswordReset, None);
+    send_template(
+        core,
+        &options.reset_password_template,
+        record.email(),
+        &token,
+        "passwordReset",
+        record,
+    );
+}
+
+/// Emails the new address a link to confirm the record's email change.
+pub(crate) fn send_email_change(core: &Core, record: &AuthRecord, new_email: &str) {
+    let options = record.collection.auth_options().expect("auth collection");
+    let token = record_token(core, record, TokenType::EmailChange, Some(new_email));
+    send_template(
+        core,
+        &options.confirm_email_change_template,
+        new_email,
+        &token,
+        "emailChange",
+        record,
+    );
+}
+
+/// Emails the record a sign-in alert, with `info` (HTML) about the sign-in.
+pub(crate) fn send_auth_alert(core: &Core, record: &AuthRecord, info: &str) {
+    let options = &record
+        .collection
+        .auth_options()
+        .expect("auth collection")
+        .auth_alert;
+    let settings = core.settings();
+    let fill = |text: &str| mail::render(&text.replace("{ALERT_INFO}", info), &settings, "");
+    core.send_mail_for(
+        mail::Message {
+            to: record.email().to_string(),
+            subject: fill(&options.email_template.subject),
+            html: fill(&options.email_template.body),
+        },
+        "authAlert",
+        Some(record),
+    );
+}
+
+/// A verification, password reset or email change token of the record (with its
+/// collection's duration); `new_email` is for email changes.
+pub(crate) fn record_token(
+    core: &Core,
+    record: &AuthRecord,
+    kind: TokenType,
+    new_email: Option<&str>,
+) -> String {
+    let options = record.collection.auth_options().expect("auth collection");
+    let duration = match kind {
+        TokenType::Verification => options.verification_token.duration,
+        TokenType::PasswordReset => options.password_reset_token.duration,
+        TokenType::EmailChange => options.email_change_token.duration,
+        TokenType::File => options.file_token.duration,
+        TokenType::Auth => return record.issue_auth_token(core, None, true),
+    };
+    let claims = match kind {
+        TokenType::File => Map::new(),
+        _ => email_claims(record, new_email),
+    };
+    record.issue(core, kind, claims, duration)
 }
 
 pub(super) fn new_token_key() -> String {
@@ -603,21 +678,7 @@ pub async fn request_verification(
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
             if !verified {
-                let options = e.collection.auth_options().expect("auth collection");
-                let token = record.issue(
-                    &e.core,
-                    TokenType::Verification,
-                    email_claims(&record, None),
-                    options.verification_token.duration,
-                );
-                send_template(
-                    &e.core,
-                    &options.verification_template,
-                    record.email(),
-                    &token,
-                    "verification",
-                    &record,
-                );
+                send_verification(&e.core, &record);
             }
             e.response = Some(no_content());
             Ok(e)
@@ -721,21 +782,7 @@ pub async fn request_password_reset(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            let options = e.collection.auth_options().expect("auth collection");
-            let token = record.issue(
-                &e.core,
-                TokenType::PasswordReset,
-                email_claims(&record, None),
-                options.password_reset_token.duration,
-            );
-            send_template(
-                &e.core,
-                &options.reset_password_template,
-                record.email(),
-                &token,
-                "passwordReset",
-                &record,
-            );
+            send_password_reset(&e.core, &record);
             e.response = Some(no_content());
             Ok(e)
         },
@@ -876,22 +923,7 @@ pub async fn request_email_change(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            let new_email = e.str("newEmail").to_string();
-            let options = e.collection.auth_options().expect("auth collection");
-            let token = record.issue(
-                &e.core,
-                TokenType::EmailChange,
-                email_claims(&record, Some(&new_email)),
-                options.email_change_token.duration,
-            );
-            send_template(
-                &e.core,
-                &options.confirm_email_change_template,
-                &new_email,
-                &token,
-                "emailChange",
-                &record,
-            );
+            send_email_change(&e.core, &record, e.str("newEmail"));
             e.response = Some(no_content());
             Ok(e)
         },

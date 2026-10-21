@@ -211,6 +211,18 @@ pub struct CollectionEvent {
     pub collection: Map<String, Value>,
 }
 
+/// A record about to be sent to a client: in record responses (lists, views, creates,
+/// updates, batches and auth responses), as an expanded relation and in realtime messages.
+/// `record` is the record as the client sees it (hidden fields left out, with `expand`);
+/// changes to it are sent.
+pub struct RecordEnrichEvent {
+    pub core: Arc<Core>,
+    pub collection: Arc<Collection>,
+    pub record: Map<String, Value>,
+    /// The request the record is sent for (for realtime, the subscriber's auth).
+    pub request: Arc<RequestInfo>,
+}
+
 /// An email about to be sent (`next` sends it; a handler that doesn't call it skips it).
 pub struct MailerEvent {
     pub message: crate::mail::Message,
@@ -284,6 +296,8 @@ pub struct Hooks {
     pub on_collection_after_create_success: Hook<CollectionEvent>,
     pub on_collection_after_update_success: Hook<CollectionEvent>,
     pub on_collection_after_delete_success: Hook<CollectionEvent>,
+    /// Every record sent to a client (see [`RecordEnrichEvent`]).
+    pub on_record_enrich: Hook<RecordEnrichEvent>,
     /// Every email (handlers limited to collections see only auth emails of those).
     pub on_mailer_send: Hook<MailerEvent>,
     pub on_record_after_create_success: Hook<RecordEvent>,

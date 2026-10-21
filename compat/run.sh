@@ -17,6 +17,8 @@ export COMPAT_EMAIL="${COMPAT_EMAIL:-admin@example.com}"
 export COMPAT_PASSWORD="${COMPAT_PASSWORD:-admin-password-1}"
 work="$(pwd)/.run/${target}"
 rm -rf "$work" && mkdir -p "$work"
+# the hooks of tests/hooks.test.mjs
+cp -r hooks "$work/hooks"
 
 case "$target" in
   slonbase)
@@ -29,7 +31,7 @@ case "$target" in
   pocketbase)
     bin="${POCKETBASE_BIN:?POCKETBASE_BIN must point at a pocketbase binary}"
     "$bin" superuser upsert "$COMPAT_EMAIL" "$COMPAT_PASSWORD" --dir "$work/pb_data" > "$work/setup.log" 2>&1
-    "$bin" serve --dir "$work/pb_data" --http "127.0.0.1:${port}" > "$work/server.log" 2>&1 &
+    "$bin" serve --dir "$work/pb_data" --hooksDir "$work/hooks" --http "127.0.0.1:${port}" > "$work/server.log" 2>&1 &
     ;;
   *)
     echo "unknown target: $target" >&2
