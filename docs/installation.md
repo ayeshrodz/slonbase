@@ -23,8 +23,9 @@ can [build from source](#from-source).
 [`compose.yaml`](../compose.yaml) runs slonbase and PostgreSQL 17 together:
 
 ```sh
-git clone https://github.com/ayeshrodz/slonbase && cd slonbase   # or copy compose.yaml and .env.example
-cp .env.example .env              # set POSTGRES_PASSWORD (URL-safe: openssl rand -hex 24)
+mkdir slonbase && cd slonbase
+curl -fsSLO https://raw.githubusercontent.com/ayeshrodz/slonbase/main/compose.yaml
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env   # URL-safe, see .env.example for the rest
 docker compose up -d
 docker compose logs slonbase | grep "setup?token"
 ```
@@ -34,7 +35,8 @@ two volumes: `pgdata` (the database) and `slonbase_data` (`/data`: files, backup
 config file).
 
 `SLONBASE_VERSION` in `.env` pins a release (`0.4.0`); the default is `latest`. When the image
-can't be pulled, or with `docker compose up --build`, Compose builds it from the checkout.
+can't be pulled, or with `docker compose up --build`, Compose builds it from a checkout of the
+repository (run it there).
 
 ## Docker
 

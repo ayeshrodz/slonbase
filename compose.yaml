@@ -1,6 +1,6 @@
 # slonbase + PostgreSQL.
 #
-#   cp .env.example .env    # then set POSTGRES_PASSWORD
+#   echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env   # or: cp .env.example .env
 #   docker compose up -d
 #   docker compose logs slonbase   # prints the one-time setup link
 #

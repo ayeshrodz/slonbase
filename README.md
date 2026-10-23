@@ -6,8 +6,9 @@
 </p>
 
 <p align="center">
-  <strong>An open-source backend in one binary: database, auth, realtime, files and an admin dashboard.</strong><br>
-  The PocketBase API you know, built in Rust on top of your own PostgreSQL.
+  <strong>PocketBase's API, on PostgreSQL.</strong><br>
+  An open-source backend in one Rust binary: database, auth, realtime, files and an admin
+  dashboard. Your PocketBase apps, SDKs, hooks and migrations keep working.
 </p>
 
 <p align="center">
@@ -29,10 +30,17 @@
 </p>
 
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/records-dark.png">
-    <img alt="The slonbase dashboard: a collection's records in a live grid" src="docs/assets/screenshots/records-light.png" width="900">
-  </picture>
+  <img alt="The official PocketBase JavaScript SDK creating and updating a task, and the slonbase dashboard's grid updating live" src="docs/assets/demo.gif" width="900">
+</p>
+
+<p align="center">
+  <sub>The unmodified <code>pocketbase</code> npm package talking to slonbase. The grid is live: realtime events arrive as the code runs.</sub>
+</p>
+
+<p align="center">
+  <b>Tested against PocketBase on every commit:</b> the same test suite, written with the official
+  JavaScript SDK, runs against a real PocketBase 0.40 and against slonbase, and must pass on both
+  (<a href="compat/">compat/</a>).
 </p>
 
 ## Why slonbase
@@ -96,22 +104,41 @@ API, and puts it on **PostgreSQL**:
 </table>
 
 > [!NOTE]
-> **slonbase is young (0.4).** The API is tested against PocketBase 0.40 with its official
-> JavaScript SDK, on every commit ([compat/](compat/)). Expect rough edges, and back up your data.
+> **slonbase is young (0.4).** Expect rough edges, and back up your data. Compatibility reports
+> are very welcome: if your PocketBase app doesn't work on slonbase, that's a bug.
+
+## When to use PocketBase instead
+
+slonbase is not a replacement for every PocketBase install. PocketBase is the better choice when:
+
+- **You want zero moving parts.** PocketBase is one file with SQLite inside. slonbase needs a
+  PostgreSQL server next to it (the Compose file below starts one).
+- **One small app on one small machine is the whole plan.** SQLite in the same process answers
+  a single client's lookups faster than any network database.
+- **You extend it in Go** (`main.go`), or rely on a hook slonbase doesn't have yet (realtime,
+  file, backup and settings hooks, `$dbx`). See [the differences](docs/migrating-from-pocketbase.md).
+
+slonbase is for when you want the PocketBase experience but your data belongs in PostgreSQL:
+you already run it, you want SQL access, replicas, `pg_dump` or a managed service, or you need
+more than one server instance.
 
 ## Quick start
 
-PostgreSQL isn't bundled. slonbase connects to any PostgreSQL 14+ server, on the same machine,
-elsewhere, or a managed service. The Compose file below starts one for you.
-
-**Docker Compose:**
+**In 60 seconds, with Docker.** This starts slonbase and a PostgreSQL 17 server for it:
 
 ```sh
-git clone https://github.com/ayeshrodz/slonbase && cd slonbase
-cp .env.example .env              # set POSTGRES_PASSWORD
+mkdir slonbase && cd slonbase
+curl -fsSLO https://raw.githubusercontent.com/ayeshrodz/slonbase/main/compose.yaml
+echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)" > .env
 docker compose up -d
 docker compose logs slonbase | grep "setup?token"
 ```
+
+Open the printed link and create your first superuser. That's it: the dashboard is at
+`http://localhost:8090/_/` and the API at `/api/`.
+
+**Without Docker**, PostgreSQL isn't bundled: slonbase connects to any PostgreSQL 14+ server, on
+the same machine, elsewhere, or a managed service, and the setup link asks for it.
 
 **Debian / Ubuntu:** from the apt repository, so `apt upgrade` keeps it up to date:
 
@@ -127,8 +154,7 @@ The `.deb` and `.rpm` files are also on the [releases](https://github.com/ayeshr
 
 **Binary:** extract the `.tar.gz` from the releases and run `./slonbase serve`.
 
-Open the printed link to connect PostgreSQL and create your first superuser. The dashboard is at
-`/_/` (e.g. `http://localhost:8090/_/`) and the API at `/api/`.
+Then use any PocketBase SDK, unchanged:
 
 ```js
 import PocketBase from "pocketbase";
@@ -140,15 +166,13 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 
 ## A look around
 
-| Overview | Schema |
+| Records | Overview |
 |---|---|
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png"><img alt="Overview" src="docs/assets/screenshots/overview-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/schema-dark.png"><img alt="Schema editor" src="docs/assets/screenshots/schema-light.png"></picture> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/records-dark.png"><img alt="A collection's records in a live grid" src="docs/assets/screenshots/records-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png"><img alt="Overview" src="docs/assets/screenshots/overview-light.png"></picture> |
+| **Schema** | **Logs** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/schema-dark.png"><img alt="Schema editor" src="docs/assets/screenshots/schema-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png"><img alt="Logs" src="docs/assets/screenshots/logs-light.png"></picture> |
 | **API rules** | **API preview** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/api-dark.png"><img alt="API preview" src="docs/assets/screenshots/api-light.png"></picture> |
-
-<p align="center"><b>Logs</b><br>
-  <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png"><img alt="Logs" src="docs/assets/screenshots/logs-light.png" width="640"></picture>
-</p>
 
 The dashboard follows your system's light or dark theme, works on phones, and press ⌘K / Ctrl K
 to jump anywhere. It only uses the public API, so anything it does, you can script too.
@@ -215,5 +239,5 @@ Please report security problems [privately](SECURITY.md).
 
 [MIT](LICENSE). The dashboard vendors Preact (MIT) and htm (Apache-2.0); their licenses are in
 [ui/app/vendor](ui/app/vendor).
-slonbase is an independent project inspired by PocketBase (also MIT) and is not
-affiliated with it.
+slonbase is an independent project inspired by PocketBase (also MIT). It is not affiliated
+with or endorsed by PocketBase or its author, and it wouldn't exist without their work.
