@@ -171,7 +171,8 @@ the settings on every instance, and signs everyone out, since the signing key is
   every statement has a 3 minute timeout. Creating or changing view collections also requires
   it, because their queries run with the role's privileges.
 - Review API rules: `null` allows superusers only, and `""` allows anyone.
-- Turn on rate limits for sign-in and other public endpoints.
+- Keep rate limits on (new installations start with them on), and turn them on for
+  installations from before 0.4.2.
 - Keep the config file private (`0600`, which the wizard sets), since it contains the database
   password.
 - Report vulnerabilities as described in [SECURITY.md](../SECURITY.md).

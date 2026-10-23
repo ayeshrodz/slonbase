@@ -7,6 +7,13 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Changed
+
+- **New installations start with rate limits on**, with the default rules (`*:auth` 2 requests
+  per 3 seconds, `*:create` 20 per 5 seconds, `/api/batch` 3 per second, `/api/` 300 per 10
+  seconds). PocketBase starts with them off. Existing installations, and imports from
+  PocketBase, keep their setting.
+
 ## [0.4.1] - 2026-10-23
 
 A security release: everyone on 0.4.0 should upgrade. It also adds ready-made setups for

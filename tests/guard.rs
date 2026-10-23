@@ -38,6 +38,10 @@ async fn rate_limits() {
         let (app, token) = (app.clone(), token.clone());
         async move { call(&app, "10.0.0.1", Some(&token), method, uri, body).await }
     };
+    // a new installation starts with the default rules on
+    let (_, settings) = admin("GET", "/api/settings", None).await;
+    assert_eq!(settings["rateLimits"]["enabled"], true, "{settings}");
+    assert_eq!(settings["rateLimits"]["rules"][0]["label"], "*:auth");
     let (status, res) = admin(
         "POST",
         "/api/collections",

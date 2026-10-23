@@ -92,9 +92,10 @@ and a self-hosted provider may be on a private network. Tests:
 
 ## Advice, not changed
 
-- **Turn rate limits on.** They're off by default, as in PocketBase, so nothing limits password
-  guessing until a superuser enables them (Settings → Rate limits). The defaults allow 2
-  sign-in attempts per 3 seconds per client and collection.
+- **Turn rate limits on.** They were off by default, as in PocketBase, so nothing limited
+  password guessing until a superuser enabled them. Since 0.4.2, new installations start with
+  them on (2 sign-in attempts per 3 seconds per client and collection). Older installations keep
+  their setting: turn them on in Settings → Rate limits.
 - **bcrypt reads only the first 72 bytes of a password.** The default maximum of 71 characters
   stays under that for ASCII, but a password of non-ASCII characters, or a higher maximum, can
   go over it. The bytes past 72 are then ignored.

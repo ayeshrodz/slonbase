@@ -55,6 +55,24 @@ for _ in $(seq 1 100); do
   sleep 0.2
 done
 
+# a new slonbase installation has rate limits on, PocketBase's doesn't: compare like with like
+if [ "$target" = slonbase ]; then
+  node --input-type=module -e '
+    const [url, identity, password] = process.argv.slice(1);
+    const send = async (method, path, body, token) => {
+      const res = await fetch(url + path, {
+        method,
+        headers: { "content-type": "application/json", ...(token ? { authorization: token } : {}) },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+      return res.json();
+    };
+    const { token } = await send("POST", "/api/collections/_superusers/auth-with-password", { identity, password });
+    await send("PATCH", "/api/settings", { rateLimits: { enabled: false } }, token);
+  ' "$BENCH_URL" "$BENCH_EMAIL" "$BENCH_PASSWORD"
+fi
+
 echo "seeding ${target}..." >&2
 seed="$(node seed.mjs)"
 post="$(node -e 'console.log(JSON.parse(process.argv[1]).post)' "$seed")"

@@ -115,6 +115,8 @@ pub async fn create_first(pool: &Pool, email: &str, password: &str) -> Result<Cr
         ],
     )
     .await?;
+    // a new installation: unlike PocketBase's, it starts with rate limits on
+    crate::settings::Settings::init(&tx).await?;
     tx.commit().await?;
 
     Ok(CreateFirst::Created)

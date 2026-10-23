@@ -51,6 +51,24 @@ if ! curl -sf "${COMPAT_URL}/api/health" > /dev/null; then
   exit 1
 fi
 
+# a new slonbase installation has rate limits on, PocketBase's doesn't: compare like with like
+if [ "$target" = slonbase ]; then
+  node --input-type=module -e '
+    const [url, identity, password] = process.argv.slice(1);
+    const send = async (method, path, body, token) => {
+      const res = await fetch(url + path, {
+        method,
+        headers: { "content-type": "application/json", ...(token ? { authorization: token } : {}) },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`${method} ${path}: ${res.status} ${await res.text()}`);
+      return res.json();
+    };
+    const { token } = await send("POST", "/api/collections/_superusers/auth-with-password", { identity, password });
+    await send("PATCH", "/api/settings", { rateLimits: { enabled: false } }, token);
+  ' "$COMPAT_URL" "$COMPAT_EMAIL" "$COMPAT_PASSWORD"
+fi
+
 status=0
 node --experimental-eventsource --test --test-concurrency=1 "${@:-tests/*.test.mjs}" || status=$?
 if [ "$status" -ne 0 ]; then

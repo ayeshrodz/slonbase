@@ -137,7 +137,10 @@ PostgreSQL crash. Browse them in the dashboard or with `/api/logs`.
 
 ### Rate limits
 
-`rateLimits` (off by default) follows PocketBase's rules. A rule's `label` is one of:
+`rateLimits` follows PocketBase's rules. New installations (and new projects) start with them
+on and these rules: `*:auth` 2 requests per 3 seconds, `*:create` 20 per 5 seconds,
+`/api/batch` 3 per second and `/api/` 300 per 10 seconds. Installations from before 0.4.2, and
+PocketBase's, start with them off. A rule's `label` is one of:
 
 - `{collection}:{action}` or `*:{action}`, where the action is `list`, `view`, `create`,
   `update`, `delete`, `auth`, `authWithPassword`, `requestOTP`, `file`, and so on;

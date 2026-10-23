@@ -79,7 +79,7 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | Backups | Zip with the SQLite file | Zip in slonbase's own format, plus any PostgreSQL backup tool |
 | Settings encryption | `PB_ENCRYPTION` | Not supported; protect the database instead |
 | Migrations | Go/JS migrations, automigrate | [JS migrations](migrations.md) and automigrate; Go migrations aren't supported |
-| Rate limits | Per process | Per instance |
+| Rate limits | Per process, off on new installations | Per instance, on for new installations (an import keeps PocketBase's setting) |
 | Dashboard | PocketBase's | slonbase's own, with the same features |
 
 Error messages and validation codes follow PocketBase (e.g. `validation_required`,

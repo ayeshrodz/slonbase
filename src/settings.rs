@@ -281,6 +281,20 @@ impl Settings {
         })
     }
 
+    /// Saves the settings of a new installation: the defaults, with rate limits on.
+    /// Settings saved before (by a migration, say) are kept.
+    pub(crate) async fn init(client: &impl GenericClient) -> anyhow::Result<()> {
+        let mut settings = Self::default();
+        settings.rate_limits.enabled = true;
+        client
+            .execute(
+                "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
+                &[&PARAMS_KEY, &serde_json::to_value(&settings)?],
+            )
+            .await?;
+        Ok(())
+    }
+
     pub(crate) async fn save(&self, client: &impl GenericClient) -> anyhow::Result<()> {
         client
             .execute(
