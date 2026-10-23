@@ -7,6 +7,19 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Security
+
+Fixes from a [review of the authentication code](docs/security-review.md):
+
+- The OTP attempt limit (5 wrong passwords) held for guesses sent one at a time only: guesses
+  sent at the same time could all be checked. Each guess now takes an attempt before it's
+  checked.
+- Behind a proxy that adds its own `X-Forwarded-For` line rather than appending to the client's
+  (e.g. HAProxy's `option forwardfor`), a client could choose the IP address that rate limits,
+  `superuserIPs` and logs see. Every line of a trusted proxy header is now read.
+- OAuth2 avatar downloads only reach public addresses (or the provider's own hosts), so a user
+  who can set their avatar URL at the provider can't make slonbase fetch internal addresses.
+
 ### Added
 
 - Ready-made setups for hosting platforms ([docs/platforms.md](docs/platforms.md)): a Render

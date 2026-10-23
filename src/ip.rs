@@ -1,7 +1,7 @@
 //! Client IP addresses: the connection's address, and the address a trusted proxy reports
 //! in a header (the settings' `trustedProxy`), and IP ranges (`10.0.0.0/8`).
 
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use axum::extract::ConnectInfo;
 use axum::http::{Extensions, HeaderMap};
@@ -33,10 +33,18 @@ pub fn user_ip(
     proxy: &TrustedProxy,
 ) -> Option<IpAddr> {
     for name in &proxy.headers {
-        let Some(value) = headers.get(name.trim()).and_then(|v| v.to_str().ok()) else {
-            continue;
-        };
-        let mut parts = value.split(',').map(str::trim).filter(|p| !p.is_empty());
+        // every line of the header, in order: some proxies (HAProxy's `option forwardfor`)
+        // add their own line instead of appending to the client's
+        let lines: Vec<&str> = headers
+            .get_all(name.trim())
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect();
+        let mut parts = lines
+            .iter()
+            .flat_map(|line| line.split(','))
+            .map(str::trim)
+            .filter(|p| !p.is_empty());
         let picked = if proxy.use_leftmost_ip {
             parts.next()
         } else {
@@ -140,6 +148,48 @@ pub fn in_any(ranges: &[String], ip: IpAddr) -> bool {
         .any(|r| r.contains(ip))
 }
 
+/// Whether an address is on the public internet: not loopback, private, link-local
+/// (cloud metadata services), shared, reserved, documentation or multicast.
+pub fn is_public(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_public_v4(v4),
+        IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return is_public_v4(v4);
+            }
+            let s = v6.segments();
+            // NAT64 (64:ff9b::/96) embeds an IPv4 address
+            if s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] {
+                let [a, b] = s[6].to_be_bytes();
+                let [c, d] = s[7].to_be_bytes();
+                return is_public_v4(Ipv4Addr::new(a, b, c, d));
+            }
+            !(v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || (s[0] & 0xfe00) == 0xfc00 // unique local
+                || (s[0] & 0xffc0) == 0xfe80 // link-local
+                || (s[0] == 0x2001 && s[1] == 0x0db8)) // documentation
+        }
+    }
+}
+
+fn is_public_v4(ip: Ipv4Addr) -> bool {
+    let [a, b, c, _] = ip.octets();
+    !(ip.is_unspecified()
+        || ip.is_loopback()
+        || ip.is_private()
+        || ip.is_link_local()
+        || ip.is_broadcast()
+        || ip.is_documentation()
+        || ip.is_multicast()
+        || a == 0
+        || (a == 100 && (b & 0xc0) == 64) // shared address space (CGNAT)
+        || (a == 192 && b == 0 && c == 0) // IETF protocol assignments
+        || (a == 198 && (b & 0xfe) == 18) // benchmarking
+        || a >= 240) // reserved
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -172,6 +222,43 @@ mod tests {
     }
 
     #[test]
+    fn public_addresses() {
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "2606:4700::1111",
+            "::ffff:8.8.8.8",
+            "64:ff9b::808:808",
+        ] {
+            assert!(is_public(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in [
+            "127.0.0.1",
+            "10.1.2.3",
+            "172.16.0.1",
+            "192.168.1.1",
+            "169.254.169.254",
+            "0.0.0.0",
+            "100.64.0.1",
+            "192.0.0.1",
+            "198.18.0.1",
+            "224.0.0.1",
+            "255.255.255.255",
+            "240.0.0.1",
+            "::1",
+            "::",
+            "fd00::1",
+            "fe80::1",
+            "2001:db8::1",
+            "::ffff:127.0.0.1",
+            "64:ff9b::a00:1",
+            "ff02::1",
+        ] {
+            assert!(!is_public(ip.parse().unwrap()), "{ip}");
+        }
+    }
+
+    #[test]
     fn proxy_headers() {
         let remote: Option<IpAddr> = Some("10.0.0.1".parse().unwrap());
         let mut headers = HeaderMap::new();
@@ -198,6 +285,17 @@ mod tests {
             user_ip(&headers, remote, &proxy),
             Some("203.0.113.9".parse().unwrap())
         );
+        // a proxy that adds its own line: the client's line comes first
+        let mut lines = HeaderMap::new();
+        lines.append("x-forwarded-for", HeaderValue::from_static("1.1.1.1"));
+        lines.append("x-forwarded-for", HeaderValue::from_static("198.51.100.7"));
+        proxy.use_leftmost_ip = false;
+        assert_eq!(
+            user_ip(&lines, remote, &proxy),
+            Some("198.51.100.7".parse().unwrap()),
+            "the last line is the proxy's"
+        );
+        proxy.use_leftmost_ip = true;
         headers.insert("x-forwarded-for", HeaderValue::from_static("garbage"));
         assert_eq!(user_ip(&headers, remote, &proxy), remote);
         headers.insert("x-real-ip", HeaderValue::from_static("[2001:db8::1]:443"));

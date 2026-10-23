@@ -40,4 +40,5 @@ Out of scope:
   headers on a server reachable without the proxy;
 - denial of service through sheer request volume. Rate limits are available for that.
 
-For hardening advice, see the [security checklist](docs/deployment.md#security-checklist).
+For hardening advice, see the [security checklist](docs/deployment.md#security-checklist). The
+[authentication review](docs/security-review.md) lists what was checked and fixed.

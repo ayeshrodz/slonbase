@@ -562,6 +562,66 @@ async fn oauth2(env: &Env, token: Option<&str>, user: &str, extra: Value) -> (St
     .await
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn otp_attempts_hold_under_concurrent_guesses() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    users_collection(
+        &env,
+        json!({ "otp": { "enabled": true, "length": 6, "duration": 300 } }),
+    )
+    .await;
+    env.signup("a@example.com", "password-123").await;
+    let (otp_id, code) = request_otp(&env, "a@example.com").await;
+
+    // many wrong guesses at once: each one waits on bcrypt, so they all start before
+    // any of them fails
+    let mut guesses = tokio::task::JoinSet::new();
+    for i in 0..40 {
+        let app = env.app.clone();
+        let mut wrong = format!("{:06}", 100_000 + i);
+        if wrong == code {
+            wrong = "999999".into();
+        }
+        let body = json!({ "otpId": otp_id, "password": wrong });
+        guesses.spawn(async move {
+            request(
+                &app,
+                "POST",
+                "/api/collections/users/auth-with-otp",
+                &[],
+                Some(body),
+            )
+            .await
+            .0
+        });
+    }
+    while let Some(status) = guesses.join_next().await {
+        assert_eq!(status.unwrap(), StatusCode::BAD_REQUEST);
+    }
+    let checked = env
+        .count(&format!(
+            "SELECT COALESCE(max(attempts), 0)::bigint FROM _slonbase.otps WHERE id = '{otp_id}'"
+        ))
+        .await;
+    assert!(
+        checked <= 5,
+        "{checked} guesses were checked against the OTP"
+    );
+    // and it's used up
+    let (status, _) = env
+        .call(
+            None,
+            "POST",
+            "/api/collections/users/auth-with-otp",
+            Some(json!({ "otpId": otp_id, "password": code })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    env.finish().await;
+}
+
 #[tokio::test]
 async fn oauth2_sign_in() {
     let Some(env) = Env::new().await else {

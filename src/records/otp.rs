@@ -213,11 +213,14 @@ pub async fn auth_with_otp(
     }
 
     let client = core.pool.get().await.map_err(pool_error)?;
+    // each guess takes an attempt before it's checked, in the statement that checks the
+    // limit, so guesses sent at the same time can't get past it
     let row = client
         .query_opt(
-            "SELECT record_id, password_hash, sent_to FROM _slonbase.otps
+            "UPDATE _slonbase.otps SET attempts = attempts + 1
              WHERE id = $1 AND collection_id = $2 AND attempts < $3
-               AND created > now() - $4::bigint * interval '1 second'",
+               AND created > now() - $4::bigint * interval '1 second'
+             RETURNING record_id, password_hash, sent_to",
             &[&otp_id, &c.id, &MAX_ATTEMPTS, &options.duration],
         )
         .await
@@ -226,13 +229,6 @@ pub async fn auth_with_otp(
     let (record_id, hash, sent_to): (String, String, String) = (row.get(0), row.get(1), row.get(2));
 
     if !values::verify_password(password.to_string(), hash).await {
-        client
-            .execute(
-                "UPDATE _slonbase.otps SET attempts = attempts + 1 WHERE id = $1",
-                &[&otp_id],
-            )
-            .await
-            .map_err(db_error)?;
         return Err(invalid());
     }
     let values = store::find_by_id(&client, &c, &record_id)

@@ -38,7 +38,7 @@ use crate::datetime;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::quote_ident;
-use crate::oauth2::{self, AuthUser, Provider};
+use crate::oauth2::{AuthUser, Provider};
 use crate::validation::Errors;
 use crate::{ids, realtime};
 
@@ -191,7 +191,7 @@ pub async fn auth_with_oauth2(
                     let is_signed_in = signed_in.as_ref().is_some_and(|r| r.id() == record.id());
                     update_existing(&core, &c, record.values, &user, is_signed_in).await?
                 }
-                None => create(&app, &core, &c, create_data, &user).await?,
+                None => create(&app, &core, &c, &provider, create_data, &user).await?,
             };
             let record_id = str_of(&values, "id").to_string();
             if linked_to.as_deref() != Some(record_id.as_str()) {
@@ -357,6 +357,7 @@ async fn create(
     app: &Arc<App>,
     core: &Core,
     c: &Arc<Collection>,
+    provider: &Provider,
     mut data: Map<String, Value>,
     user: &AuthUser,
 ) -> Result<Values, ApiError> {
@@ -387,7 +388,7 @@ async fn create(
         avatar_field.filter(|f| !data.contains_key(&f.name) && !user.avatar_url.is_empty())
     {
         if matches!(field.kind, FieldKind::File(_)) {
-            if let Some(file) = oauth2::download(&user.avatar_url).await {
+            if let Some(file) = provider.download_avatar(&user.avatar_url).await {
                 uploads.push(Upload {
                     key: field.name.clone(),
                     original_name: "avatar".into(),

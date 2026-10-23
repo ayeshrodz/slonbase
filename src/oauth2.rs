@@ -19,6 +19,8 @@ const TIMEOUT: Duration = Duration::from_secs(15);
 const MAX_RESPONSE: usize = 1 << 20;
 /// Largest avatar downloaded on sign-up.
 pub const MAX_AVATAR: usize = 5 << 20;
+/// Redirects followed when downloading an avatar.
+const MAX_REDIRECTS: usize = 3;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -288,6 +290,24 @@ impl Provider {
         })
     }
 
+    /// Downloads the user's avatar (see [`download`]). The provider's own hosts are
+    /// trusted, since a superuser configured them (a self-hosted provider may be on a
+    /// private network).
+    pub async fn download_avatar(&self, url: &str) -> Option<Vec<u8>> {
+        let own_hosts: Vec<String> = [&self.auth_url, &self.token_url, &self.user_info_url]
+            .into_iter()
+            .filter_map(|u| {
+                Some(
+                    reqwest::Url::parse(u)
+                        .ok()?
+                        .host_str()?
+                        .to_ascii_lowercase(),
+                )
+            })
+            .collect();
+        download(url, &own_hosts).await
+    }
+
     /// Fetches the provider's user with an access token.
     pub async fn user(&self, token: &Token) -> Result<AuthUser> {
         let raw = get_json(&self.user_info_url, &token.access_token).await?;
@@ -479,16 +499,48 @@ async fn get_json(url: &str, access_token: &str) -> Result<Value> {
     serde_json::from_slice(&body).context("invalid user info response")
 }
 
-/// Downloads a file (an avatar), or `None` if it fails or is too large.
-pub async fn download(url: &str) -> Option<Vec<u8>> {
-    if !(url.starts_with("https://") || url.starts_with("http://")) {
-        return None;
+/// Downloads a file (an avatar), or `None` if it fails or is too large. The URL comes from
+/// the provider's user, which some providers let users set, so only public addresses are
+/// fetched (not loopback, private networks or cloud metadata services), except on
+/// `trusted_hosts`; redirects are checked the same way.
+pub async fn download(url: &str, trusted_hosts: &[String]) -> Option<Vec<u8>> {
+    let mut url = reqwest::Url::parse(url).ok()?;
+    for _ in 0..=MAX_REDIRECTS {
+        if !matches!(url.scheme(), "http" | "https") {
+            return None;
+        }
+        let host = url.host_str()?.to_ascii_lowercase();
+        let builder = if trusted_hosts.contains(&host) {
+            crate::http::builder()
+        } else {
+            let port = url.port_or_known_default()?;
+            let addrs: Vec<std::net::SocketAddr> =
+                tokio::net::lookup_host((host.trim_matches(['[', ']']), port))
+                    .await
+                    .ok()?
+                    .collect();
+            if addrs.is_empty() || !addrs.iter().all(|a| crate::ip::is_public(a.ip())) {
+                return None;
+            }
+            // connect to the addresses just checked, so the name can't resolve elsewhere
+            crate::http::builder().resolve_to_addrs(&host, &addrs)
+        };
+        let client = builder
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .ok()?;
+        let response = client.get(url.clone()).timeout(TIMEOUT).send().await.ok()?;
+        if response.status().is_redirection() {
+            let location = response.headers().get(reqwest::header::LOCATION)?;
+            url = url.join(location.to_str().ok()?).ok()?;
+            continue;
+        }
+        if !response.status().is_success() {
+            return None;
+        }
+        return read_limited(response, MAX_AVATAR).await.ok();
     }
-    let response = client().get(url).timeout(TIMEOUT).send().await.ok()?;
-    if !response.status().is_success() {
-        return None;
-    }
-    read_limited(response, MAX_AVATAR).await.ok()
+    None
 }
 
 #[cfg(test)]
@@ -517,6 +569,45 @@ mod tests {
             B64.encode(Sha256::digest(verifier.as_bytes()))
         );
         assert_eq!(method["displayName"], "GitHub");
+    }
+
+    /// A server that answers every request with `body`.
+    async fn serve(body: &'static str) -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                let mut buf = [0u8; 1024];
+                let _ = socket.read(&mut buf).await;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        format!("http://{addr}/avatar.png")
+    }
+
+    #[tokio::test]
+    async fn avatars_only_from_public_addresses() {
+        let url = serve("secret").await;
+        assert_eq!(download(&url, &[]).await, None, "loopback");
+        assert_eq!(
+            download(&url, &["127.0.0.1".into()]).await.as_deref(),
+            Some(&b"secret"[..]),
+            "the provider's own host"
+        );
+        let localhost = url.replace("127.0.0.1", "localhost");
+        assert_eq!(download(&localhost, &[]).await, None, "a name for loopback");
+        for url in [
+            "http://169.254.169.254/latest/meta-data/",
+            "http://[::1]/",
+            "file:///etc/passwd",
+        ] {
+            assert_eq!(download(url, &[]).await, None, "{url}");
+        }
     }
 
     #[test]
