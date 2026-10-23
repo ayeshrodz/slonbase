@@ -137,6 +137,12 @@ docker compose logs slonbase | grep "setup?token"
 Open the printed link and create your first superuser. That's it: the dashboard is at
 `http://localhost:8090/_/` and the API at `/api/`.
 
+**On a hosting platform:** [Render](docs/platforms.md#render) (one click), [Railway](docs/platforms.md#railway),
+[Fly.io](docs/platforms.md#flyio), [Coolify](docs/platforms.md#coolify) and
+[Dokploy](docs/platforms.md#dokploy) each have a ready-made setup with a database.
+
+<a href="https://render.com/deploy?repo=https://github.com/ayeshrodz/slonbase"><img alt="Deploy to Render" src="https://render.com/images/deploy-to-render-button.svg" height="32"></a>
+
 **Without Docker**, PostgreSQL isn't bundled: slonbase connects to any PostgreSQL 14+ server, on
 the same machine, elsewhere, or a managed service, and the setup link asks for it.
 
@@ -181,6 +187,7 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
 
 - [Installation](docs/installation.md): Docker, packages, binaries, first-run setup, upgrades
 - [Configuration](docs/configuration.md): server options and application settings
+- [Hosting platforms](docs/platforms.md): Render, Railway, Fly.io, Coolify and Dokploy
 - [Running in production](docs/deployment.md): reverse proxy, PostgreSQL, several instances,
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime

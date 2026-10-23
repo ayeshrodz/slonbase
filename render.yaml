@@ -1,0 +1,33 @@
+# Render Blueprint: slonbase and a PostgreSQL database for it.
+# https://render.com/deploy?repo=https://github.com/ayeshrodz/slonbase
+# See docs/platforms.md for the first sign-in.
+services:
+  - type: web
+    name: slonbase
+    runtime: docker
+    dockerfilePath: ./deploy/render/Dockerfile
+    dockerContext: ./deploy/render
+    # a disk (files, backups, hooks) needs a paid instance; on the free plan, drop the disk and
+    # store files on S3 (Settings → Files storage)
+    plan: starter
+    healthCheckPath: /api/health
+    disk:
+      name: slonbase-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: PORT
+        value: "8090"
+      - key: SLONBASE_DATABASE_URL
+        fromDatabase:
+          name: slonbase-db
+          property: connectionString
+
+databases:
+  - name: slonbase-db
+    plan: basic-256mb
+    postgresMajorVersion: "17"
+    databaseName: slonbase
+    user: slonbase
+    # reachable from the slonbase service only
+    ipAllowList: []

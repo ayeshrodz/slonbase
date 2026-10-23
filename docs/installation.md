@@ -11,6 +11,7 @@ can [build from source](#from-source).
 
 - [Docker Compose](#docker-compose)
 - [Docker](#docker)
+- [Hosting platforms](platforms.md): Render, Railway, Fly.io, Coolify, Dokploy
 - [Debian, Ubuntu, Fedora, RHEL packages](#debian-ubuntu-fedora-rhel-packages)
 - [Plain binary](#plain-binary)
 - [From source](#from-source)

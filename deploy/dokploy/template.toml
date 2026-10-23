@@ -1,0 +1,14 @@
+[variables]
+main_domain = "${domain}"
+
+[config]
+mounts = []
+
+[[config.domains]]
+serviceName = "slonbase"
+port = 8_090
+host = "${main_domain}"
+
+[config.env]
+DB_PASSWORD = "${password:32}"
+SETUP_TOKEN = "${password:32}"

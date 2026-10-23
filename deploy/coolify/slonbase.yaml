@@ -1,0 +1,37 @@
+# documentation: https://github.com/ayeshrodz/slonbase
+# slogan: PocketBase's API on PostgreSQL: database, auth, realtime, files and an admin dashboard in one binary.
+# category: backend
+# tags: backend, baas, pocketbase, postgres, postgresql, realtime, auth, api, rust
+# logo: svgs/slonbase.svg
+# port: 8090
+
+services:
+  slonbase:
+    image: ghcr.io/ayeshrodz/slonbase:latest
+    environment:
+      - SERVICE_URL_SLONBASE_8090
+      - SLONBASE_DATABASE_URL=postgres://$SERVICE_USER_POSTGRES:$SERVICE_PASSWORD_POSTGRES@postgresql:5432/${POSTGRES_DB:-slonbase}?sslmode=disable
+      - SLONBASE_SETUP_TOKEN=$SERVICE_PASSWORD_64_SETUP
+    volumes:
+      - slonbase-data:/data
+    depends_on:
+      postgresql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/slonbase", "health"]
+      interval: 5s
+      timeout: 6s
+      retries: 10
+  postgresql:
+    image: postgres:17-alpine
+    volumes:
+      - postgresql-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=$SERVICE_USER_POSTGRES
+      - POSTGRES_PASSWORD=$SERVICE_PASSWORD_POSTGRES
+      - POSTGRES_DB=${POSTGRES_DB:-slonbase}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 20s
+      retries: 10

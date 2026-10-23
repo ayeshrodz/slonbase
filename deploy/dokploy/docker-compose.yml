@@ -1,0 +1,35 @@
+services:
+  slonbase:
+    image: ghcr.io/ayeshrodz/slonbase:latest
+    restart: always
+    healthcheck:
+      test: ["CMD", "/slonbase", "health"]
+      interval: 5s
+      timeout: 6s
+      retries: 10
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SLONBASE_DATABASE_URL: postgres://slonbase:${DB_PASSWORD}@db:5432/slonbase?sslmode=disable
+      SLONBASE_SETUP_TOKEN: ${SETUP_TOKEN}
+    volumes:
+      - slonbase-data:/data
+  db:
+    image: postgres:17-alpine
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_DB: slonbase
+      POSTGRES_USER: slonbase
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+
+volumes:
+  slonbase-data:
+  db-data:

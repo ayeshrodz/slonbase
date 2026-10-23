@@ -79,7 +79,10 @@ are disconnected; the SDKs reconnect and resubscribe on their own.
 
 ## Docker
 
-The image runs as an unprivileged user and writes only to `/data`. Its health check
+The image runs as an unprivileged user (uid 65532) and writes only to `/data`. Docker volumes
+keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts, but file
+uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
+root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
 (`ghcr.io/ayeshrodz/slonbase:0.4.0`) rather than `latest` in production.
 

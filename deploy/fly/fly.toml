@@ -1,0 +1,44 @@
+# slonbase on Fly.io. In a directory with this file and its Dockerfile:
+#
+#   fly launch --copy-config --no-deploy
+#   fly secrets set SLONBASE_DATABASE_URL='postgres://...' SLONBASE_SETUP_TOKEN="$(openssl rand -hex 24)"
+#   fly deploy
+#
+# See docs/platforms.md for the database and the first sign-in.
+
+app = "slonbase"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# files, backups and hooks
+[[mounts]]
+  source = "slonbase_data"
+  destination = "/data"
+  initial_size = "1gb"
+
+[http_service]
+  internal_port = 8090
+  force_https = true
+  # one machine, since the volume belongs to it; realtime clients keep it busy anyway
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 500
+    hard_limit = 1000
+
+  [[http_service.checks]]
+    method = "GET"
+    path = "/api/health"
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1

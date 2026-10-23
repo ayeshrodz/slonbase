@@ -7,6 +7,12 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- Ready-made setups for hosting platforms ([docs/platforms.md](docs/platforms.md)): a Render
+  Blueprint (`render.yaml`, with a Deploy to Render button), Fly.io (`deploy/fly/`), Coolify and
+  Dokploy templates (`deploy/coolify/`, `deploy/dokploy/`), and the steps for Railway.
+
 ## [0.4.0] - 2026-10-21
 
 **Hooks parity:** most of what `pb_hooks` files use is now there: PocketBase's auth request
