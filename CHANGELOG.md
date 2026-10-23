@@ -7,6 +7,11 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-23
+
+A security release: everyone on 0.4.0 should upgrade. It also adds ready-made setups for
+hosting platforms.
+
 ### Security
 
 Fixes from a [review of the authentication code](docs/security-review.md):
@@ -263,7 +268,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/ayeshrodz/slonbase/compare/v0.2.0...v0.2.1

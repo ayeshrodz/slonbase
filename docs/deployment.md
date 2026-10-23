@@ -84,7 +84,7 @@ keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts
 uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
 root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:0.4.0`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:0.4.1`) rather than `latest` in production.
 
 ## PostgreSQL
 
