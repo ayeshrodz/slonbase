@@ -6,7 +6,7 @@ the same data on either server with the official SDK (100 authors, 10,000 posts 
 
 ## Results
 
-slonbase 0.1.0 (release build, PostgreSQL 16, default settings) and PocketBase 0.40.5 (the
+slonbase 0.4.1 (release build, PostgreSQL 16, default settings) and PocketBase 0.40.5 (the
 official release binary, default settings), on a 4-CPU cloud VM (Intel Xeon @ 2.80GHz, 15 GB):
 the server (and PostgreSQL) pinned to 3 CPUs, the load generator to the fourth. Each scenario
 runs 3 times for 10 s after a 2 s warm-up; the table shows the medians, and ± is half the
@@ -14,33 +14,35 @@ spread between the runs.
 
 | Scenario | Clients | slonbase req/s | slonbase, async commit | PocketBase req/s | slonbase / PocketBase | async / PocketBase | p50 ms (slonbase / PB) | p99 ms (slonbase / PB) |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|
-| health | 32 | 15,091 ±6% | 15,876 ±2% | 15,827 ±9% | 0.95× | 1.00× | 1.90 / 1.50 | 6.00 / 11.0 |
-| view one record | 32 | 6,032 ±4% | 5,712 ±5% | 6,360 ±7% | 0.95× | 0.90× | 5.00 / 2.80 | 12.2 / 39.1 |
-| view one record (1 client) | 1 | 1,141 ±5% | 1,171 ±6% | 1,540 ±7% | 0.74× | 0.76× | 0.80 / 0.50 | 2.60 / 2.90 |
-| list 30 | 32 | 1,088 ±2% | 1,281 ±16% | 928 ±4% | 1.17× | 1.38× | 28.4 / 29.2 | 53.8 / 123.4 |
-| list 30, sorted | 32 | 1,038 ±6% | 1,259 ±9% | 878 ±5% | 1.18× | 1.43× | 29.8 / 30.8 | 55.3 / 124.5 |
-| list 30, filtered | 32 | 836 ±12% | 925 ±4% | 60.2 ±4% | 13.89× | 15.37× | 36.5 / 534.7 | 75.1 / 711.4 |
-| list 30, expand author | 32 | 709 ±1% | 759 ±4% | 654 ±4% | 1.08× | 1.16× | 44.2 / 38.5 | 70.5 / 176.3 |
-| list 30, signed in | 32 | 830 ±2% | 1,026 ±2% | 796 ±7% | 1.04× | 1.29× | 37.4 / 34.2 | 63.8 / 127.0 |
-| create record | 32 | 1,417 ±4% | 2,220 ±5% | 2,350 ±5% | 0.60× | 0.94× | 21.9 / 8.30 | 36.1 / 72.8 |
-| sign in (bcrypt) | 8 | 37.8 ±1% | 37.1 ±3% | 35.1 ±10% | 1.08× | 1.06× | 208.0 / 223.7 | 332.0 / 349.4 |
+| health | 32 | 18,950 ±3% | 18,213 ±6% | 18,566 ±4% | 1.02× | 0.98× | 1.60 / 1.30 | 4.40 / 9.40 |
+| view one record | 32 | 7,222 ±1% | 7,294 ±6% | 7,115 ±3% | 1.02× | 1.03× | 4.20 / 2.50 | 9.60 / 33.3 |
+| view one record (1 client) | 1 | 1,446 ±7% | 1,548 ±4% | 1,906 ±2% | 0.76× | 0.81× | 0.70 / 0.40 | 1.40 / 1.90 |
+| list 30 | 32 | 1,557 ±2% | 1,556 ±6% | 1,043 ±1% | 1.49× | 1.49× | 20.0 / 26.1 | 36.5 / 101.8 |
+| list 30, sorted | 32 | 1,516 ±3% | 1,486 ±2% | 1,026 ±0% | 1.48× | 1.45× | 20.5 / 27.0 | 37.7 / 100.8 |
+| list 30, filtered | 32 | 1,175 ±3% | 1,131 ±2% | 73.0 ±5% | 16.11× | 15.50× | 26.5 / 445.2 | 47.7 / 623.3 |
+| list 30, expand author | 32 | 973 ±3% | 921 ±2% | 701 ±1% | 1.39× | 1.31× | 32.4 / 35.9 | 50.5 / 161.5 |
+| list 30, signed in | 32 | 1,227 ±2% | 1,271 ±5% | 947 ±6% | 1.30× | 1.34× | 25.4 / 30.0 | 41.9 / 101.5 |
+| create record | 32 | 1,728 ±4% | 2,792 ±5% | 2,532 ±12% | 0.68× | 1.10× | 17.8 / 7.70 | 29.8 / 66.0 |
+| sign in (bcrypt) | 8 | 40.1 ±1% | 41.2 ±0% | 36.6 ±10% | 1.09× | 1.12× | 197.2 / 211.3 | 299.9 / 346.8 |
 
 "async commit" is slonbase with PostgreSQL's `synchronous_commit = off` (see below).
 
 ## Reading the numbers
 
-- **Lists, filters, expand:** slonbase answers more requests per second and keeps a much
-  lower tail latency (p99 roughly half of PocketBase's or less). Filtered lists are where the
-  difference is largest: PostgreSQL uses the index on `views` and plans the combined condition,
-  while PocketBase's query takes about 0.5 s per request under this load.
-- **Single record, one client:** PocketBase is faster (0.5 ms against 0.8 ms). SQLite runs inside
+- **Lists, filters, expand:** slonbase answers 1.3 to 1.5 times as many requests per second
+  and keeps a much lower tail latency (p99 about a third of PocketBase's). Filtered lists are
+  where the difference is largest: PostgreSQL uses the index on `views` and plans the combined
+  condition,
+  while PocketBase's query takes about 0.45 s per request under this load.
+- **Single record, one client:** PocketBase is faster (0.4 ms against 0.7 ms). SQLite runs inside
   the PocketBase process, while every slonbase query is a round trip to PostgreSQL over a socket;
-  with many clients the difference disappears (0.95×).
+  with many clients the difference disappears (1.02×).
 - **Writes:** with PostgreSQL's defaults, every commit waits for the WAL to reach the disk
   (`synchronous_commit = on`). PocketBase's SQLite runs in WAL mode with `synchronous = NORMAL`,
   which doesn't wait for each commit, so a power loss can drop its last transactions (without
   corrupting the database). With `synchronous_commit = off`, PostgreSQL gives that same
-  guarantee, and slonbase writes as fast as PocketBase (0.94×). Which one to use is a choice
+  guarantee, and slonbase writes a little faster than PocketBase (1.10×; 0.68× with the
+  default). Which one to use is a choice
   between durability and write latency; slonbase keeps PostgreSQL's safe default.
 - **Sign-in** is dominated by bcrypt (cost 10 on both), so the two are about equal.
 - **Caveats:** one machine with shared CPUs, the database and the server on the same host, and

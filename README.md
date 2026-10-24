@@ -61,8 +61,8 @@ API, and puts it on **PostgreSQL**:
   events, schema changes and settings reach every instance through `LISTEN/NOTIFY`.
 - ⚡ **Fast where it matters.** It's built in Rust with tokio and axum, its filters compile to
   parameterized SQL, and PostgreSQL's planner uses your indexes. In
-  [the benchmarks](bench/README.md), filtered lists are up to **14× faster** than PocketBase,
-  and p99 latency is about half of PocketBase's.
+  [the benchmarks](bench/README.md), lists are about 1.5× faster than PocketBase, filtered
+  lists up to **16×**, and p99 latency is about a third of PocketBase's.
 - 📦 **One static binary.** It's an 8 MB download, with the dashboard built in. Install it with
   Docker, `.deb`/`.rpm` packages, or a plain binary, then finish with a setup wizard.
 
@@ -220,14 +220,15 @@ Same machine, same data, the same HTTP API and the official SDK, with default se
 
 | Scenario | slonbase req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
-| List 30 records | 1,088 | 928 | 53.8 / 123.4 |
-| List 30, filtered | 836 | 60 | 75.1 / 711.4 |
-| List 30, expand a relation | 709 | 654 | 70.5 / 176.3 |
-| Create a record | 1,417 (2,220 with async commit) | 2,350 | 36.1 / 72.8 |
+| List 30 records | 1,557 | 1,043 | 36.5 / 101.8 |
+| List 30, filtered | 1,175 | 73 | 47.7 / 623.3 |
+| List 30, expand a relation | 973 | 701 | 50.5 / 161.5 |
+| Create a record | 1,728 (2,792 with async commit) | 2,532 | 29.8 / 66.0 |
 
 PocketBase answers a single client's lookups faster, because SQLite runs in its process. Writes
-match it when PostgreSQL trades the same durability that SQLite's default does
-(`synchronous_commit = off`; see [why](docs/deployment.md#postgresql)).
+are slower with PostgreSQL's default durability, and a little faster than PocketBase's when
+PostgreSQL makes the same trade-off as SQLite's default (`synchronous_commit = off`; see
+[why](docs/deployment.md#postgresql)).
 
 ## Contributing
 
