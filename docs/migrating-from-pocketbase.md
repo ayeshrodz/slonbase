@@ -85,7 +85,7 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | | PocketBase | slonbase |
 |---|---|---|
 | Database | Embedded SQLite | Your PostgreSQL 14+ server (not bundled) |
-| Instances | One | Any number on one database (realtime needs [client affinity](deployment.md#several-instances)) |
+| Instances | One | Any number on one database, behind any load balancer ([several instances](deployment.md#several-instances)) |
 | Your data | SQLite file | PostgreSQL tables you can query, replicate and back up with the usual tools |
 | Write durability | `synchronous = NORMAL` | `synchronous_commit = on` by default ([details](deployment.md#postgresql)) |
 | Backups | Zip with the SQLite file | Zip in slonbase's own format, plus any PostgreSQL backup tool |

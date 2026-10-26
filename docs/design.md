@@ -317,6 +317,19 @@ used instead), and Apple's and the other PocketBase presets.
 - Secret fields are stripped from stored events.
 - Events are pruned after five minutes.
 
+**Forwarded subscriptions.** A `POST /api/realtime` for a client whose stream is on another
+instance is stored in `_slonbase.realtime_forwards` and announced (`forward:{id}:{instance}:{client}`).
+The instance holding the client runs it with the original headers, authenticating its
+`Authorization` itself, and writes the response back (`forwarded:{id}:1`); the others answer
+`forwarded:{id}:0`. The forwarder relays the response, or answers 404 once every other live
+instance said no (or after 5 seconds). Live instances come from `_slonbase.instances`, a
+heartbeat every 20 seconds from each listener (and a `instance` notification when one starts,
+so the others count it at once). Alone, an instance doesn't forward at all.
+
+**Shared rate limits.** The guard counts requests in memory while `other_instances()` is 0,
+and otherwise with one upsert per request on the unlogged `_slonbase.rate_limits` table (the
+same fixed windows), falling back to memory if the database can't be reached.
+
 **Listener.** Every instance holds one dedicated connection that runs `LISTEN slonbase`. For an
 event it loads the outbox row and delivers it to its own subscribers, so changes made through
 any instance reach every subscriber. The same channel carries `collections` and `settings`
@@ -515,9 +528,9 @@ verify tokens twice.
 - Fixed windows per rule and client IP; collection rules count per collection and endpoint.
 - Superusers and `excludedIPs` aren't limited; changing the rules resets the counters, and idle
   counters are pruned by the listener.
-- Counters are in memory, per instance (like PocketBase, which runs as one). A shared limit
-  across instances would need a round trip to PostgreSQL per request, which defeats the purpose;
-  put a shared limiter in the load balancer if you need one.
+- Counters are in memory while an instance is alone (like PocketBase, which runs as one). With
+  several instances they're shared through PostgreSQL (see "Shared rate limits" under realtime):
+  one round trip per limited request, paid only by setups that run more than one instance.
 
 **Superuser IPs:** with a non-empty `superuserIPs`, requests with a superuser token and any
 request to the `_superusers` collection (sign-in, OTP, password reset, records) get `403` from

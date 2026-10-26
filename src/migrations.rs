@@ -69,6 +69,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "realtime_triggers",
         sql: include_str!("../migrations/0010_realtime_triggers.sql"),
     },
+    Migration {
+        version: 11,
+        name: "instances",
+        sql: include_str!("../migrations/0011_instances.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

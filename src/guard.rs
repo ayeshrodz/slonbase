@@ -21,6 +21,7 @@ use crate::app::App;
 use crate::auth::{RequestAuth, authenticate, token_from_header};
 use crate::collections::model::SUPERUSERS_COLLECTION_ID;
 use crate::collections::store::Registry;
+use crate::core::Core;
 use crate::error::ApiError;
 use crate::settings::{RateLimitRule, RateLimits};
 
@@ -156,6 +157,54 @@ impl RateLimiter {
     }
 }
 
+/// Counts a request in its window: in memory while this instance is the only live one,
+/// in the database when instances share it, so the limits apply across them (in memory
+/// again if the database can't be reached).
+async fn allow(core: &Core, limiter: String, ip: IpAddr, rule: &RateLimitRule) -> bool {
+    if core.realtime.other_instances() > 0 {
+        match shared_allow(core, &limiter, ip, rule).await {
+            Ok(allowed) => return allowed,
+            Err(err) => {
+                tracing::debug!(error = %format!("{err:#}"), "shared rate limit failed; counting here")
+            }
+        }
+    }
+    core.rate_limiter.allow(limiter, ip, rule)
+}
+
+async fn shared_allow(
+    core: &Core,
+    limiter: &str,
+    ip: IpAddr,
+    rule: &RateLimitRule,
+) -> anyhow::Result<bool> {
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let key = format!("{limiter}|{ip}");
+    let max = i32::try_from(rule.max_requests).unwrap_or(i32::MAX);
+    let duration = rule.duration as f64;
+    let remaining: i32 = client
+        .query_one(
+            "INSERT INTO _slonbase.rate_limits AS r (key, started, remaining) VALUES ($1, now(), $2::int4 - 1) \
+             ON CONFLICT (key) DO UPDATE SET \
+               started = CASE WHEN r.started <= now() - make_interval(secs => $3::float8) THEN now() ELSE r.started END, \
+               remaining = CASE WHEN r.started <= now() - make_interval(secs => $3::float8) THEN $2::int4 - 1 \
+                                ELSE r.remaining - 1 END \
+             RETURNING remaining",
+            &[
+                &key as &(dyn tokio_postgres::types::ToSql + Sync),
+                &max,
+                &duration,
+            ],
+        )
+        .await?
+        .get(0);
+    Ok(remaining >= 0)
+}
+
 fn too_many_requests() -> Response {
     ApiError::new(StatusCode::TOO_MANY_REQUESTS, "Too Many Requests.").into_response()
 }
@@ -228,7 +277,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
                     Some(key) if rule.label.contains(':') => format!("{key}{}", rule.audience),
                     _ => format!("{}{}", rule.label, rule.audience),
                 };
-                if !core.rate_limiter.allow(limiter, ip, rule) {
+                if !allow(&core, limiter, ip, rule).await {
                     return too_many_requests();
                 }
             }

@@ -703,3 +703,101 @@ async fn delivers_changes_made_outside_the_api() {
         .get(0);
     assert_eq!(people, 1);
 }
+
+/// Subscribe requests that reach another instance than the client's stream (no client
+/// affinity at the load balancer) are forwarded to the stream's instance.
+#[tokio::test]
+async fn subscriptions_reach_the_streams_instance() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first, admin, _dir1) = ready_app(&tdb).await;
+    as_admin(
+        &first,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "items", "fields": [{ "name": "n", "type": "number" }],
+            "listRule": "@request.auth.id != ''",
+        })),
+    )
+    .await;
+
+    // alone, an unknown client is refused at once
+    let started = std::time::Instant::now();
+    assert_eq!(
+        subscribe(&first, None, "nope", &["items/*"]).await,
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "no other instance to wait for"
+    );
+
+    let (_dir2, config2) = temp_config();
+    let second = new_app(&config2, Some(tdb.url.clone()));
+    second.bootstrap().await.unwrap();
+    let pool = tdb.pool();
+    let client = pool.get().await.unwrap();
+    for _ in 0..200 {
+        let live: i64 = client
+            .query_one("SELECT count(*) FROM _slonbase.instances", &[])
+            .await
+            .unwrap()
+            .get(0);
+        if live == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+
+    // the stream is on the first instance, its subscriptions are set through the second, with
+    // the request's auth (checked by the first)
+    let mut stream = Stream::open(&first).await;
+    assert_eq!(
+        subscribe(&second, Some(&admin), &stream.client_id, &["items/*"]).await,
+        StatusCode::NO_CONTENT
+    );
+    as_admin(
+        &second,
+        &admin,
+        "POST",
+        "/api/collections/items/records",
+        Some(json!({ "n": 7 })),
+    )
+    .await;
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["record"]["n"], 7);
+
+    // the owner's answers come back as they are: another auth is refused there
+    let (status, res) = request(
+        &second,
+        "POST",
+        "/api/realtime",
+        &[],
+        Some(json!({ "clientId": stream.client_id, "subscriptions": ["items/*"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{res}");
+
+    // an unknown client, with another instance live: refused once it said so
+    let started = std::time::Instant::now();
+    assert_eq!(
+        subscribe(&second, None, "nope", &["items/*"]).await,
+        StatusCode::NOT_FOUND
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "the other instance answered"
+    );
+    let left: i64 = client
+        .query_one("SELECT count(*) FROM _slonbase.realtime_forwards", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(left, 0, "forwarded requests are removed");
+
+    drop((stream, first, second, client, pool));
+    tdb.drop_db().await;
+}

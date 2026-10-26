@@ -5,6 +5,7 @@
 mod common;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use serde_json::{Value, json};
@@ -308,5 +309,91 @@ async fn superuser_ips() {
     assert_eq!(status, StatusCode::NOT_FOUND);
 
     drop(app);
+    tdb.drop_db().await;
+}
+
+/// With several instances on one database, rate limits count the requests of all of them.
+#[tokio::test]
+async fn rate_limits_are_shared_by_instances() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &first,
+        "10.0.0.1",
+        Some(&token),
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "notes", "listRule": "" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, res) = call(
+        &first,
+        "10.0.0.1",
+        Some(&token),
+        "PATCH",
+        "/api/settings",
+        Some(json!({
+            "trustedProxy": { "headers": ["X-Forwarded-For"] },
+            "rateLimits": { "enabled": true, "rules": [
+                { "label": "notes:list", "duration": 60, "maxRequests": 4 },
+            ] },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let (_dir2, config2) = temp_config();
+    let second = new_app(&config2, Some(tdb.url.clone()));
+    second.bootstrap().await.unwrap();
+    let (core1, core2) = (first.core().unwrap(), second.core().unwrap());
+    for _ in 0..200 {
+        let settled = core1.realtime.other_instances() == 1
+            && core2.realtime.other_instances() == 1
+            && core2.settings().rate_limits.enabled;
+        if settled {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(
+        (
+            core1.realtime.other_instances(),
+            core2.realtime.other_instances()
+        ),
+        (1, 1)
+    );
+
+    // alternating between the instances, the client gets 4 in all, not 4 from each
+    let mut statuses = Vec::new();
+    for i in 0..8 {
+        let app = if i % 2 == 0 { &first } else { &second };
+        let (status, _) = call(
+            app,
+            "8.8.4.4",
+            None,
+            "GET",
+            "/api/collections/notes/records",
+            None,
+        )
+        .await;
+        statuses.push(status.as_u16());
+    }
+    assert_eq!(statuses, [200, 200, 200, 200, 429, 429, 429, 429]);
+    // another client has its own window
+    let (status, _) = call(
+        &second,
+        "8.8.8.8",
+        None,
+        "GET",
+        "/api/collections/notes/records",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    drop((first, second, core1, core2));
     tdb.drop_db().await;
 }

@@ -118,21 +118,18 @@ What's per instance:
 
 - **Files:** use S3 storage (`s3` in the settings), or all instances must share the same storage
   directory.
-- **Rate limit counters** are kept in each instance's memory.
 - **JavaScript hooks:** deploy the same hook files to every instance.
 
-**Realtime needs client affinity.** A realtime client's subscriptions live on the instance that
-holds its event stream, and the SDKs set them with a separate `POST /api/realtime`, which must
-reach the same instance. Route each client to one instance: by client IP (nginx `ip_hash`,
-HAProxy `balance source`) or with a sticky cookie. Everything else can go to any instance.
+**No client affinity needed.** A realtime client's event stream lives on one instance, and the
+SDKs set its subscriptions with a separate `POST /api/realtime`. When that request reaches
+another instance, it's forwarded through PostgreSQL to the one holding the stream, which checks
+the request's auth and answers. So a plain round-robin load balancer works. (Affinity, like
+nginx `ip_hash`, still saves that hop.)
 
-```nginx
-upstream slonbase {
-    ip_hash;
-    server 10.0.0.11:8090;
-    server 10.0.0.12:8090;
-}
-```
+**Rate limits are shared.** While an instance is alone, it counts requests in memory. When
+others share the database, the counters move to an unlogged PostgreSQL table, so a client gets
+the configured limit across all instances, not that limit on each. Instances find each other
+with a heartbeat every 20 seconds in `_slonbase.instances`.
 
 ## Backups
 

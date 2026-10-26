@@ -149,8 +149,8 @@ PocketBase's, start with them off. A rule's `label` is one of:
 
 Each rule can apply only to `@guest` or `@auth` requests, and allows `maxRequests` per
 `duration` seconds per client IP. Over the limit, requests get `429`. Superusers and
-`excludedIPs` aren't limited. Counters are kept in each instance's memory, so with several
-instances the limits apply per instance.
+`excludedIPs` aren't limited. A single instance counts in memory; with several on one
+database, the counters are shared through PostgreSQL, so the limits apply across instances.
 
 ### Trusted proxy and superuser IPs
 

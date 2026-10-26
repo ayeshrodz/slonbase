@@ -179,9 +179,29 @@ struct Client {
     subscriptions: Mutex<Subscriptions>,
 }
 
-#[derive(Default)]
 pub struct Hub {
     clients: Mutex<HashMap<String, Arc<Client>>>,
+    /// This instance's id in `_slonbase.instances`.
+    instance: String,
+    /// Subscribe requests forwarded to the other instances, waiting for their answers: `true`
+    /// from the one holding the client, `false` from each one that doesn't.
+    forwards: Mutex<HashMap<i64, mpsc::UnboundedSender<bool>>>,
+    /// The other live instances, as of the last heartbeat.
+    others: std::sync::atomic::AtomicUsize,
+    /// Whether this instance told the others it started (so they count it right away).
+    announced: std::sync::atomic::AtomicBool,
+}
+
+impl Default for Hub {
+    fn default() -> Self {
+        Self {
+            clients: Mutex::default(),
+            instance: ids::random_id(15),
+            forwards: Mutex::default(),
+            others: Default::default(),
+            announced: Default::default(),
+        }
+    }
 }
 
 impl Hub {
@@ -217,6 +237,12 @@ impl Hub {
     /// Disconnects every client (their streams end).
     pub fn disconnect_all(&self) {
         self.clients.lock().expect("hub lock").clear();
+    }
+
+    /// How many other instances share the database (as of the last heartbeat, at most 20
+    /// seconds old).
+    pub fn other_instances(&self) -> usize {
+        self.others.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn client_count(&self) -> usize {
@@ -475,7 +501,8 @@ fn same_auth(a: &RequestAuth, b: &RequestAuth) -> bool {
 
 /// `POST /api/realtime`: replaces a client's subscriptions. The request's auth becomes
 /// the client's auth; a guest client may become authenticated, but a client's auth
-/// can't change to another one.
+/// can't change to another one. A client whose stream is on another instance is handled
+/// there (see [`forward`]), so no client affinity is needed.
 pub async fn subscribe(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
@@ -483,6 +510,225 @@ pub async fn subscribe(
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
+    let client_id = body
+        .get("clientId")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if core.realtime.get(client_id).is_none() {
+        if let Some(response) = forward(&core, client_id, &headers, &body).await? {
+            return Ok(response);
+        }
+    }
+    subscribe_here(&core, auth, &headers, body).await
+}
+
+/// How long a forwarded subscribe request waits for the instance holding the client.
+const FORWARD_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Forwards a subscribe request for a client this instance doesn't hold to the other live
+/// instances, through the database: the request goes to `_slonbase.realtime_forwards` and is
+/// announced; the instance holding the client runs it (authenticating its `Authorization`
+/// itself) and writes the response back. `None` when no instance holds the client.
+async fn forward(
+    core: &Arc<Core>,
+    client_id: &str,
+    headers: &HeaderMap,
+    body: &serde_json::Map<String, Value>,
+) -> Result<Option<Response>, ApiError> {
+    if client_id.is_empty() {
+        return Ok(None);
+    }
+    let pool_error = |e| ApiError::internal(anyhow::anyhow!(db::describe_pool_error(e)));
+    let db_error = |e: tokio_postgres::Error| ApiError::internal(e.into());
+    let hub = &core.realtime;
+    let headers: serde_json::Map<String, Value> = headers
+        .iter()
+        .filter_map(|(k, v)| {
+            Some((
+                k.as_str().to_string(),
+                Value::String(v.to_str().ok()?.to_string()),
+            ))
+        })
+        .collect();
+    let request = json!({ "headers": headers, "body": body });
+    let (id, others) = {
+        let client = core.pool.get().await.map_err(pool_error)?;
+        let others: i64 = client
+            .query_one(
+                "SELECT count(*) FROM _slonbase.instances WHERE id <> $1 AND seen > now() - interval '60 seconds'",
+                &[&hub.instance],
+            )
+            .await
+            .map_err(db_error)?
+            .get(0);
+        if others == 0 {
+            return Ok(None);
+        }
+        let id: i64 = client
+            .query_one(
+                "INSERT INTO _slonbase.realtime_forwards (client_id, request) VALUES ($1, $2) RETURNING id",
+                &[&client_id, &request],
+            )
+            .await
+            .map_err(db_error)?
+            .get(0);
+        (id, others)
+    };
+    let (sender, mut answers) = mpsc::unbounded_channel();
+    hub.forwards
+        .lock()
+        .expect("forwards lock")
+        .insert(id, sender);
+    let announced = notify_with(core, &format!("forward:{id}:{}:{client_id}", hub.instance)).await;
+    let held = match announced {
+        Ok(()) => tokio::time::timeout(FORWARD_TIMEOUT, async {
+            let mut missing = 0;
+            while let Some(held) = answers.recv().await {
+                if held {
+                    return true;
+                }
+                missing += 1;
+                if missing >= others {
+                    break;
+                }
+            }
+            false
+        })
+        .await
+        .unwrap_or(false),
+        Err(_) => false,
+    };
+    hub.forwards.lock().expect("forwards lock").remove(&id);
+    let client = core.pool.get().await.map_err(pool_error)?;
+    let response: Option<Value> = client
+        .query_opt(
+            "DELETE FROM _slonbase.realtime_forwards WHERE id = $1 RETURNING response",
+            &[&id],
+        )
+        .await
+        .map_err(db_error)?
+        .and_then(|row| row.get(0));
+    Ok(match (held, response) {
+        (true, Some(response)) => Some(stored_response(&response)),
+        _ => None,
+    })
+}
+
+async fn notify_with(core: &Core, payload: &str) -> anyhow::Result<()> {
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    notify(&client, payload).await?;
+    Ok(())
+}
+
+fn stored_response(response: &Value) -> Response {
+    let status = response["status"]
+        .as_u64()
+        .and_then(|s| StatusCode::from_u16(s as u16).ok())
+        .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let mut builder = Response::builder().status(status);
+    if let Some(content_type) = response["contentType"].as_str() {
+        builder = builder.header(axum::http::header::CONTENT_TYPE, content_type);
+    }
+    let body = response["body"].as_str().unwrap_or_default().to_string();
+    builder
+        .body(axum::body::Body::from(body))
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// Another instance's forwarded subscribe request (`forward:{id}:{instance}:{client}`): run it
+/// here if this instance holds the client, else say so.
+fn handle_forward(core: &Arc<Core>, payload: &str) {
+    let mut parts = payload.splitn(3, ':');
+    let (Some(Ok(id)), Some(instance), Some(client_id)) = (
+        parts.next().map(str::parse::<i64>),
+        parts.next(),
+        parts.next(),
+    ) else {
+        return;
+    };
+    if instance == core.realtime.instance {
+        return;
+    }
+    let (core, client_id) = (core.clone(), client_id.to_string());
+    tokio::spawn(async move {
+        let held = core.realtime.get(&client_id).is_some();
+        if held {
+            if let Err(err) = run_forwarded(&core, id).await {
+                tracing::error!(error = %format!("{err:#}"), "failed to run a forwarded realtime request");
+            }
+        }
+        if let Err(err) = notify_with(&core, &format!("forwarded:{id}:{}", u8::from(held))).await {
+            tracing::error!(error = %format!("{err:#}"), "failed to answer a forwarded realtime request");
+        }
+    });
+}
+
+async fn run_forwarded(core: &Arc<Core>, id: i64) -> anyhow::Result<()> {
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let Some(row) = client
+        .query_opt(
+            "SELECT request FROM _slonbase.realtime_forwards WHERE id = $1",
+            &[&id],
+        )
+        .await?
+    else {
+        return Ok(());
+    };
+    drop(client);
+    let request: Value = row.get(0);
+    let mut headers = HeaderMap::new();
+    for (name, value) in request["headers"].as_object().into_iter().flatten() {
+        if let (Ok(name), Some(Ok(value))) = (
+            axum::http::HeaderName::from_bytes(name.as_bytes()),
+            value.as_str().map(axum::http::HeaderValue::from_str),
+        ) {
+            headers.insert(name, value);
+        }
+    }
+    // the original request's auth, checked here
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::auth::token_from_header);
+    let auth = match token {
+        Some(token) => crate::auth::authenticate(core, token).await,
+        None => RequestAuth::default(),
+    };
+    let body = request["body"].as_object().cloned().unwrap_or_default();
+    let response = match subscribe_here(core, auth, &headers, body).await {
+        Ok(response) => response,
+        Err(err) => err.into_response(),
+    };
+    let status = response.status().as_u16();
+    let content_type = response
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string);
+    let bytes = axum::body::to_bytes(response.into_body(), 1 << 20).await?;
+    let stored = json!({
+        "status": status,
+        "contentType": content_type,
+        "body": String::from_utf8_lossy(&bytes),
+    });
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    client
+        .execute(
+            "UPDATE _slonbase.realtime_forwards SET response = $2 WHERE id = $1",
+            &[&id, &stored],
+        )
+        .await?;
+    Ok(())
+}
+
+/// [`subscribe`] for a client of this instance.
+async fn subscribe_here(
+    core: &Arc<Core>,
+    auth: RequestAuth,
+    headers: &HeaderMap,
+    body: serde_json::Map<String, Value>,
+) -> Result<Response, ApiError> {
+    let core = core.clone();
     let client_id = body
         .get("clientId")
         .and_then(Value::as_str)
@@ -514,7 +760,7 @@ pub async fn subscribe(
     let request = crate::records::api::request_info(
         &Method::POST,
         &HashMap::new(),
-        &headers,
+        headers,
         Some(&body),
         &auth,
         &core.registry(),
@@ -911,6 +1157,37 @@ async fn reload_settings(core: &Arc<Core>) {
     }
 }
 
+/// Marks this instance as live (every 20 seconds, from the listener), so other instances
+/// forward subscribe requests to it, and counts the others (for shared rate limits).
+async fn heartbeat(core: &Core) {
+    let beat = async {
+        let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+        let others: i64 = client
+            .query_one(
+                "WITH beat AS (INSERT INTO _slonbase.instances (id) VALUES ($1) \
+                     ON CONFLICT (id) DO UPDATE SET seen = now()) \
+                 SELECT count(*) FROM _slonbase.instances WHERE id <> $1 AND seen > now() - interval '60 seconds'",
+                &[&core.realtime.instance],
+            )
+            .await?
+            .get(0);
+        core.realtime
+            .others
+            .store(others as usize, std::sync::atomic::Ordering::Relaxed);
+        if !core
+            .realtime
+            .announced
+            .swap(true, std::sync::atomic::Ordering::Relaxed)
+        {
+            notify(&client, "instance").await?;
+        }
+        anyhow::Ok(())
+    };
+    if let Err(err) = beat.await {
+        tracing::debug!(error = %format!("{err:#}"), "failed to record the instance heartbeat");
+    }
+}
+
 /// Runs the listener until the core is dropped: delivers events, reloads collections and
 /// settings changed by other instances, prunes old events, and reconnects with backoff
 /// (catching up on events and changes it may have missed).
@@ -990,6 +1267,20 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                             if let Some(state) = state {
                                 send_to_client(&core, &state, OAUTH2_TOPIC, data.to_string());
                             }
+                        } else if payload == "instance" {
+                            // an instance started: count it
+                            heartbeat(&core).await;
+                        } else if let Some(rest) = payload.strip_prefix("forward:") {
+                            handle_forward(&core, rest);
+                        } else if let Some(rest) = payload.strip_prefix("forwarded:") {
+                            if let Some((id, held)) = rest.split_once(':') {
+                                let waiting = id.parse().ok().and_then(|id: i64| {
+                                    core.realtime.forwards.lock().expect("forwards lock").get(&id).cloned()
+                                });
+                                if let Some(waiting) = waiting {
+                                    let _ = waiting.send(held == "1");
+                                }
+                            }
                         } else if let Some(id) = payload.strip_prefix("event:").and_then(|s| s.parse().ok()) {
                             if let Err(err) = deliver_event(&core, id, &mut seen).await {
                                 tracing::error!(error = %format!("{err:#}"), "failed to deliver an event");
@@ -998,6 +1289,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                     }
                     _ = schedule.tick() => {
                         let Some(core) = weak.upgrade() else { return };
+                        heartbeat(&core).await;
                         crate::backups::run_scheduled(&core).await;
                         crate::hooks::run_scheduled_crons(&core).await;
                     }
@@ -1014,6 +1306,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                             let _ = client
                                 .batch_execute(&format!(
                                     "DELETE FROM _slonbase.events WHERE created < now() - interval '{EVENT_RETENTION_SECS} seconds';
+                                     DELETE FROM _slonbase.instances WHERE seen < now() - interval '10 minutes';
+                                     DELETE FROM _slonbase.realtime_forwards WHERE created < now() - interval '1 minute';
+                                     DELETE FROM _slonbase.rate_limits WHERE started < now() - interval '1 hour';
                                      DELETE FROM _slonbase.otps WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';
                                      DELETE FROM _slonbase.mfas WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';"
                                 ))

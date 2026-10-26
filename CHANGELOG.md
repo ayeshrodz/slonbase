@@ -16,6 +16,10 @@ changes, and they'll be listed here.
   existing tables get it when the upgrade runs. `SET slonbase.realtime = off` skips events in a
   session, for bulk loads.
 - CI tests upgrades in place from 0.1.0 and from the previous release.
+- **Several instances behind any load balancer:** realtime no longer needs client affinity
+  (a subscribe request reaching another instance than the client's stream is forwarded to it
+  through PostgreSQL), and rate limits count the requests of all instances (in an unlogged
+  table, only while more than one instance is live).
 - **`@request.auth` relation paths** in rules and filters, as in PocketBase:
   `@request.auth.team.owner = @request.auth.id`, `@request.auth.groups.name ?= 'editors'`,
   `@request.auth.team.settings.open = true`. Checked against PocketBase.
