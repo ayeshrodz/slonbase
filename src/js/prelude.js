@@ -468,33 +468,386 @@
     return items;
   }
 
+  // ------------------------------------------------------------------ $dbx
+
+  // PocketBase's dbx query builder, writing PostgreSQL. Expressions build SQL with {:name}
+  // parameters, which dbQuery binds; names are quoted as dbx quotes them.
+  class Expression {
+    constructor(build) {
+      Object.defineProperty(this, "_build", { value: build });
+    }
+    build(params) {
+      return this._build(params || {});
+    }
+  }
+  // plain objects work as hash expressions
+  function buildExp(e, params) {
+    if (e === null || e === undefined) return "";
+    if (e instanceof Expression) return e._build(params);
+    if (typeof e === "object") return hashExp(e)._build(params);
+    throw new BadRequestError("Expected a $dbx expression.");
+  }
+  function param(params, value) {
+    const name = "p" + Object.keys(params).length;
+    params[name] = value;
+    return "{:" + name + "}";
+  }
+  function quoteSimple(name) {
+    name = String(name);
+    return name.includes('"') || name === "*" ? name : '"' + name + '"';
+  }
+  function quoteTable(name) {
+    name = String(name);
+    if (name.includes("(") || name.includes("{{")) return name;
+    return name.split(".").map(quoteSimple).join(".");
+  }
+  function quoteColumn(name) {
+    name = String(name);
+    if (name.includes("(") || name.includes("{{") || name.includes("[[")) return name;
+    const dot = name.lastIndexOf(".");
+    if (dot < 0) return quoteSimple(name);
+    return quoteTable(name.slice(0, dot)) + "." + quoteSimple(name.slice(dot + 1));
+  }
+  const aliasPattern = /(?:\s+as\s+|\s+)([\w\-.]+)$/i;
+  function withAlias(name, quote) {
+    const m = String(name).match(aliasPattern);
+    if (!m) return quote(name);
+    return quote(name.slice(0, name.length - m[0].length)) + (quote === quoteTable ? " " : " AS ") + quoteSimple(m[1]);
+  }
+  function hashExp(data) {
+    return new Expression((params) => {
+      const parts = [];
+      for (const name of Object.keys(data || {}).sort()) {
+        const value = data[name];
+        if (value === null || value === undefined) {
+          parts.push(quoteColumn(name) + " IS NULL");
+        } else if (value instanceof Expression) {
+          const sql = value._build(params);
+          if (sql) parts.push("(" + sql + ")");
+        } else if (Array.isArray(value)) {
+          const sql = inExp(name, value, false)._build(params);
+          if (sql) parts.push(sql);
+        } else {
+          parts.push(quoteColumn(name) + "=" + param(params, value));
+        }
+      }
+      return parts.join(" AND ");
+    });
+  }
+  function andOr(exps, op) {
+    return new Expression((params) => {
+      const parts = exps.map((e) => buildExp(e, params)).filter(Boolean);
+      return parts.length === 1 ? parts[0] : parts.length ? "(" + parts.join(") " + op + " (") + ")" : "";
+    });
+  }
+  function inExp(col, values, not) {
+    return new Expression((params) => {
+      if (!values.length) return not ? "" : "0=1";
+      const sqls = values.map((v) =>
+        v === null || v === undefined ? "NULL" : v instanceof Expression ? v._build(params) : param(params, v),
+      );
+      if (sqls.length === 1) return quoteColumn(col) + (not ? "<>" : "=") + sqls[0];
+      return quoteColumn(col) + (not ? " NOT IN (" : " IN (") + sqls.join(", ") + ")";
+    });
+  }
+  const likeEscape = ["\\", "\\\\", "%", "\\%", "_", "\\_"];
+  class LikeExpression extends Expression {
+    constructor(col, values, like, or) {
+      super((params) => {
+        const parts = values.map((value) => {
+          value = String(value);
+          for (let i = 0; i + 1 < this._escape.length; i += 2) value = value.split(this._escape[i]).join(this._escape[i + 1]);
+          value = (this._left ? "%" : "") + value + (this._right ? "%" : "");
+          return quoteColumn(col) + " " + like + " " + param(params, value);
+        });
+        return parts.join(or ? " OR " : " AND ");
+      });
+      Object.defineProperty(this, "_escape", { value: likeEscape, writable: true });
+      Object.defineProperty(this, "_left", { value: true, writable: true });
+      Object.defineProperty(this, "_right", { value: true, writable: true });
+    }
+    escape(...chars) {
+      if (chars.length % 2) throw new BadRequestError("LikeExp.Escape must be a slice of even number of strings");
+      this._escape = chars;
+      return this;
+    }
+    match(left, right) {
+      this._left = !!left;
+      this._right = !!right;
+      return this;
+    }
+  }
+  function existsExp(e, not) {
+    return new Expression((params) => {
+      const sql = buildExp(e, params);
+      if (!sql) return not ? "" : "0=1";
+      return (not ? "NOT EXISTS (" : "EXISTS (") + sql + ")";
+    });
+  }
+  function betweenExp(col, from, to, not) {
+    return new Expression((params) => {
+      const a = param(params, from);
+      const b = param(params, to);
+      return quoteColumn(col) + (not ? " NOT BETWEEN " : " BETWEEN ") + a + " AND " + b;
+    });
+  }
+  const $dbx = {
+    exp: (sql, params) =>
+      new Expression((all) => {
+        Object.assign(all, params || {});
+        return String(sql);
+      }),
+    hashExp,
+    not: (e) =>
+      new Expression((params) => {
+        const sql = buildExp(e, params);
+        return sql ? "NOT (" + sql + ")" : "";
+      }),
+    and: (...exps) => andOr(exps, "AND"),
+    or: (...exps) => andOr(exps, "OR"),
+    in: (col, ...values) => inExp(col, values, false),
+    notIn: (col, ...values) => inExp(col, values, true),
+    like: (col, ...values) => new LikeExpression(col, values, "LIKE", false),
+    orLike: (col, ...values) => new LikeExpression(col, values, "LIKE", true),
+    notLike: (col, ...values) => new LikeExpression(col, values, "NOT LIKE", false),
+    orNotLike: (col, ...values) => new LikeExpression(col, values, "NOT LIKE", true),
+    exists: (e) => existsExp(e, false),
+    notExists: (e) => existsExp(e, true),
+    between: (col, from, to) => betweenExp(col, from, to, false),
+    notBetween: (col, from, to) => betweenExp(col, from, to, true),
+    enclose: (e) =>
+      new Expression((params) => {
+        const sql = buildExp(e, params);
+        return sql ? "(" + sql + ")" : "";
+      }),
+  };
+
+  // fills a result of all()/one(): records for $app.recordQuery(), else plain objects (or the
+  // DynamicModel of arrayOf())
+  function intoRecord(target, raw) {
+    const r = stored(raw);
+    target._c = null;
+    target._ref = r._ref;
+    target._data = r._data;
+    target._original = r._original;
+    return target;
+  }
+
   class Query {
-    constructor(sql) {
+    constructor(sql, params, records) {
       this.sql = sql;
-      this.params = {};
+      this.params = Object.assign({}, params || {});
+      Object.defineProperty(this, "_records", { value: records || "" });
     }
     bind(params) {
       Object.assign(this.params, params || {});
       return this;
     }
+    _rows() {
+      return call("dbQuery", this.sql, this.params, "all", this._records);
+    }
     all(result) {
-      const rows = call("dbQuery", this.sql, this.params, "all");
+      const rows = this._rows();
+      if (this._records) {
+        const records = rows.map(stored);
+        if (!Array.isArray(result)) return records;
+        result.length = 0;
+        result.push(...records);
+        return result;
+      }
       if (Array.isArray(result)) {
         result.length = 0;
-        for (const row of rows) result.push(Object.assign(new DynamicModel(), row));
+        const Model = result._model ? result._model.constructor : DynamicModel;
+        for (const row of rows) result.push(Object.assign(Model === Object ? {} : new Model(), row));
         return result;
       }
       return rows;
     }
     one(result) {
-      const rows = call("dbQuery", this.sql, this.params, "all");
+      const rows = this._rows();
       if (!rows.length) throw new NotFoundError("sql: no rows in result set");
+      if (this._records) return result instanceof Record ? intoRecord(result, rows[0]) : stored(rows[0]);
       if (result && typeof result === "object") return Object.assign(result, rows[0]);
       return rows[0];
+    }
+    // the first column of each row
+    column(result) {
+      const values = this._rows().map((row) => Object.values(row)[0]);
+      if (!Array.isArray(result)) return values;
+      result.length = 0;
+      result.push(...values);
+      return result;
     }
     execute() {
       return { rowsAffected: call("dbQuery", this.sql, this.params, "execute") };
     }
+  }
+
+  class SelectQuery {
+    constructor(cols, records) {
+      Object.defineProperty(this, "_q", {
+        value: {
+          selects: cols, distinct: false, option: "", from: [], join: [], where: null,
+          groupBy: [], having: null, orderBy: [], union: [], limit: -1, offset: 0,
+          params: {}, pre: "", post: "",
+        },
+      });
+      Object.defineProperty(this, "_records", { value: records || "" });
+    }
+    _set(key, value) {
+      this._q[key] = value;
+      return this;
+    }
+    select(...cols) { return this._set("selects", cols); }
+    andSelect(...cols) { return this._set("selects", this._q.selects.concat(cols)); }
+    distinct(v) { return this._set("distinct", !!v); }
+    selectOption(option) { return this._set("option", String(option || "")); }
+    from(...tables) { return this._set("from", tables); }
+    where(e) { return this._set("where", e); }
+    andWhere(e) { return this._set("where", $dbx.and(this._q.where, e)); }
+    orWhere(e) { return this._set("where", $dbx.or(this._q.where, e)); }
+    join(type, table, on) { return this._set("join", this._q.join.concat([{ type, table, on }])); }
+    innerJoin(table, on) { return this.join("INNER JOIN", table, on); }
+    leftJoin(table, on) { return this.join("LEFT JOIN", table, on); }
+    rightJoin(table, on) { return this.join("RIGHT JOIN", table, on); }
+    orderBy(...cols) { return this._set("orderBy", cols); }
+    andOrderBy(...cols) { return this._set("orderBy", this._q.orderBy.concat(cols)); }
+    groupBy(...cols) { return this._set("groupBy", cols); }
+    andGroupBy(...cols) { return this._set("groupBy", this._q.groupBy.concat(cols)); }
+    having(e) { return this._set("having", e); }
+    andHaving(e) { return this._set("having", $dbx.and(this._q.having, e)); }
+    orHaving(e) { return this._set("having", $dbx.or(this._q.having, e)); }
+    union(q) { return this._set("union", this._q.union.concat([{ all: false, q }])); }
+    unionAll(q) { return this._set("union", this._q.union.concat([{ all: true, q }])); }
+    limit(n) { return this._set("limit", Number(n)); }
+    offset(n) { return this._set("offset", Number(n)); }
+    bind(params) { return this._set("params", Object.assign({}, params || {})); }
+    andBind(params) { return this._set("params", Object.assign(this._q.params, params || {})); }
+    preFragment(sql) { return this._set("pre", String(sql || "")); }
+    postFragment(sql) { return this._set("post", String(sql || "")); }
+    build() {
+      const q = this._q;
+      const params = Object.assign({}, q.params);
+      let select = "SELECT " + (q.distinct ? "DISTINCT " : "") + (q.option ? q.option + " " : "");
+      select += q.selects.length ? q.selects.map((c) => withAlias(c, quoteColumn)).join(", ") : "*";
+      const clauses = [q.pre, select];
+      if (q.from.length) clauses.push("FROM " + q.from.map((t) => withAlias(t, quoteTable)).join(", "));
+      for (const j of q.join) {
+        const on = buildExp(j.on, params);
+        clauses.push(j.type + " " + withAlias(j.table, quoteTable) + (on ? " ON " + on : ""));
+      }
+      const where = buildExp(q.where, params);
+      if (where) clauses.push("WHERE " + where);
+      if (q.groupBy.length) clauses.push("GROUP BY " + q.groupBy.map(quoteColumn).join(", "));
+      const having = buildExp(q.having, params);
+      if (having) clauses.push("HAVING " + having);
+      if (q.orderBy.length) {
+        clauses.push(
+          "ORDER BY " +
+            q.orderBy
+              .map((c) => {
+                const m = String(c).match(/\s+(ASC|DESC)$/i);
+                return m ? quoteColumn(c.slice(0, c.length - m[0].length)) + " " + m[1] : quoteColumn(c);
+              })
+              .join(", "),
+        );
+      }
+      // dbx's: an offset without a limit takes the largest one
+      const limit = q.limit >= 0 ? String(q.limit) : q.offset > 0 ? "9223372036854775807" : "";
+      if (limit) clauses.push("LIMIT " + limit);
+      if (q.offset > 0) clauses.push("OFFSET " + q.offset);
+      if (q.post) clauses.push(q.post);
+      let sql = clauses.filter(Boolean).join(" ");
+      if (q.union.length) {
+        const unions = q.union.map((u) => {
+          const built = u.q instanceof SelectQuery ? u.q.build() : u.q;
+          Object.assign(params, built.params);
+          return (u.all ? "UNION ALL (" : "UNION (") + built.sql + ")";
+        });
+        sql = "(" + sql + ") " + unions.join(" ");
+      }
+      return new Query(sql, params, this._records);
+    }
+    all(result) { return this.build().all(result); }
+    one(result) { return this.build().one(result); }
+    column(result) { return this.build().column(result); }
+  }
+
+  function columnValues(cols, params) {
+    return Object.keys(cols || {})
+      .sort()
+      .map((name) => {
+        const value = cols[name];
+        return [quoteColumn(name), value instanceof Expression ? value._build(params) : param(params, value)];
+      });
+  }
+  const quoteColumns = (cols) => cols.map(quoteColumn).join(", ");
+  const dbBuilder = {
+    newQuery: (sql) => new Query(sql),
+    select: (...cols) => new SelectQuery(cols),
+    insert: (table, cols) => {
+      const params = {};
+      const pairs = columnValues(cols, params);
+      const sql = pairs.length
+        ? "INSERT INTO " + quoteTable(table) + " (" + pairs.map((p) => p[0]).join(", ") + ") VALUES (" + pairs.map((p) => p[1]).join(", ") + ")"
+        : "INSERT INTO " + quoteTable(table) + " DEFAULT VALUES";
+      return new Query(sql, params);
+    },
+    upsert: (table, cols, ...constraints) => {
+      const q = dbBuilder.insert(table, cols);
+      const lines = columnValues(cols, q.params).map((p) => p[0] + "=" + p[1]);
+      q.sql += " ON CONFLICT " + (constraints.length ? "(" + quoteColumns(constraints) + ") " : "") + "DO UPDATE SET " + lines.join(", ");
+      return q;
+    },
+    update: (table, cols, where) => {
+      const params = {};
+      let sql = "UPDATE " + quoteTable(table) + " SET " + columnValues(cols, params).map((p) => p[0] + "=" + p[1]).join(", ");
+      const w = buildExp(where, params);
+      if (w) sql += " WHERE " + w;
+      return new Query(sql, params);
+    },
+    delete: (table, where) => {
+      const params = {};
+      let sql = "DELETE FROM " + quoteTable(table);
+      const w = buildExp(where, params);
+      if (w) sql += " WHERE " + w;
+      return new Query(sql, params);
+    },
+    createTable: (table, cols, ...options) => {
+      const columns = Object.keys(cols || {})
+        .sort()
+        .map((name) => quoteColumn(name) + " " + cols[name]);
+      return new Query(["CREATE TABLE " + quoteTable(table) + " (" + columns.join(", ") + ")"].concat(options).join(" "));
+    },
+    renameTable: (from, to) => new Query("ALTER TABLE " + quoteTable(from) + " RENAME TO " + quoteTable(to)),
+    dropTable: (table) => new Query("DROP TABLE " + quoteTable(table)),
+    truncateTable: (table) => new Query("TRUNCATE TABLE " + quoteTable(table)),
+    addColumn: (table, col, type) => new Query("ALTER TABLE " + quoteTable(table) + " ADD " + quoteColumn(col) + " " + type),
+    dropColumn: (table, col) => new Query("ALTER TABLE " + quoteTable(table) + " DROP COLUMN " + quoteColumn(col)),
+    renameColumn: (table, from, to) =>
+      new Query("ALTER TABLE " + quoteTable(table) + " RENAME COLUMN " + quoteColumn(from) + " TO " + quoteColumn(to)),
+    alterColumn: (table, col, type) =>
+      new Query("ALTER TABLE " + quoteTable(table) + " ALTER COLUMN " + quoteColumn(col) + " TYPE " + type),
+    addPrimaryKey: (table, name, ...cols) =>
+      new Query("ALTER TABLE " + quoteTable(table) + " ADD CONSTRAINT " + quoteColumn(name) + " PRIMARY KEY (" + quoteColumns(cols) + ")"),
+    dropPrimaryKey: (table, name) => new Query("ALTER TABLE " + quoteTable(table) + " DROP CONSTRAINT " + quoteColumn(name)),
+    addForeignKey: (table, name, cols, refCols, refTable, ...options) =>
+      new Query(
+        ["ALTER TABLE " + quoteTable(table) + " ADD CONSTRAINT " + quoteColumn(name) + " FOREIGN KEY (" + quoteColumns(cols) +
+          ") REFERENCES " + quoteTable(refTable) + " (" + quoteColumns(refCols) + ")"].concat(options).join(" "),
+      ),
+    dropForeignKey: (table, name) => new Query("ALTER TABLE " + quoteTable(table) + " DROP CONSTRAINT " + quoteColumn(name)),
+    createIndex: (table, name, ...cols) =>
+      new Query("CREATE INDEX " + quoteColumn(name) + " ON " + quoteTable(table) + " (" + quoteColumns(cols) + ")"),
+    createUniqueIndex: (table, name, ...cols) =>
+      new Query("CREATE UNIQUE INDEX " + quoteColumn(name) + " ON " + quoteTable(table) + " (" + quoteColumns(cols) + ")"),
+    dropIndex: (table, name) => new Query("DROP INDEX " + quoteColumn(name)),
+  };
+
+  // $app.recordQuery(): a select of the collection's rows, read back as records
+  function recordQuery(collection) {
+    const name = typeof collection === "string" ? $app.findCollectionByNameOrId(collection).name : collection.name;
+    return new SelectQuery([quoteSimple(name) + ".*"], name).from(name);
   }
 
   class MailerMessage {
@@ -570,7 +923,8 @@
     },
     // in migrations everything already runs in the migration's transaction
     runInTransaction: (fn) => fn($app),
-    db: () => ({ newQuery: (sql) => new Query(sql) }),
+    db: () => dbBuilder,
+    recordQuery,
     settings: () => settingsModel(call("settings")),
     // the context argument of PocketBase's signature is accepted and ignored
     createBackup: (ctx, name) => {
@@ -1202,6 +1556,7 @@
     MailerMessage,
     arrayOf,
     $app,
+    $dbx,
     $apis,
     $filesystem,
     $security,

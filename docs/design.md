@@ -657,6 +657,11 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - Database access: `$app` maps to the record service; `$app.db().newQuery()` binds `{:name}`
   placeholders as SQL literals (text dollar-quoted with a tag it doesn't contain) and reads rows
   with `WITH _q AS (...) SELECT json_agg(_q)`, which also works for `INSERT ... RETURNING`.
+  Each query runs with `search_path = slonbase, public` (in a transaction of its own, or with
+  the caller's path restored after). `$dbx` and the query builder are JavaScript in the
+  prelude, a port of dbx's PostgreSQL builder: they produce SQL text with `{:pN}` parameters,
+  so all binding stays in one place. `$app.recordQuery()` wraps the built query as
+  `SELECT <the record columns> FROM (<query>) t`, to read rows as records.
 - Errors: `ApiError` and its subclasses keep their status, message and data; other exceptions answer
   400 "Something went wrong..." and are logged with their stack.
 - `routerUse` handlers are `Hooks::on_request` handlers, a layer inside the guard (so rate limits

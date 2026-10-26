@@ -1,7 +1,7 @@
 //! The native functions behind the prelude's `$app`, `$http`, `$security`, `$os` and
 //! `require` (called as `__native_call(name, argsJson)`).
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use serde_json::{Map, Value, json};
@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use super::{Shared, envelope, inside};
 use crate::auth::AuthRecord;
 use crate::collections::api::to_json as collection_json;
-use crate::collections::model::FIELD_PASSWORD;
+use crate::collections::model::{Collection, FIELD_PASSWORD};
 use crate::core::Core;
 use crate::error::ApiError;
 use crate::records::files::Upload;
@@ -421,7 +421,20 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             }
             Ok(Value::Null)
         }
-        "dbQuery" => handle.block_on(db_query(&core, &a.str(0), &a.object(1), &a.str(2))),
+        "dbQuery" => {
+            // the collection of $app.recordQuery()
+            let records = match a.str(3) {
+                name if name.is_empty() => None,
+                name => Some(core.collection(&name)?),
+            };
+            handle.block_on(db_query(
+                &core,
+                &a.str(0),
+                &a.object(1),
+                &a.str(2),
+                records.as_deref(),
+            ))
+        }
         "settings" => serde_json::to_value(&*core.settings()).map_err(internal),
         "sendMail" => {
             let to: Vec<String> = match a.value(0) {
@@ -611,10 +624,34 @@ fn dollar_quote(text: &str) -> String {
     format!("{tag}{text}{tag}")
 }
 
+/// Quotes `{{table}}` and `[[column]]` names, as PocketBase's dbx does (`a.b` becomes
+/// `"a"."b"`).
+fn quote_names(sql: &str) -> String {
+    static NAMES: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\{\{([\w\-. ]+)\}\}|\[\[([\w\-. ]+)\]\]").expect("valid regex")
+    });
+    NAMES
+        .replace_all(sql, |caps: &regex::Captures| {
+            let name = caps
+                .get(1)
+                .or_else(|| caps.get(2))
+                .expect("a group")
+                .as_str();
+            name.split('.')
+                .map(|part| format!("\"{part}\""))
+                .collect::<Vec<_>>()
+                .join(".")
+        })
+        .into_owned()
+}
+
+/// Binds `{:name}` parameters as literals, after quoting names (so values aren't quoted).
 fn bind(sql: &str, params: &Map<String, Value>) -> Result<String, ApiError> {
-    let re = regex::Regex::new(r"\{:(\w+)\}").expect("valid regex");
+    let sql = &quote_names(sql);
+    static PARAMS: LazyLock<regex::Regex> =
+        LazyLock::new(|| regex::Regex::new(r"\{:(\w+)\}").expect("valid regex"));
     let mut missing = None;
-    let bound = re.replace_all(sql, |caps: &regex::Captures| match params.get(&caps[1]) {
+    let bound = PARAMS.replace_all(sql, |caps: &regex::Captures| match params.get(&caps[1]) {
         Some(value) => literal(value),
         None => {
             missing = Some(caps[1].to_string());
@@ -632,22 +669,62 @@ async fn db_query(
     sql: &str,
     params: &Map<String, Value>,
     mode: &str,
+    records: Option<&Collection>,
 ) -> Result<Value, ApiError> {
     let client = core
         .pool
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    db_query_in(&client, sql, params, mode).await
+    // the search path for this query only (a session setting, not a transaction, so statements
+    // like CREATE INDEX CONCURRENTLY still work), reset before the connection goes back
+    client
+        .batch_execute("SET search_path = slonbase, public")
+        .await
+        .map_err(internal)?;
+    let result = run_query(&client, sql, params, mode, records).await;
+    if client.batch_execute("RESET search_path").await.is_err() {
+        // not back to the pool with this search path
+        let _ = deadpool_postgres::Object::take(client);
+    }
+    result
 }
 
-/// `$app.db().newQuery(sql)` run with `client`: `execute` returns the affected rows, `all`
-/// the rows as JSON objects.
+/// `$app.db().newQuery(sql)` run in the transaction `client`, with collections found by their
+/// unqualified names (the transaction's search path comes back after).
 pub(super) async fn db_query_in(
     client: &impl deadpool_postgres::GenericClient,
     sql: &str,
     params: &Map<String, Value>,
     mode: &str,
+    records: Option<&Collection>,
+) -> Result<Value, ApiError> {
+    let previous: String = client
+        .query_one("SELECT current_setting('search_path')", &[])
+        .await
+        .map_err(internal)?
+        .get(0);
+    client
+        .batch_execute(crate::collections::view::SEARCH_PATH)
+        .await
+        .map_err(internal)?;
+    let result = run_query(client, sql, params, mode, records).await?;
+    client
+        .execute("SELECT set_config('search_path', $1, true)", &[&previous])
+        .await
+        .map_err(internal)?;
+    Ok(result)
+}
+
+/// Runs a query: `execute` returns the affected rows, `all` the rows as JSON objects, and with
+/// `records` (`$app.recordQuery()`, whose query reads the collection's rows) the rows as
+/// records of it. Unqualified names resolve with `client`'s search path.
+async fn run_query(
+    client: &impl deadpool_postgres::GenericClient,
+    sql: &str,
+    params: &Map<String, Value>,
+    mode: &str,
+    records: Option<&Collection>,
 ) -> Result<Value, ApiError> {
     let sql = bind(sql.trim().trim_end_matches(';'), params)?;
     let query_error = |e: tokio_postgres::Error| {
@@ -657,21 +734,36 @@ pub(super) async fn db_query_in(
             .unwrap_or_else(|| e.to_string());
         bad(format!("The query failed: {message}"))
     };
-    if mode == "execute" {
+    let result = if let Some(c) = records {
+        use crate::records::store::{ALIAS, record_json, row_values, select_list, visible_fields};
+        let fields = visible_fields(c, true);
+        let wrapped = format!("SELECT {} FROM ({sql}) {ALIAS}", select_list(&fields));
+        let rows = client
+            .query(wrapped.as_str(), &[])
+            .await
+            .map_err(query_error)?;
+        Value::Array(
+            rows.iter()
+                .map(|row| record_json(c, row_values(&fields, row)))
+                .collect(),
+        )
+    } else if mode == "execute" {
         let affected = client
             .execute(sql.as_str(), &[])
             .await
             .map_err(query_error)?;
-        return Ok(json!(affected));
-    }
-    // data-modifying statements work in WITH, so this also covers INSERT ... RETURNING
-    let wrapped =
-        format!("WITH _q AS ({sql}) SELECT coalesce(json_agg(_q), '[]'::json)::text FROM _q");
-    let row = client
-        .query_one(wrapped.as_str(), &[])
-        .await
-        .map_err(query_error)?;
-    serde_json::from_str(&row.get::<_, String>(0)).map_err(internal)
+        json!(affected)
+    } else {
+        // data-modifying statements work in WITH, so this also covers INSERT ... RETURNING
+        let wrapped =
+            format!("WITH _q AS ({sql}) SELECT coalesce(json_agg(_q), '[]'::json)::text FROM _q");
+        let row = client
+            .query_one(wrapped.as_str(), &[])
+            .await
+            .map_err(query_error)?;
+        serde_json::from_str(&row.get::<_, String>(0)).map_err(internal)?
+    };
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -692,6 +784,20 @@ mod tests {
         );
         assert!(sql.ends_with(", 2, TRUE, NULL"));
         assert!(bind("SELECT {:missing}", &params).is_err());
+        assert_eq!(
+            bind(
+                "SELECT [[t.title]] FROM {{posts}} WHERE [[n]] = {:n}",
+                &params
+            )
+            .unwrap(),
+            r#"SELECT "t"."title" FROM "posts" WHERE "n" = 2"#
+        );
+        let quoted = json!({ "v": "[[x]]" }).as_object().cloned().unwrap();
+        assert_eq!(
+            bind("SELECT {:v}", &quoted).unwrap(),
+            "SELECT $sb$[[x]]$sb$",
+            "values aren't quoted as names"
+        );
     }
 
     #[test]

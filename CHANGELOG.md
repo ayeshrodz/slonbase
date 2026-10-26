@@ -19,8 +19,19 @@ changes, and they'll be listed here.
 - **Collection request and batch hooks:** `onCollectionsListRequest`, `onCollectionViewRequest`,
   `onCollectionCreateRequest`, `onCollectionUpdateRequest`, `onCollectionDeleteRequest`,
   `onCollectionsImportRequest` and `onBatchRequest`, also checked against PocketBase.
+- **`$dbx` and the query builder:** `$app.db()` has PocketBase's dbx builder (`select`,
+  `where`, joins, `groupBy`, `union`, `insert`, `upsert`, `update`, `delete`, the schema
+  methods), `$dbx` its expressions, and `$app.recordQuery(collection)` reads records with it.
+  The compatibility suite runs the same queries on PocketBase and slonbase.
+- `$app.db().newQuery()` quotes `{{table}}` and `[[column]]` names, as PocketBase does.
 - `$app.createBackup(name)` and `$app.restoreBackup(name)`.
 - Realtime connections can have an idle and a maximum timeout, set by a connect hook.
+
+### Fixed
+
+- `$app.db().newQuery()` finds collections by their unqualified names (`SELECT * FROM posts`),
+  as the extending guide's example does; they needed the `slonbase.` schema before.
+- `$app.db().newQuery()` is faster: it compiled its regular expressions on every call.
 
 ## [0.4.2] - 2026-10-26
 

@@ -86,8 +86,22 @@ routerAdd("GET", "/api/js/misc", (e) => {
   } catch (err) {
     missing = err.status;
   }
+  // what PostgreSQL has and PocketBase's SQLite doesn't (compat/tests/dbx.test.mjs has the rest)
+  const db = $app.db();
+  db.createTable("js_plain", { id: "int PRIMARY KEY", name: "text" }).execute();
+  db.insert("js_plain", { id: 1, name: "50% off" }).execute();
+  db.upsert("js_plain", { id: 1, name: "50% off!" }, "id").execute();
+  db.insert("js_plain", { id: 2, name: "500 off" }).execute();
+  const dbx = {
+    names: db.select("name").from("js_plain").orderBy("id").column(),
+    escaped: db.select("id").from("js_plain").where($dbx.like("name", "50%")).column(),
+  };
+  // not in a transaction, so this works
+  db.newQuery("CREATE INDEX CONCURRENTLY js_plain_name ON js_plain (name)").execute();
+  db.dropTable("js_plain").execute();
   e.json(200, {
     rows,
+    dbx,
     util: util.double(21),
     sha: $security.sha256("abc"),
     random: $security.randomString(12).length,
@@ -271,6 +285,12 @@ async fn js_hooks() {
     let (status, res) = call(&app, None, "GET", "/api/js/misc", None).await;
     assert_eq!(status, StatusCode::OK, "{res}");
     assert_eq!(res["rows"], json!([{ "n": 42, "t": "it's" }]));
+    assert_eq!(res["dbx"]["names"], json!(["50% off!", "500 off"]));
+    assert_eq!(
+        res["dbx"]["escaped"],
+        json!([1]),
+        "% in a like value is escaped"
+    );
     assert_eq!(res["util"], 42);
     assert_eq!(
         res["sha"],

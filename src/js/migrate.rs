@@ -214,12 +214,18 @@ pub(super) fn call_in_tx(
                 })
             })
         })(),
-        "dbQuery" => {
+        "dbQuery" => (|| {
             let (sql, params, mode) = (a.str(0), a.object(1), a.str(2));
+            let records = match a.str(3) {
+                name if name.is_empty() => None,
+                name => Some(ctx.collection(&name)?),
+            };
             ctx.run(handle, move |tx, _| {
-                Box::pin(async move { super::native::db_query_in(tx, &sql, &params, &mode).await })
+                Box::pin(async move {
+                    super::native::db_query_in(tx, &sql, &params, &mode, records.as_deref()).await
+                })
             })
-        }
+        })(),
         "settings" => serde_json::to_value(ctx.settings()).map_err(internal),
         "saveSettings" => (|| {
             let settings = crate::settings::prepare_patch(&ctx.settings(), a.object(0))?;

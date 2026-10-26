@@ -77,8 +77,7 @@ those collections.
 - `$app`: `findRecordById`, `findRecordsByFilter`, `findFirstRecordByFilter`,
   `findAuthRecordByEmail`, `countRecords`, `findCollectionByNameOrId`, `findAllCollections`,
   `save` and `delete` (of records, collections and, for `save`, the settings),
-  `importCollections`, `db().newQuery(sql).bind({...}).execute()` / `.one()` / `.all()`
-  (PostgreSQL SQL, with `{:name}` placeholders), `settings()`, `newMailClient().send(...)`,
+  `importCollections`, `db()` and `recordQuery(collection)` (see [SQL](#sql)), `settings()`, `newMailClient().send(...)`,
   `createBackup(name)` and `restoreBackup(name)` (PocketBase's context argument is accepted
   and ignored).
 - `Collection`, `Field` (and `TextField`, `NumberField`, ...), `unmarshal`: collection
@@ -91,6 +90,7 @@ those collections.
   `sendRecordChangeEmail(app, record, newEmail)`, `sendRecordOTP(app, record, otpId, password)`,
   `sendRecordAuthAlert(app, record, info)`: the emails the auth endpoints send, with the
   collection's templates.
+- `$dbx`: query expressions (see [SQL](#sql)).
 - `$template`: Go templates, rendered to HTML (see [below](#templates)).
 - `$filesystem`: `fileFromBytes`, `fileFromPath`, `fileFromURL` (`http(s)` only); in routes,
   `e.findUploadedFiles(key)` returns a multipart request's files. Files are limited to 32 MiB.
@@ -102,6 +102,44 @@ those collections.
 - Errors: `BadRequestError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError` and
   `ApiError(status, message, data)` become API errors with that status. Other errors answer 400
   and are logged.
+
+### SQL
+
+`$app.db()` is PocketBase's dbx query builder, and `$dbx` its expressions. They write
+PostgreSQL. Unqualified names are collections (tables in the `slonbase` schema), then tables in
+`public`.
+
+```js
+const rows = arrayOf(new DynamicModel({ title: "", total: 0 }));
+$app.db()
+  .select("title", "count(*) as total")
+  .from("posts")
+  .where($dbx.and($dbx.hashExp({ status: "published" }), $dbx.like("title", "news")))
+  .groupBy("title")
+  .orderBy("total DESC")
+  .limit(10)
+  .all(rows);
+
+// records, with their field types
+const records = $app.recordQuery("posts").where($dbx.in("status", "draft", "review")).all();
+
+$app.db().newQuery("DELETE FROM {{posts}} WHERE [[status]] = {:s}").bind({ s: "spam" }).execute();
+```
+
+- Queries: `select(...cols)` with `andSelect`, `distinct`, `from`, `where`/`andWhere`/`orWhere`,
+  `innerJoin`/`leftJoin`/`rightJoin`, `groupBy`, `having`, `orderBy`, `limit`, `offset`,
+  `union`, `bind`, then `build()`, `all(result)`, `one(result)` (throws when there's no row) or
+  `column()`. `newQuery(sql)` takes SQL with `{:name}` parameters, `{{table}}` and `[[column]]`.
+- Writes: `insert(table, cols)`, `upsert(table, cols, ...conflictColumns)`,
+  `update(table, cols, where)`, `delete(table, where)`, then `execute()`. These skip record
+  hooks and validation; use `$app.save()` for records.
+- Schema: `createTable`, `dropTable`, `renameTable`, `truncateTable`, `addColumn`,
+  `dropColumn`, `renameColumn`, `alterColumn`, `createIndex`, `createUniqueIndex`,
+  `dropIndex`, `addPrimaryKey`, `addForeignKey` and their drops. New tables go to the
+  `slonbase` schema unless you name another (`public.my_table`).
+- `$dbx`: `exp(sql, params)`, `hashExp({col: value})` (`null` is `IS NULL`, a list is `IN`),
+  `not`, `and`, `or`, `in`, `notIn`, `like`, `orLike`, `notLike`, `orNotLike` (with
+  `.match(left, right)` and `.escape(...)`), `exists`, `notExists`, `between`, `notBetween`.
 
 ### Templates
 

@@ -120,9 +120,9 @@ every call running in the migration's transaction.
 
 **Records and data**: `new Record(collection)`, `app.save(record)`, `app.delete(record)`,
 `app.findRecordById`, `app.findRecordsByFilter`, `app.findFirstRecordByData`,
-`app.findAuthRecordByEmail`, `app.countRecords`, and
-`app.db().newQuery(sql).bind({...}).execute()` for SQL (PostgreSQL). Collections are tables in
-the `slonbase` schema.
+`app.findAuthRecordByEmail`, `app.countRecords`, `app.recordQuery(collection)`, and
+`app.db()` with `$dbx` for SQL (PostgreSQL; see [SQL](extending.md#sql)). Collections are
+tables in the `slonbase` schema, and unqualified names find them.
 
 **Settings**: `const settings = app.settings(); settings.meta.appName = "Acme"; app.save(settings);`
 
@@ -135,7 +135,7 @@ migrate((app) => {
   superuser.set("password", $os.getenv("ADMIN_PASSWORD"));
   app.save(superuser);
 
-  app.db().newQuery("UPDATE slonbase.posts SET published = true WHERE title <> ''").execute();
+  app.db().newQuery("UPDATE posts SET published = true WHERE title <> ''").execute();
 });
 ```
 

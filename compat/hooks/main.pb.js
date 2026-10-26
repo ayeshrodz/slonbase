@@ -195,3 +195,132 @@ onBatchRequest((e) => {
   }
   e.next();
 });
+
+// $dbx and the $app.db() builder against the dbx_items collection (made by
+// tests/dbx.test.mjs): each case's rows, or its error
+routerAdd("GET", "/compat/dbx", (e) => {
+  const t = "dbx_items";
+  const rows = (q, shape) => {
+    const out = arrayOf(new DynamicModel(shape || { title: "" }));
+    q.all(out);
+    return out.map((r) => Object.assign({}, r));
+  };
+  const titles = (where, order) =>
+    rows($app.db().select("title").from(t).where(where).orderBy(order || "title"));
+  const cases = {
+    hash: () => titles($dbx.hashExp({ tag: "a" })),
+    hashNullAndList: () => titles($dbx.hashExp({ tag: ["a", "b"], extra: null })),
+    in: () => titles($dbx.in("title", "one", "three")),
+    inOne: () => titles($dbx.in("title", "two")),
+    inNone: () => titles($dbx.in("title")),
+    notIn: () => titles($dbx.notIn("title", "one", "three")),
+    like: () => titles($dbx.like("title", "o")),
+    likeMatch: () => titles($dbx.like("title", "t").match(false, true)),
+    orLike: () => titles($dbx.orLike("title", "one", "two")),
+    notLike: () => titles($dbx.notLike("title", "o")),
+    orNotLike: () => titles($dbx.orNotLike("title", "one", "two")),
+    between: () => titles($dbx.between("n", 2, 3)),
+    notBetween: () => titles($dbx.notBetween("n", 2, 3)),
+    not: () => titles($dbx.not($dbx.hashExp({ tag: "a" }))),
+    andOr: () =>
+      titles($dbx.or($dbx.and($dbx.hashExp({ tag: "a" }), $dbx.exp("n > {:n}", { n: 1 })), $dbx.hashExp({ title: "four" }))),
+    exists: () =>
+      titles($dbx.exists($dbx.exp(`SELECT 1 FROM ${t} x WHERE x.n > {:big}`, { big: 3 }))),
+    notExists: () =>
+      titles($dbx.notExists($dbx.exp(`SELECT 1 FROM ${t} x WHERE x.n > {:big}`, { big: 3 }))),
+    andWhereOrWhere: () =>
+      rows(
+        $app.db().select("title").from(t)
+          .where($dbx.hashExp({ tag: "a" }))
+          .andWhere($dbx.exp("n >= {:min}", { min: 2 }))
+          .orWhere($dbx.hashExp({ title: "four" }))
+          .orderBy("n DESC"),
+      ),
+    limitOffset: () => rows($app.db().select("title").from(t).orderBy("n").limit(2).offset(1)),
+    offsetOnly: () => rows($app.db().select("title").from(t).orderBy("n").offset(3)),
+    distinct: () => rows($app.db().select("tag").distinct(true).from(t).orderBy("tag"), { tag: "" }),
+    groupHaving: () =>
+      rows(
+        $app.db().select("tag", "count(*) as total").from(t).groupBy("tag")
+          .having($dbx.exp("count(*) > {:min}", { min: 1 })).orderBy("tag"),
+        { tag: "", total: 0 },
+      ),
+    alias: () => rows($app.db().select("a.title AS name").from(`${t} a`).orderBy("a.n").limit(1), { name: "" }),
+    join: () =>
+      rows(
+        $app.db().select("a.title", "b.title as other").from(`${t} a`)
+          .innerJoin(`${t} b`, $dbx.exp("b.n = a.n + 1")).orderBy("a.n"),
+        { title: "", other: "" },
+      ),
+    leftJoin: () =>
+      rows(
+        $app.db().select("a.title").from(`${t} a`)
+          .leftJoin(`${t} b`, $dbx.exp("b.n = a.n + 10")).andSelect("coalesce(b.title, '') as missing")
+          .orderBy("a.n").limit(1),
+        { title: "", missing: "" },
+      ),
+    union: () =>
+      rows(
+        $app.db().select("title").from(t).where($dbx.exp("title = {:a}", { a: "one" }))
+          .union($app.db().select("title").from(t).where($dbx.exp("title = {:b}", { b: "two" })).build()),
+      ).map((r) => r.title).sort(),
+    bind: () =>
+      rows($app.db().select("title").from(t).where($dbx.exp("title = {:x}")).bind({ x: "two" })),
+    one: () => {
+      const m = new DynamicModel({ title: "", n: 0 });
+      $app.db().select("title", "n").from(t).where($dbx.hashExp({ title: "three" })).one(m);
+      return { title: m.title, n: m.n };
+    },
+    oneMissing: () => {
+      try {
+        $app.db().select("title").from(t).where($dbx.hashExp({ title: "nope" })).one(new DynamicModel({ title: "" }));
+        return "found";
+      } catch (err) {
+        return "missing";
+      }
+    },
+    quotedNames: () =>
+      rows($app.db().newQuery(`SELECT [[title]] FROM {{${t}}} WHERE [[n]] = {:n}`).bind({ n: 2 })),
+    recordQuery: () => {
+      const records = arrayOf(new Record());
+      $app.recordQuery(t).where($dbx.hashExp({ tag: "a" })).orderBy("n DESC").all(records);
+      return records.map((r) => [r.get("title"), r.get("n"), r.collection().name]);
+    },
+    recordQueryOne: () => {
+      const record = new Record();
+      $app.recordQuery(t).andWhere($dbx.hashExp({ title: "two" })).limit(1).one(record);
+      record.set("title", "two!");
+      $app.save(record);
+      const again = $app.findRecordById(t, record.id);
+      again.set("title", "two");
+      $app.save(again);
+      return [record.get("tag"), record.isNew()];
+    },
+    builder: () => {
+      const db = $app.db();
+      try {
+        db.dropTable("dbx_plain").execute();
+      } catch (err) {}
+      db.createTable("dbx_plain", { id: "INTEGER PRIMARY KEY", name: "TEXT", score: "INTEGER" }).execute();
+      db.insert("dbx_plain", { id: 1, name: "a", score: 1 }).execute();
+      db.insert("dbx_plain", { id: 2, name: "b", score: 2 }).execute();
+      db.update("dbx_plain", { name: "b2", score: 20 }, $dbx.hashExp({ id: 2 })).execute();
+      db.update("dbx_plain", { score: $dbx.exp("score + {:inc}", { inc: 5 }) }, $dbx.hashExp({ id: 1 })).execute();
+      db.insert("dbx_plain", { id: 3, name: "c", score: 3 }).execute();
+      db.delete("dbx_plain", $dbx.hashExp({ name: "c" })).execute();
+      db.createIndex("dbx_plain", "dbx_plain_name", "name").execute();
+      const out = rows(db.select("id", "name", "score").from("dbx_plain").orderBy("id"), { id: 0, name: "", score: 0 });
+      db.dropTable("dbx_plain").execute();
+      return out;
+    },
+  };
+  const result = {};
+  for (const [name, run] of Object.entries(cases)) {
+    try {
+      result[name] = run();
+    } catch (err) {
+      result[name] = { error: String(err) };
+    }
+  }
+  return e.json(200, result);
+}, $apis.requireSuperuserAuth());

@@ -98,6 +98,10 @@ const SEED: &str = r#"migrate((app) => {
   if (n !== 2) throw new Error("expected 2 posts, got " + n);
   app.db().newQuery("UPDATE slonbase.posts SET summary = 'from sql' WHERE title = {:t}").bind({ t: "two" }).execute();
   if (app.findFirstRecordByData("posts", "title", "two").get("summary") !== "from sql") throw new Error("no summary");
+  // the query builder, with unqualified names, in the migration's transaction
+  const found = app.recordQuery("posts").where($dbx.hashExp({ summary: "from sql" })).all();
+  if (found.length !== 1 || found[0].get("title") !== "two") throw new Error("recordQuery: " + found.length);
+  app.db().update("posts", { summary: "" }, $dbx.hashExp({ title: "one" })).execute();
 
   const settings = app.settings();
   settings.meta.appName = "Migrated";

@@ -50,11 +50,11 @@ on slonbase, so users sign in again. Their passwords keep working.
 Copy `pb_hooks/*.pb.js` to slonbase's hooks directory. The [extending guide](extending.md) lists
 everything that's available. The differences to watch for:
 
-- **SQL is PostgreSQL.** Queries through `$app.db().newQuery(...)` and in view collections run
-  on PostgreSQL, so SQLite-specific SQL (`strftime`, `json_extract`, `datetime('now')`, ...)
-  needs porting. Collections are tables in the `slonbase` schema, named after the collection.
-- **Not available yet:** the `*Execute` and `*AfterError` model hooks and the `$dbx` query
-  builder.
+- **SQL is PostgreSQL.** Queries through `$app.db()` (`newQuery`, the query builder,
+  `$dbx.exp`) and in view collections run on PostgreSQL, so SQLite-specific SQL (`strftime`,
+  `json_extract`, `datetime('now')`, ...) needs porting. The builder's own SQL (`select`,
+  `$dbx.hashExp`, `insert`, ...) is written for PostgreSQL, and `upsert` works. Collections are tables in the `slonbase` schema, named after the collection.
+- **Not available yet:** the `*Execute` and `*AfterError` model hooks.
   Registering a missing hook fails with a `ReferenceError` when the file loads, so you'll know
   right away.
 - **`onRealtimeConnectRequest`'s `e.next()` returns once the connection is open**, where

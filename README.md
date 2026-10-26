@@ -116,7 +116,7 @@ slonbase is not a replacement for every PocketBase install. PocketBase is the be
 - **One small app on one small machine is the whole plan.** SQLite in the same process answers
   a single client's lookups faster than any network database.
 - **You extend it in Go** (`main.go`), or rely on a hook slonbase doesn't have yet (the
-  `*Execute` and `*AfterError` model hooks, `$dbx`). See
+  `*Execute` and `*AfterError` model hooks). See
   [the differences](docs/migrating-from-pocketbase.md).
 
 slonbase is for when you want the PocketBase experience but your data belongs in PostgreSQL:
