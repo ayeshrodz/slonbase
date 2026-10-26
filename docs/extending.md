@@ -48,6 +48,7 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onRecordAfter{Create,Update,Delete}Error` | After a write failed, in the background: `e.record` (what a create would have written, or the stored record with an update's data), `e.error` (an `ApiError`). Validation and hook errors count, and so do writes a failed transaction undid (the other requests of a failed batch). Requests the rules refuse don't. |
 | `onCollection{Create,Update,Delete}`, `onCollectionAfter{Create,Update,Delete}Success` | Changes through the collections API, imports included |
 | `onCollectionValidate`, `onCollection{Create,Update,Delete}Execute`, `onCollectionAfter{Create,Update,Delete}Error` | Collection changes through the API (imports run only the hooks above): after validation, around the schema change (`e.next()` applies it), and after a failure (`e.error`). Changes to `e.collection` in these are ignored; make them in `onCollectionCreate`. |
+| `onModel{Create,Update,Delete,Validate}`, `onModel{Create,Update,Delete}Execute`, `onModelAfter{Create,Update,Delete}{Success,Error}` | The record and collection hooks above for any model: `e.model` is the record or the collection. Tags are collection names, and `"_collections"` for collections; untagged handlers see both. They run inside the record or collection hooks' `e.next()`, as in PocketBase. |
 | `onRecordAuthRequest` | Every sign-in, token refresh and impersonation, before the MFA check. A handler can change `e.record` (in the response only), `e.token` and `e.meta` (`e.authMethod` says how the record signed in), or throw. |
 | `onRecordAuthWithPasswordRequest`, `onRecordAuthWithOAuth2Request`, `onRecordAuthWithOTPRequest`, `onRecordAuthRefreshRequest` | Around each sign-in. `e.record` is null when no record matched the identity, and a handler can set it, to find records its own way. Password: `e.identity`, `e.identityField`, `e.password`; OAuth2: `e.providerName`, `e.oauth2User`, `e.createData`, `e.isNewRecord`; OTP: `e.otp`. |
 | `onRecordRequestOTPRequest`, `onRecordRequest{Verification,PasswordReset,EmailChange}Request`, `onRecordConfirm{Verification,PasswordReset,EmailChange}Request` | Around the email flows. `e.password` is the one-time password about to be sent, `e.newEmail` the new address. A handler that doesn't call `e.next()` skips the action (and the email). |
@@ -103,6 +104,9 @@ those collections.
   `md5`, `equal`, ...
 - `$os.getenv`, `console.log/info/warn/error`, and `require()` for modules in the hooks
   directory.
+- `toString`, `toBytes(value, maxBytes)` and `readerToString` (text is UTF-8; readers are
+  strings or bytes here), and `nullString()`, `nullInt()`, ... for nullable `DynamicModel`
+  columns.
 - Errors: `BadRequestError`, `NotFoundError`, `ForbiddenError`, `UnauthorizedError` and
   `ApiError(status, message, data)` become API errors with that status. Other errors answer 400
   and are logged.

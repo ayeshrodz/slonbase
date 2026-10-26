@@ -54,9 +54,10 @@ everything that's available. The differences to watch for:
   `$dbx.exp`) and in view collections run on PostgreSQL, so SQLite-specific SQL (`strftime`,
   `json_extract`, `datetime('now')`, ...) needs porting. The builder's own SQL (`select`,
   `$dbx.hashExp`, `insert`, ...) is written for PostgreSQL, and `upsert` works. Collections are tables in the `slonbase` schema, named after the collection.
-- **Not available yet:** the generic model hooks (`onModelCreate`, `onModelAfterCreateSuccess`,
-  ...); use the record and collection hooks, which slonbase has. Registering a missing hook
-  fails with a `ReferenceError` when the file loads, so you'll know right away.
+- **`onModel*` hooks see records and collections.** PocketBase also runs them for its internal
+  models (logs, `_mfas`, `_otps`, `_authOrigins`); slonbase keeps those in its own tables,
+  outside the hooks. Any hook missing from slonbase fails with a `ReferenceError` when the file
+  loads, so you'll know right away.
 - **Record writes run in a transaction**, so throwing in `onRecordCreateExecute` after
   `e.next()` rolls the insert back; PocketBase's records API keeps it. A handler that doesn't
   call `e.next()` fails the write, where PocketBase skips it and answers as if it happened.

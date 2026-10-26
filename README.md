@@ -115,9 +115,8 @@ slonbase is not a replacement for every PocketBase install. PocketBase is the be
   PostgreSQL server next to it (the Compose file below starts one).
 - **One small app on one small machine is the whole plan.** SQLite in the same process answers
   a single client's lookups faster than any network database.
-- **You extend it in Go** (`main.go`), or rely on a hook slonbase doesn't have yet (the
-  generic `onModel*` hooks). See
-  [the differences](docs/migrating-from-pocketbase.md).
+- **You extend it in Go** (`main.go`). slonbase runs PocketBase's JavaScript hooks and has a
+  Rust API, but not Go. See [the differences](docs/migrating-from-pocketbase.md).
 
 slonbase is for when you want the PocketBase experience but your data belongs in PostgreSQL:
 you already run it, you want SQL access, replicas, `pg_dump` or a managed service, or you need

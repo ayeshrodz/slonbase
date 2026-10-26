@@ -689,6 +689,11 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   the write together. A failed statement always fails the write (the transaction is aborted
   anyway), and a write whose `next` never ran fails with "cancelled by a hook". Changes the
   handlers made go through `apply_body` and `validate` again.
+- `onModel*` exist only in JavaScript: the prelude registers each handler on the record hook
+  (tags other than `_collections`) and the collection hook (no tags, or `_collections`) with a
+  builder that picks the event's shape and adds `e.model`. These registrations are sent after
+  all others, so they run inside the record and collection handlers' `next`, as PocketBase's
+  record hooks (priority -99) wrap its model hooks.
 - After-error hooks: `create_in`/`update_in`/`delete_in` record a failed write (not 403/404,
   which PocketBase rejects before its save) in `FileEffects`, and `settle` reports those, plus
   the writes of a transaction that failed, in a background task once it rolled back. Updates and

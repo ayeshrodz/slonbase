@@ -366,3 +366,50 @@ onCollectionAfterCreateError((e) => {
   if (e.collection.name.startsWith("hooks_c_exec")) require(`${__hooks}/exec_log.js`)(e.app, "collection-error:" + e.collection.name);
   e.next();
 });
+
+// generic model hooks (tests/model.test.mjs), on hooks_model records and hooks_c_model_*
+// collections, logging to hooks_model_log. The model handler is registered first, but the
+// record hooks run before it.
+onModelCreate((e) => {
+  const title = e.model.get("title");
+  if (title === "model-change") e.model.set("title", "model-changed");
+  if (title === "order-record") e.model.set("title", "order-record-model");
+  e.next();
+}, "hooks_model");
+onRecordCreate((e) => {
+  if (e.record.get("title") === "order") e.record.set("title", "order-record");
+  e.next();
+}, "hooks_model");
+onModelValidate((e) => {
+  if (e.model.get("title") === "model-invalid") throw new BadRequestError("Refused by model validate.");
+  e.next();
+}, "hooks_model");
+onModelAfterCreateSuccess((e) => {
+  require(`${__hooks}/exec_log.js`)(e.app, "model-success:" + e.model.get("title"), "hooks_model_log");
+  e.next();
+}, "hooks_model");
+onModelAfterCreateError((e) => {
+  require(`${__hooks}/exec_log.js`)(e.app, "model-error:" + e.model.get("title"), "hooks_model_log");
+  e.next();
+}, "hooks_model");
+onModelCreate((e) => {
+  if (e.model.name === "hooks_c_model_refuse") throw new BadRequestError("Refused by model.");
+  e.next();
+}, "_collections");
+onModelAfterCreateSuccess((e) => {
+  if (e.model.name.startsWith("hooks_c_model")) {
+    require(`${__hooks}/exec_log.js`)(e.app, "collection-success:" + e.model.name, "hooks_model_log");
+  }
+  e.next();
+}, "_collections");
+
+// byte and string helpers, and nullable DynamicModel columns (tests/dbx.test.mjs)
+routerAdd("GET", "/compat/bytes", (e) => {
+  const row = new DynamicModel({ missing: nullString(), count: nullInt(), name: "" });
+  $app.db().newQuery("SELECT NULL AS missing, 3 AS count, 'x' AS name").one(row);
+  return e.json(200, {
+    roundTrip: toString(toBytes("héllo ✓")),
+    length: toBytes("hé").length,
+    row,
+  });
+}, $apis.requireSuperuserAuth());

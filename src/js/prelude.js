@@ -1000,10 +1000,41 @@
     call("sleep", ms || 0);
   }
 
+  function isBytes(v) {
+    return (Array.isArray(v) || v instanceof Uint8Array) && Array.prototype.every.call(v, (x) => typeof x === "number");
+  }
+  function utf8Decode(bytes) {
+    let latin1 = "";
+    for (let i = 0; i < bytes.length; i += 8192) {
+      latin1 += String.fromCharCode.apply(null, Array.prototype.slice.call(bytes, i, i + 8192));
+    }
+    try {
+      return decodeURIComponent(escape(latin1));
+    } catch (_) {
+      return latin1; // not UTF-8
+    }
+  }
+  // bytes (UTF-8 for text), like PocketBase's toBytes; maxBytes limits them
+  function toBytes(v, maxBytes) {
+    let bytes;
+    if (isBytes(v)) {
+      bytes = Array.from(v);
+    } else {
+      const text = typeof v === "string" ? v : toString(v);
+      const latin1 = unescape(encodeURIComponent(text));
+      bytes = new Array(latin1.length);
+      for (let i = 0; i < latin1.length; i++) bytes[i] = latin1.charCodeAt(i);
+    }
+    return maxBytes > 0 ? bytes.slice(0, maxBytes) : bytes;
+  }
   function toString(v) {
     if (typeof v === "string") return v;
-    if (Array.isArray(v) && v.every((x) => typeof x === "number")) return String.fromCharCode(...v);
+    if (isBytes(v)) return utf8Decode(v);
     return v === null || v === undefined ? "" : JSON.stringify(v);
+  }
+  // readers are strings or bytes here
+  function readerToString(reader, maxBytes) {
+    return utf8Decode(toBytes(reader, maxBytes));
   }
 
   // CommonJS modules from the hooks directory: require(`${__hooks}/utils.js`)
@@ -1158,6 +1189,24 @@
       e.record._original = original;
     };
     e._state = () => ({ record: e.record._fields() });
+    return e;
+  }
+
+  // generic model hooks: the record or collection event, with e.model for its record or
+  // collection
+  function modelEvent(raw) {
+    const isRecord = raw.record !== undefined;
+    let e;
+    if (isRecord) e = raw.error ? recordErrorEvent(raw) : "stored" in raw ? recordModelEvent(raw) : recordEvent(raw);
+    else e = raw.error ? builders.collectionError(raw) : collectionEvent(raw);
+    const key = isRecord ? "record" : "collection";
+    Object.defineProperty(e, "model", {
+      get: () => e[key],
+      set: (v) => {
+        e[key] = v;
+      },
+      enumerable: true,
+    });
     return e;
   }
 
@@ -1327,6 +1376,7 @@
     recordsList: listRequestEvent,
     record: recordEvent,
     recordError: recordErrorEvent,
+    model: modelEvent,
     collectionError: (raw) => {
       const e = { app: $app, collection: new Collection(raw.collection), error: toError(raw.error) };
       e.next = () => {
@@ -1350,6 +1400,9 @@
 
   const handlers = [];
   const registrations = [];
+  // registered after all others, so they run inside the record and collection hooks' next()
+  // (as in PocketBase, where those run first)
+  const modelRegistrations = [];
 
   function register(kind, event, fn, extra) {
     if (typeof fn !== "function") throw new TypeError(kind + ": the handler must be a function");
@@ -1422,6 +1475,37 @@
     onRecordAfterUpdateError: "recordAfterUpdateError",
     onRecordAfterDeleteError: "recordAfterDeleteError",
   };
+  // onModel*: records (tags are collection names) and collections (the "_collections" tag)
+  for (const [action, Action] of [
+    ["create", "Create"],
+    ["update", "Update"],
+    ["delete", "Delete"],
+  ]) {
+    for (const [suffix, pick] of [
+      ["", (kind) => kind],
+      ["Execute", (kind) => kind + "Execute"],
+      ["AfterSuccess", (kind) => kind.replace(Action, "After" + Action + "Success")],
+      ["AfterError", (kind) => kind.replace(Action, "After" + Action + "Error")],
+    ]) {
+      const name =
+        suffix === "AfterSuccess" || suffix === "AfterError"
+          ? "onModelAfter" + Action + suffix.slice(5)
+          : "onModel" + Action + suffix;
+      modelHook(name, pick("record" + Action), pick("collection" + Action));
+    }
+  }
+  modelHook("onModelValidate", "recordValidate", "collectionValidate");
+  function modelHook(name, recordKind, collectionKind) {
+    g[name] = (fn, ...tags) => {
+      if (typeof fn !== "function") throw new TypeError(name + ": the handler must be a function");
+      handlers.push({ fn, event: "model" });
+      const index = handlers.length - 1;
+      const names = collections(tags);
+      const records = names.filter((t) => t !== "_collections");
+      if (!names.length || records.length) modelRegistrations.push({ kind: recordKind, index, collections: records });
+      if (!names.length || names.includes("_collections")) modelRegistrations.push({ kind: collectionKind, index, collections: [] });
+    };
+  }
   const collectionErrorHooks = {
     onCollectionAfterCreateError: "collectionAfterCreateError",
     onCollectionAfterUpdateError: "collectionAfterUpdateError",
@@ -1578,7 +1662,7 @@
       return JSON.stringify({ err: errorJson(err) });
     }
   };
-  g.__registrations = () => JSON.stringify(registrations);
+  g.__registrations = () => JSON.stringify(registrations.concat(modelRegistrations));
 
   Object.assign(g, {
     ApiError,
@@ -1607,6 +1691,15 @@
     $template,
     sleep,
     toString,
+    toBytes,
+    readerToString,
+    // nullable DynamicModel columns: the rows give the values (null when NULL)
+    nullString: () => null,
+    nullInt: () => null,
+    nullFloat: () => null,
+    nullBool: () => null,
+    nullArray: () => null,
+    nullObject: () => null,
     require,
   });
 })(globalThis);

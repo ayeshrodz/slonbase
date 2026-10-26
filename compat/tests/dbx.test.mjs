@@ -81,3 +81,10 @@ test("$dbx expressions and the query builder", async () => {
     { id: 2, name: "b2", score: 20 },
   ]);
 });
+
+test("byte helpers and nullable columns", async () => {
+  const r = await pb.send("/compat/bytes", {});
+  assert.equal(r.roundTrip, "héllo ✓");
+  assert.equal(r.length, 3, "UTF-8 bytes");
+  assert.deepEqual(r.row, { missing: null, count: 3, name: "x" });
+});

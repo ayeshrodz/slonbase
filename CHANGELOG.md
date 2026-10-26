@@ -25,6 +25,11 @@ changes, and they'll be listed here.
   `onRecordAfterDeleteError` report failed writes, including ones a failed batch undid. The
   collection versions (`onCollectionCreateExecute`, `onCollectionAfterCreateError`, ...),
   `onCollectionValidate` and `onBootstrapClear` too. Checked against PocketBase.
+- **Generic model hooks:** `onModelCreate`, `onModelUpdate`, `onModelDelete`,
+  `onModelValidate`, their `Execute` versions and `onModelAfter{Create,Update,Delete}{Success,Error}`,
+  for records and collections (`e.model`), in PocketBase's order. With these, slonbase has every
+  hook PocketBase's JavaScript has.
+- `toBytes`, `readerToString` and `nullString()`/`nullInt()`/... for `DynamicModel` columns.
 - **`$dbx` and the query builder:** `$app.db()` has PocketBase's dbx builder (`select`,
   `where`, joins, `groupBy`, `union`, `insert`, `upsert`, `update`, `delete`, the schema
   methods), `$dbx` its expressions, and `$app.recordQuery(collection)` reads records with it.
@@ -38,6 +43,8 @@ changes, and they'll be listed here.
 - `$app.db().newQuery()` finds collections by their unqualified names (`SELECT * FROM posts`),
   as the extending guide's example does; they needed the `slonbase.` schema before.
 - `$app.db().newQuery()` is faster: it compiled its regular expressions on every call.
+- `toString()` of bytes decodes UTF-8 (it read them as Latin-1, so non-ASCII text came out
+  garbled).
 
 ## [0.4.2] - 2026-10-26
 
