@@ -363,6 +363,10 @@ over the related tables, never JOINs, so they can't duplicate rows or skew count
 - A missing related record behaves like a single empty value, so `author.name = null` matches
   records without an author.
 - Paths can end in a JSON path (`author.meta.key`) and have up to 6 hops.
+- `@request.auth.relation.field` paths start from the caller's relation value, bound as a
+  parameter (a JSON array for multiple relations), and then join like a record's path. A guest,
+  or a caller whose collection doesn't have the field, gets null. When a rule is saved there is
+  no caller, so the path is compiled against every auth collection that has the field.
 - The related collections' API rules don't apply (as in PocketBase), but their hidden fields stay
   hidden from non-superusers, and secrets are never reachable.
 - Rules that use paths are validated against the related collections when saved.

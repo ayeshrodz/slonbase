@@ -686,7 +686,10 @@ impl Compiler<'_, '_> {
                         modifier,
                     )
                 }
-                FieldKind::Relation(_) => self.relation_path(field, base_alias, &rest, modifier),
+                FieldKind::Relation(_) => {
+                    let column = format!("{base_alias}.{}", quote_ident(&field.name));
+                    self.relation_path(field, column, &rest, modifier)
+                }
                 FieldKind::GeoPoint(_) => match rest.as_slice() {
                     [key @ ("lon" | "lat")] => self.apply_modifier(
                         Val::Scalar {
@@ -762,10 +765,13 @@ impl Compiler<'_, '_> {
     /// `relation.field[.field...]`: a correlated subquery over the related tables. The
     /// result is a scalar when every hop is single-valued, a set otherwise. The related
     /// collections' API rules don't apply (as in PocketBase); hidden fields still do.
+    ///
+    /// `first_column` is the SQL of the first relation's value (a column, or the caller's
+    /// value for `@request.auth` paths).
     fn relation_path(
         &mut self,
         first: &Field,
-        base_alias: &str,
+        first_column: String,
         rest: &[&str],
         modifier: Option<&str>,
     ) -> Result<Val, CompileError> {
@@ -786,7 +792,6 @@ impl Compiler<'_, '_> {
             .ok_or_else(|| missing(&first.name))?;
         self.aliases += 1;
         let mut alias = format!("__r{}", self.aliases);
-        let first_column = format!("{base_alias}.{}", quote_ident(&first.name));
         let from = format!("{} {alias}", table_ref(&collection.name));
         let condition = link(&alias, &first_column, first.is_multi());
         let mut joins = Vec::new();
@@ -919,10 +924,8 @@ impl Compiler<'_, '_> {
         let val = match (section, key) {
             ("method", None) => Val::Lit(Lit::Text(req.method.clone())),
             ("context", None) => Val::Lit(Lit::Text("default".into())),
+            ("auth", Some(key)) if key.contains('.') => return self.auth_path(key, modifier),
             ("auth", Some(key)) => {
-                if key.contains('.') {
-                    return fail("@request.auth relation paths are not supported yet");
-                }
                 match &req.auth {
                     None => Val::Null,
                     Some(auth) => match key {
@@ -969,6 +972,71 @@ impl Compiler<'_, '_> {
             ));
         }
         self.apply_modifier(val, modifier)
+    }
+
+    /// `@request.auth.relation.field[...]` (and `@request.auth.json.key`): the caller's
+    /// relation values, joined like a record's relation path. A guest, or a caller whose
+    /// collection doesn't have the field, gets null. Without a caller (a rule being saved),
+    /// the path is checked against every auth collection that has the field.
+    fn auth_path(&mut self, key: &str, modifier: Option<&str>) -> Result<Val, CompileError> {
+        let (first, rest) = key.split_once('.').expect("a path");
+        let rest: Vec<&str> = rest.split('.').collect();
+        let usable = |c: &Collection| c.field(first).filter(|f| !f.is_secret()).cloned();
+        let Some(auth) = self.scope.request.auth.clone() else {
+            let registry = self.scope.request.registry.clone();
+            let checked = self.params.0.len();
+            for c in registry
+                .iter()
+                .flat_map(|r| r.all().iter())
+                .filter(|c| c.is_auth())
+            {
+                if let Some(field) = usable(c) {
+                    self.auth_field_path(&field, None, &rest, modifier)?;
+                }
+            }
+            self.params.0.truncate(checked);
+            return Ok(Val::Null);
+        };
+        let field = self
+            .related_collection(&auth.collection_id)
+            .and_then(|c| usable(&c));
+        match field {
+            Some(field) => self.auth_field_path(&field, auth.values.get(first), &rest, modifier),
+            None => Ok(Val::Null),
+        }
+    }
+
+    fn auth_field_path(
+        &mut self,
+        field: &Field,
+        value: Option<&Value>,
+        rest: &[&str],
+        modifier: Option<&str>,
+    ) -> Result<Val, CompileError> {
+        match &field.kind {
+            FieldKind::Relation(_) => {
+                let first = if field.is_multi() {
+                    let ids = match value {
+                        Some(v @ Value::Array(_)) => v.to_string(),
+                        _ => "[]".into(),
+                    };
+                    format!("({})::jsonb", self.params.push(ids))
+                } else {
+                    let id = value.and_then(Value::as_str).unwrap_or_default();
+                    self.params.push(id.to_string())
+                };
+                self.relation_path(field, first, rest, modifier)
+            }
+            FieldKind::Json(_) => {
+                let mut value = value;
+                for key in rest {
+                    value = value.and_then(|v| v.get(key));
+                }
+                let val = json_val(value);
+                self.apply_modifier(val, modifier)
+            }
+            _ => fail(format!("{:?} has no nested fields", field.name)),
+        }
     }
 
     fn macro_value(&mut self, name: &str) -> Result<Val, CompileError> {

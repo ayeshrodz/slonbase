@@ -439,3 +439,233 @@ async fn relation_path_matrix_never_errors() {
     }
     env.tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn request_auth_relation_paths() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    let admin_auth = format!("Bearer {admin}");
+    let as_admin = |method: &'static str, uri: String, body: Value| {
+        let (app, auth) = (app.clone(), admin_auth.clone());
+        async move {
+            let (status, res) = request(
+                &app,
+                method,
+                &uri,
+                &[("authorization", auth.as_str())],
+                Some(body),
+            )
+            .await;
+            assert!(status.is_success(), "{method} {uri} -> {status}: {res}");
+            res
+        }
+    };
+    let id = |v: Value| v["id"].as_str().unwrap().to_string();
+
+    // users belong to a team (single) and groups (multiple); teams have an owner
+    let users = id(as_admin(
+        "POST",
+        "/api/collections".into(),
+        json!({
+            "name": "members", "type": "auth", "fields": [{ "name": "name", "type": "text" }],
+        }),
+    )
+    .await);
+    let groups = id(as_admin(
+        "POST",
+        "/api/collections".into(),
+        json!({
+            "name": "groups", "fields": [{ "name": "name", "type": "text" }],
+        }),
+    )
+    .await);
+    let teams = id(as_admin(
+        "POST",
+        "/api/collections".into(),
+        json!({
+            "name": "teams", "fields": [
+                { "name": "name", "type": "text" },
+                { "name": "owner", "type": "relation", "collectionId": users, "maxSelect": 1 },
+                { "name": "settings", "type": "json" },
+            ],
+        }),
+    )
+    .await);
+    let mut fields =
+        as_admin("GET", "/api/collections/members".into(), Value::Null).await["fields"]
+            .as_array()
+            .unwrap()
+            .clone();
+    fields.extend([
+        json!({ "name": "team", "type": "relation", "collectionId": teams, "maxSelect": 1 }),
+        json!({ "name": "groups", "type": "relation", "collectionId": groups, "maxSelect": 5 }),
+    ]);
+    as_admin(
+        "PATCH",
+        "/api/collections/members".into(),
+        json!({ "fields": fields }),
+    )
+    .await;
+    let docs = json!({
+        "name": "docs",
+        "fields": [
+            { "name": "title", "type": "text" },
+            { "name": "team", "type": "relation", "collectionId": teams, "maxSelect": 1 },
+        ],
+        // team owners see their team's docs; members of the "editors" group see all of them;
+        // and anyone whose team allows it (a JSON path through a relation)
+        "listRule": "(team = @request.auth.team && @request.auth.team.owner = @request.auth.id) \
+                     || @request.auth.groups.name ?= 'editors' \
+                     || (team = @request.auth.team && @request.auth.team.settings.open = true)",
+    });
+    as_admin("POST", "/api/collections".into(), docs).await;
+
+    // a path the auth collections don't have is rejected when the rule is saved
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/collections/docs",
+        &[("authorization", admin_auth.as_str())],
+        Some(json!({ "viewRule": "@request.auth.team.nope = 1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res["data"]["viewRule"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("nope"),
+        "{res}"
+    );
+
+    let editors = id(as_admin(
+        "POST",
+        "/api/collections/groups/records".into(),
+        json!({ "name": "editors" }),
+    )
+    .await);
+    let others = id(as_admin(
+        "POST",
+        "/api/collections/groups/records".into(),
+        json!({ "name": "others" }),
+    )
+    .await);
+    let mut members = Vec::new();
+    for name in ["owner", "member", "editor", "loner"] {
+        let groups = if name == "editor" {
+            json!([others, editors])
+        } else {
+            json!([others])
+        };
+        members.push(id(as_admin(
+            "POST",
+            "/api/collections/members/records".into(),
+            json!({
+                "email": format!("{name}@example.com"), "password": "password-123",
+                "passwordConfirm": "password-123", "name": name, "groups": groups,
+            }),
+        )
+        .await));
+    }
+    let red = id(as_admin(
+        "POST",
+        "/api/collections/teams/records".into(),
+        json!({
+            "name": "red", "owner": members[0], "settings": { "open": false },
+        }),
+    )
+    .await);
+    let blue = id(as_admin(
+        "POST",
+        "/api/collections/teams/records".into(),
+        json!({
+            "name": "blue", "owner": members[3], "settings": { "open": true },
+        }),
+    )
+    .await);
+    for m in &members[..3] {
+        as_admin(
+            "PATCH",
+            format!("/api/collections/members/records/{m}"),
+            json!({ "team": red }),
+        )
+        .await;
+    }
+    as_admin(
+        "PATCH",
+        format!("/api/collections/members/records/{}", members[3]),
+        json!({ "team": blue }),
+    )
+    .await;
+    for (title, team) in [("red doc", &red), ("blue doc", &blue)] {
+        as_admin(
+            "POST",
+            "/api/collections/docs/records".into(),
+            json!({ "title": title, "team": team }),
+        )
+        .await;
+    }
+
+    let titles = |token: Option<String>| {
+        let app = app.clone();
+        async move {
+            let auth = token.map(|t| format!("Bearer {t}"));
+            let headers: Vec<(&str, &str)> =
+                auth.iter().map(|a| ("authorization", a.as_str())).collect();
+            let (status, res) = request(
+                &app,
+                "GET",
+                "/api/collections/docs/records?sort=title",
+                &headers,
+                None,
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+            res["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r["title"].as_str().unwrap().to_string())
+                .collect::<Vec<_>>()
+        }
+    };
+    let token = |email: &str| {
+        let (app, email) = (app.clone(), email.to_string());
+        async move {
+            let (status, res) = request(
+                &app,
+                "POST",
+                "/api/collections/members/auth-with-password",
+                &[],
+                Some(json!({ "identity": email, "password": "password-123" })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+            Some(res["token"].as_str().unwrap().to_string())
+        }
+    };
+    assert_eq!(
+        titles(token("owner@example.com").await).await,
+        ["red doc"],
+        "the team's owner"
+    );
+    assert!(
+        titles(token("member@example.com").await).await.is_empty(),
+        "a member who doesn't own the team"
+    );
+    assert_eq!(
+        titles(token("editor@example.com").await).await,
+        ["blue doc", "red doc"],
+        "a group member"
+    );
+    assert_eq!(
+        titles(token("loner@example.com").await).await,
+        ["blue doc"],
+        "an open team (and its owner)"
+    );
+    assert!(titles(None).await.is_empty(), "guests: the paths are null");
+    // a superuser (another auth collection, without these fields) gets everything anyway
+    let _ = tdb;
+}

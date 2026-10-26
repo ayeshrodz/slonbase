@@ -114,7 +114,9 @@ Filters and rules use PocketBase's syntax:
   variants for multi-valued fields;
 - `&&`, `||` and parentheses;
 - relation paths (`author.org.name`, `tags.name ?= 'x'`);
-- `@request.*`: `@request.auth.*` (the signed-in record's fields), `@request.body.*`,
+- `@request.*`: `@request.auth.*` (the signed-in record's fields, and relation paths from it:
+  `@request.auth.team.owner = @request.auth.id`, `@request.auth.groups.name ?= 'editors'`),
+  `@request.body.*`,
   `@request.query.*`, `@request.headers.*` and `@request.method`;
 - date macros such as `@now` and `@todayStart`;
 - JSON paths (`meta.key`), and the `:length`, `:lower`, `:each` and `:isset` modifiers;

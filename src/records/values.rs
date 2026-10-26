@@ -710,18 +710,31 @@ pub fn number(n: f64) -> Value {
     }
 }
 
+/// The domain of a valid email address, by PocketBase's rules: two or more labels (a
+/// trailing dot is allowed), each starting and ending with a letter or digit, with `-` and `_`
+/// in between, and not an IP address.
 fn email_domain(s: &str) -> Option<String> {
     let (local, domain) = s.rsplit_once('@')?;
+    let labels: Vec<&str> = domain
+        .strip_suffix('.')
+        .unwrap_or(domain)
+        .split('.')
+        .collect();
+    let label_ok = |l: &&str| {
+        let ends = |c: Option<char>| c.is_some_and(char::is_alphanumeric);
+        ends(l.chars().next())
+            && ends(l.chars().last())
+            && l.chars()
+                .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+    };
     let valid = !local.is_empty()
         && local.len() <= 64
-        && domain.contains('.')
-        && !domain.starts_with('.')
-        && !domain.ends_with('.')
+        && labels.len() >= 2
+        && labels.iter().all(label_ok)
+        // not an IP address
+        && !labels.last().is_some_and(|l| l.chars().all(|c| c.is_ascii_digit()))
         && !s.chars().any(|c| c.is_whitespace() || c.is_control())
-        && !local.contains('@')
-        && domain
-            .chars()
-            .all(|c| c.is_alphanumeric() || c == '.' || c == '-');
+        && !local.contains('@');
     valid.then(|| domain.to_ascii_lowercase())
 }
 
@@ -767,6 +780,39 @@ mod tests {
     use super::*;
     use crate::collections::model::default_id_field;
     use serde_json::json;
+
+    #[test]
+    fn email_domains_as_pocketbase_checks_them() {
+        // what PocketBase 0.40.5 accepts and rejects
+        for ok in [
+            "a@b_c.test",
+            "a@x.com.",
+            "\"q\"@x.com",
+            "a@x.c_m",
+            "a+b@x.co",
+            "ä@x.com",
+            "a@ä.com",
+        ] {
+            assert!(email_domain(ok).is_some(), "{ok} should be valid");
+        }
+        for bad in [
+            "a@localhost",
+            "a@-x.com",
+            "a@x-.com",
+            "a@x..com",
+            "a@.x.com",
+            "a b@x.com",
+            "a@ex ample.com",
+            "a@[127.0.0.1]",
+            "a@x_.com",
+            "a@_x.com",
+            "a@x.com_",
+            "@x.com",
+            "a@",
+        ] {
+            assert!(email_domain(bad).is_none(), "{bad} should be invalid");
+        }
+    }
 
     fn collection() -> Collection {
         serde_json::from_value(json!({

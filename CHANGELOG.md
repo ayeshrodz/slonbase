@@ -16,6 +16,15 @@ changes, and they'll be listed here.
   existing tables get it when the upgrade runs. `SET slonbase.realtime = off` skips events in a
   session, for bulk loads.
 - CI tests upgrades in place from 0.1.0 and from the previous release.
+- **`@request.auth` relation paths** in rules and filters, as in PocketBase:
+  `@request.auth.team.owner = @request.auth.id`, `@request.auth.groups.name ?= 'editors'`,
+  `@request.auth.team.settings.open = true`. Checked against PocketBase.
+
+### Fixed
+
+- Email fields accept what PocketBase accepts: underscores inside domain labels
+  (`a@my_host.example`) and a trailing dot; they now reject labels that start or end with `-`,
+  empty labels (`x..com`) and IP addresses, as PocketBase does.
 
 ## [0.5.0] - 2026-10-26
 
