@@ -50,13 +50,22 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onRecordRequestOTPRequest`, `onRecordRequest{Verification,PasswordReset,EmailChange}Request`, `onRecordConfirm{Verification,PasswordReset,EmailChange}Request` | Around the email flows. `e.password` is the one-time password about to be sent, `e.newEmail` the new address. A handler that doesn't call `e.next()` skips the action (and the email). |
 | `onRecordEnrich` | Every record sent to a client: in responses, batches, auth responses, expanded relations and realtime messages. `e.record.set()` adds keys, `hide()` and `unhide()` change which fields are sent (superusers always get every field). |
 | `onMailerSend`, `onMailerRecord{Verification,PasswordReset,EmailChange,OTP,AuthAlert}Send` | Before an email is sent |
+| `onRealtimeConnectRequest` | A realtime connection being opened: `e.client` (`id()`, `subscriptions()`, `get("auth")`), `e.idleTimeout`, `e.maxTimeout` (nanoseconds, like Go's durations; 0, the default, means none). Throw to refuse it. Unlike PocketBase, `e.next()` returns once the connection is open, not when it closes. |
+| `onRealtimeSubscribeRequest` | A client setting its subscriptions: change `e.subscriptions` (topic strings) or throw |
+| `onRealtimeMessageSend` | Every message to a realtime client, `PB_CONNECT` included: `e.message.name`, `e.message.data` (JSON text; `toString()` works as in PocketBase). Skip it by not calling `e.next()`; throwing closes the connection. |
+| `onFileDownloadRequest` | A file download (can be limited to collections): `e.record`, `e.fileField`, `e.servedPath` (a storage key), `e.servedName`, `e.thumbError`. Change what's served, throw, or answer yourself. |
+| `onFileTokenRequest` | A protected-file token request (can be limited to the caller's collection): `e.record` (the caller), `e.token` |
+| `onSettingsListRequest`, `onSettingsUpdateRequest` | The settings API: `e.settings` (secrets masked); `e.oldSettings` and `e.newSettings` (what's saved, validated like the request) |
+| `onSettingsReload` | After the settings changed (here, on another instance, after a restore) and once at startup, in the background: `e.settings` |
+| `onBackupCreate`, `onBackupRestore` | Every backup (the API, automatic backups, `$app.createBackup`) and restore: `e.name` can be changed; `e.exclude` is accepted but ignored (backups always hold the database and the files). Throw to cancel. |
+| `onTerminate` | When the server stops, after it stopped taking requests: `e.isRestart` (a restart after the hook files changed). Handlers get at most 5 seconds. |
 | `onBootstrap` | Once the app is ready |
 | `routerAdd(method, path, handler, ...middlewares)` | A custom route. Middlewares: `$apis.requireAuth(...collections)`, `requireSuperuserAuth()`, `requireSuperuserOrOwnerAuth(param)`, `requireGuestOnly()`. |
 | `routerUse(handler)` | Middleware around every request; `e.next()` continues |
 | `cronAdd(id, expression, fn)`, `cronRemove(id)` | Scheduled jobs (UTC). They run on one instance per minute and show in the dashboard. |
 
-Record hooks take collection names (or ids) after the handler to limit them to those
-collections.
+Record and file hooks take collection names (or ids) after the handler to limit them to
+those collections.
 
 **Globals:**
 
@@ -64,7 +73,9 @@ collections.
   `findAuthRecordByEmail`, `countRecords`, `findCollectionByNameOrId`, `findAllCollections`,
   `save` and `delete` (of records, collections and, for `save`, the settings),
   `importCollections`, `db().newQuery(sql).bind({...}).execute()` / `.one()` / `.all()`
-  (PostgreSQL SQL, with `{:name}` placeholders), `settings()`, `newMailClient().send(...)`.
+  (PostgreSQL SQL, with `{:name}` placeholders), `settings()`, `newMailClient().send(...)`,
+  `createBackup(name)` and `restoreBackup(name)` (PocketBase's context argument is accepted
+  and ignored).
 - `Collection`, `Field` (and `TextField`, `NumberField`, ...), `unmarshal`: collection
   definitions, as in [migrations](migrations.md#whats-available).
 - `Record`: `new Record(collection)`, `get`/`set`/`getString`/`getInt`/`getBool`/...,

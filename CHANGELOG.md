@@ -7,6 +7,18 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **Realtime, file, settings, backup and terminate hooks**, in JavaScript and Rust:
+  `onRealtimeConnectRequest`, `onRealtimeSubscribeRequest`, `onRealtimeMessageSend`,
+  `onFileDownloadRequest`, `onFileTokenRequest`, `onSettingsListRequest`,
+  `onSettingsUpdateRequest`, `onSettingsReload`, `onBackupCreate`, `onBackupRestore` and
+  `onTerminate`, with PocketBase's event properties. The compatibility suite runs the same
+  handlers in PocketBase and slonbase. See the [differences](docs/migrating-from-pocketbase.md)
+  for the two that behave differently.
+- `$app.createBackup(name)` and `$app.restoreBackup(name)`.
+- Realtime connections can have an idle and a maximum timeout, set by a connect hook.
+
 ## [0.4.2] - 2026-10-26
 
 New installations start with rate limits on, and dependencies with security advisories are

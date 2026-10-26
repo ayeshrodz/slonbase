@@ -32,6 +32,7 @@ use crate::db::TextQuery;
 use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo};
+use crate::hooks::DataEvent;
 use crate::validation::Errors;
 
 /// Default max size per file (same as PocketBase).
@@ -674,6 +675,7 @@ pub async fn serve(
     let original_key = file_key(&c.id, &record_id, &filename);
     let mut served_key = original_key.clone();
     let mut served_name = filename.clone();
+    let mut thumb_error = Value::Null;
 
     if let Some(thumb) = query.get("thumb").filter(|t| !t.is_empty()) {
         let allowed = matches!(&field.kind, FieldKind::File(o) if thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
@@ -684,6 +686,65 @@ pub async fn serve(
                 served_key = key;
                 served_name = format!("{thumb}_{filename}");
             }
+        }
+        if served_key == original_key {
+            // PocketBase's message; the original file is served instead
+            thumb_error = Value::String(format!(
+                "the thumb size {thumb:?} or the original file format are not supported"
+            ));
+        }
+    }
+
+    let hook = &core.hooks.on_file_download_request;
+    if hook.has_handlers(Some(&c)) {
+        let auth = client_auth(&core, &query, &headers).await;
+        let mut public = record.clone();
+        for f in c.fields.iter().filter(|f| f.is_secret()) {
+            public.remove(&f.name);
+        }
+        let e = DataEvent {
+            core: core.clone(),
+            collection: Some(c.clone()),
+            request: Some(Arc::new(crate::records::api::request_info(
+                &axum::http::Method::GET,
+                &query,
+                &headers,
+                None,
+                &auth,
+                &core.registry(),
+            ))),
+            auth,
+            data: crate::hooks::data([
+                ("record", store::record_json(&c, public)),
+                (
+                    "fileField",
+                    serde_json::to_value(field).unwrap_or(Value::Null),
+                ),
+                ("servedPath", served_key.clone().into()),
+                ("servedName", served_name.clone().into()),
+                ("thumbError", thumb_error),
+            ]),
+            response: None,
+        };
+        let served = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let e = {
+            let served = served.clone();
+            hook.trigger(Some(&c), e, move |e| async move {
+                served.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(e)
+            })
+            .await?
+        };
+        if let Some(response) = e.response {
+            return Ok(response);
+        }
+        if !served.load(std::sync::atomic::Ordering::SeqCst) {
+            return Ok(StatusCode::OK.into_response());
+        }
+        served_key = e.str("servedPath").to_string();
+        served_name = e.str("servedName").to_string();
+        if served_key.is_empty() || served_name.is_empty() {
+            return Err(ApiError::not_found());
         }
     }
 
@@ -916,19 +977,81 @@ async fn ensure_thumb(
 pub async fn token(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
     let core = app.core()?;
-    let token = if let Some(record) = auth.any_record() {
-        let duration = record
-            .collection
-            .auth_options()
-            .map(|a| a.file_token.duration)
-            .unwrap_or(180);
-        record.issue(&core, TokenType::File, Map::new(), duration)
-    } else {
+    let Some(record) = auth.any_record().cloned() else {
         return Err(ApiError::unauthorized("Missing auth context."));
     };
-    Ok(Json(json!({ "token": token })))
+    let duration = record
+        .collection
+        .auth_options()
+        .map(|a| a.file_token.duration)
+        .unwrap_or(180);
+    let token = record.issue(&core, TokenType::File, Map::new(), duration);
+
+    let hook = &core.hooks.on_file_token_request;
+    if !hook.has_handlers(Some(&record.collection)) {
+        return Ok(Json(json!({ "token": token })).into_response());
+    }
+    let mut public = record.values.clone();
+    for f in record.collection.fields.iter().filter(|f| f.is_secret()) {
+        public.remove(&f.name);
+    }
+    let e = DataEvent {
+        core: core.clone(),
+        collection: Some(record.collection.clone()),
+        request: Some(Arc::new(crate::records::api::request_info(
+            &axum::http::Method::POST,
+            &HashMap::new(),
+            &headers,
+            None,
+            &auth,
+            &core.registry(),
+        ))),
+        auth,
+        data: crate::hooks::data([
+            ("record", store::record_json(&record.collection, public)),
+            ("token", token.into()),
+        ]),
+        response: None,
+    };
+    let answered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let e = {
+        let answered = answered.clone();
+        hook.trigger(Some(&record.collection), e, move |e| async move {
+            answered.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(e)
+        })
+        .await?
+    };
+    Ok(match e.response {
+        Some(response) => response,
+        None if answered.load(std::sync::atomic::Ordering::SeqCst) => {
+            Json(json!({ "token": e.str("token") })).into_response()
+        }
+        None => StatusCode::OK.into_response(),
+    })
+}
+
+/// The caller of a file download, from the `token` query parameter (file token) or the
+/// `Authorization` header.
+async fn client_auth(
+    core: &Core,
+    query: &HashMap<String, String>,
+    headers: &axum::http::HeaderMap,
+) -> RequestAuth {
+    if let Some(token) = query.get("token").filter(|t| !t.is_empty()) {
+        return authenticate_as(core, token, TokenType::File).await;
+    }
+    match headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(crate::auth::token_from_header)
+    {
+        Some(token) => crate::auth::authenticate(core, token).await,
+        None => RequestAuth::default(),
+    }
 }
 
 #[cfg(test)]

@@ -53,9 +53,15 @@ everything that's available. The differences to watch for:
 - **SQL is PostgreSQL.** Queries through `$app.db().newQuery(...)` and in view collections run
   on PostgreSQL, so SQLite-specific SQL (`strftime`, `json_extract`, `datetime('now')`, ...)
   needs porting. Collections are tables in the `slonbase` schema, named after the collection.
-- **Not available yet:** realtime, file, backup and settings hooks, and the `$dbx` query builder.
+- **Not available yet:** the collection request hooks (`onCollectionsListRequest`, ...),
+  `onBatchRequest`, the `*Execute` and `*AfterError` model hooks, and the `$dbx` query builder.
   Registering a missing hook fails with a `ReferenceError` when the file loads, so you'll know
   right away.
+- **`onRealtimeConnectRequest`'s `e.next()` returns once the connection is open**, where
+  PocketBase's returns when it closes. Code after it runs at connect time.
+- **Realtime connections have no idle or maximum timeout** unless a connect handler sets
+  `e.idleTimeout` or `e.maxTimeout` (PocketBase closes them after 5 minutes idle and 30 minutes
+  in all; the SDKs reconnect either way).
 - **`$template` escapes everything the same way**, where Go escapes by context (inside
   `<script>`, URLs, ...). Use `js` and `urlquery` there.
 - **The engine is QuickJS** rather than Goja. It's standard JavaScript (ES2023), with no Go types.

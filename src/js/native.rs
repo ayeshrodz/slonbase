@@ -297,6 +297,22 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             ))?;
             Ok(Value::Null)
         }
+        // PocketBase's $app.createBackup(ctx, name) and $app.restoreBackup(ctx, name)
+        "createBackup" => {
+            let name = match a.str(0) {
+                name if name.is_empty() => format!(
+                    "slonbase_backup_{}.zip",
+                    chrono::Utc::now().format("%Y%m%d%H%M%S")
+                ),
+                name => name,
+            };
+            handle.block_on(crate::backups::create(&core, &name))?;
+            Ok(Value::Null)
+        }
+        "restoreBackup" => {
+            handle.block_on(crate::backups::restore(&core, &a.str(0)))?;
+            Ok(Value::Null)
+        }
         "saveSettings" => {
             let settings = handle.block_on(crate::settings::apply_patch(&core, a.object(0)))?;
             serde_json::to_value(&settings).map_err(internal)

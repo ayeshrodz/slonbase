@@ -101,6 +101,7 @@ impl Core {
         }
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         core.hooks.ready(&core).await;
+        crate::settings::reloaded(&core);
         Ok(core)
     }
 

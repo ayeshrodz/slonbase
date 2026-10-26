@@ -34,8 +34,8 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    AuthRequestEvent, BoxFuture, CollectionEvent, HookResult, MailerEvent, Next, RecordEnrichEvent,
-    RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
+    AuthRequestEvent, BoxFuture, CollectionEvent, DataEvent, HookResult, MailerEvent, Next,
+    RecordEnrichEvent, RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
 };
 use crate::records::files::Upload;
 
@@ -568,6 +568,30 @@ fn register(
             );
             continue;
         }
+        let data_hook = match reg.kind.as_str() {
+            "realtimeConnectRequest" => Some(&mut hooks.on_realtime_connect_request),
+            "realtimeSubscribeRequest" => Some(&mut hooks.on_realtime_subscribe_request),
+            "realtimeMessageSend" => Some(&mut hooks.on_realtime_message_send),
+            "fileDownloadRequest" => Some(&mut hooks.on_file_download_request),
+            "fileTokenRequest" => Some(&mut hooks.on_file_token_request),
+            "settingsListRequest" => Some(&mut hooks.on_settings_list_request),
+            "settingsUpdateRequest" => Some(&mut hooks.on_settings_update_request),
+            "settingsReload" => Some(&mut hooks.on_settings_reload),
+            "backupCreate" => Some(&mut hooks.on_backup_create),
+            "backupRestore" => Some(&mut hooks.on_backup_restore),
+            "terminate" => Some(&mut hooks.on_terminate),
+            _ => None,
+        };
+        if let Some(hook) = data_hook {
+            let kind = reg.kind.clone();
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| {
+                    Box::pin(data_event(pool.clone(), index, kind.clone(), e, next))
+                }),
+            );
+            continue;
+        }
         if reg.kind == "recordEnrich" {
             hooks.on_record_enrich.add_boxed(
                 reg.collections,
@@ -899,6 +923,71 @@ async fn apply_enrich_state(e: &mut RecordEnrichEvent, state: &Value) -> Result<
         }
     }
     Ok(())
+}
+
+/// A hook of a [`DataEvent`] (realtime, files, settings, backups, terminate): the handler
+/// sees `data` as properties of the event (`e.client`, `e.settings`, ...), and changes to
+/// them are used by the action.
+async fn data_event(
+    pool: Pool,
+    index: usize,
+    kind: String,
+    e: DataEvent,
+    next: Next<DataEvent>,
+) -> HookResult<DataEvent> {
+    let event = json!({
+        "kind": kind,
+        "collection": e.collection.as_deref().map(collection_json),
+        "data": e.data,
+        "auth": auth_json(&e.auth),
+        "requestInfo": e.request.as_deref().map(request_info_json),
+    });
+    let rebuild = (
+        e.core.clone(),
+        e.collection.clone(),
+        e.auth.clone(),
+        e.request.clone(),
+    );
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |state: Value| {
+            Box::pin(async move {
+                let mut e = slot.lock().expect("event lock").take().expect("event");
+                apply_data_state(&mut e, &state);
+                let e = next.run(e).await?;
+                let out = json!({ "data": e.data });
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(out)
+            })
+        })
+    };
+    let state = pool.run(index, event, Some(next_fn)).await?;
+    let mut e = slot.lock().expect("event lock").take().unwrap_or_else(|| {
+        let (core, collection, auth, request) = rebuild;
+        DataEvent {
+            core,
+            collection,
+            auth,
+            request,
+            data: Map::new(),
+            response: None,
+        }
+    });
+    apply_data_state(&mut e, &state);
+    if let Some(response) = response_from(&state["response"]) {
+        e.response = Some(response);
+    }
+    Ok(e)
+}
+
+/// A handler's changes to a [`DataEvent`]'s values.
+fn apply_data_state(e: &mut DataEvent, state: &Value) {
+    if let Value::Object(data) = &state["data"] {
+        for (key, value) in data {
+            e.data.insert(key.clone(), value.clone());
+        }
+    }
 }
 
 /// An auth request hook (`onRecordAuthRequest`, `onRecordAuthWithPasswordRequest`, ...):

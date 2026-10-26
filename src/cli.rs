@@ -776,6 +776,7 @@ async fn serve(
         }
     };
 
+    let terminating = app.clone();
     let serve = axum::serve(
         listener,
         server::router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -790,10 +791,14 @@ async fn serve(
         } => {}
     }
 
+    let restarting = restart.load(std::sync::atomic::Ordering::SeqCst);
+    if let Ok(core) = terminating.core() {
+        crate::hooks::terminate(&core, restarting).await;
+    }
     if let Some(err) = fatal.lock().expect("fatal lock").take() {
         return Err(err);
     }
-    if restart.load(std::sync::atomic::Ordering::SeqCst) {
+    if restarting {
         return restart_process();
     }
     Ok(())

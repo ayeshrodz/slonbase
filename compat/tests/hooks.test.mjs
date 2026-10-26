@@ -9,11 +9,19 @@ let pb;
 const users = "hooks_users";
 const posts = "hooks_posts";
 const mails = "hooks_mails";
+const files = "hooks_files";
+const secrets = "hooks_secretnotes";
 const ids = {};
 
 before(async () => {
   pb = await admin();
-  for (const name of [posts, mails, users]) await pb.collections.delete(name).catch(() => {});
+  for (const name of [posts, mails, files, secrets, users]) await pb.collections.delete(name).catch(() => {});
+  await pb.collections.create({
+    name: files,
+    viewRule: "",
+    fields: [{ name: "file", type: "file", maxSelect: 1, maxSize: 1 << 20 }],
+  });
+  await pb.collections.create({ name: secrets, listRule: "", viewRule: "", fields: [{ name: "title", type: "text" }] });
   await pb.collections.create({
     name: mails,
     fields: [
@@ -54,7 +62,7 @@ before(async () => {
 });
 
 after(async () => {
-  for (const name of [posts, mails, users]) await pb.collections.delete(name).catch(() => {});
+  for (const name of [posts, mails, files, secrets, users]) await pb.collections.delete(name).catch(() => {});
 });
 
 const signIn = (identity, password = "password-123") => client().collection(users).authWithPassword(identity, password);
@@ -182,4 +190,58 @@ test("onRecordEnrich changes every record sent to a client", async () => {
   assert.equal(event.titleUpper, "LIVE");
   assert.equal("secret" in event, false);
   await unsubscribe();
+});
+
+test("realtime hooks filter subscriptions and change or skip messages", async () => {
+  const guest = client();
+  const seen = [];
+  const secret = [];
+  const unsubscribe = await guest.collection(posts).subscribe("*", (e) => seen.push(e.record.title));
+  const unsubscribeSecret = await guest.collection(secrets).subscribe("*", (e) => secret.push(e.record.title));
+  await guest.collection(secrets).create({ title: "hidden" }).catch(() => {});
+  await pb.collection(secrets).create({ title: "hidden" });
+  for (const title of ["rt-skip", "rt-hello", "plain"]) await guest.collection(posts).create({ title });
+  await eventually(() => seen.includes("plain"));
+  assert.deepEqual(seen, ["rt-hello!", "plain"]);
+  assert.deepEqual(secret, []);
+  await unsubscribe();
+  await unsubscribeSecret();
+});
+
+test("file hooks rename downloads and refuse tokens", async () => {
+  const ids = [];
+  for (const name of ["public.txt", "secret.txt"]) {
+    const form = new FormData();
+    form.append("file", new Blob(["content"]), name);
+    ids.push(await pb.collection(files).create(form));
+  }
+  const res = await fetch(pb.files.getURL(ids[0], ids[0].file));
+  assert.equal(res.status, 200);
+  assert.equal(await res.text(), "content");
+  assert.match(res.headers.get("content-disposition"), /renamed-public/);
+  assert.equal((await fetch(pb.files.getURL(ids[1], ids[1].file))).status, 403);
+
+  const ann = client();
+  await ann.collection(users).authWithPassword("ann@example.com", "password-123");
+  assert.ok((await ann.files.getToken()).length > 20);
+  const bob = client();
+  await bob.collection(users).authWithPassword("bob@blocked.test", "password-123");
+  assert.equal((await failure(bob.files.getToken())).status, 403);
+});
+
+test("settings hooks change the list and validate updates", async () => {
+  const settings = await pb.settings.getAll({ headers: { "x-hooks-test": "1" } });
+  assert.equal(settings.meta.appName, "Hooked");
+  assert.notEqual((await pb.settings.getAll()).meta.appName, "Hooked");
+  const err = await failure(pb.settings.update({ meta: { appName: "Rejected" } }));
+  assert.equal(err.status, 400);
+  assert.equal(err.response.message, "Rejected by hook.");
+});
+
+test("onBackupCreate can rename a backup", async () => {
+  await pb.backups.create("compat_hooks.zip");
+  const keys = (await pb.backups.getFullList()).map((b) => b.key);
+  assert.ok(keys.includes("hooked_compat_hooks.zip"), JSON.stringify(keys));
+  assert.ok(!keys.includes("compat_hooks.zip"));
+  await pb.backups.delete("hooked_compat_hooks.zip");
 });

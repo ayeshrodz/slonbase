@@ -244,6 +244,61 @@ pub struct RecordEvent {
     pub record: Map<String, Value>,
 }
 
+/// An event of the realtime, file, settings, backup and terminate hooks: the request (when
+/// there is one) and the event's values by PocketBase's names in `data`, which handlers can
+/// read and change. `next` runs the action, which uses `data`; a request handler that
+/// doesn't call it answers with its own `response` (or an empty 200).
+///
+/// | Hook | `data` |
+/// |---|---|
+/// | `on_realtime_connect_request` | `client` (`id`, `subscriptions`, `auth`), `idleTimeout`, `maxTimeout` (nanoseconds, like Go's durations; 0 = none) |
+/// | `on_realtime_subscribe_request` | `client`, `subscriptions` (the topics to set) |
+/// | `on_realtime_message_send` | `client`, `message` (`name`, `data` as text) |
+/// | `on_file_download_request` | `record`, `fileField`, `servedPath`, `servedName`, `thumbError` |
+/// | `on_file_token_request` | `record` (the caller), `token` |
+/// | `on_settings_list_request` | `settings` (secrets masked) |
+/// | `on_settings_update_request` | `oldSettings`, `newSettings` (what's saved) |
+/// | `on_settings_reload` | `settings` |
+/// | `on_backup_create`, `on_backup_restore` | `name`, `exclude` |
+/// | `on_terminate` | `isRestart` |
+pub struct DataEvent {
+    pub core: Arc<Core>,
+    /// The collection of file hooks (handlers limited to collections see only theirs).
+    pub collection: Option<Arc<Collection>>,
+    pub auth: RequestAuth,
+    /// The request, for request hooks (realtime, files, settings).
+    pub request: Option<Arc<RequestInfo>>,
+    pub data: Map<String, Value>,
+    pub response: Option<Response>,
+}
+
+impl DataEvent {
+    /// An event without a request (settings reloads, backups, terminate).
+    pub fn new(core: &Arc<Core>, data: Map<String, Value>) -> Self {
+        Self {
+            core: core.clone(),
+            collection: None,
+            auth: RequestAuth::default(),
+            request: None,
+            data,
+            response: None,
+        }
+    }
+
+    /// A string of `data` (empty when missing).
+    pub fn str(&self, key: &str) -> &str {
+        self.data
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+    }
+}
+
+/// `data` from `(key, value)` pairs.
+pub fn data<const N: usize>(pairs: [(&str, Value); N]) -> Map<String, Value> {
+    pairs.into_iter().map(|(k, v)| (k.to_string(), v)).collect()
+}
+
 /// A cron job, run by one instance each minute its schedule matches.
 pub struct CronJob {
     pub id: String,
@@ -303,6 +358,34 @@ pub struct Hooks {
     pub on_record_after_create_success: Hook<RecordEvent>,
     pub on_record_after_update_success: Hook<RecordEvent>,
     pub on_record_after_delete_success: Hook<RecordEvent>,
+    /// A realtime connection being opened: `next` registers the client and opens the
+    /// stream, and returns right away (in PocketBase it returns when the connection
+    /// closes). A handler that doesn't call it refuses the connection.
+    pub on_realtime_connect_request: Hook<DataEvent>,
+    /// A client setting its subscriptions: `next` applies `subscriptions`.
+    pub on_realtime_subscribe_request: Hook<DataEvent>,
+    /// Every message sent to a realtime client, `PB_CONNECT` included: `next` sends
+    /// `message`; a handler that doesn't call it skips the message, and an error closes
+    /// the connection.
+    pub on_realtime_message_send: Hook<DataEvent>,
+    /// A file download (handlers can be limited to collections): `next` serves
+    /// `servedPath` (a storage key) as `servedName`.
+    pub on_file_download_request: Hook<DataEvent>,
+    /// A file token request (handlers can be limited to the caller's collection): `next`
+    /// answers with `token`.
+    pub on_file_token_request: Hook<DataEvent>,
+    pub on_settings_list_request: Hook<DataEvent>,
+    /// `next` saves `newSettings` (validated like the request).
+    pub on_settings_update_request: Hook<DataEvent>,
+    /// After the settings changed: an update here or on another instance, a restore, and
+    /// once at startup.
+    pub on_settings_reload: Hook<DataEvent>,
+    /// Every backup: the API, automatic backups and hooks. `next` creates it as `name`.
+    pub on_backup_create: Hook<DataEvent>,
+    /// Before a restore; `next` restores `name`.
+    pub on_backup_restore: Hook<DataEvent>,
+    /// When the server stops (after it stops taking requests).
+    pub on_terminate: Hook<DataEvent>,
     pub(crate) crons: Vec<CronJob>,
     pub(crate) on_ready: Vec<Arc<ReadyFn>>,
 }
@@ -458,6 +541,25 @@ pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
                 tracing::error!(job = %id, error = %err.details.as_deref().unwrap_or(&err.message), "a cron job failed");
             }
         });
+    }
+}
+
+/// Runs the [`Hooks::on_terminate`] handlers, for at most 5 seconds so a stuck one can't
+/// hold up the stop.
+pub(crate) async fn terminate(core: &Arc<Core>, is_restart: bool) {
+    let hook = &core.hooks.on_terminate;
+    if !hook.has_handlers(None) {
+        return;
+    }
+    let e = DataEvent::new(core, data([("isRestart", is_restart.into())]));
+    let run = hook.trigger(None, e, |e| async { Ok(e) });
+    match tokio::time::timeout(std::time::Duration::from_secs(5), run).await {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => tracing::error!(
+            error = %err.details.as_deref().unwrap_or(&err.message),
+            "an onTerminate handler failed"
+        ),
+        Err(_) => tracing::warn!("the onTerminate handlers didn't finish within 5 seconds"),
     }
 }
 

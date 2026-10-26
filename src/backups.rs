@@ -38,6 +38,7 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::quote_ident;
+use crate::hooks::DataEvent;
 use crate::migrations::{MIGRATIONS, SCHEMA_LOCK_KEY};
 use crate::storage::Storage;
 
@@ -82,6 +83,9 @@ pub enum BackupError {
     Invalid(String),
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+    /// From a hook handler.
+    #[error("{}", .0.message)]
+    Api(ApiError),
 }
 
 impl From<BackupError> for ApiError {
@@ -90,6 +94,7 @@ impl From<BackupError> for ApiError {
             BackupError::Busy => ApiError::bad_request(err.to_string()),
             BackupError::Invalid(message) => ApiError::bad_request(message),
             BackupError::Other(err) => ApiError::internal(err),
+            BackupError::Api(err) => err,
         }
     }
 }
@@ -191,8 +196,42 @@ fn record_columns(c: &Collection) -> Vec<String> {
     c.fields.iter().map(|f| f.name.clone()).collect()
 }
 
-/// Creates a backup named `name` (which must be valid).
-pub async fn create(core: &Core, name: &str) -> Result<(), BackupError> {
+/// Creates a backup named `name` (which must be valid), through the `on_backup_create`
+/// handlers (which can change the name).
+pub async fn create(core: &Arc<Core>, name: &str) -> Result<(), BackupError> {
+    let e = DataEvent::new(core, backup_data(name));
+    let result: Arc<std::sync::Mutex<Option<BackupError>>> = Default::default();
+    {
+        let result = result.clone();
+        core.hooks
+            .clone()
+            .on_backup_create
+            .trigger(None, e, move |e| async move {
+                if let Err(err) = create_unhooked(&e.core, e.str("name")).await {
+                    *result.lock().expect("backup lock") = Some(err);
+                    return Err(ApiError::bad_request("The backup failed."));
+                }
+                Ok(e)
+            })
+            .await
+    }
+    .map_err(|err| {
+        result
+            .lock()
+            .expect("backup lock")
+            .take()
+            .unwrap_or(BackupError::Api(err))
+    })?;
+    Ok(())
+}
+
+/// A backup hook's `data`: the backup's name, and what to leave out (accepted for
+/// PocketBase's hooks; slonbase backups always contain the database and the files).
+fn backup_data(name: &str) -> serde_json::Map<String, Value> {
+    crate::hooks::data([("name", name.into()), ("exclude", json!([]))])
+}
+
+async fn create_unhooked(core: &Core, name: &str) -> Result<(), BackupError> {
     if !valid_name(name) {
         return Err(BackupError::Invalid("Invalid backup name.".into()));
     }
@@ -439,8 +478,36 @@ async fn copy_in(tx: &Transaction<'_>, sql: &str, path: &Path) -> Result<u64> {
     Ok(sink.finish().await?)
 }
 
-/// Replaces the data with the backup `name`.
-pub async fn restore(core: &Core, name: &str) -> Result<(), BackupError> {
+/// Replaces the data with the backup `name`, through the `on_backup_restore` handlers.
+pub async fn restore(core: &Arc<Core>, name: &str) -> Result<(), BackupError> {
+    let e = DataEvent::new(core, backup_data(name));
+    let result: Arc<std::sync::Mutex<Option<BackupError>>> = Default::default();
+    {
+        let result = result.clone();
+        core.hooks
+            .clone()
+            .on_backup_restore
+            .trigger(None, e, move |e| async move {
+                if let Err(err) = restore_unhooked(&e.core, e.str("name")).await {
+                    *result.lock().expect("backup lock") = Some(err);
+                    return Err(ApiError::bad_request("The restore failed."));
+                }
+                Ok(e)
+            })
+            .await
+    }
+    .map_err(|err| {
+        result
+            .lock()
+            .expect("backup lock")
+            .take()
+            .unwrap_or(BackupError::Api(err))
+    })?;
+    crate::settings::reloaded(core);
+    Ok(())
+}
+
+async fn restore_unhooked(core: &Core, name: &str) -> Result<(), BackupError> {
     if !valid_name(name) {
         return Err(BackupError::Invalid("Invalid backup name.".into()));
     }
@@ -667,7 +734,7 @@ pub async fn run_scheduled(core: &Arc<Core>) {
 }
 
 /// Creates an automatic backup and deletes the oldest beyond `backups.cronMaxKeep`.
-pub async fn run_auto_backup(core: &Core) -> Result<(), BackupError> {
+pub async fn run_auto_backup(core: &Arc<Core>) -> Result<(), BackupError> {
     let name = format!(
         "{AUTO_PREFIX}{}.zip",
         chrono::Utc::now().format("%Y%m%d%H%M%S")

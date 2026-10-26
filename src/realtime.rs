@@ -15,12 +15,12 @@ use std::convert::Infallible;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
+use axum::http::{HeaderMap, Method};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::GenericClient;
-use futures_util::StreamExt;
 use futures_util::stream;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -35,6 +35,7 @@ use crate::db::TextQuery;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
+use crate::hooks::{self, DataEvent};
 use crate::records::access::{email_visible_sql, pick_fields, rule_sql};
 use crate::records::store::{ALIAS, record_json, visible_fields};
 use crate::records::values::{self, Values};
@@ -217,17 +218,16 @@ pub struct Hub {
 }
 
 impl Hub {
-    fn register(&self) -> (String, mpsc::Receiver<Message>) {
-        let id = ids::random_id(40);
+    fn register(&self, id: &str) -> mpsc::Receiver<Message> {
         let (sender, receiver) = mpsc::channel(CLIENT_BUFFER);
         self.clients.lock().expect("hub lock").insert(
-            id.clone(),
+            id.to_string(),
             Arc::new(Client {
                 sender,
                 subscriptions: Mutex::new(Subscriptions::default()),
             }),
         );
-        (id, receiver)
+        receiver
     }
 
     fn remove(&self, id: &str) {
@@ -274,33 +274,227 @@ impl Drop for ClientGuard {
 
 /// `GET /api/realtime`: opens the event stream. The first event is `PB_CONNECT`
 /// with the client id used to set subscriptions.
-pub async fn connect(State(app): State<Arc<App>>) -> Result<impl IntoResponse, ApiError> {
+pub async fn connect(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Response, ApiError> {
     let core = app.core()?;
-    let (id, receiver) = core.realtime.register();
-    let guard = ClientGuard {
-        hub: Arc::downgrade(&core),
-        id: id.clone(),
+    let id = ids::random_id(40);
+    let request = Arc::new(crate::records::api::request_info(
+        &Method::GET,
+        &query,
+        &headers,
+        None,
+        &auth,
+        &core.registry(),
+    ));
+    let opened: Arc<Mutex<Option<mpsc::Receiver<Message>>>> = Default::default();
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth,
+        request: Some(request.clone()),
+        data: hooks::data([
+            ("client", client_json(&id, &[], None)),
+            ("idleTimeout", 0.into()),
+            ("maxTimeout", 0.into()),
+        ]),
+        response: None,
     };
-    let connect = Event::default()
-        .id(id.clone())
-        .event("PB_CONNECT")
-        .data(json!({ "clientId": id }).to_string());
+    let result = {
+        let (opened, core, id) = (opened.clone(), core.clone(), id.clone());
+        core.hooks
+            .clone()
+            .on_realtime_connect_request
+            .trigger(None, e, move |e| async move {
+                *opened.lock().expect("connect lock") = Some(core.realtime.register(&id));
+                Ok(e)
+            })
+            .await
+    };
+    let receiver = opened.lock().expect("connect lock").take();
+    let e = match result {
+        Ok(e) => e,
+        Err(err) => {
+            core.realtime.remove(&id);
+            return Err(err);
+        }
+    };
+    let Some(receiver) = receiver else {
+        // refused by a handler
+        return Ok(e.response.unwrap_or_else(|| StatusCode::OK.into_response()));
+    };
 
-    let events = stream::unfold((receiver, guard), |(mut receiver, guard)| async move {
-        let message = receiver.recv().await?;
-        let event = Event::default()
-            .id(guard.id.clone())
-            .event(message.event)
-            .data(message.data);
-        Some((Ok::<_, Infallible>(event), (receiver, guard)))
+    let state = StreamState {
+        first: Some(Message {
+            event: "PB_CONNECT".into(),
+            data: json!({ "clientId": id }).to_string(),
+        }),
+        receiver,
+        guard: ClientGuard {
+            hub: Arc::downgrade(&core),
+            id,
+        },
+        request,
+        idle: nanos(&e.data["idleTimeout"]),
+        deadline: nanos(&e.data["maxTimeout"]).map(|d| tokio::time::Instant::now() + d),
+    };
+    let stream = stream::unfold(state, |mut state| async move {
+        loop {
+            let message = match state.first.take() {
+                Some(first) => first,
+                None => state.recv().await?,
+            };
+            let core = state.guard.hub.upgrade()?;
+            match message_hook(&core, &state.guard.id, &state.request, message).await {
+                Ok(Some(message)) => {
+                    let event = Event::default()
+                        .id(state.guard.id.clone())
+                        .event(message.event)
+                        .data(message.data);
+                    return Some((Ok::<_, Infallible>(event), state));
+                }
+                Ok(None) => continue,
+                Err(err) => {
+                    tracing::debug!(client = %state.guard.id, error = %err.message, "a realtime message hook closed the connection");
+                    return None;
+                }
+            }
+        }
     });
-    let stream = stream::once(async move { Ok(connect) }).chain(events);
 
     // proxies such as nginx buffer responses unless told not to
     Ok((
         [("x-accel-buffering", "no")],
         Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(30))),
-    ))
+    )
+        .into_response())
+}
+
+/// The state of a client's event stream.
+struct StreamState {
+    /// `PB_CONNECT`, until it's sent.
+    first: Option<Message>,
+    receiver: mpsc::Receiver<Message>,
+    guard: ClientGuard,
+    /// The connect request (for the message hook).
+    request: Arc<RequestInfo>,
+    /// Closes the stream after this long without a message.
+    idle: Option<Duration>,
+    /// Closes the stream at this time.
+    deadline: Option<tokio::time::Instant>,
+}
+
+impl StreamState {
+    /// The next message, or `None` when the client is gone or a timeout passed.
+    async fn recv(&mut self) -> Option<Message> {
+        let idle_until = self.idle.map(|d| tokio::time::Instant::now() + d);
+        let until = match (idle_until, self.deadline) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            (a, b) => a.or(b),
+        };
+        match until {
+            None => self.receiver.recv().await,
+            Some(until) => tokio::time::timeout_at(until, self.receiver.recv())
+                .await
+                .ok()
+                .flatten(),
+        }
+    }
+}
+
+/// A duration given in nanoseconds (like Go's), `None` for zero or none.
+fn nanos(value: &Value) -> Option<Duration> {
+    value
+        .as_f64()
+        .filter(|n| *n >= 1.0)
+        .map(|n| Duration::from_nanos(n as u64))
+}
+
+/// A client as hooks see it: its id, subscriptions and auth record (without secrets).
+fn client_json(id: &str, subscriptions: &[String], auth: Option<&RequestAuth>) -> Value {
+    let auth = auth
+        .and_then(RequestAuth::any_record)
+        .map(|record| {
+            let mut values = record.values.clone();
+            for field in record.collection.fields.iter().filter(|f| f.is_secret()) {
+                values.remove(&field.name);
+            }
+            crate::records::store::record_json(&record.collection, values)
+        })
+        .unwrap_or(Value::Null);
+    json!({ "id": id, "subscriptions": subscriptions, "auth": auth })
+}
+
+/// The client's subscriptions and auth, as [`client_json`].
+fn client_state(core: &Core, id: &str) -> (Value, RequestAuth) {
+    let Some(client) = core.realtime.get(id) else {
+        return (client_json(id, &[], None), RequestAuth::default());
+    };
+    let subscriptions = client.subscriptions.lock().expect("subscriptions lock");
+    let topics: Vec<String> = subscriptions.topics.iter().map(|t| t.raw.clone()).collect();
+    let auth = subscriptions.auth.clone().unwrap_or_default();
+    (client_json(id, &topics, Some(&auth)), auth)
+}
+
+/// Runs `on_realtime_message_send` for a message: the message to send (as the handlers
+/// left it), `None` to skip it, or an error that closes the connection.
+async fn message_hook(
+    core: &Arc<Core>,
+    client_id: &str,
+    request: &Arc<RequestInfo>,
+    message: Message,
+) -> Result<Option<Message>, ApiError> {
+    let hook = &core.hooks.on_realtime_message_send;
+    if !hook.has_handlers(None) {
+        return Ok(Some(message));
+    }
+    let (client, auth) = client_state(core, client_id);
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth,
+        request: Some(request.clone()),
+        data: hooks::data([
+            ("client", client),
+            (
+                "message",
+                json!({ "name": message.event, "data": message.data }),
+            ),
+        ]),
+        response: None,
+    };
+    let sent = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let e = {
+        let sent = sent.clone();
+        hook.trigger(None, e, move |e| async move {
+            sent.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(e)
+        })
+        .await?
+    };
+    if !sent.load(std::sync::atomic::Ordering::SeqCst) {
+        return Ok(None);
+    }
+    let out = &e.data["message"];
+    let event = out["name"].as_str().unwrap_or(&message.event).to_string();
+    let data = match &out["data"] {
+        Value::String(s) => s.clone(),
+        Value::Null => message.data,
+        // bytes (PocketBase's []byte)
+        Value::Array(items) if items.iter().all(Value::is_u64) => String::from_utf8_lossy(
+            &items
+                .iter()
+                .filter_map(Value::as_u64)
+                .map(|b| b as u8)
+                .collect::<Vec<u8>>(),
+        )
+        .into_owned(),
+        other => other.to_string(),
+    };
+    Ok(Some(Message { event, data }))
 }
 
 fn same_auth(a: &RequestAuth, b: &RequestAuth) -> bool {
@@ -318,6 +512,7 @@ fn same_auth(a: &RequestAuth, b: &RequestAuth) -> bool {
 pub async fn subscribe(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
+    headers: HeaderMap,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
@@ -325,45 +520,93 @@ pub async fn subscribe(
         .get("clientId")
         .and_then(Value::as_str)
         .unwrap_or_default();
-    let raw_topics: Vec<String> = match body.get("subscriptions") {
-        None | Some(Value::Null) => vec![],
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|v| v.as_str().map(str::to_string))
-            .collect::<Option<_>>()
-            .ok_or_else(|| ApiError::bad_request("Subscriptions must be strings."))?,
-        Some(_) => return Err(ApiError::bad_request("Subscriptions must be a list.")),
+    let subscriptions = body.get("subscriptions").cloned().unwrap_or(Value::Null);
+    // invalid subscriptions are refused before the hooks, like PocketBase
+    parse_topics(&subscriptions)?;
+    let raw_topics = match subscriptions {
+        Value::Null => Value::Array(vec![]),
+        list => list,
     };
-    if raw_topics.len() > MAX_SUBSCRIPTIONS || raw_topics.iter().any(|t| t.len() > MAX_TOPIC_LENGTH)
-    {
-        return Err(ApiError::bad_request("Too many or too long subscriptions."));
-    }
-    let topics: Vec<Topic> = raw_topics
-        .iter()
-        .map(|t| {
-            Topic::parse(t)
-                .ok_or_else(|| ApiError::bad_request(format!("Invalid subscription {t:?}.")))
-        })
-        .collect::<Result<_, _>>()?;
 
     let client = core
         .realtime
         .get(client_id)
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Missing or invalid client id."))?;
-    let mut subscriptions = client.subscriptions.lock().expect("subscriptions lock");
-    if let Some(previous) = &subscriptions.auth {
-        if !same_auth(previous, &auth) {
-            return Err(ApiError::forbidden(
-                "The current and the previous request authorization don't match.",
-            ));
+    {
+        let subscriptions = client.subscriptions.lock().expect("subscriptions lock");
+        if let Some(previous) = &subscriptions.auth {
+            if !same_auth(previous, &auth) {
+                return Err(ApiError::forbidden(
+                    "The current and the previous request authorization don't match.",
+                ));
+            }
         }
     }
-    let authenticated = auth.superuser.is_some() || auth.record.is_some();
-    subscriptions.auth = authenticated.then_some(auth);
-    subscriptions.topics = topics;
-    drop(subscriptions);
 
-    Ok(StatusCode::NO_CONTENT.into_response())
+    let (client_value, _) = client_state(&core, client_id);
+    let request = crate::records::api::request_info(
+        &Method::POST,
+        &HashMap::new(),
+        &headers,
+        Some(&body),
+        &auth,
+        &core.registry(),
+    );
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth: auth.clone(),
+        request: Some(Arc::new(request)),
+        data: hooks::data([("client", client_value), ("subscriptions", raw_topics)]),
+        response: None,
+    };
+    let applied = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let e = {
+        let applied = applied.clone();
+        core.hooks
+            .on_realtime_subscribe_request
+            .trigger(None, e, move |e| async move {
+                let topics = parse_topics(&e.data["subscriptions"])?;
+                let mut subscriptions = client.subscriptions.lock().expect("subscriptions lock");
+                let authenticated = e.auth.superuser.is_some() || e.auth.record.is_some();
+                subscriptions.auth = authenticated.then(|| e.auth.clone());
+                subscriptions.topics = topics;
+                drop(subscriptions);
+                applied.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(e)
+            })
+            .await?
+    };
+    if let Some(response) = e.response {
+        return Ok(response);
+    }
+    Ok(if applied.load(std::sync::atomic::Ordering::SeqCst) {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        StatusCode::OK.into_response()
+    })
+}
+
+/// Subscriptions (a list of topic strings) as topics, within the limits.
+fn parse_topics(value: &Value) -> Result<Vec<Topic>, ApiError> {
+    let raw: Vec<String> = match value {
+        Value::Null => vec![],
+        Value::Array(items) => items
+            .iter()
+            .map(|v| v.as_str().map(str::to_string))
+            .collect::<Option<_>>()
+            .ok_or_else(|| ApiError::bad_request("Subscriptions must be strings."))?,
+        _ => return Err(ApiError::bad_request("Subscriptions must be a list.")),
+    };
+    if raw.len() > MAX_SUBSCRIPTIONS || raw.iter().any(|t| t.len() > MAX_TOPIC_LENGTH) {
+        return Err(ApiError::bad_request("Too many or too long subscriptions."));
+    }
+    raw.iter()
+        .map(|t| {
+            Topic::parse(t)
+                .ok_or_else(|| ApiError::bad_request(format!("Invalid subscription {t:?}.")))
+        })
+        .collect()
 }
 
 /// Sends a message to a client of this instance if it's subscribed to `topic`.
@@ -678,7 +921,7 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-async fn reload_settings(core: &Core) {
+async fn reload_settings(core: &Arc<Core>) {
     // as for collections: don't undo a newer change made here
     for _ in 0..5 {
         let generation = core.settings_generation();
@@ -689,6 +932,7 @@ async fn reload_settings(core: &Core) {
         match loaded.await {
             Ok(settings) => {
                 if core.set_settings_if(generation, settings) {
+                    crate::settings::reloaded(core);
                     return;
                 }
             }

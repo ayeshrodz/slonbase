@@ -108,3 +108,48 @@ onRecordEnrich((e) => {
   e.record.set("initial", e.record.getString("name").slice(0, 1));
   e.next();
 }, "hooks_users");
+
+// ---------------------------------------------------------------- realtime, files, settings, backups
+
+// subscriptions to hooks_secret topics are dropped
+onRealtimeSubscribeRequest((e) => {
+  e.subscriptions = e.subscriptions.filter((t) => !t.startsWith("hooks_secret"));
+  e.next();
+});
+
+// hooks_posts messages titled "rt-..." get a "!", "rt-skip" isn't sent
+onRealtimeMessageSend((e) => {
+  if (e.message.name !== "hooks_posts/*") return e.next();
+  const data = JSON.parse(toString(e.message.data));
+  if (!String(data.record.title).startsWith("rt-")) return e.next();
+  if (data.record.title === "rt-skip") return;
+  data.record.title += "!";
+  e.message.data = JSON.stringify(data);
+  e.next();
+});
+
+onFileDownloadRequest((e) => {
+  if (e.servedName.startsWith("secret")) throw new ForbiddenError("No secrets.");
+  e.servedName = "renamed-" + e.servedName;
+  e.next();
+}, "hooks_files");
+
+onFileTokenRequest((e) => {
+  if (e.record.getString("name") === "frozen") throw new ForbiddenError("No file tokens.");
+  e.next();
+}, "hooks_users");
+
+onSettingsListRequest((e) => {
+  if (e.requestInfo().headers["x_hooks_test"] === "1") e.settings.meta.appName = "Hooked";
+  e.next();
+});
+
+onSettingsUpdateRequest((e) => {
+  if (e.newSettings.meta.appName === "Rejected") throw new BadRequestError("Rejected by hook.");
+  e.next();
+});
+
+onBackupCreate((e) => {
+  if (e.name.startsWith("compat_")) e.name = "hooked_" + e.name;
+  e.next();
+});

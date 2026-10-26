@@ -572,6 +572,13 @@
     runInTransaction: (fn) => fn($app),
     db: () => ({ newQuery: (sql) => new Query(sql) }),
     settings: () => settingsModel(call("settings")),
+    // the context argument of PocketBase's signature is accepted and ignored
+    createBackup: (ctx, name) => {
+      call("createBackup", typeof ctx === "string" && name === undefined ? ctx : String(name || ""));
+    },
+    restoreBackup: (ctx, name) => {
+      call("restoreBackup", typeof ctx === "string" && name === undefined ? ctx : String(name || ""));
+    },
     newMailClient: () => ({
       send: (message) => {
         const to = (Array.isArray(message.to) ? message.to : [message.to])
@@ -887,6 +894,55 @@
     return e;
   }
 
+  // a realtime client (e.client): its id, subscriptions and auth record (e.client.get("auth"))
+  function realtimeClient(raw) {
+    const values = {};
+    return {
+      id: () => raw.id,
+      subscriptions: () => (raw.subscriptions || []).slice(),
+      hasSubscription: (topic) => (raw.subscriptions || []).includes(topic),
+      get: (key) => (key === "auth" ? stored(raw.auth) : key in values ? values[key] : null),
+      set: (key, value) => {
+        values[key] = value;
+      },
+      unset: (key) => {
+        delete values[key];
+      },
+      _raw: raw,
+    };
+  }
+
+  // the realtime, file, settings, backup and terminate hooks: the event's values are
+  // properties (e.client, e.message, e.subscriptions, e.settings, e.servedPath, ...);
+  // changes to them are used by e.next() and the action
+  function dataEvent(raw) {
+    const e = raw.requestInfo ? requestEvent(raw) : { app: $app, _response: null };
+    if (raw.collection) e.collection = raw.collection;
+    const keys = Object.keys(raw.data || {});
+    const valueIn = (key, v) => {
+      if (key === "client" && v) return realtimeClient(v);
+      if (key === "record" && v) return Record._stored(v);
+      return clone(v);
+    };
+    const valueOut = (key, v) => {
+      if (key === "client") return v && v._raw ? v._raw : v;
+      if (v instanceof Record) return v.publicExport();
+      return v === undefined ? null : v;
+    };
+    const load = (data) => {
+      for (const key of keys) if (key in data) e[key] = valueIn(key, data[key]);
+    };
+    const state = () => {
+      const data = {};
+      for (const key of keys) data[key] = valueOut(key, e[key]);
+      return { data };
+    };
+    load(raw.data || {});
+    e.next = () => load(callNext(state()).data || {});
+    e._state = () => Object.assign(state(), { response: e._response || null });
+    return e;
+  }
+
   function simpleEvent() {
     const e = { app: $app, next: () => {} };
     e._state = () => ({});
@@ -905,6 +961,7 @@
     route: routeEvent,
     middleware: middlewareEvent,
     simple: simpleEvent,
+    data: dataEvent,
   };
 
   // ------------------------------------------------------------------ registration
@@ -989,6 +1046,23 @@
     g[name] = (fn, ...c) => register(authHooks[name], "auth", fn, { collections: collections(c) });
   }
   g.onRecordEnrich = (fn, ...c) => register("recordEnrich", "enrich", fn, { collections: collections(c) });
+  // hooks without collection tags
+  for (const [name, kind] of Object.entries({
+    onRealtimeConnectRequest: "realtimeConnectRequest",
+    onRealtimeSubscribeRequest: "realtimeSubscribeRequest",
+    onRealtimeMessageSend: "realtimeMessageSend",
+    onSettingsListRequest: "settingsListRequest",
+    onSettingsUpdateRequest: "settingsUpdateRequest",
+    onSettingsReload: "settingsReload",
+    onBackupCreate: "backupCreate",
+    onBackupRestore: "backupRestore",
+    onTerminate: "terminate",
+  })) {
+    g[name] = (fn) => register(kind, "data", fn);
+  }
+  // file hooks, optionally limited to collections
+  g.onFileDownloadRequest = (fn, ...c) => register("fileDownloadRequest", "data", fn, { collections: collections(c) });
+  g.onFileTokenRequest = (fn, ...c) => register("fileTokenRequest", "data", fn, { collections: collections(c) });
   g.onBootstrap = (fn) => register("ready", "simple", fn);
   g.onServe = (fn) => register("ready", "simple", fn);
 

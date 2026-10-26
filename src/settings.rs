@@ -1,7 +1,7 @@
 //! App settings, in PocketBase's format (`meta`, `smtp`, `s3`, `backups`, `logs`, `batch`,
 //! `rateLimits`, `trustedProxy`, `superuserIPs`), stored in `_slonbase.params`.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use axum::Json;
 use axum::extract::State;
@@ -13,8 +13,10 @@ use serde_json::{Map, Value};
 
 use crate::app::App;
 use crate::auth::RequestAuth;
+use crate::core::Core;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
+use crate::hooks::{self, DataEvent};
 use crate::validation::Errors;
 
 const PARAMS_KEY: &str = "settings";
@@ -421,10 +423,40 @@ fn merge(target: &mut Value, patch: Value) {
 }
 
 /// `GET /api/settings`
-pub async fn get(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json<Value>, ApiError> {
+pub async fn get(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    headers: axum::http::HeaderMap,
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    Ok(Json(core.settings().public_json()))
+    let request = request_info(&core, &auth, &headers, None);
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth,
+        request: Some(request),
+        data: hooks::data([("settings", core.settings().public_json())]),
+        response: None,
+    };
+    let listed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let e = {
+        let listed = listed.clone();
+        core.hooks
+            .on_settings_list_request
+            .trigger(None, e, move |e| async move {
+                listed.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(e)
+            })
+            .await?
+    };
+    Ok(match e.response {
+        Some(response) => response,
+        None if listed.load(std::sync::atomic::Ordering::SeqCst) => {
+            Json(e.data["settings"].clone()).into_response()
+        }
+        None => StatusCode::OK.into_response(),
+    })
 }
 
 /// `PATCH /api/settings`. Sections are merged key by key; an empty or missing password or
@@ -432,18 +464,75 @@ pub async fn get(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json<
 pub async fn update(
     State(app): State<Arc<App>>,
     auth: RequestAuth,
+    headers: axum::http::HeaderMap,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let settings = apply_patch(&core, body).await?;
-    Ok(Json(settings.public_json()))
+    let old = core.settings().public_json();
+    // the settings with the request applied, before validation (like PocketBase's)
+    let mut new = old.clone();
+    for (section, value) in &body {
+        if let Some(target) = new.get_mut(section) {
+            merge(target, value.clone());
+        }
+    }
+    let request = request_info(&core, &auth, &headers, Some(&body));
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth,
+        request: Some(request),
+        data: hooks::data([("oldSettings", old), ("newSettings", new)]),
+        response: None,
+    };
+    let saved: Arc<Mutex<Option<Settings>>> = Default::default();
+    let e = {
+        let saved = saved.clone();
+        core.hooks
+            .clone()
+            .on_settings_update_request
+            .trigger(None, e, move |e| async move {
+                let patch = match &e.data["newSettings"] {
+                    Value::Object(patch) => patch.clone(),
+                    _ => return Err(ApiError::bad_request("newSettings must be an object.")),
+                };
+                let settings = apply_patch(&e.core, patch).await?;
+                *saved.lock().expect("settings lock") = Some(settings);
+                Ok(e)
+            })
+            .await?
+    };
+    if let Some(response) = e.response {
+        return Ok(response);
+    }
+    Ok(match saved.lock().expect("settings lock").take() {
+        Some(settings) => Json(settings.public_json()).into_response(),
+        None => StatusCode::OK.into_response(),
+    })
+}
+
+/// The request as hooks see it.
+fn request_info(
+    core: &Core,
+    auth: &RequestAuth,
+    headers: &axum::http::HeaderMap,
+    body: Option<&Map<String, Value>>,
+) -> Arc<crate::filter::RequestInfo> {
+    Arc::new(crate::records::api::request_info(
+        &axum::http::Method::GET,
+        &std::collections::HashMap::new(),
+        headers,
+        body,
+        auth,
+        &core.registry(),
+    ))
 }
 
 /// Merges `body` (sections of settings) into the current settings, validates and saves them
 /// and tells the other instances.
 pub(crate) async fn apply_patch(
-    core: &crate::core::Core,
+    core: &Arc<Core>,
     body: Map<String, Value>,
 ) -> Result<Settings, ApiError> {
     let settings = prepare_patch(&core.settings(), body)?;
@@ -457,7 +546,30 @@ pub(crate) async fn apply_patch(
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(settings.clone());
+    reloaded(core);
     Ok(settings)
+}
+
+/// Runs the `on_settings_reload` handlers (in the background) after the settings changed.
+pub(crate) fn reloaded(core: &Arc<Core>) {
+    if !core.hooks.on_settings_reload.has_handlers(None) {
+        return;
+    }
+    let core = core.clone();
+    tokio::spawn(async move {
+        let e = DataEvent::new(
+            &core,
+            hooks::data([("settings", core.settings().public_json())]),
+        );
+        if let Err(err) = core
+            .hooks
+            .on_settings_reload
+            .trigger(None, e, |e| async { Ok(e) })
+            .await
+        {
+            tracing::error!(error = %err.details.as_deref().unwrap_or(&err.message), "an onSettingsReload handler failed");
+        }
+    });
 }
 
 /// `current` with the sections of `body` merged in, validated.
