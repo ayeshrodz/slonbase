@@ -521,3 +521,185 @@ async fn listener_catches_up_after_reconnecting() {
     drop((stream, app));
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn delivers_changes_made_outside_the_api() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "notes",
+            "listRule": "",
+            "viewRule": "",
+            "fields": [
+                { "name": "title", "type": "text" },
+                { "name": "n", "type": "number" },
+                { "name": "done", "type": "bool" },
+                { "name": "due", "type": "date" },
+                { "name": "tags", "type": "select", "values": ["a", "b"], "maxSelect": 2 },
+                { "name": "meta", "type": "json" },
+                { "name": "place", "type": "geoPoint" },
+                { "name": "created", "type": "autodate", "onCreate": true },
+            ],
+        })),
+    )
+    .await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "people", "type": "auth", "createRule": "", "fields": [] })),
+    )
+    .await;
+    let mut stream = Stream::open(&app).await;
+    subscribe(&app, None, &stream.client_id, &["notes/*"]).await;
+
+    // through the API: one event, the record as the API returns it
+    let created = as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections/notes/records",
+        Some(json!({
+            "title": "api", "n": 1.5, "done": true, "due": "2026-01-02 03:04:05.678Z",
+            "tags": ["a", "b"], "meta": { "k": [1, null] }, "place": { "lon": 1.25, "lat": 2 },
+        })),
+    )
+    .await;
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["action"], "create");
+    assert_eq!(data["record"], created, "events carry the API's values");
+    stream.expect_none().await;
+
+    // with SQL, outside the API
+    let pool = tdb.pool();
+    let client = pool.get().await.unwrap();
+    client
+        .batch_execute(
+            "INSERT INTO slonbase.notes (id, title, n, due) \
+             VALUES ('sqlnote0000001', 'from sql', 3, '2026-05-06 07:08:09.5+02')",
+        )
+        .await
+        .unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["action"], "create");
+    assert_eq!(data["record"]["title"], "from sql");
+    assert_eq!(data["record"]["n"], 3);
+    assert_eq!(data["record"]["due"], "2026-05-06 05:08:09.500Z");
+    assert_eq!(
+        data["record"]["created"], "",
+        "an empty date is empty, as in the API"
+    );
+    let (_, fetched) = request(
+        &app,
+        "GET",
+        "/api/collections/notes/records/sqlnote0000001",
+        &[],
+        None,
+    )
+    .await;
+    assert_eq!(data["record"], fetched);
+
+    client
+        .batch_execute("UPDATE slonbase.notes SET title = 'changed' WHERE id = 'sqlnote0000001'")
+        .await
+        .unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(
+        (data["action"].as_str(), data["record"]["title"].as_str()),
+        (Some("update"), Some("changed"))
+    );
+    client
+        .batch_execute("DELETE FROM slonbase.notes WHERE id = 'sqlnote0000001'")
+        .await
+        .unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(
+        (data["action"].as_str(), data["record"]["id"].as_str()),
+        (Some("delete"), Some("sqlnote0000001"))
+    );
+
+    // a rolled-back change, and a session that turned them off, send nothing
+    client
+        .batch_execute(
+            "BEGIN; INSERT INTO slonbase.notes (id, title) VALUES ('sqlnote0000002', 'undone'); ROLLBACK",
+        )
+        .await
+        .unwrap();
+    client
+        .batch_execute(
+            "SET slonbase.realtime = off; \
+             INSERT INTO slonbase.notes (id, title) VALUES ('sqlnote0000003', 'quiet'); \
+             RESET slonbase.realtime",
+        )
+        .await
+        .unwrap();
+    stream.expect_none().await;
+
+    // the trigger follows schema changes: a new date field, renamed fields, a renamed table
+    let notes = as_admin(&app, &admin, "GET", "/api/collections/notes", None).await;
+    let mut fields = notes["fields"].as_array().unwrap().clone();
+    for f in fields.iter_mut() {
+        if f["name"] == "due" {
+            f["name"] = json!("deadline");
+        }
+    }
+    fields.push(json!({ "name": "remind", "type": "date" }));
+    as_admin(
+        &app,
+        &admin,
+        "PATCH",
+        "/api/collections/notes",
+        Some(json!({ "name": "tasks", "fields": fields })),
+    )
+    .await;
+    subscribe(&app, None, &stream.client_id, &["tasks/*"]).await;
+    client
+        .batch_execute(
+            "INSERT INTO slonbase.tasks (id, title, deadline, remind) \
+             VALUES ('sqlnote0000004', 'renamed', '2026-01-01 00:00:00Z', '2026-02-03 04:05:06.007Z')",
+        )
+        .await
+        .unwrap();
+    let (event, data) = stream.expect().await;
+    assert_eq!(event, "tasks/*");
+    assert_eq!(data["record"]["collectionName"], "tasks");
+    assert_eq!(data["record"]["deadline"], "2026-01-01 00:00:00.000Z");
+    assert_eq!(data["record"]["remind"], "2026-02-03 04:05:06.007Z");
+
+    // secrets never reach the outbox
+    request(
+        &app,
+        "POST",
+        "/api/collections/people/records",
+        &[],
+        Some(json!({ "email": "p@example.com", "password": "password-123", "passwordConfirm": "password-123" })),
+    )
+    .await;
+    let leaked: i64 = client
+        .query_one(
+            "SELECT count(*) FROM _slonbase.events WHERE record ? 'password' OR record ? 'tokenKey'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(leaked, 0);
+    let people: i64 = client
+        .query_one(
+            "SELECT count(*) FROM _slonbase.events e JOIN _slonbase.collections c ON c.id = e.collection_id \
+             WHERE c.name = 'people'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(people, 1);
+}

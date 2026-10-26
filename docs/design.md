@@ -312,7 +312,8 @@ used instead), and Apple's and the other PocketBase presets.
 `_slonbase.events` and calls `pg_notify('slonbase', 'event:<id>')` in the same transaction.
 - Rolled-back changes are never announced.
 - Notifications arrive in commit order.
-- Cascading deletes and the reference updates they cause are announced too.
+- Every change of a collection table is announced, whatever makes it (see "Changes outside the
+  records API" below); cascading deletes and the reference updates they cause too.
 - Secret fields are stripped from stored events.
 - Events are pruned after five minutes.
 
@@ -342,8 +343,15 @@ events) fills up is disconnected.
 `expand` in a subscription's options is applied to each event with the subscriber's auth and
 rules for the related records (the same expansion as the records API).
 
-**Not yet:** events for changes made outside the
-records API (auth flows that set `verified` or the password, or direct SQL).
+**Changes outside the records API.** The outbox row and its NOTIFY are written by an
+`AFTER INSERT OR UPDATE OR DELETE ... FOR EACH ROW` trigger on every collection table
+(`_slonbase.record_change`, system migration 10), not by the API, so auth flows that write
+columns directly, SQL from hooks, migrations and the SQL console, and other programs produce
+events too. The trigger's arguments are the collection id, its secret columns (dropped from the
+event) and its date columns (formatted with the API's `to_char`, so events carry exactly what
+the API returns; a test compares them). The collection DDL recreates the trigger when those
+columns change; migration 10 adds it to existing tables from the stored definitions. Restores
+and PocketBase imports set `slonbase.realtime = off` for their transaction.
 
 ### Phase 3: relation paths and expand
 
@@ -554,8 +562,8 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - The record handlers' work is split into `create_in`/`update_in`/`delete_in`, which run in a
   caller's transaction; single requests and batches use the same code. File changes are collected
   (`FileEffects`): new files are removed if the transaction fails, replaced and deleted files once
-  it commits. Realtime events go to the outbox in the same transaction, so they're delivered only
-  if the whole batch commits.
+  it commits. Realtime events go to the outbox in the same transaction (the tables' trigger
+  writes them), so they're delivered only if the whole batch commits.
 - `PUT .../records` is an upsert (an update when the body's `id` exists).
 - The batch's `Authorization` is used for every request (theirs are ignored), and rules apply per
   request. The whole batch is limited by `batch.timeout`; dropping the transaction rolls it back.

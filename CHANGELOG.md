@@ -7,6 +7,16 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **Realtime for every change**, not only the records API's: auth flows (verifying an email,
+  resetting a password, changing an email), SQL from hooks, migrations and the SQL console, and
+  other programs writing to the collection tables now reach subscribers. A trigger on each
+  table writes the event in the change's transaction (rolled-back changes still send nothing);
+  existing tables get it when the upgrade runs. `SET slonbase.realtime = off` skips events in a
+  session, for bulk loads.
+- CI tests upgrades in place from 0.1.0 and from the previous release.
+
 ## [0.5.0] - 2026-10-26
 
 **Every PocketBase hook:** slonbase now has every hook PocketBase's JavaScript declares, from

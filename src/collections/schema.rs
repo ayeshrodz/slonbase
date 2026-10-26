@@ -29,6 +29,40 @@ fn column_def(field: &Field) -> String {
     format!("{} {}", quote_ident(&field.name), field.column_type())
 }
 
+/// The trigger that writes the realtime events of every change of the table (any writer's;
+/// see `migrations/0010_realtime_triggers.sql`), with the collection's id, its secret columns
+/// (left out of events) and its date columns (formatted as the API sends them).
+pub fn realtime_trigger(c: &Collection) -> String {
+    let (secrets, dates) = trigger_columns(c);
+    let array = |names: Vec<&str>| {
+        let items: Vec<String> = names.iter().map(|n| format!("\"{n}\"")).collect();
+        format!("'{{{}}}'", items.join(",").replace('\'', "''"))
+    };
+    format!(
+        "CREATE OR REPLACE TRIGGER _slonbase_realtime AFTER INSERT OR UPDATE OR DELETE ON {} \
+         FOR EACH ROW EXECUTE FUNCTION _slonbase.record_change('{}', {}, {})",
+        table_ref(&c.name),
+        c.id.replace('\'', "''"),
+        array(secrets),
+        array(dates)
+    )
+}
+
+fn trigger_columns(c: &Collection) -> (Vec<&str>, Vec<&str>) {
+    let mut secrets: Vec<&str> = Vec::new();
+    let mut dates: Vec<&str> = Vec::new();
+    for f in &c.fields {
+        if f.is_secret() {
+            secrets.push(&f.name);
+        } else if f.storage() == Storage::Date {
+            dates.push(&f.name);
+        }
+    }
+    secrets.sort_unstable();
+    dates.sort_unstable();
+    (secrets, dates)
+}
+
 fn parsed_indexes(c: &Collection) -> Vec<Index> {
     // indexes are validated before reaching here
     c.indexes
@@ -66,6 +100,7 @@ pub fn create(c: &Collection) -> Vec<String> {
         ));
     }
     statements.extend(parsed_indexes(c).iter().map(|i| i.to_postgres_sql(&table)));
+    statements.push(realtime_trigger(c));
     statements
 }
 
@@ -173,6 +208,10 @@ pub fn update(old: &Collection, new: &Collection) -> Vec<String> {
     for index in new_indexes.iter().filter(|i| !old_indexes.contains(i)) {
         statements.push(index.to_postgres_sql(&table));
     }
+    // the trigger names the date and secret columns
+    if old.id != new.id || trigger_columns(old) != trigger_columns(new) {
+        statements.push(realtime_trigger(new));
+    }
 
     statements
 }
@@ -212,6 +251,9 @@ mod tests {
                  _seq BIGINT GENERATED ALWAYS AS IDENTITY)",
                 "CREATE INDEX \"_seq_pbc_1\" ON slonbase.\"posts\" (_seq)",
                 "CREATE UNIQUE INDEX \"idx_title\" ON slonbase.\"posts\" (\"title\")",
+                "CREATE OR REPLACE TRIGGER _slonbase_realtime AFTER INSERT OR UPDATE OR DELETE ON \
+                 slonbase.\"posts\" FOR EACH ROW EXECUTE FUNCTION \
+                 _slonbase.record_change('pbc_1', '{}', '{\"created\"}')",
             ]
         );
     }

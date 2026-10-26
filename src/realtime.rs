@@ -2,7 +2,9 @@
 //! PocketBase's `/api/realtime` protocol and SDKs.
 //!
 //! Record changes are written to an outbox (`_slonbase.events`) and announced with
-//! `pg_notify` in the same transaction, so rolled-back changes are never delivered. Every
+//! `pg_notify` by a trigger on each collection table (`migrations/0010_realtime_triggers.sql`),
+//! in the transaction of the change, so changes made outside the API (SQL, other programs)
+//! are delivered too, and rolled-back changes never are. Every
 //! instance listens on the channel, so subscribers get changes made through any
 //! instance. The same channel tells instances to reload collections and settings.
 //!
@@ -84,41 +86,6 @@ impl Action {
             _ => None,
         }
     }
-}
-
-/// Records a change in the outbox. Call inside the transaction that makes the change.
-pub async fn record_event(
-    client: &impl db::TextQuery,
-    c: &Collection,
-    action: Action,
-    record: &Values,
-) -> Result<(), tokio_postgres::Error> {
-    // secrets never leave the record table
-    let mut stored = record.clone();
-    for field in c.fields.iter().filter(|f| f.is_secret()) {
-        stored.remove(&field.name);
-    }
-    use tokio_postgres::types::Type;
-    // one statement, sent with its parameter types: one round trip per write
-    let action = action.as_str().to_string();
-    let record = Value::Object(stored);
-    tokio_postgres::GenericClient::query_typed(
-        client.inner(),
-        "WITH e AS (INSERT INTO _slonbase.events (collection_id, action, record) \
-             VALUES ($1, $2, $3) RETURNING id) \
-             SELECT pg_notify($4, 'event:' || e.id) FROM e",
-        &[
-            (
-                &c.id as &(dyn tokio_postgres::types::ToSql + Sync),
-                Type::TEXT,
-            ),
-            (&action, Type::TEXT),
-            (&record, Type::JSONB),
-            (&CHANNEL, Type::TEXT),
-        ],
-    )
-    .await?;
-    Ok(())
 }
 
 /// Announces a change of collections or settings to all instances.

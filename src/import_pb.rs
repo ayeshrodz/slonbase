@@ -251,6 +251,9 @@ async fn copy_records(
         .await
         .map_err(crate::db::describe_pool_error)?;
     let tx = client.transaction().await?;
+    // a bulk load: no realtime events for the imported rows
+    tx.batch_execute("SET LOCAL slonbase.realtime = off")
+        .await?;
     let columns: Vec<String> = present.iter().map(|f| quote_ident(&f.name)).collect();
     let select = format!(
         "SELECT rowid, {} FROM {} WHERE rowid > ?1 ORDER BY rowid LIMIT {CHUNK}",

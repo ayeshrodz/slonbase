@@ -38,7 +38,7 @@ use crate::db::describe_pool_error;
 use crate::error::ApiError;
 use crate::filter::{Params, RequestInfo, Scope, compile_sort, quote_ident, to_sql};
 use crate::hooks::{Change, Hooks, RecordRequestEvent, RecordsListEvent};
-use crate::realtime::{self, Action};
+use crate::realtime::Action;
 use crate::validation::Errors;
 
 const DEFAULT_PER_PAGE: i64 = 30;
@@ -891,9 +891,6 @@ async fn insert_record(
             return Err(ApiError::bad_request(failed));
         }
     }
-    realtime::record_event(tx, c, Action::Create, values)
-        .await
-        .map_err(db_error)?;
     Ok(output_record(c, &fields, &row, &email_visible))
 }
 
@@ -1090,9 +1087,6 @@ async fn update_record(
         .query_text_one(&sql, &params)
         .await
         .map_err(|e| write_error(e, c, failed))?;
-    realtime::record_event(tx, c, Action::Update, values)
-        .await
-        .map_err(db_error)?;
     Ok(output_record(c, &fields, &row, &email_visible))
 }
 
@@ -1624,9 +1618,6 @@ fn delete_with_references<'b>(
             };
             for row in tx.query(&update, &[&id]).await.map_err(db_error)? {
                 let values = row_values(&other_fields, &row);
-                realtime::record_event(tx, &other, Action::Update, &values)
-                    .await
-                    .map_err(db_error)?;
                 changes.push(Change {
                     collection: other.clone(),
                     action: Action::Update,
@@ -1649,9 +1640,6 @@ fn delete_with_references<'b>(
             .map_err(db_error)?;
         if let Some(row) = deleted {
             let values = row_values(&fields, &row);
-            realtime::record_event(tx, &c, Action::Delete, &values)
-                .await
-                .map_err(db_error)?;
             changes.push(Change {
                 collection: c.clone(),
                 action: Action::Delete,

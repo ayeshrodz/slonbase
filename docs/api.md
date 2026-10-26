@@ -153,3 +153,9 @@ Topics are `posts/*` and `posts/{id}`, optionally with `filter`, `expand` and `f
 Each subscriber only receives events its list or view rule allows. Changes are announced through
 PostgreSQL `LISTEN/NOTIFY`, so they reach the subscribers of every instance sharing the database
 (see [several instances](deployment.md#several-instances)).
+
+Every change of a collection table is announced, whatever makes it: the records API, auth flows
+(verifying an email, resetting a password), hooks and migrations writing SQL, the SQL console,
+or other programs writing to the tables. A trigger on each table writes the event in the
+change's transaction, so rolled-back changes are never announced. A session can skip events for
+a bulk load with `SET slonbase.realtime = off`.

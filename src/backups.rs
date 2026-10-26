@@ -572,6 +572,9 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
     let tx = client.transaction().await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
+    // no realtime events for the restored rows (instances reload after it)
+    tx.batch_execute("SET LOCAL slonbase.realtime = off")
+        .await?;
 
     let current = store::load(&tx).await?;
     // views first: they depend on the tables
