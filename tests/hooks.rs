@@ -365,3 +365,66 @@ async fn rust_extensions() {
     drop(app);
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn rust_data_hooks() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let mut ext = slonbase::Extensions::default();
+    ext.hooks
+        .on_collection_create_request
+        .add(&[], |mut e, next| async move {
+            if let Some(c) = e.data.get_mut("collection").and_then(Value::as_object_mut) {
+                c.insert("listRule".into(), json!(""));
+            }
+            next.run(e).await
+        });
+    ext.hooks.on_batch_request.add(&[], |e, next| async move {
+        let refused = e.data["batch"]
+            .as_array()
+            .is_some_and(|b| b.iter().any(|r| r["body"]["title"] == "refuse"));
+        if refused {
+            return Err(ApiError::bad_request("Not this batch."));
+        }
+        next.run(e).await
+    });
+    let (app, token, _dir) = ready_app_with(&tdb, ext).await;
+    let admin = Some(token.as_str());
+
+    let (status, res) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "notes", "createRule": "",
+            "fields": [{ "name": "title", "type": "text" }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["listRule"], "", "the hook set the rule");
+
+    let (status, res) = call(
+        &app,
+        admin,
+        "PATCH",
+        "/api/settings",
+        Some(json!({
+            "batch": { "enabled": true, "maxRequests": 10, "timeout": 3 },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let batch = |title: &str| {
+        json!({ "requests": [{
+            "method": "POST", "url": "/api/collections/notes/records", "body": { "title": title },
+        }] })
+    };
+    let (status, res) = call(&app, None, "POST", "/api/batch", Some(batch("fine"))).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, res) = call(&app, None, "POST", "/api/batch", Some(batch("refuse"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert_eq!(res["message"], "Not this batch.");
+}

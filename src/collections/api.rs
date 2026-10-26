@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, Method, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
 
@@ -18,6 +18,7 @@ use crate::core::Core;
 use crate::db::TextQuery;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
+use crate::hooks::{self, DataEvent};
 
 fn not_found() -> ApiError {
     ApiError::not_found()
@@ -112,8 +113,9 @@ fn parse(body: Map<String, Value>) -> Result<Collection, ApiError> {
 pub async fn list(
     State(app): State<Arc<App>>,
     Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
 
@@ -136,14 +138,80 @@ pub async fn list(
         .take(per_page)
         .map(|c| to_json(c))
         .collect();
-
-    Ok(Json(json!({
+    let result = json!({
         "page": page,
         "perPage": per_page,
         "totalItems": all.len(),
         "totalPages": all.len().div_ceil(per_page),
         "items": items,
-    })))
+    });
+    let request = request_info(&core, &auth, &Method::GET, &query, &headers, None);
+    request_hook(
+        &core,
+        |h| &h.on_collections_list_request,
+        auth,
+        request,
+        hooks::data([("collections", result["items"].clone()), ("result", result)]),
+        |mut e| async move {
+            // like PocketBase, the response is `result` (whose items are the collections)
+            e.response = Some(Json(e.data["result"].clone()).into_response());
+            Ok(e)
+        },
+    )
+    .await
+}
+
+/// The request as the collection request hooks see it.
+fn request_info(
+    core: &Core,
+    auth: &RequestAuth,
+    method: &Method,
+    query: &HashMap<String, String>,
+    headers: &HeaderMap,
+    body: Option<&Map<String, Value>>,
+) -> Arc<crate::filter::RequestInfo> {
+    Arc::new(crate::records::api::request_info(
+        method,
+        query,
+        headers,
+        body,
+        auth,
+        &core.registry(),
+    ))
+}
+
+/// Runs a collection request hook around `action`, which answers the request (sets
+/// `response`). A handler that doesn't call `next` answers with its own response.
+async fn request_hook<F, Fut>(
+    core: &Arc<Core>,
+    pick: fn(&hooks::Hooks) -> &hooks::Hook<DataEvent>,
+    auth: RequestAuth,
+    request: Arc<crate::filter::RequestInfo>,
+    data: Map<String, Value>,
+    action: F,
+) -> Result<Response, ApiError>
+where
+    F: FnOnce(DataEvent) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<DataEvent, ApiError>> + Send + 'static,
+{
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth,
+        request: Some(request),
+        data,
+        response: None,
+    };
+    let e = pick(&core.hooks).trigger(None, e, action).await?;
+    Ok(e.response.unwrap_or_else(|| StatusCode::OK.into_response()))
+}
+
+/// A collection in an event's `data` (as the handlers left it).
+fn object_of(value: &Value) -> Result<Map<String, Value>, ApiError> {
+    match value {
+        Value::Object(map) => Ok(map.clone()),
+        _ => Err(ApiError::bad_request("The collection must be an object.")),
+    }
 }
 
 /// The columns `filter` and `sort` can use on collections.
@@ -263,13 +331,27 @@ async fn filtered(
 pub async fn view(
     State(app): State<Arc<App>>,
     Path(id_or_name): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
     let registry = core.registry();
     let c = registry.get(&id_or_name).ok_or_else(not_found)?;
-    Ok(Json(to_json(c)))
+    let request = request_info(&core, &auth, &Method::GET, &query, &headers, None);
+    request_hook(
+        &core,
+        |h| &h.on_collection_view_request,
+        auth,
+        request,
+        hooks::data([("collection", to_json(c))]),
+        |mut e| async move {
+            e.response = Some(Json(e.data["collection"].clone()).into_response());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 /// Runs a collection hook on `c` before its change; returns the collection the handlers
@@ -328,19 +410,46 @@ fn after_hook(
 /// `POST /api/collections`
 pub async fn create(
     State(app): State<Arc<App>>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let failed = "Failed to create collection.";
+    // the collection as submitted, with its defaults (like PocketBase's); unmasked, as it's
+    // what gets saved
+    let submitted = serde_json::to_value(parse(body.clone())?).expect("serializes");
+    let request = request_info(&core, &auth, &Method::POST, &query, &headers, Some(&body));
+    request_hook(
+        &core,
+        |h| &h.on_collection_create_request,
+        auth,
+        request,
+        hooks::data([("collection", submitted)]),
+        |mut e| async move {
+            let saved = create_collection(&e.core, object_of(&e.data["collection"])?).await?;
+            let json = to_json(&saved);
+            e.data.insert("collection".into(), json.clone());
+            e.response = Some(Json(json).into_response());
+            Ok(e)
+        },
+    )
+    .await
+}
 
+/// Creates a collection from its JSON definition, through the collection hooks.
+async fn create_collection(
+    core: &Arc<Core>,
+    body: Map<String, Value>,
+) -> Result<Arc<Collection>, ApiError> {
+    let failed = "Failed to create collection.";
     let c = parse(body)?;
     let _guard = core.schema_lock.lock().await;
-    let registry = fresh_registry(&core).await?;
+    let registry = fresh_registry(core).await?;
 
-    let mut c = before_hook(&core, &core.hooks.on_collection_create, c).await?;
-    infer_view(&core, &mut c, None, "", failed).await?;
+    let mut c = before_hook(core, &core.hooks.on_collection_create, c).await?;
+    infer_view(core, &mut c, None, "", failed).await?;
     let errors = validate::prepare(&mut c, None, &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
@@ -351,37 +460,77 @@ pub async fn create(
     let saved = registry.by_id(&c.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
-    after_hook(&core, |h| &h.on_collection_after_create_success, &saved);
+    after_hook(core, |h| &h.on_collection_after_create_success, &saved);
     #[cfg(feature = "js")]
-    crate::js::migrate::automigrate(&core, vec![crate::js::migrate::Change::Created(&saved)]).await;
-
-    Ok(Json(to_json(&saved)))
+    crate::js::migrate::automigrate(core, vec![crate::js::migrate::Change::Created(&saved)]).await;
+    Ok(saved)
 }
 
 /// `PATCH /api/collections/{collection}`. Top-level keys in the body replace the stored ones.
 pub async fn update(
     State(app): State<Arc<App>>,
     Path(id_or_name): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
     JsonObject(body): JsonObject,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let failed = "Failed to update collection.";
+    let old = core
+        .registry()
+        .get(&id_or_name)
+        .cloned()
+        .ok_or_else(not_found)?;
+    let mut merged = match serde_json::to_value(old.as_ref()).expect("serializes") {
+        Value::Object(map) => map,
+        _ => unreachable!(),
+    };
+    merged.extend(body.clone());
+    // the collection with the request applied (like PocketBase's), unmasked
+    let submitted = serde_json::to_value(parse(merged)?).expect("serializes");
+    let request = request_info(&core, &auth, &Method::PATCH, &query, &headers, Some(&body));
+    let id = old.id.clone();
+    request_hook(
+        &core,
+        |h| &h.on_collection_update_request,
+        auth,
+        request,
+        hooks::data([("collection", submitted)]),
+        |mut e| async move {
+            let saved = update_collection(&e.core, &id, object_of(&e.data["collection"])?).await?;
+            let json = to_json(&saved);
+            e.data.insert("collection".into(), json.clone());
+            e.response = Some(Json(json).into_response());
+            Ok(e)
+        },
+    )
+    .await
+}
 
+/// Replaces the collection `id` with a definition (keys missing from it keep their stored
+/// values), through the collection hooks.
+async fn update_collection(
+    core: &Arc<Core>,
+    id: &str,
+    definition: Map<String, Value>,
+) -> Result<Arc<Collection>, ApiError> {
+    let failed = "Failed to update collection.";
     let _guard = core.schema_lock.lock().await;
-    let registry = fresh_registry(&core).await?;
-    let old = registry.get(&id_or_name).cloned().ok_or_else(not_found)?;
+    let registry = fresh_registry(core).await?;
+    let old = registry.by_id(id).cloned().ok_or_else(not_found)?;
 
     let mut merged = match serde_json::to_value(old.as_ref()).expect("serializes") {
         Value::Object(map) => map,
         _ => unreachable!(),
     };
-    merged.extend(body);
+    merged.extend(definition);
+    // the identity stays
+    merged.insert("id".into(), Value::String(old.id.clone()));
     let new = parse(merged)?;
-    let mut new = before_hook(&core, &core.hooks.on_collection_update, new).await?;
+    let mut new = before_hook(core, &core.hooks.on_collection_update, new).await?;
 
-    infer_view(&core, &mut new, Some(&old), "", failed).await?;
+    infer_view(core, &mut new, Some(&old), "", failed).await?;
     let errors = validate::prepare(&mut new, Some(&old), &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
@@ -398,11 +547,11 @@ pub async fn update(
     let saved = registry.by_id(&new.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "updated collection");
-    after_hook(&core, |h| &h.on_collection_after_update_success, &saved);
+    after_hook(core, |h| &h.on_collection_after_update_success, &saved);
     #[cfg(feature = "js")]
     if saved.as_ref() != old.as_ref() {
         crate::js::migrate::automigrate(
-            &core,
+            core,
             vec![crate::js::migrate::Change::Updated {
                 old: &old,
                 new: &saved,
@@ -410,27 +559,41 @@ pub async fn update(
         )
         .await;
     }
-
-    Ok(Json(to_json(&saved)))
+    Ok(saved)
 }
 
 /// `DELETE /api/collections/{collection}`
 pub async fn delete(
     State(app): State<Arc<App>>,
     Path(id_or_name): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let before = core.registry();
-    delete_collection(&core, &id_or_name).await?;
-    #[cfg(feature = "js")]
-    if let Some(c) = before.get(&id_or_name) {
-        crate::js::migrate::automigrate(&core, vec![crate::js::migrate::Change::Deleted(c)]).await;
-    }
-    #[cfg(not(feature = "js"))]
-    let _ = before;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    let c = core
+        .registry()
+        .get(&id_or_name)
+        .cloned()
+        .ok_or_else(not_found)?;
+    let request = request_info(&core, &auth, &Method::DELETE, &query, &headers, None);
+    request_hook(
+        &core,
+        |h| &h.on_collection_delete_request,
+        auth,
+        request,
+        hooks::data([("collection", to_json(&c))]),
+        |mut e| async move {
+            delete_collection(&e.core, &c.id).await?;
+            #[cfg(feature = "js")]
+            crate::js::migrate::automigrate(&e.core, vec![crate::js::migrate::Change::Deleted(&c)])
+                .await;
+            e.response = Some(StatusCode::NO_CONTENT.into_response());
+            Ok(e)
+        },
+    )
+    .await
 }
 
 /// Deletes a collection with its records and files (not system collections, nor ones
@@ -530,6 +693,8 @@ pub async fn oauth2_providers(
 /// `deleteMissing` deletes the non-system collections that aren't in the list.
 pub async fn import(
     State(app): State<Arc<App>>,
+    Query(query): Query<HashMap<String, String>>,
+    headers: HeaderMap,
     auth: RequestAuth,
     JsonObject(body): JsonObject,
 ) -> Result<Response, ApiError> {
@@ -548,8 +713,38 @@ pub async fn import(
             return Err(ApiError::invalid_data(failed, &errors));
         }
     };
-    let before = fresh_registry(&core).await?;
-    let saved = import_definitions(&core, items, delete_missing).await?;
+    let request = request_info(&core, &auth, &Method::PUT, &query, &headers, Some(&body));
+    request_hook(
+        &core,
+        |h| &h.on_collections_import_request,
+        auth,
+        request,
+        hooks::data([
+            ("collectionsData", Value::Array(items)),
+            ("deleteMissing", delete_missing.into()),
+        ]),
+        |mut e| async move {
+            let items = match &e.data["collectionsData"] {
+                Value::Array(items) => items.clone(),
+                _ => return Err(ApiError::bad_request("collectionsData must be a list.")),
+            };
+            let delete_missing = e.data["deleteMissing"].as_bool().unwrap_or(false);
+            import_with_migrations(&e.core, items, delete_missing).await?;
+            e.response = Some(StatusCode::NO_CONTENT.into_response());
+            Ok(e)
+        },
+    )
+    .await
+}
+
+/// [`import_definitions`], plus the automigrate files of what changed.
+async fn import_with_migrations(
+    core: &Arc<Core>,
+    items: Vec<Value>,
+    delete_missing: bool,
+) -> Result<(), ApiError> {
+    let before = fresh_registry(core).await?;
+    let saved = import_definitions(core, items, delete_missing).await?;
     #[cfg(feature = "js")]
     {
         use crate::js::migrate::Change as Written;
@@ -567,11 +762,11 @@ pub async fn import(
                 changes.push(Written::Deleted(c));
             }
         }
-        crate::js::migrate::automigrate(&core, changes).await;
+        crate::js::migrate::automigrate(core, changes).await;
     }
     #[cfg(not(feature = "js"))]
     let _ = (before, saved);
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok(())
 }
 
 /// Creates or updates collections from their PocketBase JSON definitions (and deletes the

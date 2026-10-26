@@ -153,3 +153,45 @@ onBackupCreate((e) => {
   if (e.name.startsWith("compat_")) e.name = "hooked_" + e.name;
   e.next();
 });
+
+// ---------------------------------------------------------------- collections and batches
+
+onCollectionsListRequest((e) => {
+  if (e.requestInfo().headers["x_hooks_test"] === "1") e.result.totalItems = 42;
+  e.next();
+});
+
+onCollectionViewRequest((e) => {
+  if (e.collection.name === "hooks_c_locked") throw new ForbiddenError("Locked.");
+  e.next();
+});
+
+onCollectionCreateRequest((e) => {
+  if (e.collection.name === "hooks_c_bad") throw new BadRequestError("Bad collection.");
+  if (e.collection.name.startsWith("hooks_c_")) e.collection.listRule = "";
+  e.next();
+});
+
+onCollectionUpdateRequest((e) => {
+  if (e.collection.name.startsWith("hooks_c_")) e.collection.viewRule = "id != ''";
+  e.next();
+});
+
+onCollectionDeleteRequest((e) => {
+  if (e.collection.name === "hooks_c_keep" && !e.requestInfo().query["force"]) throw new BadRequestError("Keep it.");
+  e.next();
+});
+
+onCollectionsImportRequest((e) => {
+  if (e.collectionsData.some((c) => c.name === "hooks_c_noimport")) throw new BadRequestError("No import.");
+  e.next();
+});
+
+onBatchRequest((e) => {
+  for (const r of e.batch) {
+    if (!r.body || typeof r.body.title !== "string" || !r.body.title.startsWith("batch-")) continue;
+    if (r.body.title === "batch-refuse") throw new BadRequestError("Refused batch.");
+    r.body.title += "+";
+  }
+  e.next();
+});

@@ -58,6 +58,11 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onSettingsListRequest`, `onSettingsUpdateRequest` | The settings API: `e.settings` (secrets masked); `e.oldSettings` and `e.newSettings` (what's saved, validated like the request) |
 | `onSettingsReload` | After the settings changed (here, on another instance, after a restore) and once at startup, in the background: `e.settings` |
 | `onBackupCreate`, `onBackupRestore` | Every backup (the API, automatic backups, `$app.createBackup`) and restore: `e.name` can be changed; `e.exclude` is accepted but ignored (backups always hold the database and the files). Throw to cancel. |
+| `onCollectionsListRequest` | The collections list (superusers): `e.collections` (`Collection` objects, the same array as `e.result.items`), `e.result` (the page) |
+| `onCollectionViewRequest`, `onCollectionDeleteRequest` | One collection: `e.collection` |
+| `onCollectionCreateRequest`, `onCollectionUpdateRequest` | `e.collection`, what's saved (change it, or throw); after `e.next()`, as saved |
+| `onCollectionsImportRequest` | `e.collectionsData` (the imported definitions), `e.deleteMissing` |
+| `onBatchRequest` | A batch: `e.batch` (the requests, each with `method`, `url`, `headers`, `body`). Change them, throw, or answer yourself; each request still runs its own record hooks. |
 | `onTerminate` | When the server stops, after it stopped taking requests: `e.isRestart` (a restart after the hook files changed). Handlers get at most 5 seconds. |
 | `onBootstrap` | Once the app is ready |
 | `routerAdd(method, path, handler, ...middlewares)` | A custom route. Middlewares: `$apis.requireAuth(...collections)`, `requireSuperuserAuth()`, `requireSuperuserOrOwnerAuth(param)`, `requireGuestOnly()`. |

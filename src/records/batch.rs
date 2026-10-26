@@ -12,8 +12,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use serde_json::{Map, Value, json};
 
 use super::txtask::TxHandle;
@@ -27,7 +28,7 @@ use crate::collections::model::{Collection, RuleAction};
 use crate::collections::store::Registry;
 use crate::core::Core;
 use crate::error::ApiError;
-use crate::hooks::RecordRequestEvent;
+use crate::hooks::{DataEvent, RecordRequestEvent};
 
 /// The default and maximum body size (PocketBase's default).
 const MAX_BODY: u64 = 128 << 20;
@@ -154,12 +155,14 @@ fn parse(
 /// `POST /api/batch`
 pub async fn batch(
     State(app): State<Arc<App>>,
+    Query(query): Query<HashMap<String, String>>,
     headers: HeaderMap,
     auth: RequestAuth,
     mut input: RecordBody,
-) -> Result<Json<Value>, ApiError> {
+) -> Result<Response, ApiError> {
     let core = app.core()?;
     let settings = core.settings().batch.clone();
+    let timeout_secs = settings.timeout;
     if !settings.enabled || settings.max_requests == 0 {
         return Err(ApiError::forbidden("Batch requests are not allowed."));
     }
@@ -204,6 +207,64 @@ pub async fn batch(
             &errors,
         ));
     }
+    let request = Arc::new(super::api::request_info(
+        &Method::POST,
+        &query,
+        &headers,
+        None,
+        &auth,
+        &core.registry(),
+    ));
+    let e = DataEvent {
+        core: core.clone(),
+        collection: None,
+        auth: auth.clone(),
+        request: Some(request),
+        data: crate::hooks::data([("batch", Value::Array(raw_requests))]),
+        response: None,
+    };
+    let uploads = std::mem::take(&mut input.uploads);
+    let from_form = input.from_form;
+    let e = core
+        .hooks
+        .clone()
+        .on_batch_request
+        .trigger(None, e, move |mut e| async move {
+            let requests = match &e.data["batch"] {
+                Value::Array(items) => items.clone(),
+                _ => {
+                    return Err(ApiError::bad_request(
+                        "The batch must be a list of requests.",
+                    ));
+                }
+            };
+            let results = run_batch(
+                &e.core,
+                &headers,
+                &e.auth,
+                requests,
+                uploads,
+                from_form,
+                timeout_secs,
+            )
+            .await?;
+            e.response = Some(Json(results).into_response());
+            Ok(e)
+        })
+        .await?;
+    Ok(e.response.unwrap_or_else(|| StatusCode::OK.into_response()))
+}
+
+/// Runs the batch's requests in one transaction and returns their responses.
+async fn run_batch(
+    core: &Arc<Core>,
+    headers: &HeaderMap,
+    auth: &RequestAuth,
+    raw_requests: Vec<Value>,
+    mut uploads: Vec<Upload>,
+    from_form: bool,
+    timeout_secs: u64,
+) -> Result<Value, ApiError> {
     let registry = core.registry();
     let mut base_headers = headers.clone();
     // the parts' own content type, not the batch's
@@ -212,18 +273,16 @@ pub async fn batch(
     let mut requests = Vec::with_capacity(raw_requests.len());
     for (i, raw) in raw_requests.iter().enumerate() {
         requests.push(
-            parse(i, raw, &mut input.uploads, &registry, &base_headers)
-                .map_err(|e| failed_at(i, e))?,
+            parse(i, raw, &mut uploads, &registry, &base_headers).map_err(|e| failed_at(i, e))?,
         );
     }
 
-    let from_form = input.from_form;
-    let (tx, effects, worker) = TxHandle::start(&core);
+    let (tx, effects, worker) = TxHandle::start(core);
 
     let run = async {
         let mut done = Vec::with_capacity(requests.len());
         for (i, request) in requests.into_iter().enumerate() {
-            let item = run_request(&core, &registry, &auth, &tx, request, from_form)
+            let item = run_request(core, &registry, auth, &tx, request, from_form)
                 .await
                 .map_err(|e| failed_at(i, e))?;
             done.push(item);
@@ -231,7 +290,7 @@ pub async fn batch(
         tx.commit().await?;
         Ok(done)
     };
-    let timeout = Duration::from_secs(settings.timeout.max(1));
+    let timeout = Duration::from_secs(timeout_secs.max(1));
     let outcome = match tokio::time::timeout(timeout, run).await {
         Ok(outcome) => outcome,
         Err(_) => Err(ApiError::bad_request(
@@ -245,7 +304,7 @@ pub async fn batch(
     }
     let _ = worker.await;
     let effects = std::mem::take(&mut *effects.lock().await);
-    let done = effects.settle(&core, outcome).await?;
+    let done = effects.settle(core, outcome).await?;
 
     let mut results = Vec::with_capacity(done.len());
     for Done {
@@ -260,7 +319,7 @@ pub async fn batch(
             results.push(json!({ "status": 204, "body": null }));
         } else {
             let body = super::api::respond(
-                &core,
+                core,
                 &event.auth,
                 &event.request,
                 &event.collection,
@@ -271,7 +330,7 @@ pub async fn batch(
             results.push(json!({ "status": 200, "body": body }));
         }
     }
-    Ok(Json(Value::Array(results)))
+    Ok(Value::Array(results))
 }
 
 /// A request of the batch that went through.

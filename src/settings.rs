@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::GenericClient;
@@ -425,12 +425,20 @@ fn merge(target: &mut Value, patch: Value) {
 /// `GET /api/settings`
 pub async fn get(
     State(app): State<Arc<App>>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     auth: RequestAuth,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let request = request_info(&core, &auth, &headers, None);
+    let request = request_info(
+        &core,
+        &auth,
+        &axum::http::Method::GET,
+        &query,
+        &headers,
+        None,
+    );
     let e = DataEvent {
         core: core.clone(),
         collection: None,
@@ -463,6 +471,7 @@ pub async fn get(
 /// secret keeps the stored one.
 pub async fn update(
     State(app): State<Arc<App>>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
     auth: RequestAuth,
     headers: axum::http::HeaderMap,
     JsonObject(body): JsonObject,
@@ -477,7 +486,14 @@ pub async fn update(
             merge(target, value.clone());
         }
     }
-    let request = request_info(&core, &auth, &headers, Some(&body));
+    let request = request_info(
+        &core,
+        &auth,
+        &axum::http::Method::PATCH,
+        &query,
+        &headers,
+        Some(&body),
+    );
     let e = DataEvent {
         core: core.clone(),
         collection: None,
@@ -516,12 +532,14 @@ pub async fn update(
 fn request_info(
     core: &Core,
     auth: &RequestAuth,
+    method: &axum::http::Method,
+    query: &std::collections::HashMap<String, String>,
     headers: &axum::http::HeaderMap,
     body: Option<&Map<String, Value>>,
 ) -> Arc<crate::filter::RequestInfo> {
     Arc::new(crate::records::api::request_info(
-        &axum::http::Method::GET,
-        &std::collections::HashMap::new(),
+        method,
+        query,
         headers,
         body,
         auth,

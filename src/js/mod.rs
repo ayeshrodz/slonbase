@@ -580,6 +580,13 @@ fn register(
             "backupCreate" => Some(&mut hooks.on_backup_create),
             "backupRestore" => Some(&mut hooks.on_backup_restore),
             "terminate" => Some(&mut hooks.on_terminate),
+            "collectionsListRequest" => Some(&mut hooks.on_collections_list_request),
+            "collectionViewRequest" => Some(&mut hooks.on_collection_view_request),
+            "collectionCreateRequest" => Some(&mut hooks.on_collection_create_request),
+            "collectionUpdateRequest" => Some(&mut hooks.on_collection_update_request),
+            "collectionDeleteRequest" => Some(&mut hooks.on_collection_delete_request),
+            "collectionsImportRequest" => Some(&mut hooks.on_collections_import_request),
+            "batchRequest" => Some(&mut hooks.on_batch_request),
             _ => None,
         };
         if let Some(hook) = data_hook {

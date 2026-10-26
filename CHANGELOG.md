@@ -16,6 +16,9 @@ changes, and they'll be listed here.
   `onTerminate`, with PocketBase's event properties. The compatibility suite runs the same
   handlers in PocketBase and slonbase. See the [differences](docs/migrating-from-pocketbase.md)
   for the two that behave differently.
+- **Collection request and batch hooks:** `onCollectionsListRequest`, `onCollectionViewRequest`,
+  `onCollectionCreateRequest`, `onCollectionUpdateRequest`, `onCollectionDeleteRequest`,
+  `onCollectionsImportRequest` and `onBatchRequest`, also checked against PocketBase.
 - `$app.createBackup(name)` and `$app.restoreBackup(name)`.
 - Realtime connections can have an idle and a maximum timeout, set by a connect hook.
 

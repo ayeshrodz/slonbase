@@ -922,11 +922,15 @@
     const valueIn = (key, v) => {
       if (key === "client" && v) return realtimeClient(v);
       if (key === "record" && v) return Record._stored(v);
+      if (key === "collection" && v && !raw.collection) return new Collection(v);
+      if (key === "collections" && Array.isArray(v)) return v.map((c) => new Collection(c));
       return clone(v);
     };
     const valueOut = (key, v) => {
       if (key === "client") return v && v._raw ? v._raw : v;
       if (v instanceof Record) return v.publicExport();
+      if (v instanceof Collection) return JSON.parse(JSON.stringify(v));
+      if (Array.isArray(v)) return v.map((x) => (x instanceof Collection ? JSON.parse(JSON.stringify(x)) : x));
       return v === undefined ? null : v;
     };
     const load = (data) => {
@@ -937,8 +941,16 @@
       for (const key of keys) data[key] = valueOut(key, e[key]);
       return { data };
     };
+    // as in PocketBase, a list's result.items are the same objects as e.collections
+    const link = () => {
+      if (e.result && Array.isArray(e.collections) && Array.isArray(e.result.items)) e.result.items = e.collections;
+    };
     load(raw.data || {});
-    e.next = () => load(callNext(state()).data || {});
+    link();
+    e.next = () => {
+      load(callNext(state()).data || {});
+      link();
+    };
     e._state = () => Object.assign(state(), { response: e._response || null });
     return e;
   }
@@ -1057,6 +1069,13 @@
     onBackupCreate: "backupCreate",
     onBackupRestore: "backupRestore",
     onTerminate: "terminate",
+    onCollectionsListRequest: "collectionsListRequest",
+    onCollectionViewRequest: "collectionViewRequest",
+    onCollectionCreateRequest: "collectionCreateRequest",
+    onCollectionUpdateRequest: "collectionUpdateRequest",
+    onCollectionDeleteRequest: "collectionDeleteRequest",
+    onCollectionsImportRequest: "collectionsImportRequest",
+    onBatchRequest: "batchRequest",
   })) {
     g[name] = (fn) => register(kind, "data", fn);
   }

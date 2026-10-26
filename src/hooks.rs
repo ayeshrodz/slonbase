@@ -261,6 +261,11 @@ pub struct RecordEvent {
 /// | `on_settings_reload` | `settings` |
 /// | `on_backup_create`, `on_backup_restore` | `name`, `exclude` |
 /// | `on_terminate` | `isRestart` |
+/// | `on_collections_list_request` | `collections` (the page), `result` (`page`, `perPage`, `totalItems`, `totalPages`, `items`: what's sent) |
+/// | `on_collection_view_request`, `on_collection_delete_request` | `collection` |
+/// | `on_collection_create_request`, `on_collection_update_request` | `collection` (what's saved; after `next`, as saved) |
+/// | `on_collections_import_request` | `collectionsData`, `deleteMissing` |
+/// | `on_batch_request` | `batch` (the requests: `method`, `url`, `headers`, `body`) |
 pub struct DataEvent {
     pub core: Arc<Core>,
     /// The collection of file hooks (handlers limited to collections see only theirs).
@@ -386,6 +391,15 @@ pub struct Hooks {
     pub on_backup_restore: Hook<DataEvent>,
     /// When the server stops (after it stops taking requests).
     pub on_terminate: Hook<DataEvent>,
+    /// The collections API (superusers): `next` answers the request.
+    pub on_collections_list_request: Hook<DataEvent>,
+    pub on_collection_view_request: Hook<DataEvent>,
+    pub on_collection_create_request: Hook<DataEvent>,
+    pub on_collection_update_request: Hook<DataEvent>,
+    pub on_collection_delete_request: Hook<DataEvent>,
+    pub on_collections_import_request: Hook<DataEvent>,
+    /// A batch request, before its requests run: `next` runs `batch`.
+    pub on_batch_request: Hook<DataEvent>,
     pub(crate) crons: Vec<CronJob>,
     pub(crate) on_ready: Vec<Arc<ReadyFn>>,
 }

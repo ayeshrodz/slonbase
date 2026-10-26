@@ -53,8 +53,8 @@ everything that's available. The differences to watch for:
 - **SQL is PostgreSQL.** Queries through `$app.db().newQuery(...)` and in view collections run
   on PostgreSQL, so SQLite-specific SQL (`strftime`, `json_extract`, `datetime('now')`, ...)
   needs porting. Collections are tables in the `slonbase` schema, named after the collection.
-- **Not available yet:** the collection request hooks (`onCollectionsListRequest`, ...),
-  `onBatchRequest`, the `*Execute` and `*AfterError` model hooks, and the `$dbx` query builder.
+- **Not available yet:** the `*Execute` and `*AfterError` model hooks and the `$dbx` query
+  builder.
   Registering a missing hook fails with a `ReferenceError` when the file loads, so you'll know
   right away.
 - **`onRealtimeConnectRequest`'s `e.next()` returns once the connection is open**, where

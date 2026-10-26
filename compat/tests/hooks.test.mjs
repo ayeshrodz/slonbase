@@ -245,3 +245,50 @@ test("onBackupCreate can rename a backup", async () => {
   assert.ok(!keys.includes("compat_hooks.zip"));
   await pb.backups.delete("hooked_compat_hooks.zip");
 });
+
+test("collection request hooks", async () => {
+  for (const name of ["hooks_c_x", "hooks_c_locked", "hooks_c_keep"]) {
+    await pb.collections.delete(name, { query: { force: 1 } }).catch(() => {});
+  }
+  const listed = await pb.collections.getList(1, 5, { headers: { "x-hooks-test": "1" } });
+  assert.equal(listed.totalItems, 42);
+  assert.notEqual((await pb.collections.getList(1, 5)).totalItems, 42);
+
+  const created = await pb.collections.create({ name: "hooks_c_x", type: "base", fields: [{ name: "title", type: "text" }] });
+  assert.equal(created.listRule, "");
+  const bad = await failure(pb.collections.create({ name: "hooks_c_bad", type: "base" }));
+  assert.equal(bad.status, 400);
+  assert.equal(bad.response.message, "Bad collection.");
+  const updated = await pb.collections.update("hooks_c_x", { deleteRule: null });
+  assert.equal(updated.viewRule, "id != ''");
+
+  await pb.collections.create({ name: "hooks_c_locked", type: "base" });
+  assert.equal((await failure(pb.collections.getOne("hooks_c_locked"))).status, 403);
+  await pb.collections.create({ name: "hooks_c_keep", type: "base" });
+  const kept = await failure(pb.collections.delete("hooks_c_keep"));
+  assert.equal(kept.status, 400);
+  assert.equal(kept.response.message, "Keep it.");
+
+  const refused = await failure(pb.collections.import([{ name: "hooks_c_noimport", type: "base", fields: [] }], false));
+  assert.equal(refused.status, 400);
+  assert.equal(refused.response.message, "No import.");
+
+  for (const name of ["hooks_c_x", "hooks_c_locked", "hooks_c_keep"]) {
+    await pb.collections.delete(name, { query: { force: 1 } });
+  }
+});
+
+test("onBatchRequest can change or refuse a batch", async () => {
+  await pb.settings.update({ batch: { enabled: true, maxRequests: 50, timeout: 3, maxBodySize: 0 } });
+  const batch = pb.createBatch();
+  batch.collection(posts).create({ title: "batch-a" });
+  batch.collection(posts).create({ title: "plain" });
+  const results = await batch.send();
+  assert.deepEqual(results.map((r) => r.body.title), ["batch-a+", "plain"]);
+
+  const refused = pb.createBatch();
+  refused.collection(posts).create({ title: "batch-refuse" });
+  const err = await failure(refused.send());
+  assert.equal(err.status, 400);
+  assert.equal(err.response.message, "Refused batch.");
+});

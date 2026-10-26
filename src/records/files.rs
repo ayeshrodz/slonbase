@@ -976,6 +976,7 @@ async fn ensure_thumb(
 /// `POST /api/files/token`: a short-lived token for protected files.
 pub async fn token(
     State(app): State<Arc<App>>,
+    Query(query): Query<HashMap<String, String>>,
     auth: RequestAuth,
     headers: axum::http::HeaderMap,
 ) -> Result<Response, ApiError> {
@@ -1003,7 +1004,7 @@ pub async fn token(
         collection: Some(record.collection.clone()),
         request: Some(Arc::new(crate::records::api::request_info(
             &axum::http::Method::POST,
-            &HashMap::new(),
+            &query,
             &headers,
             None,
             &auth,
