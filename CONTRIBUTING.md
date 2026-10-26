@@ -47,6 +47,7 @@ build step. See [ui/README.md](ui/README.md).
   cargo fmt --all --check
   cargo clippy --all-targets --locked -- -D warnings
   cargo test
+  cargo audit        # known vulnerabilities in dependencies (cargo install cargo-audit)
   ```
 
 - Behavior visible through the API should match PocketBase. Add a test to `compat/` for it, and

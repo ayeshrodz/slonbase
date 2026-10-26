@@ -237,7 +237,7 @@ Bug reports, compatibility reports and pull requests are welcome; see
 
 ```sh
 cargo test                                                    # unit tests
-SLONBASE_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres' cargo test   # everything
+SLONBASE_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable' cargo test   # everything
 (cd compat && npm ci) && DATABASE_URL='postgres://...' compat/run.sh slonbase                # the SDK suite
 ```
 

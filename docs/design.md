@@ -7,7 +7,7 @@ decision changes.
 
 - **PocketBase's developer experience on PostgreSQL**: collections defined at runtime, an
   auto-generated REST API, filtering and access rules, auth, realtime, files, an admin dashboard.
-- **A single small binary** (currently ~17 MB static, an 8 MB download) with low memory use and
+- **A single small binary** (currently ~18 MB static, an 8 MB download) with low memory use and
   predictable latency.
 - **Rock-solid operation**: safe startup ordering, safe concurrent instances, no data-loss paths,
   clear errors.
@@ -42,8 +42,9 @@ guarantees, and small static binaries.
 | Passwords | `bcrypt` (cost 12), compatible with PocketBase hashes for migrations |
 | Config | TOML file + env vars + flags (`clap`) |
 
-Later phases added `image` (thumbnails), `lettre` (mail) and `reqwest` (OAuth2 and a small
-built-in S3 client); an embedded JS engine (`rquickjs`) for hooks is planned.
+Later phases added `image` (thumbnails), `lettre` (mail), `reqwest` (OAuth2 and a small
+built-in S3 client) and an embedded JavaScript engine (`rquickjs`, QuickJS) for hooks and
+migrations.
 
 ## PocketBase API compatibility
 
@@ -88,7 +89,7 @@ Starting ──(no database configured, or no superuser yet)──▶ Setup ─�
 
 - System tables live in the **`_slonbase` schema**, so slonbase can share a database with other
   applications. Startup refuses a `_slonbase` schema it didn't create.
-- User collections (phase 1) will be **real typed tables** in their own schema: `jsonb`,
+- User collections are **real typed tables** in their own schema: `jsonb`,
   `timestamptz`, `boolean`, numeric types, with GIN indexes for JSON. PostgreSQL's transactional
   DDL means a failed schema change rolls back completely.
 - Record ids keep PocketBase's 15-character `[a-z0-9]` format. Unlike pgbase (which sorts and
@@ -172,11 +173,10 @@ request a guest request, as in PocketBase.
 **Differences from PocketBase so far:**
 - Field names can't start with `_` (reserved for internal columns).
 - `autogeneratePattern` supports only the `[charset]{n}` form.
-- Request bodies must be JSON.
-- Not yet supported:
-  - relation paths in filters (`author.name`), `expand` and `@collection`
-  - filter functions such as `geoDistance`/`strftime`
-  - auth and view collections, file fields
+- Filters support `geoDistance()` but not yet `strftime()`.
+
+Relation paths, `expand`, `@collection`, auth and view collections, file fields and multipart
+bodies, all missing in this phase, came in later phases (below).
 
 ### Phase 2: auth
 
@@ -228,11 +228,9 @@ don't reveal which emails exist.
 password is never returned by the API, and an empty password in an update keeps the stored one.
 Mail goes through `lettre` with rustls (no OpenSSL), or to the log when SMTP is disabled.
 
-**Not yet:**
-- auth alerts (emails about sign-ins from new devices)
-- rate limiting of sign-in attempts (bcrypt's cost limits guessing for now)
-- built-in confirmation pages: the email links point to PocketBase's admin UI routes
-  (`/_/#/auth/...`), which will work once the dashboard is embedded
+Auth alerts, rate limits on sign-in attempts (on by default for new installations since
+0.4.2) and the confirmation pages behind the email links (`/_/#/auth/...`, served by the
+dashboard) came later.
 
 ### Phase 3: OAuth2, OTP and MFA
 
@@ -462,8 +460,8 @@ include reading server files and running programs. When enabled (`--sql-console`
 run in read-only transactions, and every query has a 3 minute statement timeout and returns at
 most 1,000 rows.
 
-**Not yet:** logs and backups (next), the Geo Point field and view collections, the Apple client
-secret generator, and rebranding the UI.
+**Not yet:** the Apple client secret generator. (Logs, backups, the Geo Point field, view
+collections and slonbase's own dashboard came later.)
 
 ### Phase 4b: logs
 
@@ -488,7 +486,8 @@ never writes them on the request path:
 - `remoteIP` is the connection's address; `userIP` comes from the first `trustedProxy` header
   with an address (rightmost of a list, or leftmost with `useLeftmostIP`).
 
-**Not yet:** `maxDataSize` (request bodies aren't logged, so entries stay small anyway).
+**Not yet:** `maxDataSize` is accepted but unused (request bodies aren't logged, so entries stay
+small anyway).
 
 ### Phase 4c: rate limits and superuser IPs
 
@@ -543,7 +542,8 @@ exports what it owns itself:
 - Downloads need a superuser file token (and an allowed IP); uploads are streamed to disk, have no
   size limit, and must contain a valid manifest.
 
-**Not yet:** restoring PocketBase (SQLite) backups, and encryption at rest.
+**Not yet:** encryption at rest. (PocketBase backups aren't restored as backups, but
+`slonbase import-pocketbase` takes a PocketBase backup zip.)
 
 ### Phase 4e: batch requests
 
@@ -764,9 +764,10 @@ the file.
   that version has no tag, `release.yml` tags the commit and publishes a GitHub release
   (packages, tarballs, `SHA256SUMS`), `ghcr.io/ayeshrodz/slonbase` and the apt and dnf
   repositories. Pushing a `v*` tag by hand works too; it must match the `Cargo.toml` version.
-- **Next**: a signed apt repository (`aptly`/`reprepro`, hosted on GitHub Pages or object
-  storage) so users get updates with `apt upgrade`. This needs a GPG signing key stored as a
-  repository secret.
+- **apt and dnf repositories**, signed with the key in the `REPO_GPG_PRIVATE_KEY` secret and
+  hosted on GitHub Pages (`scripts/build-repo.sh`: `apt-ftparchive`, `createrepo_c`,
+  `rpmsign`). Each release rebuilds them, so users get updates with `apt upgrade` or
+  `dnf upgrade`.
 
 ## Testing
 
