@@ -7,6 +7,20 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-10-26
+
+New installations start with rate limits on, and dependencies with security advisories are
+updated. Upgrading is recommended.
+
+### Security
+
+- Updated dependencies with RustSec advisories: `rustls` 0.23.46 (four advisories, among them
+  a ServerHello downgrade and a decompression bomb), `rustls-webpki` 0.103.16 and
+  `webpki-roots`/`webpki-root-certs` 1.0.11 (distrusted certificate authorities), `ctutils`
+  0.4.6 (non-constant-time comparisons) and `tokio` 1.54.1 (unsound `AsyncFd` constructors).
+- CI runs `cargo audit`, and a release waits for it, so a dependency with a known advisory
+  can't be released.
+
 ### Changed
 
 - **New installations start with rate limits on**, with the default rules (`*:auth` 2 requests
@@ -275,7 +289,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ayeshrodz/slonbase/compare/v0.2.1...v0.3.0
