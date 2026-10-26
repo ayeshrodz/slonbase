@@ -7,6 +7,14 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-26
+
+**Realtime for every change, and many instances behind any load balancer.** Realtime events now
+come from the database itself, so changes made outside the records API (SQL, auth flows, other
+programs) reach subscribers. Several instances can sit behind a plain round-robin load
+balancer: realtime subscriptions find the client's instance, and rate limits are shared.
+Also `@request.auth` relation paths, Prometheus metrics, and an upgrade test in CI.
+
 ### Added
 
 - **Realtime for every change**, not only the records API's: auth flows (verifying an email,
@@ -15,23 +23,36 @@ changes, and they'll be listed here.
   table writes the event in the change's transaction (rolled-back changes still send nothing);
   existing tables get it when the upgrade runs. `SET slonbase.realtime = off` skips events in a
   session, for bulk loads.
-- CI tests upgrades in place from 0.1.0 and from the previous release.
 - **Several instances behind any load balancer:** realtime no longer needs client affinity
   (a subscribe request reaching another instance than the client's stream is forwarded to it
   through PostgreSQL), and rate limits count the requests of all instances (in an unlogged
   table, only while more than one instance is live).
-- **Prometheus metrics** at `/metrics` on their own address (`--metrics-bind`, off by default):
-  requests and durations by route pattern, database pool use, realtime clients and events,
-  instances. See [monitoring](https://github.com/ayeshrodz/slonbase/blob/main/docs/deployment.md#monitoring).
 - **`@request.auth` relation paths** in rules and filters, as in PocketBase:
   `@request.auth.team.owner = @request.auth.id`, `@request.auth.groups.name ?= 'editors'`,
   `@request.auth.team.settings.open = true`. Checked against PocketBase.
+- **Prometheus metrics** at `/metrics` on their own address (`--metrics-bind`, off by default):
+  requests and durations by route pattern, database pool use, realtime clients and events,
+  instances. See [monitoring](https://github.com/ayeshrodz/slonbase/blob/v0.6.0/docs/deployment.md#monitoring).
+- CI tests upgrades in place from 0.1.0 and from the previous release.
 
 ### Fixed
 
 - Email fields accept what PocketBase accepts: underscores inside domain labels
   (`a@my_host.example`) and a trailing dot; they now reject labels that start or end with `-`,
   empty labels (`x..com`) and IP addresses, as PocketBase does.
+
+### Upgrading
+
+- Two system migrations run on the first start: a realtime trigger on every collection table
+  (each table is locked for a moment while it's added) and the tables for instances, forwarded
+  subscriptions and shared rate limits. Back up first, as for every upgrade.
+- Subscribers may get events they didn't before: for changes made with SQL or by other
+  programs, and for auth flows such as email verification. Bulk SQL writes now produce one event
+  per row; use `SET slonbase.realtime = off` in that session to skip them.
+- With several instances, rate limits now apply across them, so a client gets the configured
+  limit once, not once per instance. Raise the limits if you sized them for that.
+- Records with an email that PocketBase rejects (such as `a@-x.com`) fail validation the next
+  time they're saved.
 
 ## [0.5.0] - 2026-10-26
 
@@ -368,7 +389,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...v0.4.1
