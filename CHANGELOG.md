@@ -7,6 +7,14 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-26
+
+**Every PocketBase hook:** slonbase now has every hook PocketBase's JavaScript declares, from
+the realtime and file hooks to `onModel*` and the execute and after-error hooks, plus the
+`$dbx` query builder. The compatibility suite runs the same hooks and queries in PocketBase
+and slonbase and checks they behave alike (48 tests). The few intended differences are listed
+in [the migration guide](https://github.com/ayeshrodz/slonbase/blob/v0.5.0/docs/migrating-from-pocketbase.md).
+
 ### Added
 
 - **Realtime, file, settings, backup and terminate hooks**, in JavaScript and Rust:
@@ -14,7 +22,7 @@ changes, and they'll be listed here.
   `onFileDownloadRequest`, `onFileTokenRequest`, `onSettingsListRequest`,
   `onSettingsUpdateRequest`, `onSettingsReload`, `onBackupCreate`, `onBackupRestore` and
   `onTerminate`, with PocketBase's event properties. The compatibility suite runs the same
-  handlers in PocketBase and slonbase. See the [differences](docs/migrating-from-pocketbase.md)
+  handlers in PocketBase and slonbase. See the [differences](https://github.com/ayeshrodz/slonbase/blob/v0.5.0/docs/migrating-from-pocketbase.md)
   for the two that behave differently.
 - **Collection request and batch hooks:** `onCollectionsListRequest`, `onCollectionViewRequest`,
   `onCollectionCreateRequest`, `onCollectionUpdateRequest`, `onCollectionDeleteRequest`,
@@ -34,9 +42,15 @@ changes, and they'll be listed here.
   `where`, joins, `groupBy`, `union`, `insert`, `upsert`, `update`, `delete`, the schema
   methods), `$dbx` its expressions, and `$app.recordQuery(collection)` reads records with it.
   The compatibility suite runs the same queries on PocketBase and slonbase.
-- `$app.db().newQuery()` quotes `{{table}}` and `[[column]]` names, as PocketBase does.
 - `$app.createBackup(name)` and `$app.restoreBackup(name)`.
 - Realtime connections can have an idle and a maximum timeout, set by a connect hook.
+
+### Changed
+
+- `$app.db().newQuery()` runs with the search path `slonbase, public`, so unqualified names
+  find collections first, then tables in `public`. A query naming a `public` table that
+  shares its name with a collection now reads the collection; qualify it (`public.name`).
+- `{{name}}` and `[[name]]` in `newQuery()` SQL are quoted as names, as in PocketBase.
 
 ### Fixed
 
@@ -328,7 +342,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/ayeshrodz/slonbase/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/ayeshrodz/slonbase/compare/v0.3.0...v0.4.0
