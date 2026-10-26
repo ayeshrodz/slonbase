@@ -848,6 +848,14 @@ the file.
   types, relations, an auth collection, files, an OAuth2 link, two views), snapshots it through
   its API, imports its backup zip into a fresh slonbase and checks the snapshot through
   slonbase's API, including sign-ins with the old passwords.
+- Upgrades (`compat/upgrade/run.sh <version|previous>`): downloads a release (checksum-verified),
+  sets it up and seeds it through the SDK with what every release has (every field type, an
+  auth collection with files, a view, relations, settings), snapshots its API, then starts this
+  build on the same database, storage and config. The checks: everything in the snapshot comes
+  back unchanged (newer keys are allowed), files byte for byte, old tokens and passwords work,
+  writes, rules, the unique index, expands, the view, cascades, realtime and backups work, and
+  nothing is logged as an error once it's up. CI runs it from 0.1.0 (every system migration)
+  and from the newest older release.
 - Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase and PocketBase,
   with the server and the load generator on separate CPUs; results and how to read them are in
   [bench/README.md](../bench/README.md).

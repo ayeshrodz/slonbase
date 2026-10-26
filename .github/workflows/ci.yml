@@ -182,8 +182,47 @@ jobs:
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/import/run.sh
 
+  # a released slonbase with data, upgraded to this build in place
+  upgrade:
+    name: upgrade from ${{ matrix.from }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest release crosses every migration; "previous" is the newest older release
+        from: ["0.1.0", previous]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: compat/package-lock.json
+      - run: npm ci
+        working-directory: compat
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - run: compat/upgrade/run.sh ${{ matrix.from }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+
   package:
-    needs: [lint, audit, test, compat, import]
+    needs: [lint, audit, test, compat, import, upgrade]
     uses: ./.github/workflows/package.yml
     with:
       version: ""

@@ -192,7 +192,10 @@ Back up first (a slonbase backup, a database dump, or both; see
 
 A new version applies its system migrations on start, in one transaction under an advisory lock,
 so several instances starting at once apply them once, and a failed migration changes nothing.
-Downgrading after a migration isn't supported: restore the backup instead.
+Downgrading after a migration isn't supported: restore the backup instead. Every change is tested
+for upgrades in place from the first release (0.1.0) and from the previous one: CI seeds the
+old release with data, starts the new build on it, and checks the data, files, settings, old
+passwords and tokens, rules, realtime and backups (`compat/upgrade/run.sh`).
 
 ## Uninstalling
 
