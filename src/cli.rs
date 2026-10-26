@@ -34,6 +34,11 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_BIND")]
     bind: Option<String>,
 
+    /// Address serving Prometheus metrics at /metrics, e.g. 127.0.0.1:9090 (off by default;
+    /// not authenticated, so keep it private).
+    #[arg(long, global = true, env = "SLONBASE_METRICS_BIND")]
+    metrics_bind: Option<String>,
+
     /// PostgreSQL connection URL.
     #[arg(
         long,
@@ -253,6 +258,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
 
     let overrides = Overrides {
         bind: cli.bind,
+        metrics_bind: cli.metrics_bind,
         database_url: cli.database_url,
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
@@ -724,8 +730,22 @@ async fn serve(
     #[cfg(feature = "js")]
     crate::js::load(&loaded.effective.hooks, &mut extensions).await?;
     let bind = loaded.effective.server.bind.clone();
+    let metrics_bind = loaded.effective.server.metrics_bind.clone();
     let hooks = loaded.effective.hooks.clone();
     let app = App::with_extensions(loaded, setup_token, extensions)?;
+    std::sync::LazyLock::force(&crate::metrics::STARTED);
+    if let Some(metrics_bind) = metrics_bind {
+        let listener = tokio::net::TcpListener::bind(&metrics_bind)
+            .await
+            .with_context(|| format!("failed to listen on {metrics_bind} (metrics)"))?;
+        tracing::info!(address = %metrics_bind, "serving metrics at /metrics");
+        let router = crate::metrics::router(app.clone());
+        tokio::spawn(async move {
+            if let Err(err) = axum::serve(listener, router).await {
+                tracing::error!(error = %err, "the metrics server stopped");
+            }
+        });
+    }
 
     let listener = tokio::net::TcpListener::bind(&bind)
         .await

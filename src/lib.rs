@@ -43,6 +43,7 @@ pub mod ip;
 pub mod js;
 pub mod logs;
 pub mod mail;
+pub mod metrics;
 pub mod migrations;
 pub mod oauth2;
 pub mod projects;

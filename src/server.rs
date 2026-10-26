@@ -232,6 +232,11 @@ fn app_router(app: Arc<App>) -> Router {
             logs::middleware,
         ))
         .layer(TraceLayer::new_for_http())
+        // outermost: everything is counted, rejections included
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::metrics::middleware,
+        ))
         .with_state(app)
 }
 

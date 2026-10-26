@@ -20,6 +20,9 @@ changes, and they'll be listed here.
   (a subscribe request reaching another instance than the client's stream is forwarded to it
   through PostgreSQL), and rate limits count the requests of all instances (in an unlogged
   table, only while more than one instance is live).
+- **Prometheus metrics** at `/metrics` on their own address (`--metrics-bind`, off by default):
+  requests and durations by route pattern, database pool use, realtime clients and events,
+  instances. See [monitoring](https://github.com/ayeshrodz/slonbase/blob/main/docs/deployment.md#monitoring).
 - **`@request.auth` relation paths** in rules and filters, as in PocketBase:
   `@request.auth.team.owner = @request.auth.id`, `@request.auth.groups.name ?= 'editors'`,
   `@request.auth.team.settings.open = true`. Checked against PocketBase.

@@ -123,6 +123,10 @@ pub struct ServerConfig {
     /// Enables the dashboard's SQL console, which runs any SQL a superuser enters with the
     /// database role's privileges (off by default, see the README).
     pub sql_console: bool,
+    /// Address serving Prometheus metrics at `/metrics` (none by default). Keep it private:
+    /// it isn't authenticated.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metrics_bind: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -130,6 +134,7 @@ impl Default for ServerConfig {
         Self {
             bind: DEFAULT_BIND.to_string(),
             sql_console: false,
+            metrics_bind: None,
         }
     }
 }
@@ -169,6 +174,7 @@ impl Default for DatabaseConfig {
 #[derive(Debug, Clone, Default)]
 pub struct Overrides {
     pub bind: Option<String>,
+    pub metrics_bind: Option<String>,
     pub database_url: Option<String>,
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
@@ -212,6 +218,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     let database_url_locked = overrides.database_url.is_some();
     if let Some(bind) = overrides.bind {
         effective.server.bind = bind;
+    }
+    if let Some(bind) = overrides.metrics_bind {
+        effective.server.metrics_bind = Some(bind);
     }
     if let Some(url) = overrides.database_url {
         effective.database.url = Some(url);

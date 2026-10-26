@@ -1107,6 +1107,9 @@ async fn deliver_event(core: &Arc<Core>, id: i64, seen: &mut Seen) -> anyhow::Re
     let action: String = row.get(1);
     let record: Value = row.get(2);
     if let (Some(action), Value::Object(record)) = (Action::parse(&action), record) {
+        crate::metrics::METRICS
+            .realtime_events
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if core.realtime.client_count() > 0 {
             dispatch(core, &collection_id, action, record).await;
         }

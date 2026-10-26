@@ -18,6 +18,7 @@ file, and then the defaults.
 |---|---|---|---|
 | `--config` | `SLONBASE_CONFIG` | | `slonbase.toml` |
 | `--bind` | `SLONBASE_BIND` | `server.bind` | `127.0.0.1:8090` |
+| `--metrics-bind` | `SLONBASE_METRICS_BIND` | `server.metrics_bind` | none (no metrics) |
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
@@ -43,6 +44,7 @@ A config file with every option:
 [server]
 bind = "127.0.0.1:8090"
 sql_console = false
+# metrics_bind = "127.0.0.1:9090"   # Prometheus metrics at /metrics (not authenticated)
 
 [database]
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"

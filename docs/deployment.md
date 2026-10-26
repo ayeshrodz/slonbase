@@ -155,6 +155,24 @@ the settings on every instance, and signs everyone out, since the signing key is
 - Errors and warnings go to stderr (the journal or `docker logs`), and are also stored in the
   request logs (dashboard → Logs, level ≥ 4).
 - `GET /api/logs/stats` gives requests per hour.
+- **Prometheus metrics** at `/metrics` on a separate address, with `--metrics-bind
+  127.0.0.1:9090` (or `SLONBASE_METRICS_BIND`). The endpoint isn't authenticated, so bind it to a
+  private interface. It has:
+  - `slonbase_http_requests_total{project,method,route,status}` and
+    `slonbase_http_request_duration_seconds` (a histogram), by route pattern
+    (`/api/collections/{collection}/records`), so the series stay few;
+  - `slonbase_db_connections{state="idle|in_use|max"}` and `slonbase_db_waiting` (requests
+    waiting for a pooled connection: a sign the pool is too small);
+  - `slonbase_realtime_clients`, `slonbase_realtime_events_total`, `slonbase_instances`;
+  - `slonbase_info{version}` and `process_start_time_seconds`.
+
+  ```yaml
+  # prometheus.yml
+  scrape_configs:
+    - job_name: slonbase
+      static_configs:
+        - targets: ["10.0.0.11:9090", "10.0.0.12:9090"]
+  ```
 
 ## Security checklist
 
