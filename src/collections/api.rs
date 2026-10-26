@@ -379,6 +379,88 @@ async fn before_hook(
     Ok(changed)
 }
 
+/// Runs a collection execute hook (`on_collection_create_execute`, ...) around `apply`, the
+/// schema change: handlers' `next` applies it. A handler that doesn't call `next` cancels it.
+async fn execute_hook<T, F, Fut>(
+    core: &Arc<Core>,
+    hook: &crate::hooks::Hook<crate::hooks::CollectionEvent>,
+    c: &Collection,
+    apply: F,
+) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Fut + Send + 'static,
+    Fut: Future<Output = Result<T, ApiError>> + Send + 'static,
+{
+    if !hook.has_handlers(Some(c)) {
+        return apply().await;
+    }
+    let collection = match serde_json::to_value(c).expect("serializes") {
+        Value::Object(map) => map,
+        _ => unreachable!(),
+    };
+    let e = crate::hooks::CollectionEvent {
+        core: core.clone(),
+        collection,
+    };
+    let outcome = Arc::new(std::sync::Mutex::new(None));
+    let slot = outcome.clone();
+    let hooked = hook
+        .trigger(Some(c), e, move |e| async move {
+            let result = apply().await;
+            let failed = result.as_ref().err().cloned();
+            *slot.lock().expect("outcome lock") = Some(result);
+            match failed {
+                Some(err) => Err(err),
+                None => Ok(e),
+            }
+        })
+        .await;
+    match outcome.lock().expect("outcome lock").take() {
+        // a failed change fails, whatever the handlers did with the error
+        Some(Err(err)) => Err(err),
+        Some(Ok(value)) => hooked.map(|_| value),
+        None => {
+            hooked?;
+            Err(ApiError::bad_request("The change was cancelled by a hook."))
+        }
+    }
+}
+
+/// Reports a failed collection change to its after-error hook, in the background (not when
+/// the collection isn't there).
+fn after_error(
+    core: &Arc<Core>,
+    pick: fn(&crate::hooks::Hooks) -> &crate::hooks::Hook<crate::hooks::CollectionErrorEvent>,
+    c: Option<&Collection>,
+    err: &ApiError,
+) {
+    let Some(c) = c else {
+        return;
+    };
+    if err.status == StatusCode::NOT_FOUND || !pick(&core.hooks).has_handlers(Some(c)) {
+        return;
+    }
+    let (core, c, error) = (core.clone(), c.clone(), err.clone());
+    tokio::spawn(async move {
+        let collection = match to_json(&c) {
+            Value::Object(map) => map,
+            _ => Map::new(),
+        };
+        let e = crate::hooks::CollectionErrorEvent {
+            core: core.clone(),
+            collection,
+            error,
+        };
+        if let Err(err) = pick(&core.hooks)
+            .trigger(Some(&c), e, |e| async { Ok(e) })
+            .await
+        {
+            tracing::error!(collection = %c.name, error = %err.message, "a collection hook failed");
+        }
+    });
+}
+
 /// Runs a collection hook after a change, in the background.
 fn after_hook(
     core: &Arc<Core>,
@@ -443,8 +525,22 @@ async fn create_collection(
     core: &Arc<Core>,
     body: Map<String, Value>,
 ) -> Result<Arc<Collection>, ApiError> {
-    let failed = "Failed to create collection.";
     let c = parse(body)?;
+    let attempted = c.clone();
+    let result = create_checked(core, c).await;
+    if let Err(err) = &result {
+        after_error(
+            core,
+            |h| &h.on_collection_after_create_error,
+            Some(&attempted),
+            err,
+        );
+    }
+    result
+}
+
+async fn create_checked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection>, ApiError> {
+    let failed = "Failed to create collection.";
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(core).await?;
 
@@ -454,9 +550,16 @@ async fn create_collection(
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
-    let registry = store::apply(&core.pool, Change::Create(&c))
-        .await
-        .map_err(|e| write_error(e, failed))?;
+    // changes are ignored: the collection is validated
+    before_hook(core, &core.hooks.on_collection_validate, c.clone()).await?;
+    let hook = &core.hooks.on_collection_create_execute;
+    let (pool, new) = (core.pool.clone(), c.clone());
+    let registry = execute_hook(core, hook, &c, move || async move {
+        store::apply(&pool, Change::Create(&new))
+            .await
+            .map_err(|e| write_error(e, failed))
+    })
+    .await?;
     let saved = registry.by_id(&c.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
@@ -515,6 +618,26 @@ async fn update_collection(
     id: &str,
     definition: Map<String, Value>,
 ) -> Result<Arc<Collection>, ApiError> {
+    let mut attempted = core.registry().by_id(id).map(|c| c.as_ref().clone());
+    let result = update_checked(core, id, definition, &mut attempted).await;
+    if let Err(err) = &result {
+        after_error(
+            core,
+            |h| &h.on_collection_after_update_error,
+            attempted.as_ref(),
+            err,
+        );
+    }
+    result
+}
+
+/// [`update_collection`]; `attempted` becomes the collection as it would be saved.
+async fn update_checked(
+    core: &Arc<Core>,
+    id: &str,
+    definition: Map<String, Value>,
+    attempted: &mut Option<Collection>,
+) -> Result<Arc<Collection>, ApiError> {
     let failed = "Failed to update collection.";
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(core).await?;
@@ -528,22 +651,28 @@ async fn update_collection(
     // the identity stays
     merged.insert("id".into(), Value::String(old.id.clone()));
     let new = parse(merged)?;
+    *attempted = Some(new.clone());
     let mut new = before_hook(core, &core.hooks.on_collection_update, new).await?;
+    *attempted = Some(new.clone());
 
     infer_view(core, &mut new, Some(&old), "", failed).await?;
     let errors = validate::prepare(&mut new, Some(&old), &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
-    let registry = store::apply(
-        &core.pool,
-        Change::Update {
-            old: &old,
-            new: &new,
-        },
-    )
-    .await
-    .map_err(|e| write_error(e, failed))?;
+    before_hook(core, &core.hooks.on_collection_validate, new.clone()).await?;
+    let hook = &core.hooks.on_collection_update_execute;
+    let (pool, stored, changed) = (core.pool.clone(), old.clone(), new.clone());
+    let registry = execute_hook(core, hook, &new, move || async move {
+        let change = Change::Update {
+            old: &stored,
+            new: &changed,
+        };
+        store::apply(&pool, change)
+            .await
+            .map_err(|e| write_error(e, failed))
+    })
+    .await?;
     let saved = registry.by_id(&new.id).cloned().ok_or_else(not_found)?;
     core.set_registry(registry);
     tracing::info!(collection = %saved.name, "updated collection");
@@ -599,6 +728,20 @@ pub async fn delete(
 /// Deletes a collection with its records and files (not system collections, nor ones
 /// other collections refer to).
 pub(crate) async fn delete_collection(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiError> {
+    let result = delete_checked(core, id_or_name).await;
+    if let Err(err) = &result {
+        let stored = core.registry().get(id_or_name).cloned();
+        after_error(
+            core,
+            |h| &h.on_collection_after_delete_error,
+            stored.as_deref(),
+            err,
+        );
+    }
+    result
+}
+
+async fn delete_checked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiError> {
     let failed = "Failed to delete collection.";
     let _guard = core.schema_lock.lock().await;
     let registry = fresh_registry(core).await?;
@@ -623,9 +766,14 @@ pub(crate) async fn delete_collection(core: &Arc<Core>, id_or_name: &str) -> Res
 
     // changes are ignored: the collection is deleted
     before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
-    let registry = store::apply(&core.pool, Change::Delete(&c))
-        .await
-        .map_err(|e| write_error(e, failed))?;
+    let hook = &core.hooks.on_collection_delete_execute;
+    let (pool, deleted) = (core.pool.clone(), c.clone());
+    let registry = execute_hook(core, hook, &c, move || async move {
+        store::apply(&pool, Change::Delete(&deleted))
+            .await
+            .map_err(|e| write_error(e, failed))
+    })
+    .await?;
     core.set_registry(registry);
     after_hook(core, |h| &h.on_collection_after_delete_success, &c);
     if let Err(err) = core.storage().delete_prefix(&c.id).await {

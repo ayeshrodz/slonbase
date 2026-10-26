@@ -428,3 +428,129 @@ async fn rust_data_hooks() {
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
     assert_eq!(res["message"], "Not this batch.");
 }
+
+#[tokio::test]
+async fn rust_execute_and_error_hooks() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let log = Arc::new(Mutex::new(Vec::new()));
+    let mut ext = slonbase::Extensions::default();
+    ext.hooks
+        .on_record_create_execute
+        .add(&["items"], |e, next| async move {
+            let title = e.record["title"].as_str().unwrap_or_default().to_string();
+            if title == "skip" {
+                return Ok(e);
+            }
+            let e = next.run(e).await?;
+            if title == "rollback" {
+                return Err(ApiError::bad_request("After the write."));
+            }
+            Ok(e)
+        });
+    {
+        let log = log.clone();
+        ext.hooks
+            .on_record_create_execute
+            .add(&["items"], move |e, next| {
+                let log = log.clone();
+                async move {
+                    let e = next.run(e).await?;
+                    // after the write: the record as written
+                    let id = e.record["id"].as_str().unwrap_or_default();
+                    log.lock().unwrap().push(format!("written {}", id.len()));
+                    Ok(e)
+                }
+            });
+    }
+    {
+        let log = log.clone();
+        ext.hooks
+            .on_record_after_create_error
+            .add(&["items"], move |e, next| {
+                let log = log.clone();
+                async move {
+                    log.lock().unwrap().push(format!(
+                        "create-error {} {}",
+                        e.record["title"].as_str().unwrap_or_default(),
+                        e.error.status.as_u16()
+                    ));
+                    next.run(e).await
+                }
+            });
+    }
+    let (app, token, _dir) = ready_app_with(&tdb, ext).await;
+    let admin = Some(token.as_str());
+    let (status, res) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "items", "listRule": "", "createRule": "",
+            "fields": [{ "name": "title", "type": "text", "max": 10 }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let create = |title: &str| {
+        let body = json!({ "title": title });
+        let app = app.clone();
+        async move {
+            call(
+                &app,
+                None,
+                "POST",
+                "/api/collections/items/records",
+                Some(body),
+            )
+            .await
+        }
+    };
+
+    let (status, _) = create("fine").await;
+    assert_eq!(status, StatusCode::OK);
+    wait_for(&log, "written 15").await;
+
+    // an error after the write rolls it back
+    let (status, res) = create("rollback").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(res["message"], "After the write.");
+    wait_for(&log, "create-error rollback 400").await;
+
+    // a handler that doesn't call next cancels the write
+    let (status, res) = create("skip").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(res["message"], "The write was cancelled by a hook.");
+
+    let (_, list) = call(&app, None, "GET", "/api/collections/items/records", None).await;
+    let titles: Vec<&Value> = list["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| &r["title"])
+        .collect();
+    assert_eq!(titles, [&json!("fine")]);
+
+    // a batch that fails: its earlier create is undone and reported too
+    let (status, res) = call(
+        &app,
+        admin,
+        "PATCH",
+        "/api/settings",
+        Some(json!({
+            "batch": { "enabled": true, "maxRequests": 10, "timeout": 3 },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let requests = json!({ "requests": [
+        { "method": "POST", "url": "/api/collections/items/records", "body": { "title": "first" } },
+        { "method": "POST", "url": "/api/collections/items/records", "body": { "title": "far too long" } },
+    ] });
+    let (status, res) = call(&app, None, "POST", "/api/batch", Some(requests)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    wait_for(&log, "create-error far too long 400").await;
+    wait_for(&log, "create-error first 400").await;
+}

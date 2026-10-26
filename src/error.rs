@@ -9,7 +9,7 @@ use serde_json::{Map, Value, json};
 use crate::superusers::FieldErrors;
 use crate::validation::Errors;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,

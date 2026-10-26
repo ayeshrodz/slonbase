@@ -34,8 +34,9 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::filter::RequestInfo;
 use crate::hooks::{
-    AuthRequestEvent, BoxFuture, CollectionEvent, DataEvent, HookResult, MailerEvent, Next,
-    RecordEnrichEvent, RecordEvent, RecordRequestEvent, RecordsListEvent, RequestEvent,
+    AuthRequestEvent, BoxFuture, CollectionErrorEvent, CollectionEvent, DataEvent, HookResult,
+    MailerEvent, Next, RecordEnrichEvent, RecordErrorEvent, RecordEvent, RecordRequestEvent,
+    RecordsListEvent, RequestEvent,
 };
 use crate::records::files::Upload;
 
@@ -505,6 +506,9 @@ fn register(
             "recordUpdate" => Some((&mut hooks.on_record_update, true)),
             "recordDelete" => Some((&mut hooks.on_record_delete, true)),
             "recordValidate" => Some((&mut hooks.on_record_validate, true)),
+            "recordCreateExecute" => Some((&mut hooks.on_record_create_execute, false)),
+            "recordUpdateExecute" => Some((&mut hooks.on_record_update_execute, true)),
+            "recordDeleteExecute" => Some((&mut hooks.on_record_delete_execute, true)),
             _ => None,
         };
         if let Some((hook, stored)) = model_hook {
@@ -523,12 +527,31 @@ fn register(
             "collectionAfterCreateSuccess" => Some(&mut hooks.on_collection_after_create_success),
             "collectionAfterUpdateSuccess" => Some(&mut hooks.on_collection_after_update_success),
             "collectionAfterDeleteSuccess" => Some(&mut hooks.on_collection_after_delete_success),
+            "collectionValidate" => Some(&mut hooks.on_collection_validate),
+            "collectionCreateExecute" => Some(&mut hooks.on_collection_create_execute),
+            "collectionUpdateExecute" => Some(&mut hooks.on_collection_update_execute),
+            "collectionDeleteExecute" => Some(&mut hooks.on_collection_delete_execute),
             _ => None,
         };
         if let Some(hook) = collection_hook {
             hook.add_boxed(
                 reg.collections,
                 Arc::new(move |e, next| Box::pin(collection_event(pool.clone(), index, e, next))),
+            );
+            continue;
+        }
+        let collection_error_hook = match reg.kind.as_str() {
+            "collectionAfterCreateError" => Some(&mut hooks.on_collection_after_create_error),
+            "collectionAfterUpdateError" => Some(&mut hooks.on_collection_after_update_error),
+            "collectionAfterDeleteError" => Some(&mut hooks.on_collection_after_delete_error),
+            _ => None,
+        };
+        if let Some(hook) = collection_error_hook {
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| {
+                    Box::pin(collection_error_event(pool.clone(), index, e, next))
+                }),
             );
             continue;
         }
@@ -626,6 +649,19 @@ fn register(
             hook.add_boxed(
                 reg.collections,
                 Arc::new(move |e, next| Box::pin(record_event(pool.clone(), index, e, next))),
+            );
+            continue;
+        }
+        let error_hook = match reg.kind.as_str() {
+            "recordAfterCreateError" => Some(&mut hooks.on_record_after_create_error),
+            "recordAfterUpdateError" => Some(&mut hooks.on_record_after_update_error),
+            "recordAfterDeleteError" => Some(&mut hooks.on_record_after_delete_error),
+            _ => None,
+        };
+        if let Some(hook) = error_hook {
+            hook.add_boxed(
+                reg.collections,
+                Arc::new(move |e, next| Box::pin(error_event(pool.clone(), index, e, next))),
             );
             continue;
         }
@@ -1366,6 +1402,64 @@ async fn record_event(
             record,
         }
     }))
+}
+
+/// An after-error hook: the record and the error (`status`, `message`, `data`).
+async fn error_event(
+    pool: Pool,
+    index: usize,
+    e: RecordErrorEvent,
+    next: Next<RecordErrorEvent>,
+) -> HookResult<RecordErrorEvent> {
+    let event = json!({
+        "collection": collection_json(&e.collection),
+        "record": record_json(&e.collection, e.record.clone()),
+        "error": { "status": e.error.status.as_u16(), "message": e.error.message, "data": e.error.data },
+    });
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |_| {
+            Box::pin(async move {
+                let e = slot.lock().expect("event lock").take().expect("event");
+                let e = next.run(e).await?;
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(json!({}))
+            })
+        })
+    };
+    pool.run(index, event, Some(next_fn)).await?;
+    // a handler that doesn't call `next` stops the chain; the event itself is done
+    let e = slot.lock().expect("event lock").take();
+    e.ok_or_else(|| ApiError::internal(anyhow::anyhow!("the after-error event was dropped")))
+}
+
+/// A collection after-error hook: the collection and the error.
+async fn collection_error_event(
+    pool: Pool,
+    index: usize,
+    e: CollectionErrorEvent,
+    next: Next<CollectionErrorEvent>,
+) -> HookResult<CollectionErrorEvent> {
+    let event = json!({
+        "collection": e.collection,
+        "error": { "status": e.error.status.as_u16(), "message": e.error.message, "data": e.error.data },
+    });
+    let slot = Arc::new(Mutex::new(Some(e)));
+    let next_fn: NextFn = {
+        let slot = slot.clone();
+        Box::new(move |_| {
+            Box::pin(async move {
+                let e = slot.lock().expect("event lock").take().expect("event");
+                let e = next.run(e).await?;
+                *slot.lock().expect("event lock") = Some(e);
+                Ok(json!({}))
+            })
+        })
+    };
+    pool.run(index, event, Some(next_fn)).await?;
+    let e = slot.lock().expect("event lock").take();
+    e.ok_or_else(|| ApiError::internal(anyhow::anyhow!("the after-error event was dropped")))
 }
 
 async fn route(pool: Pool, index: usize, app: Arc<App>, req: Request) -> Response {

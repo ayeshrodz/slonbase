@@ -19,6 +19,12 @@ changes, and they'll be listed here.
 - **Collection request and batch hooks:** `onCollectionsListRequest`, `onCollectionViewRequest`,
   `onCollectionCreateRequest`, `onCollectionUpdateRequest`, `onCollectionDeleteRequest`,
   `onCollectionsImportRequest` and `onBatchRequest`, also checked against PocketBase.
+- **Execute and after-error hooks:** `onRecordCreateExecute`, `onRecordUpdateExecute` and
+  `onRecordDeleteExecute` wrap the write itself (code after `e.next()` runs after it, in the
+  transaction); `onRecordAfterCreateError`, `onRecordAfterUpdateError` and
+  `onRecordAfterDeleteError` report failed writes, including ones a failed batch undid. The
+  collection versions (`onCollectionCreateExecute`, `onCollectionAfterCreateError`, ...),
+  `onCollectionValidate` and `onBootstrapClear` too. Checked against PocketBase.
 - **`$dbx` and the query builder:** `$app.db()` has PocketBase's dbx builder (`select`,
   `where`, joins, `groupBy`, `union`, `insert`, `upsert`, `update`, `delete`, the schema
   methods), `$dbx` its expressions, and `$app.recordQuery(collection)` reads records with it.

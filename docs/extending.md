@@ -43,8 +43,11 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onRecord{Create,Update,Delete,View}Request`, `onRecordsListRequest` | Around record API requests. A handler can change `e.record`, throw, or answer itself instead of calling `e.next()`. |
 | `onRecord{Create,Update,Delete}` | Model hooks: every write (API, batches, `$app.save`, the Rust record service), inside its transaction, before the record is written |
 | `onRecordValidate` | Every create and update, after the built-in validation passed |
+| `onRecord{Create,Update,Delete}Execute` | The write itself, after validation, inside its transaction: `e.next()` writes the record, and code after it sees it as written. Field changes before `e.next()` are written (checked like the request's; files and passwords can't change here). Throwing, before or after `e.next()`, rolls the write back; a handler that doesn't call `e.next()` cancels it, and the write fails. Cascaded deletes run them too. |
 | `onRecordAfter{Create,Update,Delete}Success` | After the change is committed, in the background |
+| `onRecordAfter{Create,Update,Delete}Error` | After a write failed, in the background: `e.record` (what a create would have written, or the stored record with an update's data), `e.error` (an `ApiError`). Validation and hook errors count, and so do writes a failed transaction undid (the other requests of a failed batch). Requests the rules refuse don't. |
 | `onCollection{Create,Update,Delete}`, `onCollectionAfter{Create,Update,Delete}Success` | Changes through the collections API, imports included |
+| `onCollectionValidate`, `onCollection{Create,Update,Delete}Execute`, `onCollectionAfter{Create,Update,Delete}Error` | Collection changes through the API (imports run only the hooks above): after validation, around the schema change (`e.next()` applies it), and after a failure (`e.error`). Changes to `e.collection` in these are ignored; make them in `onCollectionCreate`. |
 | `onRecordAuthRequest` | Every sign-in, token refresh and impersonation, before the MFA check. A handler can change `e.record` (in the response only), `e.token` and `e.meta` (`e.authMethod` says how the record signed in), or throw. |
 | `onRecordAuthWithPasswordRequest`, `onRecordAuthWithOAuth2Request`, `onRecordAuthWithOTPRequest`, `onRecordAuthRefreshRequest` | Around each sign-in. `e.record` is null when no record matched the identity, and a handler can set it, to find records its own way. Password: `e.identity`, `e.identityField`, `e.password`; OAuth2: `e.providerName`, `e.oauth2User`, `e.createData`, `e.isNewRecord`; OTP: `e.otp`. |
 | `onRecordRequestOTPRequest`, `onRecordRequest{Verification,PasswordReset,EmailChange}Request`, `onRecordConfirm{Verification,PasswordReset,EmailChange}Request` | Around the email flows. `e.password` is the one-time password about to be sent, `e.newEmail` the new address. A handler that doesn't call `e.next()` skips the action (and the email). |
@@ -63,6 +66,7 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onCollectionCreateRequest`, `onCollectionUpdateRequest` | `e.collection`, what's saved (change it, or throw); after `e.next()`, as saved |
 | `onCollectionsImportRequest` | `e.collectionsData` (the imported definitions), `e.deleteMissing` |
 | `onBatchRequest` | A batch: `e.batch` (the requests, each with `method`, `url`, `headers`, `body`). Change them, throw, or answer yourself; each request still runs its own record hooks. |
+| `onBootstrapClear` | When the server stops, with `onTerminate` |
 | `onTerminate` | When the server stops, after it stopped taking requests: `e.isRestart` (a restart after the hook files changed). Handlers get at most 5 seconds. |
 | `onBootstrap` | Once the app is ready |
 | `routerAdd(method, path, handler, ...middlewares)` | A custom route. Middlewares: `$apis.requireAuth(...collections)`, `requireSuperuserAuth()`, `requireSuperuserOrOwnerAuth(param)`, `requireGuestOnly()`. |

@@ -211,6 +211,14 @@ pub struct CollectionEvent {
     pub collection: Map<String, Value>,
 }
 
+/// A collection change that failed (validation, a hook or the database), with its error.
+pub struct CollectionErrorEvent {
+    pub core: Arc<Core>,
+    /// The collection as it would have been saved (or the stored one, for a delete).
+    pub collection: Map<String, Value>,
+    pub error: ApiError,
+}
+
 /// A record about to be sent to a client: in record responses (lists, views, creates,
 /// updates, batches and auth responses), as an expanded relation and in realtime messages.
 /// `record` is the record as the client sees it (hidden fields left out, with `expand`);
@@ -242,6 +250,17 @@ pub struct RecordEvent {
     /// All values of the record, including hidden fields (but not password hashes and
     /// token keys).
     pub record: Map<String, Value>,
+}
+
+/// A record create, update or delete that failed (its own error, or its transaction's),
+/// reported after the transaction rolled back.
+pub struct RecordErrorEvent {
+    pub core: Arc<Core>,
+    pub collection: Arc<Collection>,
+    /// The record: what a create would have written, or the stored record with an update's
+    /// data applied (without passwords and token keys).
+    pub record: Map<String, Value>,
+    pub error: ApiError,
 }
 
 /// An event of the realtime, file, settings, backup and terminate hooks: the request (when
@@ -348,10 +367,35 @@ pub struct Hooks {
     /// Runs after a record's own validation passed, before it's written (create and
     /// update); an error rejects the write.
     pub on_record_validate: Hook<RecordEvent>,
+    /// The write itself (after validation, in its transaction): `next` writes the record,
+    /// so code after it sees the written record. Field changes made before `next` are
+    /// written (checked like the request's; files and passwords can't change here); an
+    /// error, or a handler that doesn't call `next`, cancels the write.
+    pub on_record_create_execute: Hook<RecordEvent>,
+    pub on_record_update_execute: Hook<RecordEvent>,
+    pub on_record_delete_execute: Hook<RecordEvent>,
+    /// After a create, update or delete failed: a hook or validation error, a database
+    /// error, or the transaction failing (run in the background, after the rollback).
+    pub on_record_after_create_error: Hook<RecordErrorEvent>,
+    pub on_record_after_update_error: Hook<RecordErrorEvent>,
+    pub on_record_after_delete_error: Hook<RecordErrorEvent>,
     /// Collection changes through the API, before they're applied; an error cancels them.
     pub on_collection_create: Hook<CollectionEvent>,
     pub on_collection_update: Hook<CollectionEvent>,
     pub on_collection_delete: Hook<CollectionEvent>,
+    /// After a collection's own validation passed (API changes, before the execute hooks);
+    /// an error rejects the change. Changes to the collection are ignored.
+    pub on_collection_validate: Hook<CollectionEvent>,
+    /// The schema change itself, after validation: `next` applies it. Changes to the
+    /// collection are ignored here (make them in `on_collection_create`, ...); an error, or a
+    /// handler that doesn't call `next`, cancels the change. Imports don't run these.
+    pub on_collection_create_execute: Hook<CollectionEvent>,
+    pub on_collection_update_execute: Hook<CollectionEvent>,
+    pub on_collection_delete_execute: Hook<CollectionEvent>,
+    /// After a collection change through the API or a hook failed (run in the background).
+    pub on_collection_after_create_error: Hook<CollectionErrorEvent>,
+    pub on_collection_after_update_error: Hook<CollectionErrorEvent>,
+    pub on_collection_after_delete_error: Hook<CollectionErrorEvent>,
     /// After a collection change was applied (run in the background).
     pub on_collection_after_create_success: Hook<CollectionEvent>,
     pub on_collection_after_update_success: Hook<CollectionEvent>,
@@ -500,6 +544,65 @@ impl Hooks {
                 }
             }
         });
+    }
+
+    /// Fires the after-error hooks of failed changes, in the background. Updates and deletes
+    /// report the stored record, with an update's data applied.
+    pub(crate) fn failed(core: &Arc<Core>, failures: Vec<(Change, ApiError)>) {
+        let hooks = core.hooks.clone();
+        let failures: Vec<_> = failures
+            .into_iter()
+            .filter(|(change, _)| {
+                hooks
+                    .error_hook(change.action)
+                    .has_handlers(Some(&change.collection))
+            })
+            .collect();
+        if failures.is_empty() {
+            return;
+        }
+        let core = core.clone();
+        tokio::spawn(async move {
+            for (change, error) in failures {
+                let c = change.collection.clone();
+                let mut record = Map::new();
+                if change.action != crate::realtime::Action::Create {
+                    let id = change.values.get("id").and_then(Value::as_str);
+                    if let Some(id) = id {
+                        if let Ok(Some(stored)) = core.find_record_by_id(&c.name, id).await {
+                            record = stored;
+                        }
+                    }
+                }
+                record.extend(change.values);
+                for field in c.fields.iter().filter(|f| f.is_secret()) {
+                    record.remove(&field.name);
+                }
+                let e = RecordErrorEvent {
+                    core: core.clone(),
+                    collection: c.clone(),
+                    record,
+                    error,
+                };
+                let hook = hooks.error_hook(change.action);
+                if let Err(err) = hook.trigger(Some(&c), e, |e| async { Ok(e) }).await {
+                    tracing::error!(
+                        collection = %c.name,
+                        error = %err.details.as_deref().unwrap_or(&err.message),
+                        "an after-error record hook failed"
+                    );
+                }
+            }
+        });
+    }
+
+    fn error_hook(&self, action: crate::realtime::Action) -> &Hook<RecordErrorEvent> {
+        use crate::realtime::Action;
+        match action {
+            Action::Create => &self.on_record_after_create_error,
+            Action::Update => &self.on_record_after_update_error,
+            Action::Delete => &self.on_record_after_delete_error,
+        }
     }
 
     fn after_hook(&self, action: crate::realtime::Action) -> &Hook<RecordEvent> {

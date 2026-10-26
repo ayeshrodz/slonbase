@@ -1140,6 +1140,13 @@
     return e;
   }
 
+  // after-error hooks: e.error is an ApiError (BadRequestError, ...)
+  function recordErrorEvent(raw) {
+    const e = recordEvent(raw);
+    e.error = toError(raw.error);
+    return e;
+  }
+
   // model hooks: e.record is written once the handlers return
   function recordModelEvent(raw) {
     const e = { app: $app, collection: raw.collection, record: new Record(raw.collection, raw.record) };
@@ -1319,6 +1326,15 @@
     recordRequest: recordRequestEvent,
     recordsList: listRequestEvent,
     record: recordEvent,
+    recordError: recordErrorEvent,
+    collectionError: (raw) => {
+      const e = { app: $app, collection: new Collection(raw.collection), error: toError(raw.error) };
+      e.next = () => {
+        callNext({});
+      };
+      e._state = () => ({});
+      return e;
+    },
     recordModel: recordModelEvent,
     collection: collectionEvent,
     mailer: mailerEvent,
@@ -1359,6 +1375,9 @@
     onRecordCreate: "recordCreate",
     onRecordUpdate: "recordUpdate",
     onRecordDelete: "recordDelete",
+    onRecordCreateExecute: "recordCreateExecute",
+    onRecordUpdateExecute: "recordUpdateExecute",
+    onRecordDeleteExecute: "recordDeleteExecute",
   };
   for (const name of Object.keys(modelHooks)) {
     g[name] = (fn, ...c) => register(modelHooks[name], "recordModel", fn, { collections: collections(c) });
@@ -1371,6 +1390,10 @@
     onCollectionAfterCreateSuccess: "collectionAfterCreateSuccess",
     onCollectionAfterUpdateSuccess: "collectionAfterUpdateSuccess",
     onCollectionAfterDeleteSuccess: "collectionAfterDeleteSuccess",
+    onCollectionValidate: "collectionValidate",
+    onCollectionCreateExecute: "collectionCreateExecute",
+    onCollectionUpdateExecute: "collectionUpdateExecute",
+    onCollectionDeleteExecute: "collectionDeleteExecute",
   };
   for (const name of Object.keys(collectionHooks)) {
     g[name] = (fn, ...c) => register(collectionHooks[name], "collection", fn, { collections: collections(c) });
@@ -1393,6 +1416,22 @@
   };
   for (const name of Object.keys(afterHooks)) {
     g[name] = (fn, ...c) => register(afterHooks[name], "record", fn, { collections: collections(c) });
+  }
+  const errorHooks = {
+    onRecordAfterCreateError: "recordAfterCreateError",
+    onRecordAfterUpdateError: "recordAfterUpdateError",
+    onRecordAfterDeleteError: "recordAfterDeleteError",
+  };
+  const collectionErrorHooks = {
+    onCollectionAfterCreateError: "collectionAfterCreateError",
+    onCollectionAfterUpdateError: "collectionAfterUpdateError",
+    onCollectionAfterDeleteError: "collectionAfterDeleteError",
+  };
+  for (const name of Object.keys(collectionErrorHooks)) {
+    g[name] = (fn, ...c) => register(collectionErrorHooks[name], "collectionError", fn, { collections: collections(c) });
+  }
+  for (const name of Object.keys(errorHooks)) {
+    g[name] = (fn, ...c) => register(errorHooks[name], "recordError", fn, { collections: collections(c) });
   }
   const authHooks = {
     onRecordAuthRequest: "recordAuthRequest",
@@ -1423,6 +1462,8 @@
     onBackupCreate: "backupCreate",
     onBackupRestore: "backupRestore",
     onTerminate: "terminate",
+    // the bootstrap state is cleared when the app stops
+    onBootstrapClear: "terminate",
     onCollectionsListRequest: "collectionsListRequest",
     onCollectionViewRequest: "collectionViewRequest",
     onCollectionCreateRequest: "collectionCreateRequest",

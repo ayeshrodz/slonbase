@@ -440,6 +440,8 @@ pub(crate) struct FileEffects {
     deleted_records: Vec<(String, String)>,
     /// Record changes, for the after-success hooks.
     pub(crate) changes: Vec<Change>,
+    /// Writes that failed, with their errors, for the after-error hooks.
+    failed: Vec<(Change, ApiError)>,
 }
 
 impl FileEffects {
@@ -452,6 +454,9 @@ impl FileEffects {
         match outcome {
             Err(err) => {
                 files::discard(core, &self.written).await;
+                // the failed writes, and the ones the rollback undid
+                let undone = self.changes.into_iter().map(|c| (c, err.clone()));
+                Hooks::failed(core, self.failed.into_iter().chain(undone).collect());
                 Err(err)
             }
             Ok(value) => {
@@ -469,6 +474,9 @@ impl FileEffects {
                     }
                 }
                 Hooks::committed(core, self.changes);
+                // writes that failed in a transaction that went on (an error caught in a
+                // migration)
+                Hooks::failed(core, self.failed);
                 Ok(value)
             }
         }
@@ -561,8 +569,212 @@ fn hook_record(c: &Collection, base: Values, body: &Map<String, Value>) -> Map<S
     record
 }
 
-/// Creates a record in `tx` and returns it as the caller sees it.
+/// The record as execute hooks see it: the values without secrets and passwords.
+fn hook_view(c: &Collection, values: &Values) -> Map<String, Value> {
+    let mut record = values.clone();
+    for field in c.fields.iter().filter(|f| f.is_secret()) {
+        record.remove(&field.name);
+    }
+    record
+}
+
+/// Applies what execute handlers changed in the record to `values`, checked like the
+/// request's values (files, passwords and the id can't change there).
+fn apply_execute_changes(
+    c: &Collection,
+    values: &mut Values,
+    given: &Map<String, Value>,
+    returned: Map<String, Value>,
+    create: bool,
+    failed: &str,
+) -> Result<(), ApiError> {
+    let mut body = Map::new();
+    for (key, value) in returned {
+        let Some(field) = c.field(&key) else {
+            continue;
+        };
+        let fixed =
+            field.is_secret() || field.is_primary_key() || matches!(field.kind, FieldKind::File(_));
+        if !fixed && given.get(&key) != Some(&value) {
+            body.insert(key, value);
+        }
+    }
+    if body.is_empty() {
+        return Ok(());
+    }
+    let mut errors = Errors::new();
+    let changes = values::apply_body(c, values, &body, create, &mut errors);
+    values::validate(c, values, &changes, create, &mut errors);
+    if !errors.is_empty() {
+        return Err(ApiError::invalid_data(failed, &errors));
+    }
+    Ok(())
+}
+
+/// Runs an execute hook (`on_record_create_execute`, ...) around `write`, the write itself.
+/// Handlers' `next` runs it, so code after `next` runs after the write, in the transaction,
+/// and sees what `write` returns as written. `write` gets the record as the handlers left
+/// it. A handler that doesn't call `next` cancels the write.
+async fn execute_hook<T, F, Fut>(
+    core: &Arc<Core>,
+    hook: &crate::hooks::Hook<crate::hooks::RecordEvent>,
+    c: &Collection,
+    record: Map<String, Value>,
+    write: F,
+) -> Result<T, ApiError>
+where
+    F: FnOnce(Map<String, Value>) -> Fut,
+    Fut: Future<Output = Result<(T, Map<String, Value>), ApiError>>,
+{
+    if !hook.has_handlers(Some(c)) {
+        return write(record).await.map(|(out, _)| out);
+    }
+    // the handlers run as their own future ('static, so it can't hold the transaction):
+    // `next` hands the record over to the write here and waits for it
+    let (start, started) = tokio::sync::oneshot::channel::<Map<String, Value>>();
+    let (finish, finished) =
+        tokio::sync::oneshot::channel::<Result<Map<String, Value>, ApiError>>();
+    let e = crate::hooks::RecordEvent {
+        core: core.clone(),
+        collection: Arc::new(c.clone()),
+        record,
+    };
+    let hooked = hook.trigger(Some(c), e, move |mut e| async move {
+        let _ = start.send(std::mem::take(&mut e.record));
+        e.record = finished
+            .await
+            .map_err(|_| ApiError::internal(anyhow::anyhow!("the write was dropped")))??;
+        Ok(e)
+    });
+    let writing = async {
+        let record = started.await.ok()?;
+        let result = write(record).await;
+        let _ = finish.send(match &result {
+            Ok((_, written)) => Ok(written.clone()),
+            Err(err) => Err(err.clone()),
+        });
+        Some(result)
+    };
+    let (hooked, written) = tokio::join!(hooked, writing);
+    match written {
+        // a failed statement fails the transaction, whatever the handlers did with the error
+        Some(Err(err)) => Err(err),
+        Some(Ok((out, _))) => hooked.map(|_| out),
+        None => {
+            hooked?;
+            Err(ApiError::bad_request("The write was cancelled by a hook."))
+        }
+    }
+}
+
+/// Whether a failed write is reported to the after-error hooks: not when the caller may not
+/// write the record at all (as in PocketBase, where these fail before the save).
+fn reported(err: &ApiError) -> bool {
+    !matches!(err.status, StatusCode::FORBIDDEN | StatusCode::NOT_FOUND)
+}
+
+/// Creates a record in `tx` and returns it as the caller sees it; a failure is reported to
+/// the after-error hooks.
 pub(crate) async fn create_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    body: Map<String, Value>,
+    uploads: Vec<files::Upload>,
+    effects: &mut FileEffects,
+) -> Result<Value, ApiError> {
+    let attempted = ctx
+        .core
+        .hooks
+        .on_record_after_create_error
+        .has_handlers(Some(c))
+        .then(|| hook_record(c, values::defaults(c), &body));
+    let result = create_checked(ctx, tx, c, body, uploads, effects).await;
+    if let (Err(err), Some(values)) = (&result, attempted) {
+        if reported(err) {
+            failed_change(effects, ctx.registry, c, Action::Create, values, err);
+        }
+    }
+    result
+}
+
+/// Updates a record in `tx` and returns it as the caller sees it; a failure is reported to
+/// the after-error hooks.
+pub(crate) async fn update_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    id: &str,
+    body: Map<String, Value>,
+    uploads: Vec<files::Upload>,
+    effects: &mut FileEffects,
+) -> Result<Value, ApiError> {
+    let attempted = ctx
+        .core
+        .hooks
+        .on_record_after_update_error
+        .has_handlers(Some(c))
+        .then(|| {
+            let mut base = Values::new();
+            base.insert("id".into(), json!(id));
+            hook_record(c, base, &body)
+        });
+    let result = update_checked(ctx, tx, c, id, body, uploads, effects).await;
+    if let (Err(err), Some(values)) = (&result, attempted) {
+        if reported(err) {
+            failed_change(effects, ctx.registry, c, Action::Update, values, err);
+        }
+    }
+    result
+}
+
+/// Deletes a record (with its cascades) in `tx`; a failure is reported to the after-error
+/// hooks.
+pub(crate) async fn delete_in(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Arc<Collection>,
+    id: &str,
+    effects: &mut FileEffects,
+) -> Result<(), ApiError> {
+    let result = delete_checked(ctx, tx, c, id, effects).await;
+    if let Err(err) = &result {
+        if reported(err)
+            && ctx
+                .core
+                .hooks
+                .on_record_after_delete_error
+                .has_handlers(Some(c))
+        {
+            let mut values = Values::new();
+            values.insert("id".into(), json!(id));
+            failed_change(effects, ctx.registry, c, Action::Delete, values, err);
+        }
+    }
+    result
+}
+
+fn failed_change(
+    effects: &mut FileEffects,
+    registry: &Registry,
+    c: &Collection,
+    action: Action,
+    mut values: Values,
+    err: &ApiError,
+) {
+    values.remove(FIELD_PASSWORD);
+    if let Some(collection) = registry.by_id(&c.id) {
+        let change = Change {
+            collection: collection.clone(),
+            action,
+            values,
+        };
+        effects.failed.push((change, err.clone()));
+    }
+}
+
+/// Creates a record in `tx` and returns it as the caller sees it.
+async fn create_checked(
     ctx: &WriteContext<'_>,
     tx: &Transaction<'_>,
     c: &Collection,
@@ -604,6 +816,29 @@ pub(crate) async fn create_in(
     files::write(core, &file_plan).await?;
     effects.written.extend(file_plan.new);
 
+    let given = hook_view(c, &values);
+    let hook = &core.hooks.on_record_create_execute;
+    let (record, values) = execute_hook(ctx.core, hook, c, given.clone(), |returned| async move {
+        apply_execute_changes(c, &mut values, &given, returned, true, failed)?;
+        let record = insert_record(ctx, tx, c, &values, failed).await?;
+        let written = hook_view(c, &values);
+        Ok(((record, values), written))
+    })
+    .await?;
+    record_change(effects, ctx.registry, c, Action::Create, values);
+    Ok(record)
+}
+
+/// The write of a create: inserts the record, checks the create rule against it and queues
+/// its realtime event.
+async fn insert_record(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    values: &Values,
+    failed: &str,
+) -> Result<Value, ApiError> {
+    let (auth, request) = (ctx.auth, ctx.request);
     let mut params = Params::default();
     let mut columns = Vec::new();
     let mut placeholders = Vec::new();
@@ -656,15 +891,14 @@ pub(crate) async fn create_in(
             return Err(ApiError::bad_request(failed));
         }
     }
-    realtime::record_event(tx, c, Action::Create, &values)
+    realtime::record_event(tx, c, Action::Create, values)
         .await
         .map_err(db_error)?;
-    record_change(effects, ctx.registry, c, Action::Create, values);
     Ok(output_record(c, &fields, &row, &email_visible))
 }
 
 /// Updates a record in `tx` and returns it as the caller sees it.
-pub(crate) async fn update_in(
+async fn update_checked(
     ctx: &WriteContext<'_>,
     tx: &Transaction<'_>,
     c: &Collection,
@@ -803,6 +1037,29 @@ pub(crate) async fn update_in(
         .replaced
         .push((c.id.clone(), id.to_string(), file_plan.removed));
 
+    let given = hook_view(c, &values);
+    let hook = &core.hooks.on_record_update_execute;
+    let (record, values) = execute_hook(ctx.core, hook, c, given.clone(), |returned| async move {
+        apply_execute_changes(c, &mut values, &given, returned, false, failed)?;
+        let record = update_record(ctx, tx, c, id, &values, failed).await?;
+        let written = hook_view(c, &values);
+        Ok(((record, values), written))
+    })
+    .await?;
+    record_change(effects, ctx.registry, c, Action::Update, values);
+    Ok(record)
+}
+
+/// The write of an update: updates the row and queues its realtime event.
+async fn update_record(
+    ctx: &WriteContext<'_>,
+    tx: &Transaction<'_>,
+    c: &Collection,
+    id: &str,
+    values: &Values,
+    failed: &str,
+) -> Result<Value, ApiError> {
+    let (auth, request) = (ctx.auth, ctx.request);
     let mut params = Params::default();
     let mut sets = Vec::new();
     for field in c.fields.iter().filter(|f| !f.is_primary_key()) {
@@ -833,10 +1090,9 @@ pub(crate) async fn update_in(
         .query_text_one(&sql, &params)
         .await
         .map_err(|e| write_error(e, c, failed))?;
-    realtime::record_event(tx, c, Action::Update, &values)
+    realtime::record_event(tx, c, Action::Update, values)
         .await
         .map_err(db_error)?;
-    record_change(effects, ctx.registry, c, Action::Update, values);
     Ok(output_record(c, &fields, &row, &email_visible))
 }
 
@@ -857,7 +1113,7 @@ fn record_change(
 }
 
 /// Deletes a record (with its cascades) in `tx`.
-pub(crate) async fn delete_in(
+async fn delete_checked(
     ctx: &WriteContext<'_>,
     tx: &Transaction<'_>,
     c: &Arc<Collection>,
@@ -872,7 +1128,11 @@ pub(crate) async fn delete_in(
     if let Some(rule) = rule_sql(c, RuleAction::Delete, auth, request, &mut params)? {
         where_sql = format!("{where_sql} AND {rule}");
     }
-    if ctx.core.hooks.on_record_delete.has_handlers(Some(c)) {
+    let hooks = &ctx.core.hooks;
+    let mut current = Map::new();
+    if hooks.on_record_delete.has_handlers(Some(c))
+        || hooks.on_record_delete_execute.has_handlers(Some(c))
+    {
         let stored = all_fields(c);
         let row = tx
             .query_text_opt(
@@ -888,15 +1148,9 @@ pub(crate) async fn delete_in(
             .ok_or_else(ApiError::not_found)?;
         let mut record = row_values(&stored, &row);
         record.remove(FIELD_PASSWORD);
+        current = hook_view(c, &record);
         // changes are ignored: the record is deleted
-        model_hook(
-            ctx,
-            &ctx.core.hooks.on_record_delete,
-            c,
-            record,
-            &mut Map::new(),
-        )
-        .await?;
+        model_hook(ctx, &hooks.on_record_delete, c, record, &mut Map::new()).await?;
     }
     tx.query_text_opt(
         &format!(
@@ -929,20 +1183,25 @@ pub(crate) async fn delete_in(
         }
     }
 
-    let mut visited = HashSet::new();
-    delete_with_references(
-        ctx.core,
-        tx,
-        ctx.registry,
-        c.clone(),
-        id.to_string(),
-        0,
-        &mut visited,
-        &mut effects.changes,
-    )
-    .await?;
-    effects.deleted_records.extend(visited);
-    Ok(())
+    // the write; changes to the record are ignored
+    let hook = &hooks.on_record_delete_execute;
+    execute_hook(ctx.core, hook, c, current.clone(), |_| async move {
+        let mut visited = HashSet::new();
+        delete_with_references(
+            ctx.core,
+            tx,
+            ctx.registry,
+            c.clone(),
+            id.to_string(),
+            0,
+            &mut visited,
+            &mut effects.changes,
+        )
+        .await?;
+        effects.deleted_records.extend(visited);
+        Ok(((), current))
+    })
+    .await
 }
 
 /// The record a request hook sees for an update or delete: the current record, if the
@@ -1281,8 +1540,12 @@ fn delete_with_references<'b>(
                     .map_err(db_error)?;
                 for row in rows {
                     let ref_id: String = row.get(0);
-                    // a cascaded delete runs the model hook too (an error cancels it all)
-                    if core.hooks.on_record_delete.has_handlers(Some(&other)) {
+                    // a cascaded delete runs the model hooks too (an error cancels it all)
+                    let hooks = &core.hooks;
+                    let mut current = Map::new();
+                    if hooks.on_record_delete.has_handlers(Some(&other))
+                        || hooks.on_record_delete_execute.has_handlers(Some(&other))
+                    {
                         let stored = all_fields(&other);
                         let found = tx
                             .query_opt(
@@ -1300,6 +1563,7 @@ fn delete_with_references<'b>(
                             for key in SECRET_FIELDS {
                                 record.remove(key);
                             }
+                            current = record.clone();
                             let e = crate::hooks::RecordEvent {
                                 core: core.clone(),
                                 collection: other.clone(),
@@ -1311,16 +1575,23 @@ fn delete_with_references<'b>(
                                 .await?;
                         }
                     }
-                    delete_with_references(
-                        core,
-                        tx,
-                        registry,
-                        other.clone(),
-                        ref_id,
-                        depth + 1,
-                        visited,
-                        changes,
-                    )
+                    let hook = &hooks.on_record_delete_execute;
+                    let cascade = other.clone();
+                    let (visited, changes) = (&mut *visited, &mut *changes);
+                    execute_hook(core, hook, &other, current.clone(), |_| async move {
+                        delete_with_references(
+                            core,
+                            tx,
+                            registry,
+                            cascade,
+                            ref_id,
+                            depth + 1,
+                            visited,
+                            changes,
+                        )
+                        .await?;
+                        Ok(((), current))
+                    })
                     .await?;
                 }
                 continue;

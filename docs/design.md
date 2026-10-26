@@ -682,10 +682,23 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   its own transaction (that read is a moment older than the locked one).
 - `on_record_validate` runs in the write functions once the record's own validation passed, on
   the final values (no secrets); its changes are ignored, an error rejects the write.
+- Execute hooks (`on_record_create_execute`, ...) wrap the statement that writes the record
+  (with the create rule check and the realtime event). Hook actions are `'static`, so they can't
+  hold the transaction: the action sends the record over a oneshot channel to the write, which
+  runs in the caller's future, and waits for its result; `tokio::join!` polls the handlers and
+  the write together. A failed statement always fails the write (the transaction is aborted
+  anyway), and a write whose `next` never ran fails with "cancelled by a hook". Changes the
+  handlers made go through `apply_body` and `validate` again.
+- After-error hooks: `create_in`/`update_in`/`delete_in` record a failed write (not 403/404,
+  which PocketBase rejects before its save) in `FileEffects`, and `settle` reports those, plus
+  the writes of a transaction that failed, in a background task once it rolled back. Updates and
+  deletes report the stored record (read then), with an update's data applied.
 - Collection hooks run in the collections API under the schema lock: the handlers get the full
   serialization (the one updates merge into), and what they return is parsed and goes through
   `validate::prepare` like the request, with the id kept. Imports run them for each collection they create, update or delete. The after-success
-  hooks get the saved collection (secrets masked) in a background task.
+  hooks get the saved collection (secrets masked) in a background task. The API's changes also
+  run `on_collection_validate`, the execute hooks around `store::apply` (no channel needed:
+  the change runs on its own connection, so the action owns it), and the after-error hooks.
 - Mail: every email goes through `Core::send_mail_for`/`send_mail_now`, which run `on_mailer_send`
   around the mailer; auth emails pass their kind and record (without the password hash and token
   key). Handlers scoped to collections only see auth emails of those; the per-kind JavaScript hooks

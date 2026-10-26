@@ -324,3 +324,45 @@ routerAdd("GET", "/compat/dbx", (e) => {
   }
   return e.json(200, result);
 }, $apis.requireSuperuserAuth());
+
+// execute and after-error hooks (tests/execute.test.mjs): they act on hooks_exec titles and
+// log to hooks_exec_log (with exec_log.js: PocketBase runs each handler on its own)
+onRecordCreateExecute((e) => {
+  const title = e.record.get("title");
+  if (title === "exec-refuse") throw new BadRequestError("Refused by execute.");
+  if (title === "exec-change") e.record.set("title", "exec-changed");
+  e.next();
+  if (title === "exec-after") require(`${__hooks}/exec_log.js`)(e.app, "after-next:" + (e.record.id ? "id" : "no id"));
+}, "hooks_exec");
+onRecordUpdateExecute((e) => {
+  if (e.record.get("title") === "exec-upd-fail") throw new BadRequestError("Refused by execute.");
+  e.next();
+}, "hooks_exec");
+onRecordDeleteExecute((e) => {
+  if (e.record.get("title") === "exec-keep") throw new BadRequestError("Refused by execute.");
+  e.next();
+}, "hooks_exec");
+onRecordAfterCreateError((e) => {
+  require(`${__hooks}/exec_log.js`)(e.app, "create-error:" + e.record.get("title"));
+  e.next();
+}, "hooks_exec");
+onRecordAfterUpdateError((e) => {
+  require(`${__hooks}/exec_log.js`)(e.app, "update-error:" + e.record.get("title"));
+  e.next();
+}, "hooks_exec");
+onRecordAfterDeleteError((e) => {
+  require(`${__hooks}/exec_log.js`)(e.app, "delete-error:" + e.record.get("title"));
+  e.next();
+}, "hooks_exec");
+onCollectionValidate((e) => {
+  if (e.collection.name === "hooks_c_exec_invalid") throw new BadRequestError("Refused by validate.");
+  e.next();
+});
+onCollectionCreateExecute((e) => {
+  if (e.collection.name === "hooks_c_exec_refuse") throw new BadRequestError("Refused by execute.");
+  e.next();
+});
+onCollectionAfterCreateError((e) => {
+  if (e.collection.name.startsWith("hooks_c_exec")) require(`${__hooks}/exec_log.js`)(e.app, "collection-error:" + e.collection.name);
+  e.next();
+});
