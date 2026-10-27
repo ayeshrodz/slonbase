@@ -71,7 +71,9 @@ Maintainers release by:
 The release workflow checks that the tag matches `Cargo.toml` and that the changelog has the
 version's section. It then builds the packages and publishes the GitHub release, with those notes,
 and the Docker image. Last, it starts the **Package repositories** workflow, which rebuilds the
-apt and dnf repositories from every release's packages and publishes them on GitHub Pages.
+apt and dnf repositories from every release's packages and publishes them on GitHub Pages,
+with the project's page (`site/index.html`, using the images in `docs/assets/`) at the root; it
+also runs when the page changes on `main`.
 
 The repositories need, once:
 

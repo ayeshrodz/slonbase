@@ -1,6 +1,7 @@
 # Builds the signed apt and dnf repositories from every release's packages and publishes them
-# on GitHub Pages (https://<owner>.github.io/<repo>/). The Release workflow starts it after
-# publishing a release; it can also be run by hand.
+# on GitHub Pages (https://<owner>.github.io/<repo>/), with the project's page (site/) at the
+# root. The Release workflow starts it after publishing a release; it also runs when the page
+# changes on the default branch, and can be run by hand.
 #
 # Needs the REPO_GPG_PRIVATE_KEY secret (an armored signing key without a passphrase) and
 # Settings → Pages → Source: GitHub Actions. See CONTRIBUTING.md.
@@ -8,6 +9,13 @@ name: Package repositories
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - docs/assets/**
+      - scripts/build-repo.sh
+      - .github/workflows/repo.yml
 
 permissions:
   contents: read
@@ -51,11 +59,16 @@ jobs:
       - name: Build the repositories
         run: |
           owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          scripts/build-repo.sh pkgs site "${{ steps.key.outputs.fingerprint }}" \
+          scripts/build-repo.sh pkgs site-out "${{ steps.key.outputs.fingerprint }}" \
               "https://$owner.github.io/${GITHUB_REPOSITORY#*/}"
+      - name: Add the project's page
+        run: |
+          cp -r site/. site-out/
+          mkdir -p site-out/assets
+          cp -r docs/assets/. site-out/assets/
       - uses: actions/upload-pages-artifact@v5
         with:
-          path: site
+          path: site-out
 
   deploy:
     needs: build

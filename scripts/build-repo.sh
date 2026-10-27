@@ -77,7 +77,9 @@ EOF
 
 versions=$(ls "$apt/pool/main" | sed -n 's/^slonbase_\([^_]*\)_.*/\1/p' | sort -uV | tr '\n' ' ')
 fingerprint=$(gpg --with-colons --fingerprint "$key" | awk -F: '/^fpr/ {print $10; exit}')
-cat > "$out/index.html" <<EOF
+# the repositories' page (the project's page, site/, is the root)
+mkdir -p "$out/packages"
+cat > "$out/packages/index.html" <<EOF
 <!doctype html>
 <html lang="en">
 <head>
@@ -108,6 +110,7 @@ sudo dnf install slonbase</code></pre>
 
 <p>Updates then arrive with <code>apt upgrade</code> or <code>dnf upgrade</code>.</p>
 <p class="muted">Signing key fingerprint: <code>$fingerprint</code></p>
+<p><a href="../">← slonbase</a></p>
 </body>
 </html>
 EOF
