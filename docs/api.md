@@ -95,7 +95,9 @@ indexes with a `WHERE` clause.
 
 - **Password:** `auth-with-password`, with the identity fields set in `passwordAuth`.
 - **OAuth2:** Google, GitHub, GitLab, Discord, Microsoft, Facebook, and any OpenID Connect
-  provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. Only emails the provider has
+  provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. An OpenID Connect provider
+  without a user info URL is read from its validated `id_token`; set `extra.jwksURL` to verify
+  its signature and `extra.issuers` to accept only some issuers. Only emails the provider has
   verified are used to find existing records. Client secrets are never returned by the API.
 - **OTP:** a numeric code sent with the `otp.emailTemplate` (`{OTP}`, `{OTP_ID}`). It's
   single-use, it expires, and it's invalidated after 5 wrong attempts.

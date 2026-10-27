@@ -36,6 +36,7 @@ rand = "0.10.3"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls-no-provider", "form", "stream"] }
 rquickjs = { version = "0.14.0", optional = true }
+ring = "0.17.14"
 rustls = { version = "0.23.45", default-features = false, features = ["ring", "std", "tls12", "logging"] }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order", "float_roundtrip"] }

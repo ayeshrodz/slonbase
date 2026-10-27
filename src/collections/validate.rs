@@ -385,18 +385,24 @@ fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors
                 "Cannot be blank.",
             );
         }
-        for (name, url) in [
-            ("authURL", &provider.auth_url),
-            ("tokenURL", &provider.token_url),
-            ("userInfoURL", &provider.user_info_url),
+        // an OpenID Connect provider without a user info URL is read from its id_token
+        for (name, url, required) in [
+            ("authURL", &provider.auth_url, true),
+            ("tokenURL", &provider.token_url, true),
+            ("userInfoURL", &provider.user_info_url, false),
         ] {
             if url.is_empty() {
-                if crate::oauth2::needs_urls(&provider.name) {
+                if required && crate::oauth2::needs_urls(&provider.name) {
                     errors.add(key(name), "validation_required", "Cannot be blank.");
                 }
             } else if !valid_url(url) {
                 errors.invalid(key(name), "Must be an http(s) URL.");
             }
+        }
+        match provider.extra.get("jwksURL") {
+            None | Some(serde_json::Value::Null) => {}
+            Some(serde_json::Value::String(url)) if url.is_empty() || valid_url(url) => {}
+            Some(_) => errors.invalid(key("extra.jwksURL"), "Must be an http(s) URL."),
         }
     }
     if oauth2.enabled && oauth2.providers.is_empty() {

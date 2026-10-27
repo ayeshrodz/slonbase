@@ -49,7 +49,21 @@ function ProviderSheet({ provider, meta, onSave, onRemove, onClose }) {
           <${Field} label="Display name"><${Input} value=${p.displayName} onInput=${(v) => set({ displayName: v })} /></${Field}>
           <${Field} label="Authorization URL"><${Input} value=${p.authURL} onInput=${(v) => set({ authURL: v })} /></${Field}>
           <${Field} label="Token URL"><${Input} value=${p.tokenURL} onInput=${(v) => set({ tokenURL: v })} /></${Field}>
-          <${Field} label="User info URL"><${Input} value=${p.userInfoURL} onInput=${(v) => set({ userInfoURL: v })} /></${Field}>
+          <${Field} label="User info URL" help="Leave empty to read the user from the ID token.">
+            <${Input} value=${p.userInfoURL} onInput=${(v) => set({ userInfoURL: v })} />
+          </${Field}>
+          ${!p.userInfoURL &&
+          html`
+            <${Field} label="JWKS URL" help="The provider's signing keys, to verify the ID token's signature.">
+              <${Input} value=${(p.extra || {}).jwksURL || ""} onInput=${(v) => set({ extra: { ...(p.extra || {}), jwksURL: v } })} />
+            </${Field}>
+            <${Field} label="Issuers" help="The ID token's issuer must be one of these (separated by spaces). Optional.">
+              <${Input}
+                value=${[].concat((p.extra || {}).issuers || []).join(" ")}
+                onInput=${(v) => set({ extra: { ...(p.extra || {}), issuers: v } })}
+              />
+            </${Field}>
+          `}
         `}
         <${Switch} checked=${p.pkce !== false} onChange=${(v) => set({ pkce: v })} label="Use PKCE" />
       </div>

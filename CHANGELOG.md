@@ -15,6 +15,10 @@ changes, and they'll be listed here.
   behaves as in SQLite 3.53 (PocketBase 0.40's), checked against it on tens of thousands of
   cases. On date fields the common formats compile to PostgreSQL's `to_char()`, so filtering
   stays fast. Function calls now take up to 10 arguments.
+- **OpenID Connect sign-in from the `id_token`:** an `oidc` provider without a user info URL
+  reads the user from the token response's `id_token`, as in PocketBase. The audience and
+  times are checked; the `jwksURL` extra option verifies the signature (RSA or Ed25519 keys)
+  and `issuers` limits the accepted issuers. The dashboard's provider form has both.
 - **Removing a file field deletes its files:** when a collection change (through the API, an
   import, a hook or a migration) removes a file field, the field's stored files and their
   thumbnails are deleted once the change commits. Before, they stayed in storage with nothing

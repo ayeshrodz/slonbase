@@ -516,6 +516,16 @@ async fn token(
             Json(json!({ "error": "invalid_grant" })),
         );
     }
+    // an OpenID Connect id_token with the user's info (unsigned: no JWKS is configured)
+    let mut claims = provider.users.lock().unwrap()[user].clone();
+    claims["aud"] = json!("client-1");
+    claims["iss"] = json!("https://id.test");
+    claims["exp"] = json!(chrono::Utc::now().timestamp() + 60);
+    let part = |v: &Value| {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string())
+    };
+    let id_token = format!("{}.{}.sig", part(&json!({ "alg": "none" })), part(&claims));
     (
         StatusCode::OK,
         Json(json!({
@@ -523,6 +533,7 @@ async fn token(
             "refresh_token": "refresh",
             "token_type": "Bearer",
             "expires_in": 3600,
+            "id_token": id_token,
         })),
     )
 }
@@ -1179,4 +1190,67 @@ fn link_token(html: &str) -> String {
     let link = &html[start..];
     let link = &link[..link.find('"').unwrap()];
     link.rsplit('/').next().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn oauth2_with_the_id_token() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    let options = |issuers: Value| {
+        json!({
+            "enabled": true,
+            "providers": [{
+                "name": "oidc", "clientId": "client-1", "clientSecret": "s3cret",
+                "authURL": format!("{url}/authorize"), "tokenURL": format!("{url}/token"),
+                "extra": { "issuers": issuers },
+            }],
+        })
+    };
+    // no user info URL: the user comes from the id_token
+    users_collection(
+        &env,
+        json!({ "oauth2": options(json!(["https://id.test"])) }),
+    )
+    .await;
+    provider.set_user(
+        "ann",
+        json!({ "sub": "ann-1", "email": "ann@id.test", "email_verified": true, "name": "Ann" }),
+    );
+    let (status, res) = oauth2(&env, None, "ann", json!({ "createData": {} })).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["record"]["email"], "ann@id.test");
+    assert_eq!(res["meta"]["id"], "ann-1");
+    assert_eq!(res["meta"]["rawUser"]["iss"], "https://id.test");
+
+    // a token from another issuer is refused
+    let (status, res) = env
+        .admin(
+            "PATCH",
+            "/api/collections/users",
+            Some(json!({ "oauth2": options(json!("https://other.test")) })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, res) = oauth2(&env, None, "ann", json!({})).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+
+    // and the JWKS URL must be a URL
+    let mut bad = options(json!([]));
+    bad["providers"][0]["extra"]["jwksURL"] = json!("not a url");
+    let (status, res) = env
+        .admin(
+            "PATCH",
+            "/api/collections/users",
+            Some(json!({ "oauth2": bad })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        res.pointer("/data/oauth2/providers/0/extra/jwksURL")
+            .is_some(),
+        "{res}"
+    );
+    env.finish().await;
 }

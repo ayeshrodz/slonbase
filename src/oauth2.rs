@@ -3,6 +3,10 @@
 //!
 //! Only emails the provider reports as verified are used, since an email links the
 //! provider's account to an existing record with that email.
+//!
+//! An OpenID Connect provider without a user info URL is read from the `id_token` of the
+//! token response, validated as PocketBase does: its audience and times, and with the
+//! provider's `issuers` and `jwksURL` extra options, its issuer and signature.
 
 use std::time::Duration;
 
@@ -15,6 +19,8 @@ use sha2::{Digest, Sha256};
 use crate::collections::model::OAuth2Provider;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
+/// Clock skew allowed when checking an `id_token`'s times.
+const ID_TOKEN_LEEWAY: i64 = 5 * 60;
 /// Largest token or user info response accepted.
 const MAX_RESPONSE: usize = 1 << 20;
 /// Largest avatar downloaded on sign-up.
@@ -160,6 +166,7 @@ pub struct Provider {
     scopes: Vec<String>,
     pub pkce: bool,
     kind: Kind,
+    extra: Map<String, Value>,
 }
 
 impl Provider {
@@ -183,6 +190,7 @@ impl Provider {
             scopes: preset.scopes.iter().map(|s| s.to_string()).collect(),
             pkce: config.pkce.unwrap_or(true),
             kind: preset.kind,
+            extra: config.extra.clone(),
         })
     }
 
@@ -275,6 +283,11 @@ impl Provider {
             _ => None,
         };
         Ok(Token {
+            id_token: data
+                .get("id_token")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string(),
             access_token: access_token.to_string(),
             refresh_token: data
                 .get("refresh_token")
@@ -310,7 +323,13 @@ impl Provider {
 
     /// Fetches the provider's user with an access token.
     pub async fn user(&self, token: &Token) -> Result<AuthUser> {
-        let raw = get_json(&self.user_info_url, &token.access_token).await?;
+        let raw = if self.kind == Kind::Oidc && self.user_info_url.is_empty() {
+            self.id_token_claims(&token.id_token, chrono::Utc::now().timestamp())
+                .await
+                .context("invalid id_token")?
+        } else {
+            get_json(&self.user_info_url, &token.access_token).await?
+        };
         let mut user = extract(self.kind, &raw);
         if self.kind == Kind::Github && user.email.is_empty() {
             // a private email: ask for the verified primary one (optional)
@@ -333,9 +352,182 @@ impl Provider {
         user.raw = raw;
         Ok(user)
     }
+
+    /// The claims of a valid `id_token` (`now` in Unix seconds): the audience must include the
+    /// client id, the times must hold (within [`ID_TOKEN_LEEWAY`]), and with the `issuers` and
+    /// `jwksURL` extra options, the issuer must be one of them and the signature valid.
+    async fn id_token_claims(&self, id_token: &str, now: i64) -> Result<Value> {
+        let jwt = Jwt::parse(id_token)?;
+        let claims = &jwt.claims;
+        let time = |name: &str| -> Result<Option<f64>> {
+            match claims.get(name) {
+                None | Some(Value::Null) => Ok(None),
+                Some(Value::Number(n)) => Ok(n.as_f64()),
+                Some(_) => bail!("{name} must be a number"),
+            }
+        };
+        let now = now as f64;
+        let leeway = ID_TOKEN_LEEWAY as f64;
+        if time("exp")?.is_some_and(|exp| now - leeway >= exp) {
+            bail!("the token is expired");
+        }
+        if time("nbf")?.is_some_and(|nbf| now + leeway < nbf) {
+            bail!("the token isn't valid yet");
+        }
+        if time("iat")?.is_some_and(|iat| now + leeway < iat) {
+            bail!("the token was issued in the future");
+        }
+        let audience = match claims.get("aud") {
+            Some(Value::String(aud)) => vec![aud.as_str()],
+            Some(Value::Array(auds)) => auds.iter().filter_map(Value::as_str).collect(),
+            _ => Vec::new(),
+        };
+        if !audience
+            .iter()
+            .any(|aud| crate::ids::constant_time_eq(aud, &self.client_id))
+        {
+            bail!("the token's audience isn't the client id");
+        }
+
+        let issuers = string_list(self.extra.get("issuers"));
+        if !issuers.is_empty() {
+            let issuer = claims
+                .get("iss")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if !issuers
+                .iter()
+                .any(|i| crate::ids::constant_time_eq(i, issuer))
+            {
+                bail!("the token's issuer {issuer:?} isn't one of {issuers:?}");
+            }
+        }
+
+        // the token came straight from the provider over TLS, so checking its signature is
+        // optional (as OpenID Connect allows), and done when the keys are configured
+        let jwks_url = self
+            .extra
+            .get("jwksURL")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        if !jwks_url.is_empty() {
+            let kid = jwt
+                .header
+                .get("kid")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if kid.is_empty() {
+                bail!("the token has no kid header");
+            }
+            let keys = get_json(jwks_url, "").await.context("fetching the JWKS")?;
+            let key = keys["keys"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|k| k["kid"] == kid && k["alg"].as_str().is_some_and(|a| !a.is_empty()))
+                .with_context(|| format!("no key with kid {kid:?} and an alg in the JWKS"))?;
+            jwt.verify(key)?;
+        }
+        Ok(Value::Object(jwt.claims))
+    }
+}
+
+/// A string list option: a JSON array, or a string of space-separated values.
+fn string_list(v: Option<&Value>) -> Vec<String> {
+    match v {
+        Some(Value::Array(items)) => items
+            .iter()
+            .filter_map(|i| match i {
+                Value::String(s) => Some(s.clone()),
+                Value::Number(n) => Some(n.to_string()),
+                _ => None,
+            })
+            .collect(),
+        Some(Value::String(s)) => s.split_whitespace().map(str::to_string).collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// A decoded (not yet verified) JSON Web Token.
+struct Jwt {
+    header: Map<String, Value>,
+    claims: Map<String, Value>,
+    /// The signed part, `header.payload`.
+    signed: String,
+    signature: Vec<u8>,
+}
+
+impl Jwt {
+    fn parse(token: &str) -> Result<Self> {
+        let decode = |part: &str| B64.decode(part.trim_end_matches('='));
+        let [header, payload, signature] = token.split('.').collect::<Vec<_>>()[..] else {
+            bail!("the token isn't a JWT");
+        };
+        let object = |part: &str, what: &str| -> Result<Map<String, Value>> {
+            match serde_json::from_slice(&decode(part).with_context(|| format!("bad {what}"))?) {
+                Ok(Value::Object(map)) => Ok(map),
+                _ => bail!("the token's {what} isn't a JSON object"),
+            }
+        };
+        Ok(Self {
+            header: object(header, "header")?,
+            claims: object(payload, "claims")?,
+            signed: format!("{header}.{payload}"),
+            signature: decode(signature).context("bad signature encoding")?,
+        })
+    }
+
+    /// Checks the signature with a JWK: RSA (`RS*`, `PS*`) or Ed25519 (`EdDSA`). The
+    /// token's `alg` must be the key's.
+    fn verify(&self, key: &Value) -> Result<()> {
+        use ring::signature;
+        let alg = key["alg"].as_str().unwrap_or_default();
+        if self.header.get("alg").and_then(Value::as_str) != Some(alg) {
+            bail!("the token's alg isn't the key's ({alg})");
+        }
+        let part = |name: &str| -> Result<Vec<u8>> {
+            let text = key[name].as_str().unwrap_or_default();
+            B64.decode(text.trim_end_matches('='))
+                .with_context(|| format!("bad key {name}"))
+        };
+        let (message, sig) = (self.signed.as_bytes(), self.signature.as_slice());
+        let valid = match key["kty"].as_str().unwrap_or_default() {
+            "RSA" => {
+                let params: &signature::RsaParameters = match alg {
+                    "RS256" => &signature::RSA_PKCS1_2048_8192_SHA256,
+                    "RS384" => &signature::RSA_PKCS1_2048_8192_SHA384,
+                    "RS512" => &signature::RSA_PKCS1_2048_8192_SHA512,
+                    "PS256" => &signature::RSA_PSS_2048_8192_SHA256,
+                    "PS384" => &signature::RSA_PSS_2048_8192_SHA384,
+                    "PS512" => &signature::RSA_PSS_2048_8192_SHA512,
+                    _ => bail!("unsupported alg {alg} for an RSA key"),
+                };
+                let (n, e) = (part("n")?, part("e")?);
+                signature::RsaPublicKeyComponents { n: &n, e: &e }
+                    .verify(params, message, sig)
+                    .is_ok()
+            }
+            "OKP" => {
+                if key["crv"] != "Ed25519" || alg != "EdDSA" {
+                    bail!("unsupported OKP key (must be Ed25519 with EdDSA)");
+                }
+                let x = part("x")?;
+                signature::UnparsedPublicKey::new(&signature::ED25519, &x)
+                    .verify(message, sig)
+                    .is_ok()
+            }
+            other => bail!("unsupported key type {other:?} (must be RSA or OKP)"),
+        };
+        if !valid {
+            bail!("the token's signature is invalid");
+        }
+        Ok(())
+    }
 }
 
 pub struct Token {
+    /// The OpenID Connect `id_token`, if the provider sent one.
+    pub id_token: String,
     pub access_token: String,
     pub refresh_token: String,
     pub expiry: String,
@@ -482,21 +674,22 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
     Ok(body)
 }
 
+/// GETs JSON, with the access token if there's one (none for the JWKS).
 async fn get_json(url: &str, access_token: &str) -> Result<Value> {
-    let response = client()
+    let mut request = client()
         .get(url)
         .timeout(TIMEOUT)
-        .bearer_auth(access_token)
-        .header("accept", "application/json")
-        .send()
-        .await
-        .context("user info request failed")?;
+        .header("accept", "application/json");
+    if !access_token.is_empty() {
+        request = request.bearer_auth(access_token);
+    }
+    let response = request.send().await.context("request failed")?;
     let status = response.status();
     let body = read_limited(response, MAX_RESPONSE).await?;
     if !status.is_success() {
-        bail!("the user info endpoint answered {status}");
+        bail!("{url} answered {status}");
     }
-    serde_json::from_slice(&body).context("invalid user info response")
+    serde_json::from_slice(&body).context("invalid JSON response")
 }
 
 /// Downloads a file (an avatar), or `None` if it fails or is too large. The URL comes from
@@ -572,6 +765,224 @@ mod tests {
     }
 
     /// A server that answers every request with `body`.
+    /// A throwaway 2048-bit RSA key (PKCS#1), for signing test tokens only.
+    const TEST_RSA_KEY: &str = concat!(
+        "MIIEpAIBAAKCAQEA0lb4DkAVsOUFmbhzORokgrGN0a/lgUBm82CTmMrcth4S+bPjSz5q7ns93OZMFvjYa9KKwwvy6e4YU3bR",
+        "IGB8S1OZfZi1bXIhzyHJH5IRskLim2kaCaFGSJWys7GILfA24uc+pTv/NH00ZFemcUfs0uIaS/yUvdF+Bd+4v9SSGC0K7JRm",
+        "5rubs2ZjoUoscbqZ7tdfGi949Od/Z9fDTQZUEcSViGlL71bUhDfKJli+gcgx+CrHjT9VnscvoNgVCuNxtFkTh5yR5bTbhgbX",
+        "o0881LvQ/MW0f+oH1Y+E/tm2DwodDTAbaHbBk53+RpEIlBudatnUbfdPFZDe87JvXMl39QIDAQABAoIBAAXYLspOk4u3wWEV",
+        "E/aJOGx9PICQD6N4w6ONkmxTbrCMw2A21GD52gTIXd6uc3zL60+LqRlkUpqXaAuhqIvqwmlhaElqHdhtrGzR9oGvEFjQrPU+",
+        "hV+xIH/R0QZXL35/Rzckz8PNl/jAZd1H5jMNmZH+gFaOLR/dG1BUeBC0el67jLrCo+1LezpXmbHhnRlcjvYHEP8h+EHb1qkX",
+        "hcgkwyI8dykn4a0WQ03+l8/OMl7jfGsAvFrceKzUTysq3ZptG1zf/TTqfEFRCX6ZWlf4+ZRJ8PTBPINZIrtwhRFTfQlubJ9u",
+        "vRM//DwtPm9WSAOVHsrYyvjFtopZQ9R6Vl9rSkECgYEA++cETgNQjCXezqYPV0HEnq2uR6NM5BFjBRu9MqiDNRgclqH3PJ2M",
+        "PlTtl+PxX2E221kcXqx5WrjgK4/jLc1Xuda/PVTmnUb0JzpEuSehdZD+AO58BXuLiiwwrySSVAkUSzM6COf6Fx9fcOvQqoBK",
+        "hEztIcqjX5vpZk4dbj01OGUCgYEA1cLf/efcA+jKomjXKa5AcdLMuc8I59s1rcKWt31+lVh3BG+l0VPEoI02isUk2fvlXQT0",
+        "6f0yAyZuiY1d80oZLGkmREmHQhvUaY6yYca0cuDWzUlyIjZTO6XSCpe0kG05JqR9PamHSCoXGmrRVB1/gf7qDV/kjOshnKwG",
+        "eaLuIFECgYBPbevckYz/dB2KebBSqklOY6OVsTdYnubjQHjrFVmyDzVMhivIcEE9klgM0fJVSfkbN0EL1US6x5rgAZH36kzk",
+        "K4PH2hKRu0LXb7clzwpJYPvG3Ww76lX4rrB3OYfueaJth+yfzE3+poTYvXLhoGxexUbspdHYHvh8qtr63NAARQKBgQDU3GrK",
+        "31ETP4RROA9SfSfFcMHXIZhfscWBU21cKQadV2ulKjy39y+tJRG0HF73BsS+3Um5nB1qT6HxLanps9bfh5HInGOpbCcYOjXd",
+        "8c4NO2ILKOETun8lvZksXSc8TteDaHciqSeCsA8zij0LAxjO7XZKfTwNK7Pb3N3R0HJKEQKBgQDo+r/7Q+ruFkQT2lQTO6Xr",
+        "dG1U7ySAUjKWxYbhAy6dJq5Q7Z3rdLyH3ANp/TDoUfLGIC0qXrkDGUYbmObtz5XAjq1DhkRdVoZ4VZJ9yoSioBd2QZGp1owW",
+        "/AObdAyrqwXSRxNkcdzw0WbqKBVN0JXOqyfELgbReR8t8J9Q0j+FrQ==",
+    );
+
+    fn b64(data: &[u8]) -> String {
+        B64.encode(data)
+    }
+
+    /// A JWT with the claims, signed by `sign` (given `header.payload`).
+    fn jwt(header: Value, claims: Value, sign: impl Fn(&[u8]) -> Vec<u8>) -> String {
+        let signed = format!(
+            "{}.{}",
+            b64(header.to_string().as_bytes()),
+            b64(claims.to_string().as_bytes())
+        );
+        let signature = sign(signed.as_bytes());
+        format!("{signed}.{}", b64(&signature))
+    }
+
+    fn rsa_key() -> ring::signature::RsaKeyPair {
+        let der = base64::engine::general_purpose::STANDARD
+            .decode(TEST_RSA_KEY)
+            .unwrap();
+        ring::signature::RsaKeyPair::from_der(&der).unwrap()
+    }
+
+    fn rs256(key: &ring::signature::RsaKeyPair, message: &[u8]) -> Vec<u8> {
+        let mut sig = vec![0; key.public().modulus_len()];
+        key.sign(
+            &ring::signature::RSA_PKCS1_SHA256,
+            &ring::rand::SystemRandom::new(),
+            message,
+            &mut sig,
+        )
+        .unwrap();
+        sig
+    }
+
+    /// Serves a JSON body at a local URL.
+    async fn serve_json(body: String) -> String {
+        let body: &'static str = Box::leak(body.into_boxed_str());
+        serve(body).await.replace("/avatar.png", "/jwks")
+    }
+
+    fn oidc(extra: Value) -> Provider {
+        Provider::new(&OAuth2Provider {
+            name: "oidc".into(),
+            client_id: "client-1".into(),
+            auth_url: "https://id.example.com/auth".into(),
+            token_url: "https://id.example.com/token".into(),
+            extra: extra.as_object().unwrap().clone(),
+            ..Default::default()
+        })
+        .unwrap()
+    }
+
+    const NOW: i64 = 1_800_000_000;
+
+    #[tokio::test]
+    async fn id_token_claims() {
+        let unsigned = |claims: Value| jwt(json!({ "alg": "none" }), claims, |_| b"x".to_vec());
+        let provider = oidc(json!({}));
+        let good = json!({ "sub": "u1", "aud": "client-1", "exp": NOW + 60, "iat": NOW, "email": "a@x.com", "email_verified": true });
+        let claims = provider
+            .id_token_claims(&unsigned(good.clone()), NOW)
+            .await
+            .unwrap();
+        assert_eq!(claims["sub"], "u1");
+        let user = extract(Kind::Oidc, &claims);
+        assert_eq!((user.id.as_str(), user.email.as_str()), ("u1", "a@x.com"));
+
+        let with = |patch: Value| {
+            let mut c = good.clone();
+            for (k, v) in patch.as_object().unwrap() {
+                c[k] = v.clone();
+            }
+            unsigned(c)
+        };
+        // fine: a list audience, times within the leeway, no exp at all
+        for ok in [
+            json!({ "aud": ["other", "client-1"] }),
+            json!({ "exp": NOW - 200 }),
+            json!({ "iat": NOW + 200, "nbf": NOW + 200 }),
+            json!({ "exp": null }),
+        ] {
+            assert!(
+                provider
+                    .id_token_claims(&with(ok.clone()), NOW)
+                    .await
+                    .is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            json!({ "aud": "other" }),
+            json!({ "aud": null }),
+            json!({ "aud": ["other"] }),
+            json!({ "exp": NOW - 301 }),
+            json!({ "exp": "soon" }),
+            json!({ "nbf": NOW + 301 }),
+            json!({ "iat": NOW + 301 }),
+        ] {
+            assert!(
+                provider
+                    .id_token_claims(&with(bad.clone()), NOW)
+                    .await
+                    .is_err(),
+                "{bad}"
+            );
+        }
+        for bad in ["", "a.b", "a.b.c", "e30.e30"] {
+            assert!(provider.id_token_claims(bad, NOW).await.is_err(), "{bad}");
+        }
+
+        // issuers, as a list or a space-separated string
+        let token = with(json!({ "iss": "https://id.example.com" }));
+        for issuers in [
+            json!(["https://id.example.com"]),
+            json!("https://other https://id.example.com"),
+        ] {
+            let provider = oidc(json!({ "issuers": issuers }));
+            assert!(provider.id_token_claims(&token, NOW).await.is_ok());
+        }
+        let provider = oidc(json!({ "issuers": ["https://other"] }));
+        assert!(provider.id_token_claims(&token, NOW).await.is_err());
+        assert!(
+            provider
+                .id_token_claims(&unsigned(good), NOW)
+                .await
+                .is_err(),
+            "no iss"
+        );
+    }
+
+    #[tokio::test]
+    async fn id_token_signatures() {
+        use ring::signature::KeyPair;
+        let rsa = rsa_key();
+        let components: ring::rsa::PublicKeyComponents<Vec<u8>> = rsa.public().into();
+        let ed = ring::signature::Ed25519KeyPair::from_pkcs8(
+            ring::signature::Ed25519KeyPair::generate_pkcs8(&ring::rand::SystemRandom::new())
+                .unwrap()
+                .as_ref(),
+        )
+        .unwrap();
+        let jwks = json!({ "keys": [
+            { "kty": "RSA", "kid": "r1", "alg": "RS256", "use": "sig", "n": b64(&components.n), "e": b64(&components.e) },
+            { "kty": "RSA", "kid": "noalg", "n": b64(&components.n), "e": b64(&components.e) },
+            { "kty": "OKP", "kid": "e1", "alg": "EdDSA", "crv": "Ed25519", "x": b64(ed.public_key().as_ref()) },
+        ] });
+        let url = serve_json(jwks.to_string()).await;
+        let provider = oidc(json!({ "jwksURL": url }));
+        let claims = json!({ "sub": "u1", "aud": "client-1", "exp": NOW + 60 });
+
+        let token = jwt(
+            json!({ "alg": "RS256", "kid": "r1" }),
+            claims.clone(),
+            |m| rs256(&rsa, m),
+        );
+        assert!(provider.id_token_claims(&token, NOW).await.is_ok());
+        let token = jwt(
+            json!({ "alg": "EdDSA", "kid": "e1" }),
+            claims.clone(),
+            |m| ed.sign(m).as_ref().to_vec(),
+        );
+        assert!(provider.id_token_claims(&token, NOW).await.is_ok());
+
+        // tampered claims, the wrong key, another alg, no kid, a key without alg
+        let (head, rest) = token.split_once('.').unwrap();
+        let (_, sig) = rest.split_once('.').unwrap();
+        let forged = format!(
+            "{head}.{}.{sig}",
+            b64(json!({ "sub": "admin", "aud": "client-1" })
+                .to_string()
+                .as_bytes())
+        );
+        for (header, sign_rsa) in [
+            (json!({ "alg": "RS256", "kid": "e1" }), true),
+            (json!({ "alg": "RS512", "kid": "r1" }), true),
+            (json!({ "alg": "RS256" }), true),
+            (json!({ "alg": "RS256", "kid": "noalg" }), true),
+            (json!({ "alg": "RS256", "kid": "r1" }), false),
+        ] {
+            let token = jwt(header.clone(), claims.clone(), |m| {
+                if sign_rsa {
+                    rs256(&rsa, m)
+                } else {
+                    ed.sign(m).as_ref().to_vec()
+                }
+            });
+            assert!(
+                provider.id_token_claims(&token, NOW).await.is_err(),
+                "{header} {sign_rsa}"
+            );
+        }
+        assert!(
+            provider.id_token_claims(&forged, NOW).await.is_err(),
+            "forged"
+        );
+    }
+
     async fn serve(body: &'static str) -> String {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

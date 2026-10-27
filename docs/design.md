@@ -298,8 +298,21 @@ Superusers can use OTP and MFA like any auth collection (the dashboard's sign-in
 code); `slonbase superuser otp <email>` issues an OTP without email (stored like a sent one,
 single use), so MFA can't lock out an installation without SMTP.
 
-**Not yet:** OIDC `id_token` validation (the user info endpoint is
-used instead), and Apple's and the other PocketBase presets.
+**OpenID Connect without a user info URL** reads the user from the token response's
+`id_token`, validated as PocketBase validates it:
+
+- the audience (`aud`, a string or a list) must include the client id;
+- `exp`, `nbf` and `iat`, when present, must hold within 5 minutes of leeway;
+- with the `issuers` extra option (a list, or space-separated), `iss` must be one of them;
+- with the `jwksURL` extra option, the signature is verified with the key of the token's `kid`
+  from that key set, whose `alg` must be the token's: RSA (`RS256`/`384`/`512`,
+  `PS256`/`384`/`512`) or Ed25519 (`EdDSA`), with `ring`.
+
+Without `jwksURL` the signature isn't checked: the token came straight from the provider's token
+endpoint over TLS, which OpenID Connect allows to stand in for it. With a user info URL, the user
+comes from that endpoint and the `id_token` isn't used.
+
+**Not yet:** Apple's and the other PocketBase presets.
 
 ### Phase 3: realtime and multi-instance sync
 
