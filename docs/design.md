@@ -615,7 +615,15 @@ exports what it owns itself:
 - Downloads need a superuser file token (and an allowed IP); uploads are streamed to disk, have no
   size limit, and must contain a valid manifest.
 
-**Not yet:** encryption at rest. (PocketBase backups aren't restored as backups, but
+**Encryption at rest** (`backups.encryption_key`, `src/backup_crypt.rs`): the finished zip is
+sealed before it's stored, streaming, in 64 KiB chunks with AES-256-GCM (`ring`) under a key
+derived with PBKDF2-HMAC-SHA256 (600,000 iterations, a random 16-byte salt). The header (magic
+`SLONBENC`, format, iterations, salt, a random 7-byte nonce prefix) is authenticated with every
+chunk, and a chunk's nonce is the prefix, its number and a last-chunk flag, so reordering,
+dropping, truncating or changing anything fails. Encrypted backups keep their `.zip` names
+(clients expect them) and are recognized by their magic: restores and uploads decrypt them into
+the temporary directory first. The key is configuration, not a setting, so it's never inside
+the backups it protects. (PocketBase backups aren't restored as backups, but
 `slonbase import-pocketbase` takes a PocketBase backup zip.)
 
 ### Phase 4e: batch requests

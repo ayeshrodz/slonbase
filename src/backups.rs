@@ -356,9 +356,59 @@ async fn create_locked(core: &Core, name: &str, target: &Storage) -> Result<()> 
         write_zip(&archive_path, &manifest, &dir, local_files.as_deref())
     })
     .await??;
-    target.put_file(name, &archive).await?;
-    tracing::info!(backup = %name, elapsed = ?started.elapsed(), "created a backup");
+    let stored = sealed(core, &archive).await?;
+    target.put_file(name, &stored).await?;
+    tracing::info!(
+        backup = %name,
+        encrypted = core.backup_key.is_some(),
+        elapsed = ?started.elapsed(),
+        "created a backup"
+    );
     Ok(())
+}
+
+/// The file to store for an archive: encrypted with the backups encryption key, when there's
+/// one (see [`crate::backup_crypt`]).
+async fn sealed(core: &Core, archive: &Path) -> Result<PathBuf> {
+    let Some(key) = core.backup_key.clone() else {
+        return Ok(archive.to_path_buf());
+    };
+    let (src, dst) = (archive.to_path_buf(), archive.with_extension("enc"));
+    let out = dst.clone();
+    tokio::task::spawn_blocking(move || crate::backup_crypt::encrypt_file(&src, &out, &key))
+        .await??;
+    Ok(dst)
+}
+
+/// The archive of a stored or uploaded backup: the file itself, or decrypted next to it when
+/// it's encrypted.
+async fn opened(core: &Core, file: &Path) -> Result<PathBuf, BackupError> {
+    let key = core.backup_key.clone();
+    let file = file.to_path_buf();
+    tokio::task::spawn_blocking(move || -> Result<PathBuf, BackupError> {
+        if !crate::backup_crypt::is_encrypted(&file).map_err(BackupError::Other)? {
+            return Ok(file);
+        }
+        let key = key.ok_or_else(|| {
+            BackupError::Invalid(
+                "The backup is encrypted: set the backups encryption key \
+                 (SLONBASE_BACKUPS_ENCRYPTION_KEY) to restore it."
+                    .into(),
+            )
+        })?;
+        let archive = file.with_extension("decrypted.zip");
+        match crate::backup_crypt::decrypt_file(&file, &archive, &key) {
+            Ok(()) => Ok(archive),
+            Err(crate::backup_crypt::DecryptError::Rejected) => Err(BackupError::Invalid(
+                "The backup couldn't be decrypted: the encryption key is wrong, or the file \
+                 is damaged."
+                    .into(),
+            )),
+            Err(crate::backup_crypt::DecryptError::Other(e)) => Err(BackupError::Other(e)),
+        }
+    })
+    .await
+    .map_err(|e| BackupError::Other(e.into()))?
 }
 
 fn write_zip(path: &Path, manifest: &Manifest, dir: &Path, files: Option<&Path>) -> Result<()> {
@@ -538,6 +588,7 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
         }
         file.flush().await.map_err(anyhow::Error::from)?;
     }
+    let archive = opened(core, &archive).await?;
     let (path, dir) = (archive.clone(), tmp.0.clone());
     let manifest = tokio::task::spawn_blocking(move || -> Result<Manifest, BackupError> {
         let manifest = read_manifest(&path)?;
@@ -860,10 +911,17 @@ pub async fn upload(
         );
         ApiError::invalid_data("Failed to upload the backup.", &errors)
     })?;
-    let check = path.clone();
-    tokio::task::spawn_blocking(move || read_manifest(&check))
+    let archive = opened(&core, &path).await?;
+    tokio::task::spawn_blocking(move || read_manifest(&archive))
         .await
         .map_err(|e| ApiError::internal(e.into()))??;
+    // kept as uploaded when it's encrypted, else encrypted like new backups (with a key)
+    let encrypted = crate::backup_crypt::is_encrypted(&path).map_err(ApiError::internal)?;
+    let path = if encrypted {
+        path
+    } else {
+        sealed(&core, &path).await.map_err(ApiError::internal)?
+    };
     let target = storage(&core);
     if target.exists(&name).await.map_err(ApiError::internal)? {
         return Err(ApiError::bad_request(format!(

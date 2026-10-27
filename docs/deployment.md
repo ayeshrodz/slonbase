@@ -138,7 +138,8 @@ There are two complementary ways to back up:
 - **slonbase backups** (dashboard → Backups, `/api/backups`, or `backups.cron`) are zip files with
   every collection, the settings and the local files. They're portable between servers and
   PostgreSQL versions, and are restored from the dashboard or with
-  `POST /api/backups/{key}/restore`. Keep them off the server with `backups.s3`.
+  `POST /api/backups/{key}/restore`. Keep them off the server with `backups.s3`, and encrypt
+  them with a [backups encryption key](configuration.md#backups) when they leave it.
 - **PostgreSQL backups** (`pg_dump`, `pg_basebackup`, WAL archiving, or your provider's
   snapshots) cover the whole database, with point-in-time recovery if you need it. Back up the
   storage directory (or bucket) alongside them.

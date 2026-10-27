@@ -69,6 +69,16 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_BACKUPS_PATH")]
     backups_path: Option<PathBuf>,
 
+    /// Encrypt new backups with this passphrase (at least 12 characters), which restoring
+    /// them needs. Prefer the env var, which stays out of the process list.
+    #[arg(
+        long,
+        global = true,
+        env = "SLONBASE_BACKUPS_ENCRYPTION_KEY",
+        hide_env_values = true
+    )]
+    backups_encryption_key: Option<String>,
+
     /// Enable the dashboard's SQL console (runs any SQL with the database role's privileges).
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
@@ -225,6 +235,13 @@ enum Command {
         #[command(subcommand)]
         action: MigrateAction,
     },
+    /// Decrypt an encrypted backup into its zip archive, with the backups encryption key.
+    DecryptBackup {
+        /// The encrypted backup.
+        input: PathBuf,
+        /// Where to write the archive.
+        output: PathBuf,
+    },
 }
 
 /// Runs the command line (`serve`, `setup`, `health`) with the given extensions. Logs go
@@ -270,6 +287,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         ca_file: cli.database_ca_file,
         storage_path: cli.storage_path,
         backups_path: cli.backups_path,
+        backups_encryption_key: cli.backups_encryption_key,
         sql_console: cli.sql_console.then_some(true),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
@@ -317,6 +335,23 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         Command::Project { action } => {
             let loaded = config::load(&cli.config, overrides)?;
             project_command(loaded, action).await
+        }
+        Command::DecryptBackup { input, output } => {
+            let loaded = config::load(&cli.config, overrides)?;
+            let key = loaded.effective.backups.encryption_key.context(
+                "no backups encryption key: set SLONBASE_BACKUPS_ENCRYPTION_KEY or backups.encryption_key",
+            )?;
+            tokio::task::spawn_blocking(move || {
+                crate::backup_crypt::decrypt_file(&input, &output, &key).map_err(|e| match e {
+                    crate::backup_crypt::DecryptError::Rejected => anyhow::anyhow!(
+                        "the backup couldn't be decrypted: wrong key, or a damaged file"
+                    ),
+                    crate::backup_crypt::DecryptError::Other(e) => e,
+                })
+            })
+            .await??;
+            println!("Decrypted the backup.");
+            Ok(())
         }
         Command::Migrate { action } => {
             let (core, cfg) =

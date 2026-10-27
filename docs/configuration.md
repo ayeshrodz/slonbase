@@ -25,6 +25,7 @@ file, and then the defaults.
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
 | `--backups-path` | `SLONBASE_BACKUPS_PATH` | `backups.path` | `slonbase_data/backups` |
+| `--backups-encryption-key` | `SLONBASE_BACKUPS_ENCRYPTION_KEY` | `backups.encryption_key` | none (not encrypted) |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
@@ -58,6 +59,7 @@ path = "slonbase_data/storage"
 
 [backups]
 path = "slonbase_data/backups"
+# encryption_key = "..."   # encrypts new backups; prefer SLONBASE_BACKUPS_ENCRYPTION_KEY
 
 [hooks]
 dir = "slonbase_hooks"
@@ -194,6 +196,15 @@ key, so tokens issued after the backup stop working.
 Backups are kept in `--backups-path`, or in an S3 bucket (`backups.s3`). `backups.cron`
 (e.g. `0 3 * * *`, UTC) creates them automatically, and `backups.cronMaxKeep` limits how many are
 kept. See [deployment](deployment.md#backups) for how they fit with PostgreSQL's own backups.
+
+**Encryption.** With a backups encryption key (`SLONBASE_BACKUPS_ENCRYPTION_KEY`, at least 12
+characters), new backups are encrypted (AES-256-GCM, with a key derived from the passphrase), so
+a copy in a bucket or on a laptop reveals nothing without it. They keep their names, download
+encrypted, and restore on any installation with the same key; a plain backup uploaded there is
+stored encrypted. Restoring needs the key: keep it somewhere other than the backups (a password
+manager or your secrets store), because a lost key can't be recovered. The key lives in the
+configuration, never in the database, since the database is what's backed up.
+`slonbase decrypt-backup <backup> <archive.zip>` turns an encrypted backup back into its zip.
 
 ### Auth alerts
 

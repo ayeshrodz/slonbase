@@ -12,6 +12,11 @@ changes, and they'll be listed here.
 - **A custom CA for S3 and other outbound HTTPS:** `--http-ca-file` (`SLONBASE_HTTP_CA_FILE`,
   `server.http_ca_file`) trusts a PEM bundle's certificates besides the public roots, for S3
   servers (and OAuth2 providers) with certificates from a private CA.
+- **Encrypted backups:** with a backups encryption key (`SLONBASE_BACKUPS_ENCRYPTION_KEY`,
+  `backups.encryption_key`), new backups are encrypted with AES-256-GCM before they're stored,
+  locally or in S3, and anything changed or cut short fails to restore. Restores and uploads
+  decrypt them; a plain backup uploaded to such an installation is stored encrypted.
+  `slonbase decrypt-backup` turns one back into its zip.
 - **Multipart S3 uploads:** files over 64 MiB, such as backups, are uploaded in parts, each
   retried on its own, so large backups no longer depend on one long request and can pass the
   5 GiB a single S3 upload allows. A failed upload is aborted, leaving no parts behind.

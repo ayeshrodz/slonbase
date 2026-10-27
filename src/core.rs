@@ -28,6 +28,8 @@ pub struct Core {
     pub realtime: Hub,
     /// The directory for backups (unless they're stored in S3).
     pub backups_dir: PathBuf,
+    /// Encrypts new backups (`backups.encryption_key`).
+    pub(crate) backup_key: Option<String>,
     /// Held while a backup is created or restored on this instance.
     pub backup_lock: tokio::sync::Mutex<()>,
     /// Rate limit counters of this instance.
@@ -133,6 +135,7 @@ impl Core {
             logs,
             rate_limiter: Default::default(),
             backups_dir: config.backups.path.clone(),
+            backup_key: config.backups.encryption_key.clone(),
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,

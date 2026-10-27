@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 pub mod app;
 pub mod auth;
+pub mod backup_crypt;
 pub mod backups;
 pub mod cli;
 pub mod collections;

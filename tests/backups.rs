@@ -495,3 +495,130 @@ async fn backups_in_s3() {
     drop(app);
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn encrypted_backups() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let key = "a long test passphrase";
+    let (app, token, dir) = ready_app_configured(&tdb, Default::default(), |o| {
+        o.backups_encryption_key = Some(key.into())
+    })
+    .await;
+    let (status, _) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "notes", "fields": [{ "name": "text", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (_, note) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/collections/notes/records",
+        Some(json!({ "text": "a secret note" })),
+    )
+    .await;
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/backups",
+        Some(json!({ "name": "sealed.zip" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+
+    // stored, and downloaded, encrypted
+    let stored = std::fs::read(dir.path().join("backups/sealed.zip")).unwrap();
+    assert!(stored.starts_with(slonbase::backup_crypt::MAGIC));
+    let archive = download(&app, &token, "sealed.zip").await;
+    assert_eq!(archive, stored);
+
+    // restored with the key
+    admin(
+        &app,
+        &token,
+        "DELETE",
+        &format!(
+            "/api/collections/notes/records/{}",
+            note["id"].as_str().unwrap()
+        ),
+        None,
+    )
+    .await;
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/backups/sealed.zip/restore",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (_, list) = admin(&app, &token, "GET", "/api/collections/notes/records", None).await;
+    assert_eq!(list["items"][0]["text"], "a secret note");
+
+    // another installation needs the same key
+    let Some(other_db) = TestDb::create().await else {
+        return;
+    };
+    let (other, other_token, _other_dir) = ready_app(&other_db).await;
+    let (status, res) = upload_backup(&other, &other_token, "sealed.zip", &archive).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        res["message"].as_str().unwrap().contains("encrypted"),
+        "{res}"
+    );
+    let Some(third_db) = TestDb::create().await else {
+        return;
+    };
+    let (third, third_token, _third_dir) =
+        ready_app_configured(&third_db, Default::default(), |o| {
+            o.backups_encryption_key = Some("a different passphrase".into())
+        })
+        .await;
+    let (status, res) = upload_backup(&third, &third_token, "sealed.zip", &archive).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        res["message"]
+            .as_str()
+            .unwrap()
+            .contains("couldn't be decrypted"),
+        "{res}"
+    );
+
+    // a plain backup uploaded where there's a key is stored encrypted
+    let (status, _) = admin(
+        &other,
+        &other_token,
+        "POST",
+        "/api/backups",
+        Some(json!({ "name": "plain.zip" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let plain = download(&other, &other_token, "plain.zip").await;
+    assert!(plain.starts_with(b"PK"));
+    let (status, res) = upload_backup(&app, &token, "plain.zip", &plain).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let stored = std::fs::read(dir.path().join("backups/plain.zip")).unwrap();
+    assert!(stored.starts_with(slonbase::backup_crypt::MAGIC));
+
+    // a short key is refused at startup
+    let (_config, path) = temp_config();
+    let overrides = slonbase::config::Overrides {
+        backups_encryption_key: Some("short".into()),
+        ..Default::default()
+    };
+    assert!(slonbase::config::load(&path, overrides).is_err());
+
+    drop((app, other, third));
+    tdb.drop_db().await;
+    other_db.drop_db().await;
+    third_db.drop_db().await;
+}

@@ -90,12 +90,17 @@ impl Default for HooksConfig {
 pub struct BackupsConfig {
     /// Directory for backups (unless the settings store them in S3).
     pub path: PathBuf,
+    /// Encrypts new backups with this passphrase (AES-256-GCM); it's needed to restore them.
+    /// Kept out of the database, since the database is what's backed up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption_key: Option<String>,
 }
 
 impl Default for BackupsConfig {
     fn default() -> Self {
         Self {
             path: PathBuf::from("slonbase_data/backups"),
+            encryption_key: None,
         }
     }
 }
@@ -186,6 +191,7 @@ pub struct Overrides {
     pub ca_file: Option<PathBuf>,
     pub storage_path: Option<PathBuf>,
     pub backups_path: Option<PathBuf>,
+    pub backups_encryption_key: Option<String>,
     pub sql_console: Option<bool>,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
@@ -245,6 +251,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(path) = overrides.backups_path {
         effective.backups.path = path;
+    }
+    if let Some(key) = overrides.backups_encryption_key {
+        effective.backups.encryption_key = Some(key);
+    }
+    if let Some(key) = effective.backups.encryption_key.as_deref() {
+        crate::backup_crypt::check_key(key)?;
     }
     if let Some(enabled) = overrides.sql_console {
         effective.server.sql_console = enabled;
