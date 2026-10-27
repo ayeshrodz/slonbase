@@ -7,6 +7,15 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **`strftime()` in filters and rules:** `strftime(format, [time-value, modifiers...])`
+  formats a date as SQLite's strftime does, as in PocketBase, e.g.
+  `strftime('%Y-%m', created) = '2026-01'`. Every format code, time value and modifier
+  behaves as in SQLite 3.53 (PocketBase 0.40's), checked against it on tens of thousands of
+  cases. On date fields the common formats compile to PostgreSQL's `to_char()`, so filtering
+  stays fast. Function calls now take up to 10 arguments.
+
 ### Changed
 
 - **slonbase on its own terms:** the README, the landing page, the docs, the package

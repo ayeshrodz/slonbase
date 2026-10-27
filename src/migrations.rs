@@ -74,6 +74,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "instances",
         sql: include_str!("../migrations/0011_instances.sql"),
     },
+    Migration {
+        version: 12,
+        name: "strftime",
+        sql: include_str!("../migrations/0012_strftime.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

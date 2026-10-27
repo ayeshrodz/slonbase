@@ -179,7 +179,6 @@ request a guest request, as in PocketBase.
 **Differences from PocketBase so far:**
 - Field names can't start with `_` (reserved for internal columns).
 - `autogeneratePattern` supports only the `[charset]{n}` form.
-- Filters support `geoDistance()` but not yet `strftime()`.
 
 Relation paths, `expand`, `@collection`, auth and view collections, file fields and multipart
 bodies, all missing in this phase, came in later phases (below).
@@ -765,6 +764,28 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
   device sends `authAlert.emailTemplate` (`{ALERT_INFO}`: time, IP, user agent) unless it's the
   record's first known device. The last 5 are kept; a failure here is logged and never blocks
   the sign-in. Unlike PocketBase, origins aren't a `_authOrigins` collection yet.
+
+### `strftime()` in filters
+
+PocketBase's filters expose SQLite's `strftime(format, [time-value, modifiers...])`, so filters
+and rules written for it use SQLite's time values, modifiers and format codes. slonbase
+reproduces them exactly rather than mapping to PostgreSQL's date functions, whose results differ
+(SQLite's month arithmetic overflows into the next month, numbers are Julian days, invalid input
+gives NULL, and so on):
+
+- `_slonbase.strftime(format, value, modifiers, now_ms)` (migration 12) is a PL/pgSQL port of
+  SQLite's `date.c`: a time is a Julian day in milliseconds and/or its fields, with SQLite's
+  parsing, rounding, error handling and printf. `localtime` and `utc` take the server's zone to
+  be UTC. `now` is the request's time. It is checked against SQLite 3.53 (the version PocketBase
+  0.40 bundles) on tens of thousands of random cases; `tests/strftime_cases.tsv` keeps a
+  sample of SQLite's results for CI.
+- That function costs ~50 µs a row, so date fields with the common format codes and modifiers
+  (`+N days|hours|minutes|seconds|months|years`, `start of ...`, `weekday N`) compile to
+  `to_char()` and interval arithmetic instead (~0.6 µs a row), guarded to years 2-9999 where
+  both calendars agree, with the function as the fallback. `tests/strftime_date_cases.tsv`
+  checks that both give SQLite's results.
+- NULL results are `''`, as in PocketBase. Multi-valued relation paths give multi-valued
+  results (`strftime('%Y', tags.created) ?= '2024'`).
 
 ### PocketBase import
 

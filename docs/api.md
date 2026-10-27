@@ -123,7 +123,13 @@ Filters and rules share one small expression language:
   `@collection.members.post = id && @collection.members.user = @request.auth.id` (true when some
   row of `members` matches; each alias is a separate row, up to 6 per expression);
 - `geoDistance(lonA, latA, lonB, latB)` in kilometers, e.g.
-  `geoDistance(loc.lon, loc.lat, 23.32, 42.69) < 25`.
+  `geoDistance(loc.lon, loc.lat, 23.32, 42.69) < 25`;
+- `strftime(format, [time, modifiers...])`, which formats a date as
+  [SQLite's strftime](https://sqlite.org/lang_datefunc.html) does, with its format codes and
+  modifiers, e.g. `strftime('%Y-%m', created) = '2026-01'` or
+  `strftime('%w', due, '+1 day') = '0'`. The time is a date, a field or a number (a Julian day,
+  or Unix time with `'unixepoch'`), and the current time if left out. It returns `''` when the
+  time or a modifier isn't valid.
 
 A rule of `null` allows superusers only, and `""` allows anyone. Filters are compiled to
 parameterized SQL, so PostgreSQL's planner and your indexes do the work.

@@ -541,8 +541,171 @@ impl Compiler<'_, '_> {
                     nullable: false,
                 })
             }
+            "strftime" => self.strftime(args),
             other => fail(format!("unknown function {other}()")),
         }
+    }
+
+    /// `strftime(format, [time-value, modifiers...])`: SQLite's strftime, which PocketBase's
+    /// filters expose (`_slonbase.strftime`), with NULL results as `''`. Date fields with the
+    /// common formats and modifiers compile to `to_char()` instead, which is much faster.
+    fn strftime(&mut self, args: &[Operand]) -> Result<Val, CompileError> {
+        let Some(Operand::Text(format_text)) = args.first() else {
+            return fail("strftime() takes a format string first");
+        };
+        if args.len() > 10 {
+            return fail("strftime() takes at most 10 arguments");
+        }
+        let mut modifier_texts = Vec::new();
+        for arg in args.iter().skip(2) {
+            let Operand::Text(modifier) = arg else {
+                return fail("strftime() modifiers must be strings");
+            };
+            modifier_texts.push(modifier.as_str());
+        }
+        let format = self.params.push(format_text.clone());
+        let modifiers: Vec<String> = modifier_texts
+            .iter()
+            .map(|m| self.params.push(*m))
+            .collect();
+        let modifiers = format!("ARRAY[{}]::text[]", modifiers.join(", "));
+        let now = format!(
+            "({})::bigint",
+            self.params
+                .push(self.scope.request.now.timestamp_millis().to_string())
+        );
+        let plan = strftime_plan(format_text, &modifier_texts);
+        let call = |c: &mut Self, value: &str, ty: Ty| {
+            let slow = format!(
+                "coalesce(_slonbase.strftime({format}, {}, {modifiers}, {now}), '')",
+                scalar_text(value, ty)
+            );
+            match &plan {
+                Some(plan) if ty == Ty::Date => c.strftime_fast(plan, value, &slow),
+                _ => slow,
+            }
+        };
+        let (sql, ty) = match args.get(1) {
+            None => (self.params.push("now"), Ty::Text),
+            Some(Operand::Call { .. }) => {
+                return fail("strftime() takes a date, a number or a field as its time value");
+            }
+            Some(arg) => match self.operand(arg)? {
+                Val::Null => ("NULL::text".to_string(), Ty::Text),
+                // booleans are 1 and 0 to SQLite
+                Val::Lit(Lit::Bool(b)) => (self.params.push(if b { "1" } else { "0" }), Ty::Text),
+                Val::Lit(lit) => (self.params.push(lit_text(&lit)), Ty::Text),
+                Val::Scalar {
+                    sql, ty: Ty::Bool, ..
+                } => (
+                    format!("(CASE WHEN {sql} THEN '1' WHEN NOT {sql} THEN '0' END)"),
+                    Ty::Text,
+                ),
+                Val::Scalar { sql, ty, .. } => (sql, ty),
+                // multi-valued: each value, as a multi-valued result
+                Val::Set { rows, ty } => {
+                    let v = call(self, "__s.v", ty);
+                    return Ok(Val::Set {
+                        rows: format!("SELECT {v} AS v FROM ({rows}) AS __s"),
+                        ty: Ty::Text,
+                    });
+                }
+                Val::Multi { source } => {
+                    let v = call(self, "__s.v", Ty::Text);
+                    return Ok(Val::Set {
+                        rows: format!(
+                            "SELECT {v} AS v FROM jsonb_array_elements_text({source}) AS __s(v)"
+                        ),
+                        ty: Ty::Text,
+                    });
+                }
+                Val::List(json) => {
+                    let json = self.params.push(json);
+                    let v = call(self, "__s.v", Ty::Text);
+                    return Ok(Val::Set {
+                        rows: format!(
+                            "SELECT {v} AS v FROM jsonb_array_elements_text(({json})::jsonb) AS __s(v)"
+                        ),
+                        ty: Ty::Text,
+                    });
+                }
+            },
+        };
+        Ok(Val::Scalar {
+            sql: call(self, &sql, ty),
+            ty: Ty::Text,
+            nullable: false,
+        })
+    }
+
+    /// `strftime()` of a date column with `to_char()`. Every intermediate time must be within
+    /// years 2-9999, where PostgreSQL's calendar and SQLite's agree; `slow` handles the rest.
+    fn strftime_fast(&mut self, plan: &StrftimePlan, column: &str, slow: &str) -> String {
+        let mut times = vec![format!(
+            "date_trunc('milliseconds', ({column}) AT TIME ZONE 'UTC')"
+        )];
+        for shift in &plan.shifts {
+            let x = times.last().unwrap();
+            times.push(match shift {
+                StrftimeShift::By(n, unit) => format!("({x} + interval '{n} {unit}')"),
+                // SQLite's month arithmetic: days past the month's end overflow into the next
+                StrftimeShift::Months(n) => format!(
+                    "(date_trunc('month', {x}) + interval '{n} months' + ({x} - date_trunc('month', {x})))"
+                ),
+                StrftimeShift::StartOf(unit) => format!("date_trunc('{unit}', {x})"),
+                StrftimeShift::Weekday(n) => format!(
+                    "({x} + ((({n} - extract(dow FROM {x})::int) + 7) % 7) * interval '1 day')"
+                ),
+            });
+        }
+        let x = times.last().unwrap().clone();
+        let mut out = Vec::new();
+        let mut pattern = String::new();
+        for piece in &plan.pieces {
+            match piece {
+                StrftimePiece::Pattern(p) => {
+                    // keep adjacent patterns apart ("ID" "DDD" isn't "IDDD")
+                    if !pattern.is_empty() && !pattern.ends_with('"') {
+                        pattern.push_str("\"\"");
+                    }
+                    pattern.push_str(p);
+                }
+                StrftimePiece::Literal(text) => {
+                    pattern.push('"');
+                    for c in text.chars() {
+                        if c == '"' || c == '\\' {
+                            pattern.push('\\');
+                        }
+                        pattern.push(c);
+                    }
+                    pattern.push('"');
+                }
+                StrftimePiece::Expr(expr) => {
+                    if !pattern.is_empty() {
+                        let p = self.params.push(std::mem::take(&mut pattern));
+                        out.push(format!("to_char({x}, {p})"));
+                    }
+                    out.push(expr(&x));
+                }
+            }
+        }
+        if !pattern.is_empty() {
+            let p = self.params.push(pattern);
+            out.push(format!("to_char({x}, {p})"));
+        }
+        let fast = if out.is_empty() {
+            "''".to_string()
+        } else {
+            out.join(" || ")
+        };
+        // each time is checked before the next is computed, so none can overflow
+        let mut result = fast;
+        for t in times.iter().rev() {
+            result = format!(
+                "CASE WHEN {t} >= '0002-01-01' AND {t} < '10000-01-01' THEN {result} ELSE {slow} END"
+            );
+        }
+        format!("CASE WHEN ({column}) IS NULL THEN '' ELSE {result} END")
     }
 
     fn number_arg(&mut self, val: Val, function: &str) -> Result<String, CompileError> {
@@ -1170,6 +1333,140 @@ fn json_val(value: Option<&Value>) -> Val {
     }
 }
 
+/// A `strftime()` that compiles to `to_char()`: its modifiers, then its format.
+struct StrftimePlan {
+    shifts: Vec<StrftimeShift>,
+    pieces: Vec<StrftimePiece>,
+}
+
+enum StrftimeShift {
+    /// `+N days|hours|minutes|seconds`
+    By(i64, &'static str),
+    /// `+N months|years`
+    Months(i64),
+    /// `start of month|year|day`
+    StartOf(&'static str),
+    /// `weekday N`
+    Weekday(i64),
+}
+
+enum StrftimePiece {
+    /// A `to_char()` pattern.
+    Pattern(&'static str),
+    Literal(String),
+    /// SQL of a time.
+    Expr(fn(&str) -> String),
+}
+
+/// The `to_char()` form of a `strftime()`, `None` when it needs the full implementation (other
+/// modifiers and formats, or shifts that could leave PostgreSQL's range).
+fn strftime_plan(format: &str, modifiers: &[&str]) -> Option<StrftimePlan> {
+    if modifiers.len() > 3 {
+        return None;
+    }
+    let mut shifts = Vec::new();
+    for m in modifiers {
+        let m = m.to_ascii_lowercase();
+        let shift = match m.as_str() {
+            // the server's zone is UTC, and the value isn't a number
+            "localtime" | "utc" | "ceiling" => continue,
+            "start of month" => StrftimeShift::StartOf("month"),
+            "start of year" => StrftimeShift::StartOf("year"),
+            "start of day" => StrftimeShift::StartOf("day"),
+            _ => {
+                if let Some(n) = m.strip_prefix("weekday ") {
+                    if !matches!(n.as_bytes(), [b'0'..=b'6']) {
+                        return None;
+                    }
+                    StrftimeShift::Weekday(n.parse().ok()?)
+                } else {
+                    let (number, unit) = m.split_once(' ')?;
+                    let digits = number.strip_prefix(['+', '-']).unwrap_or(number);
+                    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+                        return None;
+                    }
+                    let n: i64 = number.trim_start_matches('+').parse().ok()?;
+                    let unit = unit.trim_start_matches(' ');
+                    let unit = unit.strip_suffix('s').unwrap_or(unit);
+                    // at most ~4,500 years, so no step leaves PostgreSQL's range
+                    let (shift, limit) = match unit {
+                        "second" => (StrftimeShift::By(n, "seconds"), 140_000_000_000),
+                        "minute" => (StrftimeShift::By(n, "minutes"), 2_400_000_000),
+                        "hour" => (StrftimeShift::By(n, "hours"), 40_000_000),
+                        "day" => (StrftimeShift::By(n, "days"), 1_700_000),
+                        "month" => (StrftimeShift::Months(n), 55_000),
+                        "year" => (StrftimeShift::Months(n * 12), 4_600),
+                        _ => return None,
+                    };
+                    if n.abs() >= limit {
+                        return None;
+                    }
+                    shift
+                }
+            }
+        };
+        shifts.push(shift);
+    }
+
+    let mut pieces = Vec::new();
+    let mut literal = String::new();
+    let mut chars = format.chars();
+    while let Some(c) = chars.next() {
+        if c != '%' {
+            literal.push(c);
+            continue;
+        }
+        let piece = match chars.next()? {
+            '%' => {
+                literal.push('%');
+                continue;
+            }
+            'd' => StrftimePiece::Pattern("DD"),
+            'f' => StrftimePiece::Pattern("SS.MS"),
+            'F' => StrftimePiece::Pattern("YYYY-MM-DD"),
+            'G' => StrftimePiece::Pattern("IYYY"),
+            'H' => StrftimePiece::Pattern("HH24"),
+            'I' => StrftimePiece::Pattern("HH12"),
+            'j' => StrftimePiece::Pattern("DDD"),
+            'm' => StrftimePiece::Pattern("MM"),
+            'M' => StrftimePiece::Pattern("MI"),
+            'p' => StrftimePiece::Pattern("AM"),
+            'R' => StrftimePiece::Pattern("HH24:MI"),
+            'S' => StrftimePiece::Pattern("SS"),
+            'T' => StrftimePiece::Pattern("HH24:MI:SS"),
+            'u' => StrftimePiece::Pattern("ID"),
+            'V' => StrftimePiece::Pattern("IW"),
+            'Y' => StrftimePiece::Pattern("YYYY"),
+            'e' => StrftimePiece::Expr(|x| format!("lpad(to_char({x}, 'FMDD'), 2, ' ')")),
+            'k' => StrftimePiece::Expr(|x| format!("lpad(to_char({x}, 'FMHH24'), 2, ' ')")),
+            'l' => StrftimePiece::Expr(|x| format!("lpad(to_char({x}, 'FMHH12'), 2, ' ')")),
+            'P' => StrftimePiece::Expr(|x| format!("lower(to_char({x}, 'AM'))")),
+            'g' => StrftimePiece::Expr(|x| format!("right(to_char({x}, 'IYYY'), 2)")),
+            's' => StrftimePiece::Expr(|x| format!("floor(extract(epoch FROM {x}))::bigint::text")),
+            'w' => StrftimePiece::Expr(|x| format!("extract(dow FROM {x})::int::text")),
+            'U' => StrftimePiece::Expr(|x| {
+                format!(
+                    "lpad(((extract(doy FROM {x})::int + 6 - extract(dow FROM {x})::int) / 7)::text, 2, '0')"
+                )
+            }),
+            'W' => StrftimePiece::Expr(|x| {
+                format!(
+                    "lpad(((extract(doy FROM {x})::int + 6 - (extract(dow FROM {x})::int + 6) % 7) / 7)::text, 2, '0')"
+                )
+            }),
+            _ => return None,
+        };
+        if !literal.is_empty() {
+            pieces.push(StrftimePiece::Literal(std::mem::take(&mut literal)));
+        }
+        pieces.push(piece);
+    }
+    if !literal.is_empty() {
+        pieces.push(StrftimePiece::Literal(literal));
+    }
+    Some(StrftimePlan { shifts, pieces })
+}
+
 fn lit_text(lit: &Lit) -> String {
     match lit {
         Lit::Text(s) => s.clone(),
@@ -1417,6 +1714,70 @@ mod tests {
             "geoDistance(1, 2, 3, 'x') < 1",
             "nope(1) = 1",
             "loc.alt > 1",
+        ] {
+            assert!(
+                crate::filter::to_sql(bad, &scope, &mut Params::default()).is_err(),
+                "{bad}"
+            );
+        }
+    }
+
+    #[test]
+    fn strftime() {
+        let request = RequestInfo::new("GET");
+        let c = collection();
+        let scope = Scope {
+            collection: &c,
+            alias: "t",
+            request: &request,
+            allow_hidden: false,
+        };
+        let mut params = Params::default();
+        let sql = crate::filter::to_sql(
+            "strftime('%Y-%m', published, 'start of month', '+1 month') = '2024-02'",
+            &scope,
+            &mut params,
+        )
+        .unwrap();
+        assert!(
+            sql.contains("coalesce(_slonbase.strftime($1::text, to_char("),
+            "{sql}"
+        );
+        assert!(sql.contains("ARRAY[$2::text, $3::text]::text[]"), "{sql}");
+        // a date field: to_char() first, the full implementation outside years 2-9999
+        assert!(sql.contains("date_trunc('month', "), "{sql}");
+        assert!(sql.contains("interval '1 months'"), "{sql}");
+        assert!(sql.contains("to_char((date_trunc"), "{sql}");
+        assert_eq!(params.0[4].as_deref(), Some("YYYY\"-\"MM"));
+        assert_eq!(
+            params.0.len(),
+            6,
+            "format, modifiers, now, pattern and the literal"
+        );
+        // other values and formats use the full implementation only
+        let mut params = Params::default();
+        let sql =
+            crate::filter::to_sql("strftime('%J', published) = ''", &scope, &mut params).unwrap();
+        assert!(!sql.contains("date_trunc"), "{sql}");
+        let sql = crate::filter::to_sql("strftime('%Y', title) = ''", &scope, &mut params).unwrap();
+        assert!(!sql.contains("date_trunc"), "{sql}");
+        for ok in [
+            "strftime('%Y') = '2024'",
+            "strftime('%s', 0) > 1",
+            "strftime('%Y', @now) = ''",
+        ] {
+            assert!(
+                crate::filter::to_sql(ok, &scope, &mut Params::default()).is_ok(),
+                "{ok}"
+            );
+        }
+        for bad in [
+            "strftime() = ''",
+            "strftime(1) = ''",
+            "strftime(title) = ''",
+            "strftime('%Y', published, 1) = ''",
+            "strftime('%Y', published, title) = ''",
+            "strftime('%Y', strftime('%Y')) = ''",
         ] {
             assert!(
                 crate::filter::to_sql(bad, &scope, &mut Params::default()).is_err(),

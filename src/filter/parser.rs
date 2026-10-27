@@ -61,7 +61,7 @@ pub enum Operand {
 }
 
 /// Most arguments a function takes.
-const MAX_ARGS: usize = 8;
+const MAX_ARGS: usize = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError(pub String);
