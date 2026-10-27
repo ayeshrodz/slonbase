@@ -7,6 +7,15 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Changed
+
+- **slonbase on its own terms:** the README, the landing page, the docs, the package
+  descriptions and `slonbase --help` now describe slonbase as what it is, a backend built from
+  scratch for PostgreSQL ("Your whole backend, built on PostgreSQL"), rather than as
+  PocketBase's API on another database. Compatibility with the PocketBase SDKs, hooks and
+  migrations is unchanged, and is described in one place for people moving an app over.
+- The docs are up to date with 0.6 (the design document's roadmap, stale version notes).
+
 ## [0.6.0] - 2026-10-26
 
 **Realtime for every change, and many instances behind any load balancer.** Realtime events now

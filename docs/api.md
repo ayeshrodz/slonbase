@@ -1,11 +1,10 @@
 # API
 
-slonbase's HTTP API follows [PocketBase's](https://pocketbase.io/docs/api-records/), so its
-documentation and its [JavaScript](https://github.com/pocketbase/js-sdk) and
-[Dart](https://github.com/pocketbase/dart-sdk) SDKs apply. The
-[compatibility suite](../compat/) checks this: it runs the official JavaScript SDK against
-slonbase and against PocketBase itself in CI. The dashboard's API preview shows the endpoints of
-each of your collections.
+slonbase serves a REST API for your collections, auth and files, and a realtime stream of their
+changes. The dashboard's API preview shows the endpoints of each of your collections, with
+examples. Use any HTTP client, or the PocketBase [JavaScript](https://github.com/pocketbase/js-sdk)
+and [Dart](https://github.com/pocketbase/dart-sdk) SDKs, which work with slonbase's API (a
+[test suite](../compat/) checks them in CI):
 
 ```js
 import PocketBase from "pocketbase";
@@ -73,7 +72,7 @@ so other tools can query it directly.
 `json`, `relation`, `file`, `geoPoint`, and `password` (auth collections).
 
 **Auth collections** add the `password`, `tokenKey`, `email`, `emailVisibility` and `verified`
-system fields, and PocketBase's auth options: `authRule`, `manageRule`, `passwordAuth`, `oauth2`,
+system fields, and auth options: `authRule`, `manageRule`, `passwordAuth`, `oauth2`,
 `otp`, `mfa`, `authAlert`, token durations, and email templates. Users sign up by creating a
 record with `password` and `passwordConfirm`, or through OAuth2.
 
@@ -85,11 +84,11 @@ and a `SELECT` can call any function the role may use, so creating or changing a
 the SQL console to be enabled (`--sql-console`). Existing views keep working without it.
 
 **System collections:** superusers are records of the `_superusers` auth collection, and linked
-OAuth2 accounts are records of `_externalAuths`, as in PocketBase, so both are managed with the
+OAuth2 accounts are records of `_externalAuths`, so both are managed with the
 records API. System collections can't be renamed or deleted, and the last superuser can't be
 deleted.
 
-**Indexes** are given as `CREATE [UNIQUE] INDEX` statements, as in PocketBase, including partial
+**Indexes** are given as `CREATE [UNIQUE] INDEX` statements, including partial
 indexes with a `WHERE` clause.
 
 ## Sign-in
@@ -108,7 +107,7 @@ SMTP server in the settings. While SMTP is disabled, they're written to the log.
 
 ## Filters and API rules
 
-Filters and rules use PocketBase's syntax:
+Filters and rules share one small expression language:
 
 - operators: `=`, `!=`, `>`, `>=`, `<`, `<=`, `~` (contains), `!~`, and the `?`-prefixed "any of"
   variants for multi-valued fields;
@@ -150,7 +149,8 @@ Files are stored under `--storage-path`, or in an S3 bucket
 
 ## Realtime
 
-Realtime follows PocketBase's protocol, so `pb.collection("posts").subscribe("*", ...)` works.
+Realtime is a Server-Sent Events stream (`GET /api/realtime`) whose subscriptions a client sets
+with `POST /api/realtime`; with the SDK, `pb.collection("posts").subscribe("*", ...)`.
 Topics are `posts/*` and `posts/{id}`, optionally with `filter`, `expand` and `fields` options.
 Each subscriber only receives events its list or view rule allows. Changes are announced through
 PostgreSQL `LISTEN/NOTIFY`, so they reach the subscribers of every instance sharing the database

@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>slonbase: PocketBase's API, on PostgreSQL</title>
-<meta name="description" content="An open-source backend in one Rust binary: database, auth, realtime, files and an admin dashboard. Your PocketBase apps, SDKs, hooks and migrations keep working, on PostgreSQL.">
+<title>slonbase: your whole backend, built on PostgreSQL</title>
+<meta name="description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, with your data in real PostgreSQL tables.">
 <meta name="theme-color" content="#1b1b1e">
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
 <meta property="og:type" content="website">
-<meta property="og:title" content="slonbase: PocketBase's API, on PostgreSQL">
-<meta property="og:description" content="An open-source backend in one Rust binary. Your PocketBase apps, SDKs, hooks and migrations keep working, with your data in PostgreSQL.">
+<meta property="og:title" content="slonbase: your whole backend, built on PostgreSQL">
+<meta property="og:description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, on PostgreSQL.">
 <meta property="og:image" content="https://ayeshrodz.github.io/slonbase/assets/social-preview.png">
 <meta property="og:url" content="https://ayeshrodz.github.io/slonbase/">
 <meta name="twitter:card" content="summary_large_image">
@@ -319,7 +319,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
     <nav>
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#performance">Performance</a>
-      <a class="hide-sm" href="#compare">vs PocketBase</a>
+      <a class="hide-sm" href="#scale">Scale out</a>
       <a class="hide-sm" href="https://github.com/ayeshrodz/slonbase/tree/main/docs">Docs</a>
       <button class="icon-btn" id="theme" aria-label="Switch between light and dark">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
@@ -338,8 +338,8 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
       <b id="pill-version">v0.6.0</b><span id="pill-title">Realtime for every change, and many instances</span><span class="arrow">→</span>
     </a>
-    <h1>PocketBase's API,<br>on <span class="pg">PostgreSQL.</span></h1>
-    <p class="lede">An open-source backend in one Rust binary: database, auth, realtime, files and an admin dashboard. Your PocketBase apps, SDKs, hooks and migrations keep working.</p>
+    <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
+    <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
     <div class="ctas">
       <a class="btn primary" href="#install">Get started</a>
       <a class="btn secondary" href="https://github.com/ayeshrodz/slonbase">
@@ -362,15 +362,15 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 
 <div class="wrap">
   <div class="frame reveal">
-    <div class="frame-bar"><i></i><i></i><i></i><span>pocketbase SDK → slonbase</span></div>
-    <img src="assets/demo.gif" alt="The official PocketBase JavaScript SDK creating and updating a task, and the slonbase dashboard's grid updating live" width="960" height="540" loading="lazy">
+    <div class="frame-bar"><i></i><i></i><i></i><span>app.js → slonbase</span></div>
+    <img src="assets/demo.gif" alt="A script creating and updating a task through the API, and the slonbase dashboard's grid updating live" width="960" height="540" loading="lazy">
   </div>
-  <p class="caption">The unmodified <code>pocketbase</code> npm package talking to slonbase. The grid is live: realtime events arrive as the code runs.</p>
+  <p class="caption">A few lines of JavaScript against the API, and the dashboard's grid updating live as realtime events arrive.</p>
 
   <div class="stats reveal">
-    <div class="stat"><b>49 / 49</b><span>compatibility tests pass on PocketBase and on slonbase, on every commit</span></div>
-    <div class="stat"><b>16×</b><span>faster filtered lists than PocketBase, with a third of its p99 latency</span></div>
-    <div class="stat"><b>Every hook</b><span>that PocketBase's JavaScript has, plus <code>$dbx</code> and migrations</span></div>
+    <div class="stat"><b>Any source</b><span>of change reaches realtime subscribers: the API, SQL, or another program</span></div>
+    <div class="stat"><b>N servers</b><span>on one database, behind any load balancer, no sticky sessions</span></div>
+    <div class="stat"><b>16×</b><span>faster filtered lists in our benchmarks, with lower p99 latency</span></div>
     <div class="stat"><b>8 MB</b><span>one static binary, the dashboard built in</span></div>
   </div>
 </div>
@@ -379,14 +379,14 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="wrap">
     <div class="center">
       <div class="eyebrow">Why slonbase</div>
-      <h2>Everything you like about PocketBase.<br>Your data where it belongs.</h2>
+      <h2>A backend in minutes.<br>Your data where it belongs.</h2>
       <p class="sub">Define collections in a dashboard and get a REST API, auth, realtime and files right away, with every table a real PostgreSQL table you can query, replicate and back up.</p>
     </div>
     <div class="grid">
       <div class="card reveal">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0zM12 17v5"/></svg></div>
-        <h3>Drop-in for PocketBase apps</h3>
-        <p>The official SDKs work unchanged, and so do <code>pb_hooks</code> and <code>pb_migrations</code>. <code>slonbase import-pocketbase</code> brings collections, records, files, settings and even password hashes.</p>
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <h3>Auth and access rules</h3>
+        <p>Password, OAuth2, one-time password and MFA sign-in, email flows, and per-collection API rules in one small filter language, compiled to SQL your indexes can use.</p>
       </div>
       <div class="card reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
@@ -405,13 +405,13 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
       </div>
       <div class="card reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6l-6 6 6 6M16 6l6 6-6 6"/></svg></div>
-        <h3>Every PocketBase hook</h3>
-        <p>Request, model, execute, after-error, realtime, file, mail and <code>onModel*</code> hooks, routes, cron jobs and the <code>$dbx</code> query builder, in JavaScript. Or extend it in Rust.</p>
+        <h3>Extend it your way</h3>
+        <p>JavaScript hooks for requests, records, realtime, files and mail, plus routes, cron jobs, migrations and a query builder. Or embed it as a Rust library.</p>
       </div>
       <div class="card reveal">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4v5c0 5-3.4 8.3-8 9-4.6-.7-8-4-8-9V7z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3>Operations built in</h3>
-        <p>Password, OAuth2, OTP and MFA sign-in; rate limits; request logs; scheduled backups to S3; Prometheus metrics; and upgrades tested from the first release.</p>
+        <p>Rate limits, request logs, scheduled backups to S3, Prometheus metrics, projects on one server, and upgrades tested from the first release.</p>
       </div>
     </div>
   </div>
@@ -420,14 +420,14 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <section class="alt">
   <div class="wrap split">
     <div class="reveal">
-      <div class="eyebrow">Same code, new foundation</div>
-      <h2>Keep your SDK.<br>Keep your hooks.</h2>
-      <p class="sub">slonbase speaks PocketBase's API, filter language and hook API. A compatibility suite written with the official SDK runs against a real PocketBase and against slonbase, and must pass on both.</p>
+      <div class="eyebrow">Developer experience</div>
+      <h2>Write less backend.<br>Ship the app.</h2>
+      <p class="sub">A typed client SDK, a filter language your rules and queries share, hooks for the logic that's yours, and SQL whenever you want it. Use the PocketBase SDKs you may already know: they work with slonbase's API.</p>
       <ul class="checks">
         <li>Filters and API rules, relation paths, <code>@request.*</code> and <code>@collection.*</code></li>
         <li>Auth with passwords, OAuth2 providers, one-time passwords and MFA</li>
         <li>Batch requests in one transaction, <code>expand</code>, files and thumbnails</li>
-        <li>PocketBase's error messages, so your forms show the same errors</li>
+        <li>Clear, field-level validation errors your forms can show as they are</li>
       </ul>
     </div>
     <div class="code reveal">
@@ -438,7 +438,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
       </div>
 <pre role="tabpanel" id="ex-sdk" aria-labelledby="tab-sdk"><span class="k">import</span> PocketBase <span class="k">from</span> <span class="s">"pocketbase"</span>;
 
-<span class="cm">// the same SDK, pointed at slonbase</span>
+<span class="cm">// the PocketBase JS SDK works with slonbase's API</span>
 <span class="k">const</span> pb = <span class="k">new</span> <span class="f">PocketBase</span>(<span class="s">"http://localhost:8090"</span>);
 
 <span class="k">await</span> pb.<span class="f">collection</span>(<span class="s">"users"</span>)
@@ -449,11 +449,11 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   expand: <span class="s">"author"</span>,
 });
 
-<span class="cm">// realtime, as before</span>
+<span class="cm">// realtime</span>
 pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class="f">subscribe</span>(<span class="s">"*"</span>, (e) =&gt; {
   console.<span class="f">log</span>(e.action, e.record.title);
 });</pre>
-<pre role="tabpanel" id="ex-hook" aria-labelledby="tab-hook" hidden><span class="cm">// PocketBase hooks run as they are</span>
+<pre role="tabpanel" id="ex-hook" aria-labelledby="tab-hook" hidden><span class="cm">// hooks: your logic, next to your data</span>
 <span class="f">onRecordCreateRequest</span>((e) =&gt; {
   <span class="k">if</span> (!e.auth) <span class="k">throw new</span> <span class="f">ForbiddenError</span>(<span class="s">"Sign in first."</span>);
   e.record.<span class="f">set</span>(<span class="s">"author"</span>, e.auth.id);
@@ -540,7 +540,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   </div>
 </section>
 
-<section>
+<section id="scale">
   <div class="wrap split">
     <div class="diagram reveal" aria-hidden="true">
       <svg viewBox="0 0 520 330">
@@ -585,16 +585,16 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
 
 <section id="compare" class="alt">
   <div class="wrap">
-    <div class="eyebrow">Honest comparison</div>
-    <h2>slonbase and PocketBase.</h2>
-    <p class="sub">PocketBase is a wonderful tool, and slonbase exists because of it. Here's how they differ, and when to pick which.</p>
+    <div class="eyebrow">Coming from PocketBase?</div>
+    <h2>Inspired by PocketBase.<br>Built from scratch.</h2>
+    <p class="sub">PocketBase showed how good a backend in one binary can feel. slonbase is a new project, written in Rust for PostgreSQL, that keeps its API compatible, so your SDK code, hooks and migrations carry over. Here's how the two differ.</p>
     <div class="table-wrap reveal">
       <table>
         <thead><tr><th></th><th>slonbase</th><th>PocketBase</th></tr></thead>
         <tbody>
           <tr><td>Database</td><td class="us">PostgreSQL 14+ (yours, or managed)</td><td class="them">SQLite, inside the process</td></tr>
-          <tr><td>API and SDKs</td><td class="us">PocketBase's API; the official SDKs, unchanged</td><td class="them">The original</td></tr>
-          <tr><td>Extending</td><td class="us">PocketBase's JavaScript hooks, or Rust</td><td class="them">JavaScript hooks, or Go</td></tr>
+          <tr><td>API and SDKs</td><td class="us">Its own API, compatible with the PocketBase SDKs</td><td class="them">The PocketBase SDKs</td></tr>
+          <tr><td>Extending</td><td class="us">JavaScript hooks (PocketBase's run as they are), or Rust</td><td class="them">JavaScript hooks, or Go</td></tr>
           <tr><td>Instances</td><td class="us">Any number on one database, behind any load balancer</td><td class="them">One</td></tr>
           <tr><td>Your data</td><td class="us">Real tables: SQL, replicas, <code>pg_dump</code>, BI tools</td><td class="them">A SQLite file</td></tr>
           <tr><td>Realtime</td><td class="us">Every change, including SQL and other programs</td><td class="them">Changes made through the app</td></tr>
@@ -684,7 +684,7 @@ slonbase serve</pre>
   <div class="story reveal">
     <div>
       <h3>The story behind slonbase</h3>
-      <p>Why rebuild a tool you love on a different foundation, and how do you know it still behaves like the original? Read the story on the blog.</p>
+      <p>Why build a new backend for PostgreSQL from scratch, and how it's tested to behave the way apps expect. Read the story on the blog.</p>
     </div>
     <a class="btn primary" id="story-link" href="https://ayesh.dev/projects/slonbase-pocketbase-api-on-postgresql/">Read the post →</a>
   </div>
@@ -696,7 +696,7 @@ slonbase serve</pre>
     <div class="foot">
       <div>
         <a class="brand" href="#"><img src="assets/logo.svg" alt=""><span class="word">slon<span>base</span></span></a>
-        <p style="margin:0;max-width:300px">PocketBase's API and dashboard, on PostgreSQL. Open source under the MIT license.</p>
+        <p style="margin:0;max-width:300px">Your whole backend, built on PostgreSQL. Open source under the MIT license.</p>
       </div>
       <div>
         <h4>Docs</h4>
@@ -721,7 +721,7 @@ slonbase serve</pre>
         <a href="https://github.com/ayeshrodz">@ayeshrodz on GitHub</a>
       </div>
     </div>
-    <p class="fineprint">slonbase isn't affiliated with PocketBase. PocketBase is a project by Gani Georgiev.</p>
+    <p class="fineprint">slonbase is an independent project inspired by PocketBase, and isn't affiliated with it. PocketBase is a project by Gani Georgiev.</p>
   </div>
 </footer>
 

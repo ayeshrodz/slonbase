@@ -1,15 +1,15 @@
 # Extending slonbase
 
 slonbase can be extended in two ways. [JavaScript hooks](#javascript-hooks) are `*.pb.js`
-files that use PocketBase's JavaScript API and need no build step. The [Rust library](#rust) lets
-you build your own binary with native hooks and routes.
+files that need no build step. The [Rust library](#rust) lets you build your own binary with
+native hooks and routes.
 
 ## JavaScript hooks
 
 Put `*.pb.js` files in the hooks directory: `slonbase_hooks` by default, `/data/hooks` in Docker,
 or `/var/lib/slonbase/hooks` for the packages. slonbase loads them on start and restarts when
-they change. They use PocketBase's JavaScript API, so most PocketBase hooks work as they are
-(see [migrating](migrating-from-pocketbase.md#javascript-hooks) for what's different). The engine
+they change. The JavaScript API is compatible with PocketBase's, so hooks written for PocketBase
+mostly work as they are (see [what's different](migrating-from-pocketbase.md#javascript-hooks)). The engine
 is [QuickJS](https://bellard.org/quickjs/) (ES2023); there's no Node.js API or npm.
 
 ```js
@@ -83,8 +83,8 @@ those collections.
   `findAuthRecordByEmail`, `countRecords`, `findCollectionByNameOrId`, `findAllCollections`,
   `save` and `delete` (of records, collections and, for `save`, the settings),
   `importCollections`, `db()` and `recordQuery(collection)` (see [SQL](#sql)), `settings()`, `newMailClient().send(...)`,
-  `createBackup(name)` and `restoreBackup(name)` (PocketBase's context argument is accepted
-  and ignored).
+  `createBackup(name)` and `restoreBackup(name)` (an optional context argument first is
+  accepted and ignored).
 - `Collection`, `Field` (and `TextField`, `NumberField`, ...), `unmarshal`: collection
   definitions, as in [migrations](migrations.md#whats-available).
 - `Record`: `new Record(collection)`, `get`/`set`/`getString`/`getInt`/`getBool`/...,
@@ -113,8 +113,8 @@ those collections.
 
 ### SQL
 
-`$app.db()` is PocketBase's dbx query builder, and `$dbx` its expressions. They write
-PostgreSQL. Unqualified names are collections (tables in the `slonbase` schema), then tables in
+`$app.db()` is a query builder, and `$dbx` its expressions (the same API as PocketBase's dbx).
+They write PostgreSQL. Unqualified names are collections (tables in the `slonbase` schema), then tables in
 `public`.
 
 ```js
@@ -151,7 +151,7 @@ $app.db().newQuery("DELETE FROM {{posts}} WHERE [[status]] = {:s}").bind({ s: "s
 
 ### Templates
 
-`$template` renders Go's `html/template` language, like PocketBase:
+`$template` renders Go's `html/template` language:
 
 ```js
 routerAdd("GET", "/hello/{name}", (e) => {
@@ -167,7 +167,7 @@ The first file is rendered, and it usually uses blocks the others `define`
 `$template.addFuncs({ upper: (s) => s.toUpperCase() })` adds functions templates can call.
 Everything printed is HTML-escaped, except what `raw` returns. Unlike Go, the escaping doesn't
 depend on where the value is: inside `<script>` or a URL, use the `js` and `urlquery`
-functions. The compatibility suite checks templates against PocketBase's output.
+functions.
 
 ### How it runs
 

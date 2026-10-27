@@ -163,8 +163,8 @@ export function ApiDocs({ collection: c }) {
   return html`<div class="stack" style="max-width:960px">
     <div class="row">
       <${Callout}>
-        slonbase speaks PocketBase's API, so the official <a href="https://github.com/pocketbase/js-sdk" target="_blank" rel="noopener">JavaScript</a> and
-        Dart SDKs work as they are: <code>new PocketBase("${location.origin + BASE}")</code>.
+        Call these endpoints with any HTTP client, or with the PocketBase <a href="https://github.com/pocketbase/js-sdk" target="_blank" rel="noopener">JavaScript</a>
+        and Dart SDKs, which work with slonbase's API: <code>new PocketBase("${location.origin + BASE}")</code>.
       </${Callout}>
     </div>
     <div class="row"><span class="grow section-title">Endpoints</span><${Segmented} value=${lang} onChange=${setLang} options=${[{ value: "sdk", label: "JS SDK" }, { value: "curl", label: "curl" }]} /></div>

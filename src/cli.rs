@@ -18,7 +18,7 @@ use crate::{db, server, setup};
 #[command(
     name = "slonbase",
     version,
-    about = "A lightweight backend powered by PostgreSQL"
+    about = "Your whole backend, built on PostgreSQL"
 )]
 struct Cli {
     /// Path to the config file (created by the setup wizard if missing).

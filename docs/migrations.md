@@ -1,12 +1,12 @@
 # Migrations
 
 Migrations keep your collections (and any data or settings they need) in code, so every
-installation gets the same schema: your laptop, staging, production, and each new server.
-slonbase runs PocketBase's JavaScript migrations, so an existing `pb_migrations` directory
-works as it is.
+installation gets the same schema: your laptop, staging, production, and each new server. They're
+JavaScript files, applied in order, each in a transaction. (Migrations written for PocketBase
+run too; see [below](#coming-from-pocketbase).)
 
 > [!NOTE]
-> Migrations are new in 0.3, and need the JavaScript engine (the default build).
+> Migrations need the JavaScript engine (the default build).
 
 - [Writing a migration](#writing-a-migration)
 - [When they run](#when-they-run)

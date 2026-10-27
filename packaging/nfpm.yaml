@@ -9,12 +9,12 @@ section: web
 priority: optional
 maintainer: "slonbase maintainers <ayeshrodz@users.noreply.github.com>"
 description: |
-  Lightweight, high-performance backend powered by PostgreSQL.
-  A single binary that provides a REST API, auth and an admin dashboard on top of
-  your own PostgreSQL database. PostgreSQL is not bundled: point slonbase at a
+  Your whole backend, built on PostgreSQL.
+  A single binary with collections, a REST and realtime API, auth, file storage, hooks
+  and an admin dashboard, on your own PostgreSQL database. PostgreSQL is not bundled: point slonbase at a
   local or remote server from the first-run setup wizard.
 vendor: slonbase
-homepage: https://github.com/ayeshrodz/slonbase
+homepage: https://ayeshrodz.github.io/slonbase/
 license: MIT
 
 overrides:

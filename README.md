@@ -6,9 +6,9 @@
 </p>
 
 <p align="center">
-  <strong>PocketBase's API, on PostgreSQL.</strong><br>
-  An open-source backend in one Rust binary: database, auth, realtime, files and an admin
-  dashboard. Your PocketBase apps, SDKs, hooks and migrations keep working.
+  <strong>Your whole backend, built on PostgreSQL.</strong><br>
+  An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files,
+  hooks and an admin dashboard. Every collection is a real PostgreSQL table.
 </p>
 
 <p align="center">
@@ -26,46 +26,39 @@
   <a href="docs/installation.md">Install</a> ·
   <a href="docs/api.md">API</a> ·
   <a href="docs/extending.md">Hooks</a> ·
-  <a href="docs/migrating-from-pocketbase.md">From PocketBase</a> ·
   <a href="bench/README.md">Benchmarks</a>
 </p>
 
 <p align="center">
-  <img alt="The official PocketBase JavaScript SDK creating and updating a task, and the slonbase dashboard's grid updating live" src="docs/assets/demo.gif" width="900">
+  <img alt="A client app creating and updating a task while the slonbase dashboard's grid updates live" src="docs/assets/demo.gif" width="900">
 </p>
 
 <p align="center">
-  <sub>The unmodified <code>pocketbase</code> npm package talking to slonbase. The grid is live: realtime events arrive as the code runs.</sub>
-</p>
-
-<p align="center">
-  <b>Tested against PocketBase on every commit:</b> the same test suite, written with the official
-  JavaScript SDK, runs against a real PocketBase 0.40 and against slonbase, and must pass on both
-  (<a href="compat/">compat/</a>).
+  <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
 ## Why slonbase
 
-[PocketBase](https://pocketbase.io) made backends delightful: define collections in a dashboard,
-and get a REST API, auth, realtime and files right away. slonbase keeps that experience and its
-API, and puts it on **PostgreSQL**:
+Define your data in a dashboard and get an API, auth, realtime and file storage right away,
+without writing a backend. slonbase gives you that in a single binary, and keeps your data in
+**PostgreSQL**, the database you can query, replicate, back up and scale with the tools you
+already trust.
 
-- 🧩 **Drop-in for PocketBase apps.** The official SDKs work unchanged, and so do most `pb_hooks`
-  and `pb_migrations`.
-  `slonbase import-pocketbase` brings over collections, records, files and settings. It even
-  brings users' password hashes, so nobody has to reset a password.
-- 🐘 **Your data in PostgreSQL.** Each collection is a real table that you can query with SQL,
-  replicate, back up with `pg_dump`, or run on a managed service.
-- 🗂️ **Many projects, one server.** Host several isolated apps from one installation. Each is
-  served under `/p/<name>/` and kept in a database of its own.
-- ↔️ **Scales out.** Run several instances on one database behind a load balancer. Realtime
-  events, schema changes and settings reach every instance through `LISTEN/NOTIFY`.
-- ⚡ **Fast where it matters.** It's built in Rust with tokio and axum, its filters compile to
-  parameterized SQL, and PostgreSQL's planner uses your indexes. In
-  [the benchmarks](bench/README.md), lists are about 1.5× faster than PocketBase, filtered
-  lists up to **16×**, and p99 latency is about a third of PocketBase's.
-- 📦 **One static binary.** It's an 8 MB download, with the dashboard built in. Install it with
-  Docker, `.deb`/`.rpm` packages, or a plain binary, then finish with a setup wizard.
+- 🐘 **Real PostgreSQL tables.** Every collection is a table. Query it with SQL, join it in
+  reports, replicate it, back it up with `pg_dump`, or run it on a managed service.
+- ⚡ **Realtime for every change.** A trigger on each table announces every write, whoever makes
+  it: the API, your SQL, an auth flow or another program. Each subscriber gets only what its
+  rules allow.
+- ↔️ **Scales out.** Run several instances on one database behind any load balancer. Realtime,
+  schema changes, settings and rate limits are shared through PostgreSQL, so no sticky sessions.
+- 🧩 **Extend it your way.** Hooks, routes, cron jobs and a query builder in JavaScript files,
+  no build step; or a Rust library API.
+- 🗂️ **Many projects, one server.** Host several isolated apps from one installation, each in a
+  database of its own.
+- 🚀 **Fast where it matters.** Written in Rust with tokio and axum; filters compile to
+  parameterized SQL that uses your indexes ([benchmarks](bench/README.md)).
+- 📦 **One static binary.** An 8 MB download with the dashboard built in. Install it with
+  Docker, `.deb`/`.rpm` packages or a plain binary, and finish with a setup wizard.
 
 ## Features
 
@@ -75,7 +68,7 @@ API, and puts it on **PostgreSQL**:
 
 **Data**
 - Base, auth and view collections, with 14 field types
-- PocketBase's filter syntax and API rules: relation paths, `@request.*`, `@collection.*`
+- A filter language for queries and access rules: relation paths, `@request.*`, `@collection.*`
 - `expand`, back-relations, `fields`, sorting and paging
 - Batch requests in one transaction
 - Indexes, including unique and partial ones
@@ -90,38 +83,41 @@ API, and puts it on **PostgreSQL**:
 
 **Realtime and files**
 - SSE subscriptions with per-subscriber rules, filters and `expand`
-- File fields on disk or any S3-compatible bucket
-- Thumbnails, protected files, byte ranges
+- Events for every change, made through the API or not
+- File fields on disk or any S3-compatible bucket; thumbnails, protected files, byte ranges
 
 **Operations**
-- An admin dashboard with live grids, a schema editor, logs and the SQL console
-- Request logs, rate limits, superuser IP restrictions
+- An admin dashboard with live grids, a schema editor, logs and an SQL console
+- Request logs, rate limits, superuser IP restrictions, Prometheus metrics
 - Backups (on a schedule, to S3) and one-click restores
-- JavaScript hooks (`*.pb.js`), cron jobs, and a Rust library API
-- JavaScript migrations (`pb_migrations`), each in a transaction, with automigrate
+- JavaScript hooks, cron jobs, a query builder, and a Rust library API
+- Migrations in JavaScript, each in a transaction, with automigrate
 
 </td>
 </tr>
 </table>
 
 > [!NOTE]
-> **slonbase is young (0.4).** Expect rough edges, and back up your data. Compatibility reports
-> are very welcome: if your PocketBase app doesn't work on slonbase, that's a bug.
+> **slonbase is young (0.6, before 1.0).** Expect rough edges, and back up your data. Bug reports
+> are very welcome.
 
-## When to use PocketBase instead
+## Coming from PocketBase?
 
-slonbase is not a replacement for every PocketBase install. PocketBase is the better choice when:
+slonbase is inspired by [PocketBase](https://pocketbase.io), and it's an independent project,
+written from scratch in Rust, with its own design. Its API is compatible with PocketBase's, so you
+can bring an existing app along:
 
-- **You want zero moving parts.** PocketBase is one file with SQLite inside. slonbase needs a
-  PostgreSQL server next to it (the Compose file below starts one).
-- **One small app on one small machine is the whole plan.** SQLite in the same process answers
-  a single client's lookups faster than any network database.
-- **You extend it in Go** (`main.go`). slonbase runs PocketBase's JavaScript hooks and has a
-  Rust API, but not Go. See [the differences](docs/migrating-from-pocketbase.md).
+- the PocketBase JavaScript and Dart SDKs work against slonbase as they are;
+- most `pb_hooks` and `pb_migrations` files run unchanged;
+- `slonbase import-pocketbase` brings over collections, records, files and settings, with users'
+  password hashes, so nobody has to reset a password.
 
-slonbase is for when you want the PocketBase experience but your data belongs in PostgreSQL:
-you already run it, you want SQL access, replicas, `pg_dump` or a managed service, or you need
-more than one server instance.
+A test suite written with the official SDK runs against both servers in CI to keep it that way
+([compat/](compat/)). The [migration guide](docs/migrating-from-pocketbase.md) lists the
+differences.
+
+PocketBase is the better choice when you want zero moving parts (one file, SQLite inside), when
+one small app on one small machine is the whole plan, or when you extend it in Go.
 
 ## Quick start
 
@@ -161,7 +157,8 @@ The `.deb` and `.rpm` files are also on the [releases](https://github.com/ayeshr
 
 **Binary:** extract the `.tar.gz` from the releases and run `./slonbase serve`.
 
-Then use any PocketBase SDK, unchanged:
+Then connect from your app with any HTTP client, or with the PocketBase SDKs, which work with
+slonbase's API:
 
 ```js
 import PocketBase from "pocketbase";
@@ -181,8 +178,8 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | **API rules** | **API preview** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/api-dark.png"><img alt="API preview" src="docs/assets/screenshots/api-light.png"></picture> |
 
-The dashboard follows your system's light or dark theme, works on phones, and press ⌘K / Ctrl K
-to jump anywhere. It only uses the public API, so anything it does, you can script too.
+The dashboard follows your system's light or dark theme, works on phones, and ⌘K / Ctrl K jumps
+anywhere. It only uses the public API, so anything it does, you can script too.
 
 ## Documentation
 
@@ -193,10 +190,10 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime
 - [Extending](docs/extending.md): JavaScript hooks and the Rust library
-- [Migrations](docs/migrations.md): collections in code, PocketBase's `pb_migrations` included
+- [Migrations](docs/migrations.md): collections and data changes in code
 - [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
-- [Benchmarks](bench/README.md): slonbase and PocketBase on the same workloads
+- [Benchmarks](bench/README.md): slonbase next to PocketBase on the same workloads
 - [Design](docs/design.md): the decisions behind slonbase
 - [Changelog](CHANGELOG.md)
 
@@ -216,8 +213,8 @@ to jump anywhere. It only uses the public API, so anything it does, you can scri
 
 ## Performance
 
-Same machine, same data, the same HTTP API and the official SDK, with default settings
-([method and full results](bench/README.md)):
+Compared with PocketBase, on the same machine, the same data and the same HTTP workloads, with
+default settings ([method and full results](bench/README.md)):
 
 | Scenario | slonbase req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
@@ -226,20 +223,20 @@ Same machine, same data, the same HTTP API and the official SDK, with default se
 | List 30, expand a relation | 973 | 701 | 50.5 / 161.5 |
 | Create a record | 1,728 (2,792 with async commit) | 2,532 | 29.8 / 66.0 |
 
-PocketBase answers a single client's lookups faster, because SQLite runs in its process. Writes
-are slower with PostgreSQL's default durability, and a little faster than PocketBase's when
+An embedded SQLite answers a single client's lookups faster, since it runs in the server's
+process. Writes are slower with PostgreSQL's default durability, and a little faster when
 PostgreSQL makes the same trade-off as SQLite's default (`synchronous_commit = off`; see
 [why](docs/deployment.md#postgresql)).
 
 ## Contributing
 
-Bug reports, compatibility reports and pull requests are welcome; see
+Bug reports, ideas and pull requests are welcome; see
 [CONTRIBUTING.md](CONTRIBUTING.md). The quickest checks:
 
 ```sh
 cargo test                                                    # unit tests
 SLONBASE_TEST_DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable' cargo test   # everything
-(cd compat && npm ci) && DATABASE_URL='postgres://...' compat/run.sh slonbase                # the SDK suite
+(cd compat && npm ci) && DATABASE_URL='postgres://...' compat/run.sh slonbase                # the SDK compatibility suite
 ```
 
 Please report security problems [privately](SECURITY.md).

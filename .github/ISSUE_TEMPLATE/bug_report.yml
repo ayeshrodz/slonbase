@@ -1,5 +1,5 @@
 name: Bug report
-description: Something doesn't work as documented, or differs from PocketBase.
+description: Something doesn't work as documented.
 labels: ["bug"]
 body:
   - type: markdown
@@ -23,8 +23,8 @@ body:
   - type: textarea
     id: pocketbase
     attributes:
-      label: What does PocketBase do?
-      description: If this is a compatibility difference, what PocketBase (and which version) does instead.
+      label: Moving an app from PocketBase?
+      description: Optional. If this worked differently in PocketBase, what it did there (and which version).
   - type: input
     id: version
     attributes:

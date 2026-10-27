@@ -1,7 +1,7 @@
 # documentation: https://github.com/ayeshrodz/slonbase
-# slogan: PocketBase's API on PostgreSQL: database, auth, realtime, files and an admin dashboard in one binary.
+# slogan: Your whole backend, built on PostgreSQL: collections, an API, auth, realtime, files and an admin dashboard in one binary.
 # category: backend
-# tags: backend, baas, pocketbase, postgres, postgresql, realtime, auth, api, rust
+# tags: backend, baas, postgres, postgresql, realtime, auth, api, rust
 # logo: svgs/slonbase.svg
 # port: 8090
 

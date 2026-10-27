@@ -3,13 +3,13 @@ name = "slonbase"
 version = "0.6.0"
 edition = "2024"
 rust-version = "1.87"
-description = "A lightweight, high-performance PocketBase-style backend powered by PostgreSQL"
+description = "Your whole backend, built on PostgreSQL: collections, a REST and realtime API, auth, files, hooks and an admin dashboard in one binary"
 license = "MIT"
 repository = "https://github.com/ayeshrodz/slonbase"
 readme = "README.md"
-homepage = "https://github.com/ayeshrodz/slonbase"
+homepage = "https://ayeshrodz.github.io/slonbase/"
 documentation = "https://github.com/ayeshrodz/slonbase/tree/main/docs"
-keywords = ["backend", "postgresql", "pocketbase", "rest-api", "realtime"]
+keywords = ["backend", "postgresql", "rest-api", "realtime", "auth"]
 categories = ["web-programming::http-server", "database", "authentication"]
 # not on crates.io yet: depend on it from git (see docs/extending.md)
 publish = false

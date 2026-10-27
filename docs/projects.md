@@ -7,8 +7,8 @@ installation, with its own:
 - superusers and users;
 - settings, files, backups, logs and hooks.
 
-All of them run on the same PostgreSQL server and in the same slonbase process. PocketBase has no
-equivalent: there you run one process per app.
+All of them run on the same PostgreSQL server and in the same slonbase process, so you don't run
+(and update) one server per app.
 
 > [!NOTE]
 > Projects are new in 0.2.

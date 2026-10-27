@@ -5,8 +5,10 @@ decision changes.
 
 ## Goals
 
-- **PocketBase's developer experience on PostgreSQL**: collections defined at runtime, an
-  auto-generated REST API, filtering and access rules, auth, realtime, files, an admin dashboard.
+- **A complete backend on PostgreSQL**, with the quick, all-in-one developer experience
+  PocketBase made popular: collections defined at runtime, an auto-generated REST API, filtering
+  and access rules, auth, realtime, files, hooks, an admin dashboard. Running on PostgreSQL makes
+  the data ordinary tables and lets several instances share it.
 - **A single small binary** (currently ~18 MB static, an 8 MB download) with low memory use and
   predictable latency.
 - **Rock-solid operation**: safe startup ordering, safe concurrent instances, no data-loss paths,
@@ -19,6 +21,10 @@ decision changes.
 - Supporting databases other than PostgreSQL.
 
 ## Why a new project instead of a PocketBase fork
+
+slonbase is its own codebase, written from scratch in Rust. PocketBase inspired it, and its API
+stays compatible with PocketBase's SDKs, but no PocketBase code is used.
+
 
 PocketBase's SQL is written for SQLite throughout (JSON functions, `PRAGMA`s, `sqlite_master`,
 `_rowid_`, type affinity), and upstream changes those files constantly (for example
@@ -46,11 +52,11 @@ Later phases added `image` (thumbnails), `lettre` (mail), `reqwest` (OAuth2 and 
 built-in S3 client) and an embedded JavaScript engine (`rquickjs`, QuickJS) for hooks and
 migrations.
 
-## PocketBase API compatibility
+## SDK compatibility
 
-slonbase aims to match PocketBase's REST API (routes, filter syntax, response and error shapes).
-That lets us reuse PocketBase's MIT-licensed admin dashboard and client SDKs at first, and test
-slonbase by sending the same requests to both servers and comparing responses. Errors already use
+slonbase's REST API keeps the routes, filter syntax and response and error shapes of PocketBase's,
+so apps built with PocketBase's client SDKs work unchanged, and slonbase can be tested by sending
+the same requests to both servers and comparing responses (the [compat suite](../compat/)). Errors already use
 PocketBase's `{"status", "message", "data"}` shape and `/api/health` its `{"code", "message",
 "data"}` shape.
 
@@ -899,3 +905,13 @@ the file.
    **rate limits**, **backups** and the **batch API** (done).
 5. **Extensibility** (done): Rust library API (hooks, routes, cron jobs, record service) and
    JavaScript hooks with PocketBase's API.
+6. **Operations** (done in 0.6): realtime triggers on every table (changes from any source),
+   subscriptions forwarded between instances, shared rate limits, `@request.auth` relation
+   paths, Prometheus metrics, upgrade tests from every release.
+7. **Parity details** (0.7): `strftime()` in filters, deleting files when a file field is
+   removed, OIDC `id_token` validation, Apple's client secret generator, the request log's
+   `maxDataSize`.
+8. **Hardening** (0.8): S3 multipart uploads and a custom CA, backup encryption at rest, load and
+   soak tests, a health view in the dashboard.
+9. **1.0**: one-click templates (Railway, Coolify, Dokploy), a docs site, and a stability promise
+   for the API, configuration and on-disk format.

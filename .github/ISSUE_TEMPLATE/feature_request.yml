@@ -1,5 +1,5 @@
 name: Feature request
-description: Suggest an idea, or a PocketBase feature slonbase doesn't have yet.
+description: Suggest an idea or an improvement.
 labels: ["enhancement"]
 body:
   - type: textarea
@@ -13,7 +13,7 @@ body:
     id: solution
     attributes:
       label: What would help?
-      description: How you'd like it to work. Link PocketBase's docs if it's a PocketBase feature.
+      description: How you'd like it to work. If another tool does it well, a link helps.
   - type: textarea
     id: alternatives
     attributes:

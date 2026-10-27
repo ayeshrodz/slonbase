@@ -50,8 +50,8 @@ build step. See [ui/README.md](ui/README.md).
   cargo audit        # known vulnerabilities in dependencies (cargo install cargo-audit)
   ```
 
-- Behavior visible through the API should match PocketBase. Add a test to `compat/` for it, and
-  run that test against PocketBase too.
+- The API stays compatible with the PocketBase SDKs. When a change touches behavior the SDKs see,
+  add a test to `compat/` for it, and run that test against PocketBase too.
 - Update the docs (`docs/`, `README.md`) and add a line to `CHANGELOG.md` under
   "Unreleased" for user-visible changes.
 - Write commit messages that say what changed and why.
