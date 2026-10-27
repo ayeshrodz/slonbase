@@ -38,6 +38,13 @@ The summary, with every sample, is written to `soak/.run/result.json`, and the i
 to `soak/.run/server-*.log`. CI runs it weekly for 20 minutes on two instances (the `Soak`
 workflow, which can also be started by hand with another duration).
 
+## A run
+
+slonbase 0.8 (release build), two instances and PostgreSQL 16 on one 4-CPU VM, 32 clients and 4
+subscribers for 3 minutes: 341,419 requests (1,897/s) without an error, p50 16 ms and p99 36 ms
+(flat from start to end), 51,404 create events delivered to every subscriber in p50 8 ms, p99
+40 ms, at most 87 ms, and each instance's memory steady at about 32 MB.
+
 The first runs found that realtime delivery fell behind under sustained writes (events took
 seconds to arrive, and the delay kept growing): events were checked and sent one at a time. They
 are now read in batches and checked several at a time, still in order for each client.

@@ -191,7 +191,8 @@ const ops = [
       body: { n: Math.floor(Math.random() * 1000) },
     });
   }],
-  [10, "delete", async (a) => {
+  // as many deletes as creates and uploads, so the data set stays the same size
+  [16, "delete", async (a) => {
     if (a.items.length < 30) return;
     const id = a.items.splice(Math.floor(Math.random() * a.items.length), 1)[0];
     await call("DELETE", `/api/collections/${itemsName}/records/${id}`, { token: a.token });
@@ -360,7 +361,7 @@ const summary = {
   errors: totalErrors,
   operations: opCounts,
   realtimeCreates: created.size,
-  realtimeLag: { p50: percentile(lags, 50), p99: lagP99, max: Math.max(0, ...lags) },
+  realtimeLag: { p50: percentile(lags, 50), p99: lagP99, max: lags.reduce((m, v) => Math.max(m, v), 0) },
   p50: Number(percentile(all, 50).toFixed(1)),
   p99: Number(percentile(all, 99).toFixed(1)),
   samples,
