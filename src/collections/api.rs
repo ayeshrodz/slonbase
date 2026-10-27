@@ -557,6 +557,7 @@ async fn create_checked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collectio
     let registry = execute_hook(core, hook, &c, move || async move {
         store::apply(&pool, Change::Create(&new))
             .await
+            .map(|applied| applied.registry)
             .map_err(|e| write_error(e, failed))
     })
     .await?;
@@ -663,7 +664,7 @@ async fn update_checked(
     before_hook(core, &core.hooks.on_collection_validate, new.clone()).await?;
     let hook = &core.hooks.on_collection_update_execute;
     let (pool, stored, changed) = (core.pool.clone(), old.clone(), new.clone());
-    let registry = execute_hook(core, hook, &new, move || async move {
+    let applied = execute_hook(core, hook, &new, move || async move {
         let change = Change::Update {
             old: &stored,
             new: &changed,
@@ -673,10 +674,15 @@ async fn update_checked(
             .map_err(|e| write_error(e, failed))
     })
     .await?;
-    let saved = registry.by_id(&new.id).cloned().ok_or_else(not_found)?;
-    core.set_registry(registry);
+    let saved = applied
+        .registry
+        .by_id(&new.id)
+        .cloned()
+        .ok_or_else(not_found)?;
+    core.set_registry(applied.registry);
     tracing::info!(collection = %saved.name, "updated collection");
     after_hook(core, |h| &h.on_collection_after_update_success, &saved);
+    crate::records::files::remove_field_files(core, &applied.removed_files).await;
     #[cfg(feature = "js")]
     if saved.as_ref() != old.as_ref() {
         crate::js::migrate::automigrate(
@@ -771,6 +777,7 @@ async fn delete_checked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiErr
     let registry = execute_hook(core, hook, &c, move || async move {
         store::apply(&pool, Change::Delete(&deleted))
             .await
+            .map(|applied| applied.registry)
             .map_err(|e| write_error(e, failed))
     })
     .await?;
@@ -1031,6 +1038,7 @@ pub(crate) async fn import_definitions(
             tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
         }
     }
+    crate::records::files::remove_field_files(core, &imported.removed_files).await;
     tracing::info!(
         imported = imported.saved.len(),
         deleted = imported.deleted.len(),

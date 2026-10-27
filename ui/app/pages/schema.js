@@ -313,7 +313,7 @@ export function Schema({ draft, setDraft, collection, errors }) {
       )}
     </div>
     ${stillRemoved.length > 0 &&
-    html`<div style="margin-top:12px"><${Callout} kind="warn">Removing a field deletes its column and data when you save.</${Callout}></div>`}
+    html`<div style="margin-top:12px"><${Callout} kind="warn">Removing a field deletes its column and data when you save${stillRemoved.some((f) => f.type === "file") ? ", and a file field's stored files too" : ""}.</${Callout}></div>`}
     ${picking && html`<${TypePicker} auth=${collection.type === "auth"} onPick=${add} onClose=${() => setPicking(false)} />`}
   </div>`;
 }

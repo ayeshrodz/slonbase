@@ -274,18 +274,34 @@ pub enum Change<'a> {
     Delete(&'a Collection),
 }
 
+/// A stored file of a file field that a change removed, to delete once the change commits.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemovedFile {
+    pub collection_id: String,
+    pub record_id: String,
+    pub name: String,
+}
+
+/// What applying changes did.
+pub struct Applied {
+    /// The registry as it is after the changes.
+    pub registry: Registry,
+    /// The files of the file fields the changes removed (their columns are gone).
+    pub removed_files: Vec<RemovedFile>,
+}
+
 /// Applies a validated change and returns the reloaded registry.
-pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Registry, WriteError> {
+pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Applied, WriteError> {
     apply_all(pool, vec![change]).await
 }
 
 /// Applies validated changes in one transaction and returns the reloaded registry.
-pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Registry, WriteError> {
+pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Applied, WriteError> {
     let mut client = pool.get().await.map_err(describe_pool_error)?;
     let tx = client.transaction().await?;
-    let registry = apply_in(&tx, changes).await?;
+    let applied = apply_in(&tx, changes).await?;
     tx.commit().await?;
-    Ok(registry)
+    Ok(applied)
 }
 
 /// Applies validated changes in the caller's transaction and returns the registry as it is
@@ -293,7 +309,7 @@ pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Registry
 pub async fn apply_in(
     tx: &deadpool_postgres::Transaction<'_>,
     mut changes: Vec<Change<'_>>,
-) -> Result<Registry, WriteError> {
+) -> Result<Applied, WriteError> {
     // views go after the tables they read, and are dropped before them
     changes.sort_by_key(|change| match change {
         Change::Delete(c) if c.is_view() => 0,
@@ -331,7 +347,11 @@ pub async fn apply_in(
         }
     }
 
+    let mut removed_files = Vec::new();
     for change in &changes {
+        if let Change::Update { old, new } = change {
+            removed_files.extend(files_of_removed_fields(tx, old, new).await?);
+        }
         apply_one(tx, change).await?;
     }
     for mut view in rebuild {
@@ -341,5 +361,42 @@ pub async fn apply_in(
     let registry = load(tx).await?;
     // other instances reload their collections when this commits
     crate::realtime::notify(tx, "collections").await?;
-    Ok(registry)
+    Ok(Applied {
+        registry,
+        removed_files,
+    })
+}
+
+/// The stored files of the file fields of `old` that `new` no longer has, read before their
+/// columns are dropped.
+async fn files_of_removed_fields(
+    tx: &deadpool_postgres::Transaction<'_>,
+    old: &Collection,
+    new: &Collection,
+) -> Result<Vec<RemovedFile>, WriteError> {
+    let mut files = Vec::new();
+    if old.is_view() {
+        return Ok(files);
+    }
+    let table = schema::table_ref(&old.name);
+    for field in &old.fields {
+        if !matches!(field.kind, FieldKind::File(_)) || new.fields.iter().any(|f| f.id == field.id)
+        {
+            continue;
+        }
+        let column = crate::filter::quote_ident(&field.name);
+        let sql = if field.is_multi() {
+            format!("SELECT t.id, v FROM {table} t, jsonb_array_elements_text(t.{column}) v")
+        } else {
+            format!("SELECT id, {column} FROM {table} WHERE {column} <> ''")
+        };
+        for row in tx.query(&sql, &[]).await? {
+            files.push(RemovedFile {
+                collection_id: old.id.clone(),
+                record_id: row.get(0),
+                name: row.get(1),
+            });
+        }
+    }
+    Ok(files)
 }

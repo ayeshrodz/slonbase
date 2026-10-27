@@ -437,7 +437,12 @@ Single byte ranges (`Range: bytes=a-b`, `a-`, `-n`) are answered with `206` (see
 a `Range` GET on S3), with the type sniffed from the file's start like a full response; several
 ranges or `If-Range` get the whole file, an unsatisfiable range `416`.
 
-**Not yet:** deleting the files of a removed file field.
+**Removed file fields:** when a collection change removes a file field, its stored files (and
+their thumbnails) are deleted after the change commits, so they don't stay in storage with
+nothing pointing at them. The file names are read in the change's transaction, just before
+the column is dropped (`store::apply_in`), for every path that changes collections: the API,
+imports, hooks and migrations. Renaming a field keeps its files (fields are matched by id).
+PocketBase leaves such files in storage.
 
 ### Phase 3: S3 storage
 

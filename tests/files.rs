@@ -466,3 +466,138 @@ async fn byte_ranges() {
     }
     env.tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn removed_file_fields() {
+    let Some(env) = setup().await else { return };
+    let image = png(10, 10);
+    let auth = env.auth();
+    let headers = [("authorization", auth.as_str())];
+    let mut names: Vec<(String, String)> = Vec::new(); // (field, file name)
+    for _ in 0..2 {
+        let (status, record) = env
+            .upload(
+                "POST",
+                "/api/collections/docs/records",
+                &[],
+                &[
+                    ("avatar", "a.png", &image),
+                    ("files", "1.txt", b"1"),
+                    ("files", "2.txt", b"2"),
+                    ("secret", "s.txt", b"s"),
+                ],
+            )
+            .await;
+        assert_eq!(status, StatusCode::OK, "{record}");
+        let id = record["id"].as_str().unwrap();
+        let avatar = record["avatar"].as_str().unwrap();
+        env.get(&format!("/api/files/docs/{id}/{avatar}?thumb=50x50"))
+            .await;
+        names.push(("avatar".into(), avatar.into()));
+        names.push(("secret".into(), record["secret"].as_str().unwrap().into()));
+        for f in record["files"].as_array().unwrap() {
+            names.push(("files".into(), f.as_str().unwrap().into()));
+        }
+    }
+    let stored = |field: &str| -> usize {
+        let files = env.stored_files();
+        names
+            .iter()
+            .filter(|(f, _)| f == field)
+            .filter(|(_, name)| files.iter().any(|stored| stored.contains(name.as_str())))
+            .count()
+    };
+    assert_eq!(
+        (stored("avatar"), stored("files"), stored("secret")),
+        (2, 4, 2)
+    );
+    assert_eq!(
+        env.stored_files()
+            .iter()
+            .filter(|f| f.contains("thumbs_"))
+            .count(),
+        2
+    );
+    let without = |collection: &Value, field: &str| -> Value {
+        let fields: Vec<Value> = collection["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|f| f["name"] != field)
+            .cloned()
+            .collect();
+        Value::Array(fields)
+    };
+
+    // a failed update deletes nothing
+    let (_, collection) = request(&env.app, "GET", "/api/collections/docs", &headers, None).await;
+    let mut fields = without(&collection, "files");
+    fields
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "name": "bad", "type": "nope" }));
+    let (status, _) = request(
+        &env.app,
+        "PATCH",
+        "/api/collections/docs",
+        &headers,
+        Some(json!({ "fields": fields })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(stored("files"), 4);
+
+    // removing a field deletes its files, and only its files
+    let (status, body) = request(
+        &env.app,
+        "PATCH",
+        "/api/collections/docs",
+        &headers,
+        Some(json!({ "fields": without(&collection, "files") })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        (stored("avatar"), stored("files"), stored("secret")),
+        (2, 0, 2)
+    );
+
+    // renaming one keeps them
+    let mut fields = without(&body, "");
+    for f in fields.as_array_mut().unwrap() {
+        if f["name"] == "secret" {
+            f["name"] = json!("private");
+        }
+    }
+    let (status, body) = request(
+        &env.app,
+        "PATCH",
+        "/api/collections/docs",
+        &headers,
+        Some(json!({ "fields": fields })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(stored("secret"), 2);
+
+    // through an import too, thumbnails included
+    let mut definition = body.clone();
+    definition["fields"] = without(&body, "avatar");
+    let (status, res) = request(
+        &env.app,
+        "PUT",
+        "/api/collections/import",
+        &headers,
+        Some(json!({ "collections": [definition] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    assert_eq!((stored("avatar"), stored("secret")), (0, 2));
+    assert!(
+        !env.stored_files().iter().any(|f| f.contains("thumbs_")),
+        "{:?}",
+        env.stored_files()
+    );
+    drop(env.app);
+    env.tdb.drop_db().await;
+}

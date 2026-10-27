@@ -15,6 +15,10 @@ changes, and they'll be listed here.
   behaves as in SQLite 3.53 (PocketBase 0.40's), checked against it on tens of thousands of
   cases. On date fields the common formats compile to PostgreSQL's `to_char()`, so filtering
   stays fast. Function calls now take up to 10 arguments.
+- **Removing a file field deletes its files:** when a collection change (through the API, an
+  import, a hook or a migration) removes a file field, the field's stored files and their
+  thumbnails are deleted once the change commits. Before, they stayed in storage with nothing
+  referring to them (as they do in PocketBase). Renaming a field keeps them.
 
 ### Changed
 

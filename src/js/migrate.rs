@@ -54,6 +54,8 @@ struct TxState {
     settings: Option<Settings>,
     /// Collections deleted, whose files go once the migration commits.
     deleted: Vec<Arc<Collection>>,
+    /// The files of removed file fields, deleted once the migration commits.
+    removed_files: Vec<crate::collections::store::RemovedFile>,
 }
 
 thread_local! {
@@ -123,11 +125,17 @@ impl TxContext {
         }))
     }
 
-    fn collections_saved(&self, registry: Registry, deleted: Vec<Arc<Collection>>) {
+    fn collections_saved(
+        &self,
+        registry: Registry,
+        deleted: Vec<Arc<Collection>>,
+        removed_files: Vec<crate::collections::store::RemovedFile>,
+    ) {
         let mut state = self.state.lock().expect("state lock");
         state.registry = Arc::new(registry);
         state.collections_changed = true;
         state.deleted.extend(deleted);
+        state.removed_files.extend(removed_files);
     }
 }
 
@@ -261,7 +269,7 @@ pub(super) fn call_in_tx(
                 })
             })?;
             let saved = imported.saved.first().map(|c| collection_json(c));
-            ctx.collections_saved(imported.registry, imported.deleted);
+            ctx.collections_saved(imported.registry, imported.deleted, imported.removed_files);
             Ok(saved.unwrap_or(Value::Null))
         })(),
         "deleteCollection" => (|| {
@@ -270,7 +278,7 @@ pub(super) fn call_in_tx(
             let (registry, deleted) = ctx.run(handle, move |tx, _| {
                 Box::pin(async move { crate::collections::tx::delete(tx, &registry, &id).await })
             })?;
-            ctx.collections_saved(registry, vec![deleted]);
+            ctx.collections_saved(registry, vec![deleted], Vec::new());
             Ok(Value::Null)
         })(),
         _ => return None,
@@ -452,6 +460,7 @@ async fn run_one(
             collections_changed: false,
             settings: None,
             deleted: Vec::new(),
+            removed_files: Vec::new(),
         })),
     };
     let outcome = match runtime.run(name, source, direction, ctx.clone()).await {
@@ -490,12 +499,13 @@ async fn run_one(
         bail!("migration {name} failed: {}", err.message);
     }
 
-    let (registry, settings, deleted) = {
+    let (registry, settings, deleted, removed_files) = {
         let mut state = ctx.state.lock().expect("state lock");
         (
             state.collections_changed.then(|| state.registry.clone()),
             state.settings.take(),
             std::mem::take(&mut state.deleted),
+            std::mem::take(&mut state.removed_files),
         )
     };
     if let Some(registry) = registry {
@@ -509,6 +519,7 @@ async fn run_one(
             tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
         }
     }
+    crate::records::files::remove_field_files(core, &removed_files).await;
     Ok(true)
 }
 

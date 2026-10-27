@@ -575,3 +575,67 @@ async fn imports_pocketbase_snapshots() {
     assert!(core.registry().get("more").is_some());
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn removing_a_file_field_deletes_its_files() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let migrations = tempfile::tempdir().unwrap();
+    let dir = migrations.path().to_path_buf();
+    write(
+        &dir,
+        "1700000001_docs.js",
+        r#"migrate((app) => {
+  app.save(new Collection({
+    name: "docs", type: "base", createRule: "",
+    fields: [{ name: "title", type: "text" }, { name: "doc", type: "file", maxSelect: 2 }],
+  }));
+})"#,
+    );
+    let configured = dir.clone();
+    let (app, _token, config) = ready_app_configured(&tdb, Default::default(), move |o| {
+        o.migrations_dir = Some(configured);
+    })
+    .await;
+    let (content_type, body) = multipart(&[("title", "a")], &[("doc", "a.txt", b"a")]);
+    let (status, _, res) = raw_request(
+        &app,
+        "POST",
+        "/api/collections/docs/records",
+        &[("content-type", content_type.as_str())],
+        body,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{}", String::from_utf8_lossy(&res));
+    let record: serde_json::Value = serde_json::from_slice(&res).unwrap();
+    let storage = config.path().join("storage");
+    let file = storage
+        .join(record["collectionId"].as_str().unwrap())
+        .join(record["id"].as_str().unwrap())
+        .join(record["doc"][0].as_str().unwrap());
+    assert!(file.exists());
+    drop(app);
+
+    // the next start applies a migration that removes the field
+    write(
+        &dir,
+        "1700000002_no_doc.js",
+        r#"migrate((app) => {
+  const c = app.findCollectionByNameOrId("docs");
+  c.fields.removeByName("doc");
+  app.save(c);
+})"#,
+    );
+    let (_config2, path) = temp_config();
+    let configured = dir.clone();
+    let second = new_app_configured(&path, Some(tdb.url.clone()), Default::default(), move |o| {
+        o.migrations_dir = Some(configured);
+        o.storage_path = Some(storage);
+    });
+    second.bootstrap().await.unwrap();
+    assert_eq!(history(&second).await.len(), 2);
+    assert!(!file.exists(), "the field's files are deleted");
+    drop(second);
+    tdb.drop_db().await;
+}

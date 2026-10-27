@@ -94,6 +94,8 @@ pub struct Imported {
     pub saved: Vec<Arc<Collection>>,
     /// The collections deleted (with `delete_missing`), whose files can go once it commits.
     pub deleted: Vec<Arc<Collection>>,
+    /// The files of removed file fields, to delete once it commits.
+    pub removed_files: Vec<store::RemovedFile>,
 }
 
 /// Creates or updates collections from their JSON definitions (merged over the stored ones
@@ -211,13 +213,19 @@ pub async fn import(
             })
             .collect::<Vec<_>>()
     };
+    let removed_files = std::sync::Mutex::new(Vec::new());
     let apply = async |changes: Vec<Change<'_>>| -> Result<Registry, ApiError> {
         if changes.is_empty() {
             store::load(tx).await.map_err(ApiError::internal)
         } else {
-            store::apply_in(tx, changes)
+            let applied = store::apply_in(tx, changes)
                 .await
-                .map_err(|e| write_error(e, failed))
+                .map_err(|e| write_error(e, failed))?;
+            removed_files
+                .lock()
+                .expect("removed files lock")
+                .extend(applied.removed_files);
+            Ok(applied.registry)
         }
     };
 
@@ -262,6 +270,7 @@ pub async fn import(
         registry: current,
         saved,
         deleted,
+        removed_files: removed_files.into_inner().expect("removed files lock"),
     })
 }
 
@@ -297,6 +306,7 @@ pub async fn delete(
     }
     let registry = store::apply_in(tx, vec![Change::Delete(&c)])
         .await
-        .map_err(|e| write_error(e, failed))?;
+        .map_err(|e| write_error(e, failed))?
+        .registry;
     Ok((registry, c))
 }

@@ -507,6 +507,25 @@ pub async fn remove_replaced(core: &Core, collection_id: &str, record_id: &str, 
     }
 }
 
+/// Deletes the files (and thumbnails) of file fields removed from their collections.
+pub async fn remove_field_files(core: &Core, files: &[crate::collections::store::RemovedFile]) {
+    for file in files {
+        remove_replaced(
+            core,
+            &file.collection_id,
+            &file.record_id,
+            std::slice::from_ref(&file.name),
+        )
+        .await;
+    }
+    if !files.is_empty() {
+        tracing::info!(
+            files = files.len(),
+            "deleted the files of removed file fields"
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // thumbnails
 

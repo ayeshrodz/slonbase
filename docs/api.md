@@ -149,6 +149,8 @@ Files are uploaded with `multipart/form-data` on create and update:
 - Thumbnails (`100x100`, `0x300`, `200x100t`/`b`/`f`) are generated on first request.
 - Downloads support byte ranges (`Range`), so audio and video can be streamed.
 - Protected files need a file token (`POST /api/files/token`, `?token=`).
+- Deleting a record deletes its files, and removing a file field from a collection deletes that
+  field's files.
 
 Files are stored under `--storage-path`, or in an S3 bucket
 ([configuration](configuration.md#file-storage-in-s3)).
