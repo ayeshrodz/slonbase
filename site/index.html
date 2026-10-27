@@ -336,7 +336,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v0.6.0</b><span id="pill-title">Realtime for every change, and many instances</span><span class="arrow">→</span>
+      <b id="pill-version">v0.7.0</b><span id="pill-title">Sign in with Apple, strftime() and more</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -622,16 +622,16 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v0.6.0</div>
-        <div class="date" id="rel-date">October 26, 2026</div>
-        <p id="rel-summary">Realtime events now come from the database itself, so changes made outside the records API reach subscribers. Several instances can sit behind a plain load balancer, with shared rate limits.</p>
+        <div class="ver" id="rel-version">v0.7.0</div>
+        <div class="date" id="rel-date">October 27, 2026</div>
+        <p id="rel-summary">Sign in with Apple and validated OpenID Connect tokens, <code>strftime()</code> in filters and rules, files cleaned up with their fields, and log size limits.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>Realtime for every change</li>
-        <li>Several instances behind any load balancer</li>
-        <li><code>@request.auth</code> relation paths</li>
-        <li>Prometheus metrics</li>
+        <li>Sign in with Apple</li>
+        <li><code>strftime()</code> in filters</li>
+        <li>OpenID Connect from the <code>id_token</code></li>
+        <li>Removed file fields delete their files</li>
       </ul>
     </div>
   </div>
@@ -666,8 +666,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v0.6.0/slonbase-0.6.0-linux-amd64.tar.gz
-tar xzf slonbase-0.6.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v0.7.0/slonbase-0.7.0-linux-amd64.tar.gz
+tar xzf slonbase-0.7.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'

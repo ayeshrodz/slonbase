@@ -7,6 +7,15 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-27
+
+**Parity details, and Sign in with Apple.** Filters and rules gain `strftime()`, reproduced
+exactly from SQLite (PocketBase's) and checked against it on tens of thousands of cases, while
+staying fast on date fields. Sign in with Apple, with its client secret generator, and OpenID
+Connect providers read from a validated `id_token`. Removing a file field deletes its files,
+and `logs.maxDataSize` works. Also a new identity: slonbase now describes itself as what it is,
+a backend built from scratch for PostgreSQL.
+
 ### Added
 
 - **`strftime()` in filters and rules:** `strftime(format, [time-value, modifiers...])`
@@ -41,6 +50,18 @@ changes, and they'll be listed here.
   PocketBase's API on another database. Compatibility with the PocketBase SDKs, hooks and
   migrations is unchanged, and is described in one place for people moving an app over.
 - The docs are up to date with 0.6 (the design document's roadmap, stale version notes).
+- OpenID Connect providers no longer need a user info URL (they're read from the `id_token`
+  without one).
+
+### Upgrading
+
+- Two system migrations run on the first start: the `strftime()` functions, and a small
+  unlogged table for the name Apple sends with its first redirect. Back up first, as for every
+  upgrade.
+- Removing a file field from a collection now deletes the field's stored files. Before, they
+  were left in storage (with no way to reach them once the column was gone).
+- Log entries larger than `logs.maxDataSize` (16 KiB by default) are now truncated, and messages
+  are cut at 8,000 bytes.
 
 ## [0.6.0] - 2026-10-26
 
@@ -424,7 +445,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...v0.5.0
 [0.4.2]: https://github.com/ayeshrodz/slonbase/compare/v0.4.1...v0.4.2
