@@ -20,6 +20,12 @@ type HmacSha256 = Hmac<Sha256>;
 
 /// Total time allowed for requests other than downloads (uploads can be large).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
+/// Files larger than this are uploaded in parts (`put_file`).
+const MULTIPART_THRESHOLD: u64 = 64 << 20;
+/// The size of each part (S3 wants at least 5 MiB, except for the last one).
+const PART_SIZE: u64 = 16 << 20;
+/// Parts per upload (the S3 limit): larger files get larger parts.
+const MAX_PARTS: u64 = 10_000;
 /// Objects per `DeleteObjects` request (the S3 limit).
 const DELETE_BATCH: usize = 1000;
 const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
@@ -60,6 +66,9 @@ pub struct Client {
     prefix: String,
     /// Keys per list request.
     page_size: usize,
+    /// See [`MULTIPART_THRESHOLD`] and [`PART_SIZE`] (smaller in tests).
+    multipart_threshold: u64,
+    part_size: u64,
 }
 
 impl Client {
@@ -87,6 +96,8 @@ impl Client {
             base,
             prefix,
             page_size: 1000,
+            multipart_threshold: MULTIPART_THRESHOLD,
+            part_size: PART_SIZE,
         })
     }
 
@@ -400,13 +411,128 @@ impl Client {
         }
     }
 
-    /// Uploads a file from disk without reading it into memory.
+    /// Uploads a file from disk without reading it into memory: in one request, or in parts
+    /// when it's large (each part is retried on its own, and objects can pass the 5 GiB a
+    /// single upload allows).
     pub async fn put_file(&self, key: &str, path: &std::path::Path) -> Result<()> {
         let size = tokio::fs::metadata(path).await?.len();
+        if size > self.multipart_threshold {
+            return self.put_file_in_parts(key, path, size).await;
+        }
         let response = self
             .send(Method::PUT, key, &[], Payload::File(path, size), &[], None)
             .await?;
         ensure_success(response, "upload").await.map(|_| ())
+    }
+
+    /// A multipart upload: `CreateMultipartUpload`, an `UploadPart` per part, then
+    /// `CompleteMultipartUpload`; on failure the upload is aborted, so no parts are left
+    /// behind (and billed).
+    async fn put_file_in_parts(&self, key: &str, path: &std::path::Path, size: u64) -> Result<()> {
+        let response = self
+            .send(
+                Method::POST,
+                key,
+                &[("uploads", "")],
+                Payload::Empty,
+                &[],
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        let body = ensure_success(response, "multipart upload creation").await?;
+        let upload_id = xml_values(&body, "UploadId")
+            .into_iter()
+            .next()
+            .filter(|id| !id.is_empty())
+            .context("S3 returned no multipart upload id")?;
+        let result = self.upload_parts(key, path, size, &upload_id).await;
+        if result.is_err() {
+            let aborted = self
+                .send(
+                    Method::DELETE,
+                    key,
+                    &[("uploadId", upload_id.as_str())],
+                    Payload::Empty,
+                    &[],
+                    Some(REQUEST_TIMEOUT),
+                )
+                .await;
+            if let Err(err) = aborted {
+                tracing::warn!(key, error = %format!("{err:#}"), "failed to abort a multipart upload");
+            }
+        }
+        result
+    }
+
+    async fn upload_parts(
+        &self,
+        key: &str,
+        path: &std::path::Path,
+        size: u64,
+        upload_id: &str,
+    ) -> Result<()> {
+        use tokio::io::AsyncReadExt;
+        let part_size = self.part_size.max(size.div_ceil(MAX_PARTS));
+        let mut file = tokio::fs::File::open(path).await?;
+        let mut etags = Vec::new();
+        let mut sent = 0u64;
+        while sent < size {
+            let len = part_size.min(size - sent) as usize;
+            let mut part = vec![0u8; len];
+            file.read_exact(&mut part)
+                .await
+                .context("reading the file to upload")?;
+            let number = (etags.len() + 1).to_string();
+            let response = self
+                .send(
+                    Method::PUT,
+                    key,
+                    &[("partNumber", number.as_str()), ("uploadId", upload_id)],
+                    Payload::Bytes(Bytes::from(part)),
+                    &[],
+                    Some(REQUEST_TIMEOUT),
+                )
+                .await?;
+            let etag = response
+                .headers()
+                .get("etag")
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_string();
+            ensure_success(response, "part upload").await?;
+            if etag.is_empty() {
+                bail!("S3 returned no ETag for part {number}");
+            }
+            etags.push(etag);
+            sent += len as u64;
+        }
+
+        let mut xml = String::from("<CompleteMultipartUpload>");
+        for (i, etag) in etags.iter().enumerate() {
+            xml.push_str(&format!(
+                "<Part><PartNumber>{}</PartNumber><ETag>{}</ETag></Part>",
+                i + 1,
+                xml_escape(etag)
+            ));
+        }
+        xml.push_str("</CompleteMultipartUpload>");
+        let response = self
+            .send(
+                Method::POST,
+                key,
+                &[("uploadId", upload_id)],
+                Payload::Bytes(Bytes::from(xml)),
+                &[("content-type", "application/xml".to_string())],
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        // S3 can answer 200 with an error in the body
+        let body = ensure_success(response, "multipart upload completion").await?;
+        if body.contains("<Error>") {
+            let codes = xml_values(&body, "Code");
+            bail!("S3 failed to complete the upload: {}", codes.join(", "));
+        }
+        Ok(())
     }
 
     /// Creates the bucket (used by tests; an existing bucket of the same owner is fine).
@@ -596,6 +722,8 @@ fn xml_values(xml: &str, tag: &str) -> Vec<String> {
 mod tests {
     use super::*;
     use chrono::TimeZone;
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
 
     fn example_config() -> Config {
         Config {
@@ -774,6 +902,20 @@ mod tests {
         assert!(client.list("p/").await.unwrap().is_empty());
         assert_eq!(client.list("pq/").await.unwrap(), vec!["pq/other"]);
 
+        // a file in parts (5 MiB is the smallest part S3 takes)
+        client.multipart_threshold = 5 << 20;
+        client.part_size = 5 << 20;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("big.bin");
+        let data: Vec<u8> = (0..(11 << 20) + 123).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&path, &data).unwrap();
+        client.put_file("big/file.bin", &path).await.unwrap();
+        let object = client.open("big/file.bin").await.unwrap().unwrap();
+        assert_eq!(object.size, data.len() as u64);
+        let read: Vec<Bytes> = object.stream.map(|c| c.unwrap()).collect().await;
+        assert!(read.concat() == data, "the parts are put together in order");
+        client.delete("big/file.bin").await.unwrap();
+
         // a wrong secret is rejected by the server
         let wrong = Client::new(Config {
             secret: "wrong".into(),
@@ -785,6 +927,121 @@ mod tests {
             .await
             .unwrap_err();
         assert!(format!("{err:#}").contains("403"), "{err:#}");
+    }
+
+    /// A mock S3 server for multipart uploads: uploads' parts, completed objects, and aborted
+    /// upload ids. `fail_part` answers that part number with an error.
+    #[derive(Clone, Default)]
+    struct MockS3 {
+        parts: Arc<Mutex<std::collections::BTreeMap<u32, Vec<u8>>>>,
+        objects: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+        aborted: Arc<Mutex<Vec<String>>>,
+        fail_part: Option<u32>,
+    }
+
+    async fn mock_s3(
+        axum::extract::State(mock): axum::extract::State<MockS3>,
+        method: axum::http::Method,
+        uri: axum::http::Uri,
+        body: Bytes,
+    ) -> axum::response::Response {
+        use axum::response::IntoResponse;
+        let query: HashMap<String, String> =
+            form_urlencoded::parse(uri.query().unwrap_or("").as_bytes())
+                .into_owned()
+                .collect();
+        let key = uri.path().to_string();
+        match (method.as_str(), query.get("uploadId"), query.get("partNumber")) {
+            ("POST", None, _) if query.contains_key("uploads") => {
+                "<InitiateMultipartUploadResult><UploadId>up-1</UploadId></InitiateMultipartUploadResult>"
+                    .into_response()
+            }
+            ("PUT", Some(id), Some(n)) if id == "up-1" => {
+                let n: u32 = n.parse().unwrap();
+                if mock.fail_part == Some(n) {
+                    return (axum::http::StatusCode::BAD_REQUEST, "<Error><Code>Nope</Code></Error>")
+                        .into_response();
+                }
+                mock.parts.lock().unwrap().insert(n, body.to_vec());
+                ([("etag", format!("\"etag-{n}\""))], "").into_response()
+            }
+            ("POST", Some(id), None) if id == "up-1" => {
+                let xml = String::from_utf8(body.to_vec()).unwrap();
+                let parts = mock.parts.lock().unwrap();
+                let numbers = xml_values(&xml, "PartNumber");
+                let etags = xml_values(&xml, "ETag");
+                assert_eq!(numbers.len(), parts.len());
+                let mut object = Vec::new();
+                for (n, etag) in numbers.iter().zip(&etags) {
+                    let n: u32 = n.parse().unwrap();
+                    assert_eq!(etag, &format!("\"etag-{n}\""));
+                    object.extend_from_slice(&parts[&n]);
+                }
+                mock.objects.lock().unwrap().insert(key, object);
+                "<CompleteMultipartUploadResult></CompleteMultipartUploadResult>".into_response()
+            }
+            ("DELETE", Some(id), None) => {
+                mock.aborted.lock().unwrap().push(id.clone());
+                axum::http::StatusCode::NO_CONTENT.into_response()
+            }
+            _ => axum::http::StatusCode::NOT_IMPLEMENTED.into_response(),
+        }
+    }
+
+    async fn start_mock(mock: MockS3) -> Client {
+        let router = axum::Router::new().fallback(mock_s3).with_state(mock);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let mut client = Client::new(Config {
+            endpoint: format!("http://{addr}"),
+            bucket: "b".into(),
+            region: "us-east-1".into(),
+            access_key: "k".into(),
+            secret: "s".into(),
+            force_path_style: true,
+        })
+        .unwrap();
+        client.multipart_threshold = 1000;
+        client.part_size = 400;
+        client
+    }
+
+    #[tokio::test]
+    async fn multipart_uploads() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("f.bin");
+        let data: Vec<u8> = (0..1100u32).map(|i| (i % 256) as u8).collect();
+        std::fs::write(&path, &data).unwrap();
+
+        // 400 + 400 + 300 bytes, put together in order
+        let mock = MockS3::default();
+        let client = start_mock(mock.clone()).await;
+        client.put_file("dir/f.bin", &path).await.unwrap();
+        assert_eq!(mock.parts.lock().unwrap().len(), 3);
+        assert_eq!(mock.objects.lock().unwrap()["/b/dir/f.bin"], data);
+        assert!(mock.aborted.lock().unwrap().is_empty());
+
+        // a failed part aborts the upload
+        let mock = MockS3 {
+            fail_part: Some(2),
+            ..Default::default()
+        };
+        let client = start_mock(mock.clone()).await;
+        let err = client.put_file("dir/f.bin", &path).await.unwrap_err();
+        assert!(format!("{err:#}").contains("Nope"), "{err:#}");
+        assert_eq!(*mock.aborted.lock().unwrap(), vec!["up-1".to_string()]);
+        assert!(mock.objects.lock().unwrap().is_empty());
+
+        // small files are a single upload
+        std::fs::write(&path, b"small").unwrap();
+        let mock = MockS3::default();
+        let client = start_mock(mock.clone()).await;
+        assert!(
+            client.put_file("dir/f.bin", &path).await.is_err(),
+            "the mock has no plain PUT"
+        );
+        assert!(mock.parts.lock().unwrap().is_empty());
     }
 
     #[test]

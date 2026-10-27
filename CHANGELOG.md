@@ -7,6 +7,15 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **A custom CA for S3 and other outbound HTTPS:** `--http-ca-file` (`SLONBASE_HTTP_CA_FILE`,
+  `server.http_ca_file`) trusts a PEM bundle's certificates besides the public roots, for S3
+  servers (and OAuth2 providers) with certificates from a private CA.
+- **Multipart S3 uploads:** files over 64 MiB, such as backups, are uploaded in parts, each
+  retried on its own, so large backups no longer depend on one long request and can pass the
+  5 GiB a single S3 upload allows. A failed upload is aborted, leaving no parts behind.
+
 ## [0.7.0] - 2026-10-27
 
 **Parity details, and Sign in with Apple.** Filters and rules gain `strftime()`, reproduced

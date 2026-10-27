@@ -90,6 +90,7 @@ impl App {
             Some(t) => t,
             None => ids::random_secret(32),
         };
+        crate::http::trust(config.effective.server.http_ca_file.as_deref())?;
 
         Ok(Arc::new_cyclic(|app| Self {
             mode: RwLock::new(Mode::Starting {

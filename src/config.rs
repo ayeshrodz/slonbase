@@ -127,6 +127,10 @@ pub struct ServerConfig {
     /// it isn't authenticated.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics_bind: Option<String>,
+    /// Extra PEM CA bundle to trust for outbound HTTPS (S3, OAuth2 providers), e.g. for an S3
+    /// server with a private certificate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub http_ca_file: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -135,6 +139,7 @@ impl Default for ServerConfig {
             bind: DEFAULT_BIND.to_string(),
             sql_console: false,
             metrics_bind: None,
+            http_ca_file: None,
         }
     }
 }
@@ -175,6 +180,7 @@ impl Default for DatabaseConfig {
 pub struct Overrides {
     pub bind: Option<String>,
     pub metrics_bind: Option<String>,
+    pub http_ca_file: Option<PathBuf>,
     pub database_url: Option<String>,
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
@@ -221,6 +227,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(bind) = overrides.metrics_bind {
         effective.server.metrics_bind = Some(bind);
+    }
+    if let Some(path) = overrides.http_ca_file {
+        effective.server.http_ca_file = Some(path);
     }
     if let Some(url) = overrides.database_url {
         effective.database.url = Some(url);

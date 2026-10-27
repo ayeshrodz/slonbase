@@ -19,6 +19,7 @@ file, and then the defaults.
 | `--config` | `SLONBASE_CONFIG` | | `slonbase.toml` |
 | `--bind` | `SLONBASE_BIND` | `server.bind` | `127.0.0.1:8090` |
 | `--metrics-bind` | `SLONBASE_METRICS_BIND` | `server.metrics_bind` | none (no metrics) |
+| `--http-ca-file` | `SLONBASE_HTTP_CA_FILE` | `server.http_ca_file` | none |
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
@@ -45,6 +46,7 @@ A config file with every option:
 bind = "127.0.0.1:8090"
 sql_console = false
 # metrics_bind = "127.0.0.1:9090"   # Prometheus metrics at /metrics (not authenticated)
+# http_ca_file = "/etc/slonbase/private-ca.pem"   # extra CAs for S3 and OAuth2 providers
 
 [database]
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"
@@ -127,6 +129,14 @@ curl -X POST localhost:8090/api/settings/test/s3 -H "Authorization: $TOKEN" -d '
 Any S3-compatible service works: AWS, MinIO, Cloudflare R2, Backblaze B2, Wasabi or DigitalOcean
 Spaces. Use `forcePathStyle: true` for MinIO and other servers addressed by IP or a single host
 name. Existing files aren't moved when you switch storage.
+
+An S3 server with a certificate from a private CA (a MinIO on your network, say) needs that CA:
+pass its PEM file with `--http-ca-file`. It's trusted besides the usual public roots, for all
+outbound HTTPS (S3, and OAuth2 providers on the same network).
+
+Large files (backups, mostly) are uploaded in 16 MiB parts above 64 MiB, so each part is
+retried on its own and objects can pass the 5 GiB a single upload allows. A failed upload is
+aborted, so no parts are left behind.
 
 ### Logs
 

@@ -493,8 +493,16 @@ client, so it works in the `scratch` image.
 A misconfigured S3 storage fails every file operation with its error rather than falling back to
 the local directory, so files never end up somewhere unexpected.
 
-**Not yet:** a custom CA for S3 servers with private certificates, multipart uploads (files are
-limited to 128 MiB anyway), and presigned URLs.
+**Private CAs:** `server.http_ca_file` (`--http-ca-file`) adds a PEM bundle's certificates to
+the Mozilla roots of the shared outbound HTTP client, so it covers S3, OAuth2 providers, JWKS
+and hooks' `$http`. It's read at startup and applies to the whole process.
+
+**Multipart uploads:** `put_file` (backups, and any file from disk) uploads files over 64 MiB in
+16 MiB parts (larger when a file would need more than 10,000), each read into memory and sent,
+and retried, on its own; then `CompleteMultipartUpload` (whose 200 can carry an error). A
+failure aborts the upload. Tested against a mock server and, in CI, MinIO.
+
+**Not yet:** presigned URLs.
 
 ### Phase 4a: admin dashboard
 

@@ -39,6 +39,11 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_METRICS_BIND")]
     metrics_bind: Option<String>,
 
+    /// Extra PEM CA bundle to trust for outbound HTTPS: S3 and OAuth2 providers with
+    /// private certificates.
+    #[arg(long, global = true, env = "SLONBASE_HTTP_CA_FILE")]
+    http_ca_file: Option<PathBuf>,
+
     /// PostgreSQL connection URL.
     #[arg(
         long,
@@ -259,6 +264,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
     let overrides = Overrides {
         bind: cli.bind,
         metrics_bind: cli.metrics_bind,
+        http_ca_file: cli.http_ca_file,
         database_url: cli.database_url,
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
