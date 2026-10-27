@@ -119,7 +119,7 @@ impl Core {
         let settings = Settings::load(&client).await?;
         drop(client);
 
-        let logs = crate::logs::Logger::start(pool.clone());
+        let logs = crate::logs::Logger::start(pool.clone(), settings.logs.max_data_size);
         let storage = storage_for(&settings, &local_storage);
         tracing::info!(storage = %storage.describe(), "file storage");
         Ok(Arc::new(Self {
@@ -240,6 +240,7 @@ impl Core {
 
     fn replace_settings(&self, settings: Settings) {
         let previous = self.settings();
+        self.logs.set_max_data_size(settings.logs.max_data_size);
         let storage_changed = previous.s3 != settings.s3;
         if previous.rate_limits != settings.rate_limits {
             self.rate_limiter.reset();

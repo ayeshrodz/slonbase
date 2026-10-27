@@ -427,6 +427,9 @@ function LogsSettings({ s }) {
       <${Field} label="Minimum level">
         <${Select} value=${String(d.logs.minLevel)} onChange=${(v) => s.set("logs.minLevel", Number(v))} options=${[{ value: "-4", label: "Debug" }, { value: "0", label: "Info" }, { value: "4", label: "Warning" }, { value: "8", label: "Error" }]} />
       </${Field}>
+      <${Field} label="Largest entry data (bytes)" help="Bigger entries keep what fits. 0 is 16 KiB.">
+        <${Input} type="number" min="0" value=${d.logs.maxDataSize || 0} onInput=${(v) => s.set("logs.maxDataSize", Number(v))} />
+      </${Field}>
     </div>
     <div class="row wrap" style="gap:22px">
       <${Switch} checked=${d.logs.logIP} onChange=${(v) => s.set("logs.logIP", v)} label="Record IP addresses" />

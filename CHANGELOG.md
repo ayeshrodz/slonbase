@@ -15,6 +15,10 @@ changes, and they'll be listed here.
   behaves as in SQLite 3.53 (PocketBase 0.40's), checked against it on tens of thousands of
   cases. On date fields the common formats compile to PostgreSQL's `to_char()`, so filtering
   stays fast. Function calls now take up to 10 arguments.
+- **`logs.maxDataSize` works:** log entries whose data is larger keep the attributes that fit
+  and are marked with `"__pb_truncated__": true`, as in PocketBase (16 KiB when it's 0), and
+  messages are cut at 8,000 bytes. The dashboard's log settings have the field. Values below 0
+  are rejected.
 - **Sign in with Apple:** an `apple` OAuth2 provider, as in PocketBase. The user comes from
   Apple's `id_token`, verified with Apple's keys, and the name Apple sends only with the first
   redirect is kept for the sign-in (in the database, so it works across instances).

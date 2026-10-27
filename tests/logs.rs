@@ -200,6 +200,51 @@ async fn request_logs() {
     .await;
     assert_eq!(info["totalItems"], 0, "below the minimum level");
 
+    // maxDataSize: entries keep the attributes that fit, and are marked
+    let (status, _) = admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "logs": { "maxDataSize": -1 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, res) = admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "logs": { "minLevel": 0, "maxDataSize": 200 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["logs"]["maxDataSize"], 200);
+    let long = "x".repeat(500);
+    request(
+        &app,
+        "GET",
+        &format!("/api/collections/long/records?pad={long}"),
+        &[],
+        None,
+    )
+    .await;
+    let cut = wait_for(&app, &token, "data.__pb_truncated__ = true", 1).await;
+    let data = &cut[0]["data"];
+    assert!(data.get("url").is_none(), "{data}");
+    assert_eq!(
+        data["method"], "GET",
+        "the attributes before url are kept: {data}"
+    );
+    assert!(
+        serde_json::to_string(data).unwrap().len() <= 200 + r#","__pb_truncated__":true"#.len(),
+        "{data}"
+    );
+    // small entries are left as they are
+    admin(&app, &token, "GET", "/api/collections?marker=3", None).await;
+    let small = wait_for(&app, &token, "data.url ~ 'marker=3'", 1).await;
+    assert!(small[0]["data"].get("__pb_truncated__").is_none());
+
     // maxDays 0 turns logging off
     admin(
         &app,

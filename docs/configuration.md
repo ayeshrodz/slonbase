@@ -134,7 +134,9 @@ Every request is logged at level 0, or level 8 with the error for failed request
 files and successful health checks are skipped. slonbase's own warnings and errors are logged
 too. Logs are kept for `logs.maxDays` days (5 by default) in an unlogged PostgreSQL table, so
 writing them is cheap. They're written in batches in the background, and they don't survive a
-PostgreSQL crash. Browse them in the dashboard or with `/api/logs`.
+PostgreSQL crash. Browse them in the dashboard or with `/api/logs`. An entry's data is kept
+under `logs.maxDataSize` bytes (16 KiB when 0): a larger one keeps the attributes that fit and
+is marked `"__pb_truncated__": true`.
 
 ### Rate limits
 

@@ -548,8 +548,11 @@ never writes them on the request path:
 - `remoteIP` is the connection's address; `userIP` comes from the first `trustedProxy` header
   with an address (rightmost of a list, or leftmost with `useLeftmostIP`).
 
-**Not yet:** `maxDataSize` is accepted but unused (request bodies aren't logged, so entries stay
-small anyway).
+- `maxDataSize` (0: 16 KiB) limits an entry's serialized `data`, as in PocketBase: a larger
+  entry keeps the attributes that fit whole, in order, and gets `"__pb_truncated__": true`
+  (PocketBase's marker, so its tools recognize it). Messages are cut at 8,000 bytes. It's
+  applied when an entry is queued, so it covers requests, warnings and errors, and hooks'
+  logger alike.
 
 ### Phase 4c: rate limits and superuser IPs
 

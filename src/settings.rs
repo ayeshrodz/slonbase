@@ -172,9 +172,14 @@ impl Default for Backups {
     }
 }
 
+/// The largest integer JSON clients can read exactly (2^53 - 1).
+const MAX_SAFE_JSON_INT: i64 = (1 << 53) - 1;
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Logs {
+    /// Largest serialized `data` of an entry, in bytes (0: 16 KiB); larger entries keep their
+    /// leading attributes and get `"__pb_truncated__": true`.
     pub max_data_size: i64,
     /// Days logs are kept (0: logging disabled).
     pub max_days: u32,
@@ -356,6 +361,12 @@ fn validate(s: &Settings) -> Errors {
     }
     s.s3.validate("s3", &mut errors);
     s.backups.s3.validate("backups.s3", &mut errors);
+    if !(0..=MAX_SAFE_JSON_INT).contains(&s.logs.max_data_size) {
+        errors.invalid(
+            "logs.maxDataSize",
+            format!("Must be between 0 and {MAX_SAFE_JSON_INT}."),
+        );
+    }
     if !s.backups.cron.trim().is_empty() && crate::cron::Schedule::parse(&s.backups.cron).is_none()
     {
         errors.invalid("backups.cron", "Invalid cron expression.");

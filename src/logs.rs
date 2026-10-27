@@ -7,6 +7,7 @@
 //! entries are dropped rather than slowing requests down.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -32,6 +33,12 @@ pub const LEVEL_WARN: i32 = 4;
 pub const LEVEL_ERROR: i32 = 8;
 
 const QUEUE: usize = 10_000;
+/// Longest message kept, in bytes (as PocketBase).
+const MAX_MESSAGE: usize = 8000;
+/// The `data` limit when `logs.maxDataSize` is 0 (as PocketBase).
+const DEFAULT_MAX_DATA: usize = 16 << 10;
+/// Marks an entry whose `data` was cut (PocketBase's name, which its tools recognize).
+pub const TRUNCATED: &str = "__pb_truncated__";
 const BATCH: usize = 500;
 const FLUSH_EVERY: Duration = Duration::from_millis(500);
 const ALIAS: &str = "t";
@@ -61,20 +68,70 @@ impl Entry {
 #[derive(Clone)]
 pub struct Logger {
     sender: mpsc::Sender<Entry>,
+    /// `logs.maxDataSize`
+    max_data_size: Arc<AtomicI64>,
 }
 
 impl Logger {
     /// Starts the writer task.
-    pub fn start(pool: Pool) -> Self {
+    pub fn start(pool: Pool, max_data_size: i64) -> Self {
         let (sender, receiver) = mpsc::channel(QUEUE);
         tokio::spawn(write_loop(pool, receiver));
-        Self { sender }
+        Self {
+            sender,
+            max_data_size: Arc::new(AtomicI64::new(max_data_size)),
+        }
     }
 
-    pub fn push(&self, entry: Entry) {
+    /// Applies a changed `logs.maxDataSize`.
+    pub fn set_max_data_size(&self, max_data_size: i64) {
+        self.max_data_size.store(max_data_size, Ordering::Relaxed);
+    }
+
+    pub fn push(&self, mut entry: Entry) {
+        let limit = match self.max_data_size.load(Ordering::Relaxed) {
+            n if n <= 0 => DEFAULT_MAX_DATA,
+            n => usize::try_from(n).unwrap_or(usize::MAX),
+        };
+        fit(&mut entry, limit);
         // full: dropped (see the module docs)
         let _ = self.sender.try_send(entry);
     }
+}
+
+/// Keeps an entry within the limits, as PocketBase does: the message to [`MAX_MESSAGE`]
+/// bytes, and `data` serialized to `max_data` bytes, by keeping the attributes that fit
+/// whole, in order, and adding [`TRUNCATED`].
+fn fit(entry: &mut Entry, max_data: usize) {
+    if entry.message.len() > MAX_MESSAGE {
+        let mut end = MAX_MESSAGE;
+        while !entry.message.is_char_boundary(end) {
+            end -= 1;
+        }
+        entry.message.truncate(end);
+    }
+    let size = serde_json::to_vec(&entry.data).map_or(0, |json| json.len());
+    if size <= max_data {
+        return;
+    }
+    let mut kept = Map::new();
+    if let Value::Object(data) = std::mem::take(&mut entry.data) {
+        // "{" and, between attributes, ","
+        let mut size = 1;
+        for (key, value) in data {
+            let attribute = serde_json::to_vec(&key).map_or(0, |k| k.len())
+                + 1
+                + serde_json::to_vec(&value).map_or(0, |v| v.len())
+                + usize::from(!kept.is_empty());
+            if size + attribute > max_data {
+                break;
+            }
+            size += attribute;
+            kept.insert(key, value);
+        }
+    }
+    kept.insert(TRUNCATED.into(), Value::Bool(true));
+    entry.data = Value::Object(kept);
 }
 
 async fn write_loop(pool: Pool, mut receiver: mpsc::Receiver<Entry>) {
@@ -520,4 +577,42 @@ pub async fn truncate(
         .await
         .map_err(db_error)?;
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn entries_fit_the_limits() {
+        let mut entry = Entry::new(
+            0,
+            "é".repeat(5000),
+            json!({ "a": 1, "b": "x".repeat(50), "c": 3 }),
+        );
+        fit(&mut entry, 1000);
+        assert_eq!(entry.message.len(), 8000, "cut on a character boundary");
+        assert_eq!(
+            entry.data,
+            json!({ "a": 1, "b": "x".repeat(50), "c": 3 }),
+            "within the limit"
+        );
+
+        // the attributes that fit whole, in order: `{"a":1` and `,"b":"x..."`
+        let both = r#"{"a":1,"b":""#.len() + 50 + 1;
+        for (limit, expected) in [
+            (
+                both,
+                json!({ "a": 1, "b": "x".repeat(50), TRUNCATED: true }),
+            ),
+            (both - 1, json!({ "a": 1, TRUNCATED: true })),
+        ] {
+            let mut entry = Entry::new(0, "m", json!({ "a": 1, "b": "x".repeat(50), "c": 3 }));
+            fit(&mut entry, limit);
+            assert_eq!(entry.data, expected, "{limit}");
+        }
+        let mut entry = Entry::new(0, "m", json!({ "big": "x".repeat(100) }));
+        fit(&mut entry, 10);
+        assert_eq!(entry.data, json!({ TRUNCATED: true }));
+    }
 }
