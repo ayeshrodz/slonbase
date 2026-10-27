@@ -77,6 +77,10 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/settings/test/s3", post(settings::test_s3))
         .route("/api/settings/test/email", post(settings::test_email))
+        .route(
+            "/api/settings/apple/generate-client-secret",
+            post(settings::generate_apple_client_secret),
+        )
         .route("/api/sql", post(crate::sql_console::run))
         .route("/api/crons", get(crate::sql_console::crons))
         .route("/api/crons/{id}", post(crate::sql_console::run_cron))

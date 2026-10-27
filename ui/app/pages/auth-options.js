@@ -2,7 +2,7 @@
 import { html, useState, useEffect } from "../lib/core.js";
 import { api } from "../lib/api.js";
 import { Icon } from "../lib/icons.js";
-import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Select, Callout, Tabs } from "../lib/ui.js";
+import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Select, Callout, Tabs, toast } from "../lib/ui.js";
 import { duration } from "../lib/format.js";
 import { RuleCard } from "./rules.js";
 
@@ -29,6 +29,48 @@ function Template({ value, onChange, placeholders }) {
     <${Field} label="Body (HTML)" help=${html`Placeholders: ${placeholders.map((p) => html`<code>{${p}}</code> `)}`}>
       <${TextArea} code rows=${7} value=${value.body} onInput=${(v) => onChange({ ...value, body: v })} />
     </${Field}>
+  </div>`;
+}
+
+// Sign in with Apple's client secret is a JWT signed with the app's private key (at most ~6 months)
+function AppleSecret({ clientId, onSecret }) {
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ teamId: "", keyId: "", privateKey: "", duration: 15777000 });
+  const [errors, setErrors] = useState({});
+  const [busy, setBusy] = useState(false);
+  const set = (patch) => setForm({ ...form, ...patch });
+  const generate = async () => {
+    setBusy(true);
+    setErrors({});
+    try {
+      const res = await api.post("/api/settings/apple/generate-client-secret", { ...form, clientId, duration: Number(form.duration) });
+      onSecret(res.secret);
+      toast("Client secret generated. Save the provider to keep it.");
+      setOpen(false);
+    } catch (err) {
+      setErrors((err && err.data) || {});
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!open) {
+    return html`<div><${Button} variant="ghost" icon="key" onClick=${() => setOpen(true)}>Generate client secret</${Button}></div>`;
+  }
+  const err = (k) => errors[k] && errors[k].message;
+  return html`<div class="stack" style="padding:12px;border:1px solid var(--line);border-radius:10px">
+    <${Field} label="Team ID" error=${err("teamId")}><${Input} value=${form.teamId} onInput=${(v) => set({ teamId: v })} /></${Field}>
+    <${Field} label="Key ID" error=${err("keyId")}><${Input} value=${form.keyId} onInput=${(v) => set({ keyId: v })} /></${Field}>
+    <${Field} label="Private key" help="The contents of the .p8 file." error=${err("privateKey")}>
+      <${TextArea} code rows=${5} value=${form.privateKey} onInput=${(v) => set({ privateKey: v })} placeholder="-----BEGIN PRIVATE KEY-----" />
+    </${Field}>
+    <${Field} label="Valid for (seconds)" help="At most 15777000 (about 6 months)." error=${err("duration")}>
+      <${Input} type="number" value=${form.duration} onInput=${(v) => set({ duration: v })} />
+    </${Field}>
+    <div class="row" style="gap:8px">
+      <${Button} variant="primary" disabled=${busy || !clientId} onClick=${generate}>Generate</${Button}>
+      <${Button} variant="ghost" onClick=${() => setOpen(false)}>Cancel</${Button}>
+    </div>
   </div>`;
 }
 
@@ -65,6 +107,7 @@ function ProviderSheet({ provider, meta, onSave, onRemove, onClose }) {
             </${Field}>
           `}
         `}
+        ${p.name === "apple" && html`<${AppleSecret} clientId=${p.clientId} onSecret=${(secret) => set({ clientSecret: secret })} />`}
         <${Switch} checked=${p.pkce !== false} onChange=${(v) => set({ pkce: v })} label="Use PKCE" />
       </div>
       <div class="sheet-foot">

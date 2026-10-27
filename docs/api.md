@@ -33,6 +33,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET/PATCH /api/settings` | Settings (superusers): app, SMTP, S3, backups, logs, batch, rate limits, trusted proxy, superuser IPs |
 | `POST /api/settings/test/email` | Send a test email of a template |
 | `POST /api/settings/test/s3` | Check the S3 settings by writing, reading and deleting a test file |
+| `POST /api/settings/apple/generate-client-secret` | Sign in with Apple's client secret (`{"clientId", "teamId", "keyId", "privateKey", "duration"}`), superusers |
 | `GET /api/files/{collection}/{record}/{filename}` | Download a file (`thumb=100x100`, `download=1`, `token=` for protected files) |
 | `POST /api/files/token` | A short-lived token for protected files |
 | `GET /api/realtime`, `POST /api/realtime` | Realtime: an SSE stream, and setting its subscriptions (`posts/*`, `posts/{id}`) |
@@ -94,7 +95,7 @@ indexes with a `WHERE` clause.
 ## Sign-in
 
 - **Password:** `auth-with-password`, with the identity fields set in `passwordAuth`.
-- **OAuth2:** Google, GitHub, GitLab, Discord, Microsoft, Facebook, and any OpenID Connect
+- **OAuth2:** Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, and any OpenID Connect
   provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. An OpenID Connect provider
   without a user info URL is read from its validated `id_token`; set `extra.jwksURL` to verify
   its signature and `extra.issuers` to accept only some issuers. Only emails the provider has

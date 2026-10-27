@@ -661,6 +661,89 @@ pub async fn test_s3(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
+/// Longest validity of an Apple client secret (about 6 months, Apple's limit).
+const APPLE_SECRET_MAX_DURATION: i64 = 15_777_000;
+
+/// `POST /api/settings/apple/generate-client-secret` (`{"clientId", "teamId", "keyId",
+/// "privateKey", "duration"}`): an Apple client secret, `{"secret"}`, as PocketBase's.
+pub async fn generate_apple_client_secret(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    JsonObject(body): JsonObject,
+) -> Result<Response, ApiError> {
+    app.core()?;
+    auth.require_superuser()?;
+    let str_of = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default();
+    let (client_id, team_id, key_id, private_key) = (
+        str_of("clientId"),
+        str_of("teamId"),
+        str_of("keyId"),
+        str_of("privateKey"),
+    );
+    let duration = body.get("duration").and_then(Value::as_f64).unwrap_or(0.0);
+    let mut errors = Errors::new();
+    for (key, value) in [
+        ("clientId", client_id),
+        ("teamId", team_id),
+        ("keyId", key_id),
+        ("privateKey", private_key),
+    ] {
+        if value.is_empty() {
+            errors.add(key, "validation_required", "Cannot be blank.");
+        } else if (key == "teamId" || key == "keyId") && value.chars().count() != 10 {
+            errors.add(
+                key,
+                "validation_length_invalid",
+                "The length must be exactly 10.",
+            );
+        } else if key == "privateKey"
+            && !(value.contains("-----BEGIN PRIVATE KEY----")
+                && value.contains("-----END PRIVATE KEY-----"))
+        {
+            errors.add(
+                key,
+                "validation_match_invalid",
+                "Must be in a valid format.",
+            );
+        }
+    }
+    if duration == 0.0 {
+        errors.add("duration", "validation_required", "Cannot be blank.");
+    } else if duration < 1.0 {
+        errors.add(
+            "duration",
+            "validation_min_greater_equal_than_required",
+            "Must be no less than 1.",
+        );
+    } else if duration > APPLE_SECRET_MAX_DURATION as f64 {
+        errors.add(
+            "duration",
+            "validation_max_less_equal_than_required",
+            format!("Must be no greater than {APPLE_SECRET_MAX_DURATION}."),
+        );
+    }
+    if !errors.is_empty() {
+        return Err(ApiError::invalid_data(
+            "Invalid client secret data.",
+            &errors,
+        ));
+    }
+    let secret = crate::oauth2::apple_client_secret(
+        client_id,
+        team_id,
+        key_id,
+        private_key,
+        duration as i64,
+        chrono::Utc::now().timestamp(),
+    )
+    .map_err(|e| {
+        ApiError::bad_request(format!(
+            "Failed to generate client secret. Raw error: \n{e:#}"
+        ))
+    })?;
+    Ok(Json(serde_json::json!({ "secret": secret })).into_response())
+}
+
 /// `POST /api/settings/test/email` (`{"email", "template", "collection"}`): sends a
 /// template's email with a placeholder token, and reports SMTP errors.
 pub async fn test_email(

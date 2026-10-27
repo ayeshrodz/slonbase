@@ -258,7 +258,7 @@ Signing in with a *different* method and that `mfaId` (body or query string) ret
 An MFA session is bound to its record, expires after `mfa.duration`, and is single-use. MFA
 requires at least two enabled methods. Token refresh and impersonation don't ask for it.
 
-**OAuth2.** Presets for Google, GitHub, GitLab, Discord, Microsoft and Facebook, and `oidc`,
+**OAuth2.** Presets for Google, Apple, GitHub, GitLab, Discord, Microsoft and Facebook, and `oidc`,
 `oidc2`, `oidc3` for any OpenID Connect provider (configured URLs). Any preset's URLs can be
 overridden (e.g. self-hosted GitLab).
 - `auth-methods` lists each provider with a fresh `state` and PKCE pair (`S256`, on unless
@@ -312,7 +312,18 @@ Without `jwksURL` the signature isn't checked: the token came straight from the 
 endpoint over TLS, which OpenID Connect allows to stand in for it. With a user info URL, the user
 comes from that endpoint and the `id_token` isn't used.
 
-**Not yet:** Apple's and the other PocketBase presets.
+**Sign in with Apple** follows PocketBase's provider. Apple has no user info endpoint, so the
+user always comes from the `id_token`, with stricter checks than OIDC's: `exp` is required,
+`iss` must be `https://appleid.apple.com` and the signature is always verified with Apple's
+keys (`https://appleid.apple.com/auth/keys`). The sign-in URL asks for
+`response_mode=form_post`. Apple sends the user's name only once, with that first POSTed
+redirect (`user`), so `/api/oauth2-redirect` keeps it for a minute by authorization code in
+the unlogged `_slonbase.oauth2_names` table (migration 13), and the sign-in with that code
+takes it. It's in PostgreSQL rather than memory because the redirect and the sign-in may reach
+different instances. The client secret Apple wants is a signed JWT: see the generator below.
+
+**Not yet:** PocketBase's other presets (Bitbucket, Twitch, Spotify, ...); `oidc` covers the
+providers that speak OpenID Connect.
 
 ### Phase 3: realtime and multi-instance sync
 
@@ -508,7 +519,10 @@ include reading server files and running programs. When enabled (`--sql-console`
 run in read-only transactions, and every query has a 3 minute statement timeout and returns at
 most 1,000 rows.
 
-**Not yet:** the Apple client secret generator. (Logs, backups, the Geo Point field, view
+**The Apple client secret generator** (`POST /api/settings/apple/generate-client-secret`,
+superusers, as in PocketBase) signs the ES256 JWT Apple takes as a client secret, from the
+team id, key id and `.p8` private key (`ring`), valid for up to 15,777,000 seconds (~6 months).
+The dashboard's Apple provider form uses it. (Logs, backups, the Geo Point field, view
 collections and slonbase's own dashboard came later.)
 
 ### Phase 4b: logs

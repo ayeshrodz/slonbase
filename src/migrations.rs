@@ -79,6 +79,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "strftime",
         sql: include_str!("../migrations/0012_strftime.sql"),
     },
+    Migration {
+        version: 13,
+        name: "oauth2_names",
+        sql: include_str!("../migrations/0013_oauth2_names.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

@@ -115,10 +115,13 @@ pub async fn auth_with_oauth2(
             tracing::debug!(provider = %provider.name, error = %format!("{e:#}"), "OAuth2 code exchange failed");
             ApiError::bad_request("Failed to fetch OAuth2 token.")
         })?;
-    let user = provider.user(&token).await.map_err(|e| {
+    let mut user = provider.user(&token).await.map_err(|e| {
         tracing::debug!(provider = %provider.name, error = %format!("{e:#}"), "fetching the OAuth2 user failed");
         ApiError::bad_request("Failed to fetch OAuth2 user.")
     })?;
+    if provider.is_apple() && user.name.is_empty() {
+        user.name = take_redirect_name(&core, code).await.unwrap_or_default();
+    }
 
     // the linked record, else the signed-in one, else the one with the same email
     let client = core.pool.get().await.map_err(pool_error)?;
@@ -466,6 +469,60 @@ fn redirect_page(success: bool) -> Response {
         .into_response()
 }
 
+/// How long a redirect's name waits for the sign-in.
+const NAME_TTL: &str = "1 minute";
+
+/// Keeps the user's name Apple POSTs with the first redirect (`user`:
+/// `{"name": {"firstName", "lastName"}}`) for the sign-in with the same code.
+async fn keep_redirect_name(core: &Core, code: &str, user: &str) -> Option<()> {
+    if code.is_empty() || code.len() > 1000 {
+        return None;
+    }
+    let data: Value = serde_json::from_str(user).ok()?;
+    let name = format!(
+        "{} {}",
+        data["name"]["firstName"].as_str().unwrap_or_default(),
+        data["name"]["lastName"].as_str().unwrap_or_default()
+    );
+    let name: String = name.trim().chars().take(150).collect();
+    let name = name.trim();
+    if name.is_empty() {
+        return None;
+    }
+    let client = core.pool.get().await.ok()?;
+    client
+        .batch_execute(&format!(
+            "DELETE FROM _slonbase.oauth2_names WHERE created < now() - interval '{NAME_TTL}'"
+        ))
+        .await
+        .ok()?;
+    client
+        .execute(
+            "INSERT INTO _slonbase.oauth2_names (code, name) VALUES ($1, $2)
+             ON CONFLICT (code) DO UPDATE SET name = excluded.name, created = now()",
+            &[&code, &name],
+        )
+        .await
+        .ok()?;
+    Some(())
+}
+
+/// The name kept for a code by [`keep_redirect_name`], once.
+async fn take_redirect_name(core: &Core, code: &str) -> Option<String> {
+    let client = core.pool.get().await.ok()?;
+    let row = client
+        .query_opt(
+            &format!(
+                "DELETE FROM _slonbase.oauth2_names WHERE code = $1
+                 RETURNING CASE WHEN created > now() - interval '{NAME_TTL}' THEN name END"
+            ),
+            &[&code],
+        )
+        .await
+        .ok()??;
+    row.get(0)
+}
+
 async fn redirect(core: &Core, params: &HashMap<String, String>) -> Response {
     let get = |key: &str| params.get(key).cloned().unwrap_or_default();
     let state = get("state");
@@ -486,6 +543,13 @@ async fn redirect(core: &Core, params: &HashMap<String, String>) -> Response {
         };
         if sent.await.is_none() {
             return redirect_page(false);
+        }
+    }
+    let (code, user) = (get("code"), get("user"));
+    if !user.is_empty() && get("error").is_empty() {
+        // not critical: the record just gets no name
+        if keep_redirect_name(core, &code, &user).await.is_none() {
+            tracing::debug!("couldn't keep the name of an OAuth2 redirect");
         }
     }
     redirect_page(true)

@@ -467,6 +467,7 @@ impl Provider {
         let router = Router::new()
             .route("/token", post(token))
             .route("/userinfo", get(userinfo))
+            .route("/jwks", get(jwks))
             .route(
                 "/avatar.png",
                 get(|| async {
@@ -516,16 +517,24 @@ async fn token(
             Json(json!({ "error": "invalid_grant" })),
         );
     }
-    // an OpenID Connect id_token with the user's info (unsigned: no JWKS is configured)
+    // an OpenID Connect id_token with the user's info, signed with the key at /jwks
     let mut claims = provider.users.lock().unwrap()[user].clone();
     claims["aud"] = json!("client-1");
-    claims["iss"] = json!("https://id.test");
+    if claims.get("iss").is_none() {
+        claims["iss"] = json!("https://id.test");
+    }
     claims["exp"] = json!(chrono::Utc::now().timestamp() + 60);
-    let part = |v: &Value| {
-        use base64::Engine;
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(v.to_string())
-    };
-    let id_token = format!("{}.{}.sig", part(&json!({ "alg": "none" })), part(&claims));
+    let signed = format!(
+        "{}.{}",
+        b64(json!({ "alg": "EdDSA", "kid": "k1" })
+            .to_string()
+            .as_bytes()),
+        b64(claims.to_string().as_bytes())
+    );
+    let id_token = format!(
+        "{signed}.{}",
+        b64(SIGNING_KEY.sign(signed.as_bytes()).as_ref())
+    );
     (
         StatusCode::OK,
         Json(json!({
@@ -536,6 +545,27 @@ async fn token(
             "id_token": id_token,
         })),
     )
+}
+
+fn b64(data: &[u8]) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(data)
+}
+
+/// The mock provider's id_token signing key.
+static SIGNING_KEY: std::sync::LazyLock<ring::signature::Ed25519KeyPair> =
+    std::sync::LazyLock::new(|| {
+        let rng = ring::rand::SystemRandom::new();
+        let pkcs8 = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
+        ring::signature::Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap()
+    });
+
+async fn jwks() -> Json<Value> {
+    use ring::signature::KeyPair;
+    Json(json!({ "keys": [{
+        "kty": "OKP", "crv": "Ed25519", "kid": "k1", "alg": "EdDSA",
+        "x": b64(SIGNING_KEY.public_key().as_ref()),
+    }] }))
 }
 
 async fn userinfo(
@@ -1251,6 +1281,189 @@ async fn oauth2_with_the_id_token() {
         res.pointer("/data/oauth2/providers/0/extra/jwksURL")
             .is_some(),
         "{res}"
+    );
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn sign_in_with_apple() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    // Apple's URLs, pointed at the mock
+    users_collection(
+        &env,
+        json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "apple", "clientId": "client-1", "clientSecret": "s3cret",
+                "tokenURL": format!("{url}/token"),
+                "extra": { "jwksURL": format!("{url}/jwks") },
+            }],
+            "mappedFields": { "name": "name" },
+        } }),
+    )
+    .await;
+    let methods = env
+        .ok(None, "GET", "/api/collections/users/auth-methods", None)
+        .await;
+    let entry = &methods["oauth2"]["providers"][0];
+    assert_eq!(entry["displayName"], "Apple");
+    let auth_url = entry["authURL"].as_str().unwrap();
+    assert!(auth_url.starts_with("https://appleid.apple.com/auth/authorize?"));
+    assert!(auth_url.contains("response_mode=form_post"), "{auth_url}");
+    assert!(auth_url.contains("scope=name+email"), "{auth_url}");
+
+    // Apple POSTs the first redirect with the user's name, which the sign-in then uses
+    let (mut stream, client_id) = Stream::open(&env.app).await;
+    env.ok(
+        None,
+        "POST",
+        "/api/realtime",
+        Some(json!({ "clientId": client_id, "subscriptions": ["@oauth2"] })),
+    )
+    .await;
+    let user = form_urlencoded::byte_serialize(
+        json!({ "name": { "firstName": "Ann", "lastName": "Lee" }, "email": "ann@apple.test" })
+            .to_string()
+            .as_bytes(),
+    )
+    .collect::<String>();
+    let (status, _, _) = raw_request(
+        &env.app,
+        "POST",
+        "/api/oauth2-redirect",
+        &[("content-type", "application/x-www-form-urlencoded")],
+        format!("state={client_id}&code=code-ann&user={user}").into_bytes(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    stream.next(Duration::from_secs(5)).await.expect("@oauth2");
+
+    provider.set_user(
+        "ann",
+        json!({ "sub": "apple-ann", "email": "ann@apple.test", "email_verified": "true",
+                "iss": "https://appleid.apple.com" }),
+    );
+    let (status, res) = oauth2(&env, None, "ann", json!({ "provider": "apple" })).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["record"]["email"], "ann@apple.test");
+    assert_eq!(res["record"]["name"], "Ann Lee");
+    assert_eq!(res["meta"]["id"], "apple-ann");
+
+    // the name is used once; a token from another issuer is refused
+    provider.set_user(
+        "bob",
+        json!({ "sub": "apple-bob", "email": "bob@apple.test", "email_verified": true,
+                "iss": "https://id.test" }),
+    );
+    let (status, res) = oauth2(&env, None, "bob", json!({ "provider": "apple" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    drop(stream);
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn apple_client_secret() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let uri = "/api/settings/apple/generate-client-secret";
+    let (status, _) = env.call(None, "POST", uri, Some(json!({}))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    let (status, res) = env
+        .admin(
+            "POST",
+            uri,
+            Some(json!({ "teamId": "short", "privateKey": "nope", "duration": 99999999 })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    for (key, code) in [
+        ("clientId", "validation_required"),
+        ("teamId", "validation_length_invalid"),
+        ("keyId", "validation_required"),
+        ("privateKey", "validation_match_invalid"),
+        ("duration", "validation_max_less_equal_than_required"),
+    ] {
+        assert_eq!(res["data"][key]["code"], code, "{key}: {res}");
+    }
+
+    let rng = ring::rand::SystemRandom::new();
+    let pkcs8 = ring::signature::EcdsaKeyPair::generate_pkcs8(
+        &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+        &rng,
+    )
+    .unwrap();
+    let pem = {
+        use base64::Engine;
+        let body = base64::engine::general_purpose::STANDARD.encode(pkcs8.as_ref());
+        let lines: Vec<&str> = body
+            .as_bytes()
+            .chunks(64)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+        format!(
+            "-----BEGIN PRIVATE KEY-----\n{}\n-----END PRIVATE KEY-----\n",
+            lines.join("\n")
+        )
+    };
+    let body = json!({
+        "clientId": "com.example.app", "teamId": "TEAM123456", "keyId": "KEY1234567",
+        "privateKey": pem, "duration": 3600,
+    });
+    let (status, res) = env.admin("POST", uri, Some(body.clone())).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let secret = res["secret"].as_str().unwrap();
+    let parts: Vec<&str> = secret.split('.').collect();
+    let decode = |p: &str| -> Vec<u8> {
+        use base64::Engine;
+        base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(p)
+            .unwrap()
+    };
+    let header: Value = serde_json::from_slice(&decode(parts[0])).unwrap();
+    let claims: Value = serde_json::from_slice(&decode(parts[1])).unwrap();
+    assert_eq!(
+        header,
+        json!({ "alg": "ES256", "kid": "KEY1234567", "typ": "JWT" })
+    );
+    assert_eq!(claims["iss"], "TEAM123456");
+    assert_eq!(claims["sub"], "com.example.app");
+    assert_eq!(claims["aud"], json!(["https://appleid.apple.com"]));
+    assert_eq!(
+        claims["exp"].as_i64().unwrap() - claims["iat"].as_i64().unwrap(),
+        3600
+    );
+    // signed with the key
+    let key = ring::signature::EcdsaKeyPair::from_pkcs8(
+        &ring::signature::ECDSA_P256_SHA256_FIXED_SIGNING,
+        pkcs8.as_ref(),
+        &rng,
+    )
+    .unwrap();
+    use ring::signature::KeyPair;
+    ring::signature::UnparsedPublicKey::new(
+        &ring::signature::ECDSA_P256_SHA256_FIXED,
+        key.public_key().as_ref(),
+    )
+    .verify(
+        format!("{}.{}", parts[0], parts[1]).as_bytes(),
+        &decode(parts[2]),
+    )
+    .expect("a valid signature");
+
+    // a key that isn't one
+    let mut bad = body;
+    bad["privateKey"] = json!("-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----");
+    let (status, res) = env.admin("POST", uri, Some(bad)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(
+        res["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("Failed to generate client secret.")
     );
     env.finish().await;
 }

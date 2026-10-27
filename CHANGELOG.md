@@ -15,6 +15,11 @@ changes, and they'll be listed here.
   behaves as in SQLite 3.53 (PocketBase 0.40's), checked against it on tens of thousands of
   cases. On date fields the common formats compile to PostgreSQL's `to_char()`, so filtering
   stays fast. Function calls now take up to 10 arguments.
+- **Sign in with Apple:** an `apple` OAuth2 provider, as in PocketBase. The user comes from
+  Apple's `id_token`, verified with Apple's keys, and the name Apple sends only with the first
+  redirect is kept for the sign-in (in the database, so it works across instances).
+  `POST /api/settings/apple/generate-client-secret` signs the client secret Apple requires, and
+  the dashboard's Apple provider form has a generator for it.
 - **OpenID Connect sign-in from the `id_token`:** an `oidc` provider without a user info URL
   reads the user from the token response's `id_token`, as in PocketBase. The audience and
   times are checked; the `jwksURL` extra option verifies the signature (RSA or Ed25519 keys)

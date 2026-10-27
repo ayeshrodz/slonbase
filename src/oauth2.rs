@@ -19,6 +19,9 @@ use sha2::{Digest, Sha256};
 use crate::collections::model::OAuth2Provider;
 
 const TIMEOUT: Duration = Duration::from_secs(15);
+/// Apple's signing keys, which its `id_token`s must be signed with.
+const APPLE_JWKS: &str = "https://appleid.apple.com/auth/keys";
+const APPLE_ISSUER: &str = "https://appleid.apple.com";
 /// Clock skew allowed when checking an `id_token`'s times.
 const ID_TOKEN_LEEWAY: i64 = 5 * 60;
 /// Largest token or user info response accepted.
@@ -36,6 +39,7 @@ enum Kind {
     Discord,
     Microsoft,
     Facebook,
+    Apple,
     Oidc,
 }
 
@@ -50,6 +54,16 @@ struct Preset {
 }
 
 const PRESETS: &[Preset] = &[
+    // no user info endpoint: the user comes from the id_token (see [`APPLE_JWKS`])
+    Preset {
+        name: "apple",
+        kind: Kind::Apple,
+        display_name: "Apple",
+        auth_url: "https://appleid.apple.com/auth/authorize",
+        token_url: "https://appleid.apple.com/auth/token",
+        user_info_url: "",
+        scopes: &["name", "email"],
+    },
     Preset {
         name: "google",
         kind: Kind::Google,
@@ -194,6 +208,11 @@ impl Provider {
         })
     }
 
+    /// Whether this is Apple, which sends the user's name only with the first redirect.
+    pub fn is_apple(&self) -> bool {
+        self.kind == Kind::Apple
+    }
+
     /// The `auth-methods` entry: a sign-in URL ending in `redirect_uri=` (clients append
     /// their redirect URL), with a fresh state and PKCE verifier.
     pub fn auth_method(&self) -> Value {
@@ -218,6 +237,10 @@ impl Provider {
             out.insert("codeChallengeMethod".into(), "".into());
         }
         query.append_pair("response_type", "code");
+        if self.kind == Kind::Apple {
+            // Apple POSTs the redirect, with the user's name the first time
+            query.append_pair("response_mode", "form_post");
+        }
         query.append_pair("scope", &self.scopes.join(" "));
         query.append_pair("state", &state);
         let separator = if self.auth_url.contains('?') {
@@ -323,7 +346,9 @@ impl Provider {
 
     /// Fetches the provider's user with an access token.
     pub async fn user(&self, token: &Token) -> Result<AuthUser> {
-        let raw = if self.kind == Kind::Oidc && self.user_info_url.is_empty() {
+        let raw = if self.kind == Kind::Apple
+            || (self.kind == Kind::Oidc && self.user_info_url.is_empty())
+        {
             self.id_token_claims(&token.id_token, chrono::Utc::now().timestamp())
                 .await
                 .context("invalid id_token")?
@@ -356,7 +381,10 @@ impl Provider {
     /// The claims of a valid `id_token` (`now` in Unix seconds): the audience must include the
     /// client id, the times must hold (within [`ID_TOKEN_LEEWAY`]), and with the `issuers` and
     /// `jwksURL` extra options, the issuer must be one of them and the signature valid.
+    /// Apple's are always checked: `exp` is required, the issuer is Apple and the signature is
+    /// verified with Apple's keys.
     async fn id_token_claims(&self, id_token: &str, now: i64) -> Result<Value> {
+        let apple = self.kind == Kind::Apple;
         let jwt = Jwt::parse(id_token)?;
         let claims = &jwt.claims;
         let time = |name: &str| -> Result<Option<f64>> {
@@ -368,6 +396,9 @@ impl Provider {
         };
         let now = now as f64;
         let leeway = ID_TOKEN_LEEWAY as f64;
+        if apple && time("exp")?.is_none() {
+            bail!("the token has no exp");
+        }
         if time("exp")?.is_some_and(|exp| now - leeway >= exp) {
             bail!("the token is expired");
         }
@@ -389,7 +420,11 @@ impl Provider {
             bail!("the token's audience isn't the client id");
         }
 
-        let issuers = string_list(self.extra.get("issuers"));
+        let issuers = if apple {
+            vec![APPLE_ISSUER.to_string()]
+        } else {
+            string_list(self.extra.get("issuers"))
+        };
         if !issuers.is_empty() {
             let issuer = claims
                 .get("iss")
@@ -405,11 +440,11 @@ impl Provider {
 
         // the token came straight from the provider over TLS, so checking its signature is
         // optional (as OpenID Connect allows), and done when the keys are configured
-        let jwks_url = self
-            .extra
-            .get("jwksURL")
-            .and_then(Value::as_str)
-            .unwrap_or_default();
+        let jwks_url = match self.extra.get("jwksURL").and_then(Value::as_str) {
+            Some(url) if !url.is_empty() => url,
+            _ if apple => APPLE_JWKS,
+            _ => "",
+        };
         if !jwks_url.is_empty() {
             let kid = jwt
                 .header
@@ -430,6 +465,48 @@ impl Provider {
         }
         Ok(Value::Object(jwt.claims))
     }
+}
+
+/// Apple's client secret: an ES256 JWT signed with the "Sign in with Apple" private key (a
+/// PKCS#8 PEM, as Apple's `.p8` files are), valid for `duration` seconds from `now`.
+pub fn apple_client_secret(
+    client_id: &str,
+    team_id: &str,
+    key_id: &str,
+    private_key: &str,
+    duration: i64,
+    now: i64,
+) -> Result<String> {
+    use ring::signature::{ECDSA_P256_SHA256_FIXED_SIGNING, EcdsaKeyPair};
+    let pem = private_key.trim();
+    let body = pem
+        .split_once("-----BEGIN PRIVATE KEY-----")
+        .and_then(|(_, rest)| rest.split_once("-----END PRIVATE KEY-----"))
+        .map(|(body, _)| body)
+        .context("the key isn't a PEM private key")?;
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(body.split_whitespace().collect::<String>())
+        .context("the key isn't valid base64")?;
+    let rng = ring::rand::SystemRandom::new();
+    let key = EcdsaKeyPair::from_pkcs8(&ECDSA_P256_SHA256_FIXED_SIGNING, &der, &rng)
+        .map_err(|e| anyhow::anyhow!("the key isn't a P-256 private key: {e}"))?;
+    let header = json!({ "alg": "ES256", "kid": key_id, "typ": "JWT" });
+    let claims = json!({
+        "iss": team_id,
+        "sub": client_id,
+        "aud": [APPLE_ISSUER],
+        "exp": now + duration,
+        "iat": now,
+    });
+    let signed = format!(
+        "{}.{}",
+        B64.encode(header.to_string()),
+        B64.encode(claims.to_string())
+    );
+    let signature = key
+        .sign(&rng, signed.as_bytes())
+        .map_err(|_| anyhow::anyhow!("signing failed"))?;
+    Ok(format!("{signed}.{}", B64.encode(signature.as_ref())))
 }
 
 /// A string list option: a JSON array, or a string of space-separated values.
@@ -601,6 +678,14 @@ fn is_true(v: &Value) -> bool {
 fn extract(kind: Kind, raw: &Value) -> AuthUser {
     let mut user = AuthUser::default();
     match kind {
+        Kind::Apple => {
+            user.id = text(&raw["sub"]);
+            // Apple sends the name only with the first redirect (see oauth2_api)
+            user.name = text(&raw["name"]);
+            if is_true(&raw["email_verified"]) {
+                user.email = text(&raw["email"]);
+            }
+        }
         Kind::Google | Kind::Oidc => {
             user.id = text(&raw["sub"]);
             user.name = text(&raw["name"]);
