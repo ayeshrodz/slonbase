@@ -801,3 +801,82 @@ async fn subscriptions_reach_the_streams_instance() {
     drop((stream, first, second, client, pool));
     tdb.drop_db().await;
 }
+
+/// Events are checked and rendered several at a time, but each client gets them in order.
+#[tokio::test]
+async fn keeps_events_in_order() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "items", "listRule": "", "viewRule": "", "createRule": "",
+            "updateRule": "", "deleteRule": "",
+            "fields": [{ "name": "n", "type": "number" }],
+        })),
+    )
+    .await;
+    let mut stream = Stream::open(&app).await;
+    let client_id = stream.client_id.clone();
+    assert_eq!(
+        subscribe(&app, None, &client_id, &["items/*"]).await,
+        StatusCode::NO_CONTENT
+    );
+
+    let mut expected = Vec::new();
+    let mut ids = Vec::new();
+    for n in 0..40 {
+        let (_, record) = request(
+            &app,
+            "POST",
+            "/api/collections/items/records",
+            &[],
+            Some(json!({ "n": n })),
+        )
+        .await;
+        let id = record["id"].as_str().unwrap().to_string();
+        expected.push(("create".to_string(), id.clone(), n));
+        ids.push(id);
+    }
+    for (n, id) in ids.iter().enumerate() {
+        request(
+            &app,
+            "PATCH",
+            &format!("/api/collections/items/records/{id}"),
+            &[],
+            Some(json!({ "n": n + 100 })),
+        )
+        .await;
+        expected.push(("update".to_string(), id.clone(), n as i64 + 100));
+    }
+    for (n, id) in ids.iter().enumerate() {
+        request(
+            &app,
+            "DELETE",
+            &format!("/api/collections/items/records/{id}"),
+            &[],
+            None,
+        )
+        .await;
+        expected.push(("delete".to_string(), id.clone(), n as i64 + 100));
+    }
+    let mut got = Vec::new();
+    while got.len() < expected.len() {
+        let (event, data) = stream.expect().await;
+        assert_eq!(event, "items/*");
+        got.push((
+            data["action"].as_str().unwrap().to_string(),
+            data["record"]["id"].as_str().unwrap().to_string(),
+            data["record"]["n"].as_i64().unwrap(),
+        ));
+    }
+    assert_eq!(got, expected);
+    stream.expect_none().await;
+    drop(stream);
+    tdb.drop_db().await;
+}

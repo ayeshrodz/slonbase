@@ -1,0 +1,54 @@
+name: Soak
+
+# Sustained mixed load on two instances sharing a database (soak/README.md): weekly, and on
+# demand with a chosen duration.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: How long to run
+        default: "20"
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --release --locked
+      - name: Soak
+        run: |
+          minutes="${{ inputs.minutes || '20' }}"
+          SOAK_DURATION=$((minutes * 60)) SOAK_SAMPLE=30 soak/run.sh
+      - if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: soak
+          path: |
+            soak/.run/result.json
+            soak/.run/server-*.log
+          if-no-files-found: ignore

@@ -9,6 +9,9 @@ changes, and they'll be listed here.
 
 ### Added
 
+- **Soak tests** (`soak/`): sustained mixed traffic on several instances sharing a database,
+  failing on request errors, missed or late realtime events, memory growth, latency drift or
+  leaked connections. CI runs them weekly.
 - **A custom CA for S3 and other outbound HTTPS:** `--http-ca-file` (`SLONBASE_HTTP_CA_FILE`,
   `server.http_ca_file`) trusts a PEM bundle's certificates besides the public roots, for S3
   servers (and OAuth2 providers) with certificates from a private CA.
@@ -20,6 +23,13 @@ changes, and they'll be listed here.
 - **Multipart S3 uploads:** files over 64 MiB, such as backups, are uploaded in parts, each
   retried on its own, so large backups no longer depend on one long request and can pass the
   5 GiB a single S3 upload allows. A failed upload is aborted, leaving no parts behind.
+
+### Fixed
+
+- **Realtime keeps up with sustained writes:** events were checked and sent one at a time, so
+  under heavy writes their delivery fell seconds behind, and further each minute. They're now
+  read in batches and checked several at a time (still in order for each client): in the soak
+  test, from a p50 of 7 s (and growing) to 13 ms.
 
 ## [0.7.0] - 2026-10-27
 

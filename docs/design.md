@@ -365,6 +365,12 @@ any instance reach every subscriber. The same channel carries `collections` and 
 notifications (sent when those change), so all instances reload them. This replaces the
 stale-registry limitation of phase 1.
 
+**Delivery.** The listener hands event ids to a delivery task, which reads them in batches (up to
+500, one query) and checks the subscribers' rules and renders the messages for up to 8 events at
+once, then sends them in event order, so each client still sees a record's create before its
+update. (Delivering one event at a time, as before, fell behind under sustained writes; the soak
+test found it.)
+
 If the connection drops, the listener reconnects with backoff, reloads collections and
 settings, and replays outbox rows created since it disconnected. Recently delivered ids are
 remembered, so nothing is delivered twice. A test kills the listener's backend mid-stream to
@@ -962,6 +968,10 @@ the file.
 - Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase and PocketBase,
   with the server and the load generator on separate CPUs; results and how to read them are in
   [bench/README.md](../bench/README.md).
+- Soak tests (`soak/`): sustained mixed traffic (reads, writes, uploads, token refreshes and
+  realtime) on two instances sharing a database, failing on request errors, missed or late
+  realtime events, memory growth, latency drift or connections left in use. CI runs them weekly
+  for 20 minutes; see [soak/README.md](../soak/README.md).
 
 ## Roadmap
 

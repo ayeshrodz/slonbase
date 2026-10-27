@@ -847,6 +847,7 @@ pub fn send_to_client(core: &Core, client_id: &str, topic: &str, data: String) -
 // ---------------------------------------------------------------------------
 // delivery
 
+#[derive(Clone)]
 struct Target {
     client_id: String,
     client: Arc<Client>,
@@ -854,11 +855,16 @@ struct Target {
     topic: Topic,
 }
 
-/// Delivers a change to every subscriber allowed to see it.
-pub async fn dispatch(core: &Arc<Core>, collection_id: &str, action: Action, record: Values) {
+/// The messages of a change for every subscriber allowed to see it (sent with [`send`]).
+async fn prepare(
+    core: &Arc<Core>,
+    collection_id: &str,
+    action: Action,
+    record: Values,
+) -> Vec<(Target, Message)> {
     let registry = core.registry();
     let Some(c) = registry.by_id(collection_id).cloned() else {
-        return;
+        return Vec::new();
     };
     let record_id = record
         .get("id")
@@ -884,22 +890,33 @@ pub async fn dispatch(core: &Arc<Core>, collection_id: &str, action: Action, rec
             }
         }
     }
-    if targets.is_empty() {
-        return;
-    }
-
+    let mut messages = Vec::new();
     for chunk in targets.chunks(CHECK_CHUNK) {
         match check_access(core, &c, &record, chunk).await {
             Ok(results) => {
                 for (target, access) in chunk.iter().zip(results) {
                     if let Some(email_visible) = access {
-                        deliver(core, &c, action, &record, target, email_visible).await;
+                        let message =
+                            render(core, &c, action, &record, target, email_visible).await;
+                        messages.push((target.clone(), message));
                     }
                 }
             }
             Err(err) => {
                 tracing::error!(error = %format!("{err:#}"), "realtime access check failed")
             }
+        }
+    }
+    messages
+}
+
+/// Sends prepared messages to their clients.
+fn send(core: &Core, messages: Vec<(Target, Message)>) {
+    for (target, message) in messages {
+        if target.client.sender.try_send(message).is_err() {
+            // a client that can't keep up (or is gone) is disconnected
+            tracing::warn!(client = %target.client_id, "realtime client too slow, disconnecting");
+            core.realtime.remove(&target.client_id);
         }
     }
 }
@@ -1008,14 +1025,15 @@ async fn check_access(
         .collect())
 }
 
-async fn deliver(
+/// A subscriber's message for a change it may see.
+async fn render(
     core: &Arc<Core>,
     c: &Arc<Collection>,
     action: Action,
     record: &Values,
     target: &Target,
     email_visible: bool,
-) {
+) -> Message {
     let fields = visible_fields(c, target.auth.is_superuser());
     let mut values = Values::new();
     for f in fields {
@@ -1047,14 +1065,9 @@ async fn deliver(
         }
     };
     let record = pick_fields(record, target.topic.query.get("fields"));
-    let message = Message {
+    Message {
         event: target.topic.raw.clone(),
         data: json!({ "action": action.as_str(), "record": record }).to_string(),
-    };
-    if target.client.sender.try_send(message).is_err() {
-        // a client that can't keep up (or is gone) is disconnected
-        tracing::warn!(client = %target.client_id, "realtime client too slow, disconnecting");
-        core.realtime.remove(&target.client_id);
     }
 }
 
@@ -1084,37 +1097,76 @@ impl Seen {
     }
 }
 
-async fn deliver_event(core: &Arc<Core>, id: i64, seen: &mut Seen) -> anyhow::Result<()> {
-    if !seen.insert(id) {
-        return Ok(());
-    }
-    // nobody to deliver to on this instance: skip reading the event
-    if core.realtime.client_count() == 0 {
-        return Ok(());
-    }
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
-    let Some(row) = client
-        .query_opt(
-            "SELECT collection_id, action, record FROM _slonbase.events WHERE id = $1",
-            &[&id],
-        )
-        .await?
-    else {
-        return Ok(());
-    };
-    drop(client);
-    let collection_id: String = row.get(0);
-    let action: String = row.get(1);
-    let record: Value = row.get(2);
-    if let (Some(action), Value::Object(record)) = (Action::parse(&action), record) {
-        crate::metrics::METRICS
-            .realtime_events
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        if core.realtime.client_count() > 0 {
-            dispatch(core, &collection_id, action, record).await;
+/// Events read per query by the delivery task.
+const EVENT_BATCH: usize = 500;
+/// Events whose subscribers are checked and rendered at once (each takes a pooled connection
+/// for a moment); they're still sent in order.
+const EVENTS_IN_FLIGHT: usize = 8;
+
+/// Starts the task delivering events: it reads them in batches, and checks and renders several
+/// at a time, so one instance keeps up with many writes; each client still gets its events in
+/// order. Returns where the listener sends event ids.
+fn spawn_delivery(core: Weak<Core>) -> mpsc::Sender<i64> {
+    let (sender, mut receiver) = mpsc::channel::<i64>(100_000);
+    tokio::spawn(async move {
+        while let Some(first) = receiver.recv().await {
+            let mut ids = vec![first];
+            while ids.len() < EVENT_BATCH {
+                match receiver.try_recv() {
+                    Ok(id) => ids.push(id),
+                    Err(_) => break,
+                }
+            }
+            let Some(core) = core.upgrade() else { return };
+            // nobody to deliver to on this instance: skip reading the events
+            if core.realtime.client_count() == 0 {
+                continue;
+            }
+            if let Err(err) = deliver_events(&core, &ids).await {
+                tracing::error!(error = %format!("{err:#}"), "failed to deliver events");
+            }
         }
+    });
+    sender
+}
+
+async fn deliver_events(core: &Arc<Core>, ids: &[i64]) -> anyhow::Result<()> {
+    use futures_util::StreamExt;
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let rows = client
+        .query(
+            "SELECT collection_id, action, record FROM _slonbase.events WHERE id = ANY($1) ORDER BY id",
+            &[&ids],
+        )
+        .await?;
+    drop(client);
+    crate::metrics::METRICS
+        .realtime_events
+        .fetch_add(rows.len() as u64, std::sync::atomic::Ordering::Relaxed);
+    let mut prepared = stream::iter(rows)
+        .map(|row| async move {
+            let collection_id: String = row.get(0);
+            let action: String = row.get(1);
+            let record: Value = row.get(2);
+            match (Action::parse(&action), record) {
+                (Some(action), Value::Object(record)) => {
+                    prepare(core, &collection_id, action, record).await
+                }
+                _ => Vec::new(),
+            }
+        })
+        .buffered(EVENTS_IN_FLIGHT);
+    while let Some(messages) = prepared.next().await {
+        send(core, messages);
     }
     Ok(())
+}
+
+/// Hands a new event to the delivery task (once: catch-up may announce it again).
+async fn queue_event(delivery: &mpsc::Sender<i64>, seen: &mut Seen, id: i64) {
+    if seen.insert(id) {
+        let _ = delivery.send(id).await;
+    }
 }
 
 async fn reload_collections(core: &Core) {
@@ -1196,6 +1248,7 @@ async fn heartbeat(core: &Core) {
 /// (catching up on events and changes it may have missed).
 pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let weak = Arc::downgrade(core);
+    let delivery = spawn_delivery(weak.clone());
     tokio::spawn(async move {
         let mut seen = Seen::default();
         let mut delay = Duration::from_secs(1);
@@ -1234,9 +1287,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                 match missed.await {
                     Ok(ids) => {
                         for id in ids {
-                            if let Err(err) = deliver_event(&core, id, &mut seen).await {
-                                tracing::error!(error = %format!("{err:#}"), "failed to deliver an event");
-                            }
+                            queue_event(&delivery, &mut seen, id).await;
                         }
                     }
                     Err(err) => {
@@ -1285,9 +1336,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                 }
                             }
                         } else if let Some(id) = payload.strip_prefix("event:").and_then(|s| s.parse().ok()) {
-                            if let Err(err) = deliver_event(&core, id, &mut seen).await {
-                                tracing::error!(error = %format!("{err:#}"), "failed to deliver an event");
-                            }
+                            queue_event(&delivery, &mut seen, id).await;
                         }
                     }
                     _ = schedule.tick() => {
