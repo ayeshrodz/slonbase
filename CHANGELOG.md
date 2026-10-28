@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-10-28
+
+**A fix for the Projects page.** The main installation's dashboard listed no projects on its
+Projects page when there were some. Nothing else changes; upgrade by replacing the binary or
+the image.
+
 ### Fixed
 
 - **The dashboard's Projects page shows the projects again.** With at least one project, the
@@ -550,7 +556,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...v0.7.0
