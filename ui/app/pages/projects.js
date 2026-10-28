@@ -104,7 +104,7 @@ export function Projects() {
 }
 
 function ProjectCard({ project, index, onDelete, onHosts }) {
-  const [label, tone] = STATUS[project.status] || [project.status, "outline"];
+  const [label, chipTone] = STATUS[project.status] || [project.status, "outline"];
   const url = location.origin + project.path.replace(/\/$/, "");
   return html`<div class="card pad project-card" style=${{ "--i": index }}>
     <div class="row">
@@ -113,7 +113,7 @@ function ProjectCard({ project, index, onDelete, onHosts }) {
         <a class="project-name" href=${dashboardUrl(project.name)}>${project.name}</a>
         <div class="small muted mono truncate">${project.path}</div>
       </div>
-      <span class=${"chip " + tone}>${label}</span>
+      <span class=${"chip " + chipTone}>${label}</span>
       <${Menu}
         trigger=${(toggle) => html`<${IconButton} icon="more" label="More" onClick=${toggle} />`}
         items=${[

@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dashboard's Projects page shows the projects again.** With at least one project, the
+  page stayed empty below its description (the project switcher listed them, and the projects
+  themselves worked): drawing a project's card failed on a name clash in the page's code.
+
 ## [1.0.0] - 2026-10-28
 
 **slonbase 1.0.** A stability promise: within 1.x, upgrades don't break the API, configuration,
