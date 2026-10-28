@@ -77,6 +77,7 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/settings/test/s3", post(settings::test_s3))
         .route("/api/settings/test/email", post(settings::test_email))
+        .route("/api/system/status", get(crate::status::status))
         .route(
             "/api/settings/apple/generate-client-secret",
             post(settings::generate_apple_client_secret),

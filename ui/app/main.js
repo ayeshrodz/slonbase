@@ -13,6 +13,7 @@ import { Logs } from "./pages/logs.js";
 import { Settings, applyAccent } from "./pages/settings.js";
 import { SqlConsole } from "./pages/sql.js";
 import { Projects } from "./pages/projects.js";
+import { Health } from "./pages/health.js";
 
 initTheme();
 if (PROJECT) document.title = `${PROJECT} · slonbase`;
@@ -113,6 +114,7 @@ function Palette({ onClose }) {
       .filter((p) => p.name !== PROJECT)
       .map((p) => ({ icon: "layers", label: p.name, hint: "Open project", run: () => (location.href = dashboardUrl(p.name)) })),
     PROJECT && { icon: "server", label: "Main installation", hint: "Open dashboard", run: () => (location.href = dashboardUrl(null)) },
+    { icon: "shield", label: "Health", hint: "Status and checks", run: () => navigate("/health") },
     { icon: "archive", label: "Backups", hint: "Settings", run: () => navigate("/settings/backups") },
     { icon: "mail", label: "Mail settings", hint: "Settings", run: () => navigate("/settings/mail") },
     { icon: "cloud", label: "File storage", hint: "Settings", run: () => navigate("/settings/storage") },
@@ -234,6 +236,7 @@ function Shell() {
   if (path === "/") page = html`<${Overview} />`;
   else if ((params = match("/data/:collection?/:tab?/:record?", path))) page = html`<${DataWorkspace} ...${params} />`;
   else if (path.startsWith("/logs")) page = html`<${Logs} />`;
+  else if (path.startsWith("/health")) page = html`<${Health} />`;
   else if (path.startsWith("/sql")) page = html`<${SqlConsole} />`;
   else if (path.startsWith("/projects") && !PROJECT) page = html`<${Projects} />`;
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;

@@ -9,6 +9,13 @@ changes, and they'll be listed here.
 
 ### Added
 
+- **A Health page in the dashboard** (`#/health`, linked from the overview): checks of the
+  installation with what to do about each (no recent backup, SMTP off, a local application URL,
+  rate limits off, several instances with local file storage, errors in the last day, a slow
+  database or a full connection pool), this instance's memory and realtime clients, the database's
+  round trip, size, migrations and connection pool (with sparklines over the visit), the other
+  instances sharing the database, and files and backups. Refreshed every 10 seconds, from the new
+  `GET /api/system/status` (superusers).
 - **Soak tests** (`soak/`): sustained mixed traffic on several instances sharing a database,
   failing on request errors, missed or late realtime events, memory growth, latency drift or
   leaked connections. CI runs them weekly.

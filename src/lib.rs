@@ -55,6 +55,7 @@ pub mod server;
 pub mod settings;
 pub mod setup;
 pub mod sql_console;
+pub mod status;
 pub mod storage;
 pub mod superusers;
 pub mod ui;

@@ -18,6 +18,7 @@ export function Overview() {
   const [stats, setStats] = useState(null);
   const [errors, setErrors] = useState(null);
   const [backups, setBackups] = useState(null);
+  const [status, setStatus] = useState(null);
 
   useEffect(() => {
     api.get("/api/logs/stats" + qs({ filter: "data.type = 'request'" })).then(setStats).catch(() => setStats([]));
@@ -26,6 +27,7 @@ export function Overview() {
       .then((r) => setErrors(r.totalItems))
       .catch(() => setErrors(0));
     api.get("/api/backups").then(setBackups).catch(() => setBackups([]));
+    api.get("/api/system/status").then(setStatus).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -101,9 +103,18 @@ export function Overview() {
             </div>`}
       </div>
       <div class="card pad stack">
-        <h3>Health</h3>
+        <div class="row"><h3>Health</h3><span class="spacer"></span><a class="small" href="#/health">Details <${Icon} name="arrowRight" size=${13} /></a></div>
         <div class="stack tight small">
-          <div class="row"><span class="dot ok"></span> API and database <span class="spacer"></span><span class="muted">healthy</span></div>
+          <div class="row"><span class="dot ok"></span> API and database <span class="spacer"></span><span class="muted">${status ? status.database.latencyMs + " ms" : "healthy"}</span></div>
+          ${status &&
+          (() => {
+            const issues = status.checks.filter((c) => c.status === "warn" || c.status === "error").length;
+            return html`<div class="row">
+              <span class=${"dot " + (issues ? "warn" : "ok")}></span> Checks
+              <span class="spacer"></span>
+              <a class="muted" href="#/health">${issues ? plural(issues, "thing") + " to look at" : "all good"}</a>
+            </div>`;
+          })()}
           <div class="row">
             <span class=${"dot " + (lastBackup ? "ok" : "warn")}></span> Last backup
             <span class="spacer"></span>

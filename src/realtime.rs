@@ -241,6 +241,11 @@ impl Hub {
 
     /// How many other instances share the database (as of the last heartbeat, at most 20
     /// seconds old).
+    /// This instance's id (as in `_slonbase.instances`).
+    pub fn instance_id(&self) -> &str {
+        &self.instance
+    }
+
     pub fn other_instances(&self) -> usize {
         self.others.load(std::sync::atomic::Ordering::Relaxed)
     }

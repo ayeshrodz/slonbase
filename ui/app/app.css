@@ -2425,3 +2425,135 @@ a.btn:hover {
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------------------------------------------ health */
+
+.health-tile .stat-value {
+  font-size: 22px;
+}
+.spark {
+  width: 100%;
+  height: 32px;
+  margin-top: 6px;
+  overflow: visible;
+}
+.spark-empty {
+  height: 32px;
+  margin-top: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.spark-line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.6;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.spark-area {
+  fill: var(--accent-soft);
+  stroke: none;
+}
+.meter {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--canvas-2);
+  overflow: hidden;
+  margin-top: 10px;
+}
+.meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--t-slow) var(--ease-out);
+}
+.meter-fill.warn {
+  background: var(--warn);
+}
+.checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.check-item {
+  --c: var(--ok);
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  border: 1px solid color-mix(in srgb, var(--c), transparent 78%);
+  background: color-mix(in srgb, var(--c), transparent 94%);
+  animation: rise var(--t-slow) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+.check-item.warn {
+  --c: var(--warn);
+}
+.check-item.danger {
+  --c: var(--danger);
+}
+.check-item.info {
+  --c: var(--info);
+}
+.check-item.compact {
+  padding: 6px 12px;
+  align-items: center;
+  border-color: transparent;
+  background: none;
+}
+.check-item .check-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  color: var(--c);
+  background: color-mix(in srgb, var(--c), transparent 86%);
+}
+.check-item.compact .check-icon {
+  width: 20px;
+  height: 20px;
+}
+.check-title {
+  font-weight: 600;
+  font-size: 13.5px;
+}
+.check-item .btn {
+  flex: none;
+  align-self: center;
+}
+.kv {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.kv .kv-value {
+  margin-left: auto;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.instances {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.instance {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  min-width: 0;
+  animation: rise var(--t-slow) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+.instance.current {
+  border-color: var(--accent-ring);
+}

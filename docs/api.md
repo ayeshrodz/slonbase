@@ -49,6 +49,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
 | `GET /api/health` | Health check |
+| `GET /api/system/status` | The installation's status and checks, for the dashboard's Health page (superusers) |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{name}` | Projects (superusers of the main installation; see [projects](projects.md)) |
 
 Send the token as `Authorization: Bearer <token>` (or just the token).
