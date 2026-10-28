@@ -82,7 +82,7 @@ const paths = {
 export function Icon({ name, size = 18, class: cls = "", title }) {
   const body = paths[name] || paths.dot;
   return html`<svg
-    class=${"icon " + cls}
+    class=${"icon i-" + name + " " + cls}
     width=${size}
     height=${size}
     viewBox="0 0 24 24"

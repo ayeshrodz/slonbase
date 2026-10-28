@@ -23,7 +23,7 @@ const NODE_GAP = 44;
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 2.2;
 const STORE_KEY = "slonbase.diagram" + BASE;
-const FONT = "13px Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
+const FONT = "13px 'Inter Variable', Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif";
 
 let measureCtx;
 function textWidth(text, font = FONT) {
@@ -84,10 +84,10 @@ function buildGraph(collections, { showSystem, detail }) {
     const rows = [{ name: "id", type: "pk", field: null }, ...fields.map((f) => ({ name: f.name, type: f.type, field: f }))];
     if (detail === "names") rows.length = 0;
     // width: the header and the widest row
-    let w = textWidth(c.name, "600 14px Inter, ui-sans-serif, system-ui, sans-serif") + 112;
+    let w = textWidth(c.name, "600 14px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif") + 112;
     for (const r of rows) {
       const right = r.type === "relation" ? "→ " + ((byId.get(r.field.collectionId) || {}).name || "?") : r.type === "pk" ? "id" : fieldMeta(r.type).label;
-      w = Math.max(w, textWidth(r.name) + textWidth(right, "12px Inter, ui-sans-serif, system-ui, sans-serif") + 84);
+      w = Math.max(w, textWidth(r.name) + textWidth(right, "12px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif") + 84);
     }
     w = Math.min(MAX_W, Math.max(MIN_W, Math.ceil(w / 2) * 2));
     const hiddenFields = detail === "names" ? all.length : all.length - fields.length;
@@ -281,20 +281,20 @@ const SVG_CSS = `
 .dg-head { fill: var(--surface-2); }
 .dg-stripe { fill: var(--c); }
 .dg-glyph { fill: color-mix(in srgb, var(--c), transparent 86%); stroke: color-mix(in srgb, var(--c), transparent 72%); }
-.dg-glyph-text { fill: var(--c); font: 650 12px Inter, ui-sans-serif, system-ui, sans-serif; }
-.dg-title { fill: var(--ink); font: 600 14px Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
-.dg-kind { fill: var(--muted); font: 500 11px Inter, ui-sans-serif, system-ui, sans-serif; }
+.dg-glyph-text { fill: var(--c); font: 650 12px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; }
+.dg-title { fill: var(--ink); font: 600 14px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; letter-spacing: -0.01em; }
+.dg-kind { fill: var(--muted); font: 500 11px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; }
 .dg-divider { stroke: var(--line); }
 .dg-row-bg { fill: transparent; }
 .dg-row:hover .dg-row-bg, .dg-row.lit .dg-row-bg { fill: var(--hover); }
 .dg-row.flash .dg-row-bg { fill: var(--accent-soft); }
-.dg-name { fill: var(--ink-2); font: 13px Inter, ui-sans-serif, system-ui, sans-serif; }
+.dg-name { fill: var(--ink-2); font: 13px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; }
 .dg-name.system { fill: var(--muted); }
 .dg-name.pk { fill: var(--ink); font-weight: 600; }
-.dg-type { fill: var(--faint); font: 12px Inter, ui-sans-serif, system-ui, sans-serif; }
+.dg-type { fill: var(--faint); font: 12px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; }
 .dg-type.rel { fill: var(--tone-7); }
 .dg-req { fill: var(--accent); }
-.dg-more { fill: var(--faint); font: 11.5px Inter, ui-sans-serif, system-ui, sans-serif; }
+.dg-more { fill: var(--faint); font: 11.5px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif; }
 .dg-edge { fill: none; vector-effect: non-scaling-stroke; stroke: color-mix(in srgb, var(--ec, var(--muted)), var(--line-2) 50%); stroke-width: 1.5; transition: opacity .18s ease, stroke .18s ease; }
 .dg-edge.optional { stroke-dasharray: 5 4; }
 .dg-edge.lit { stroke: var(--ec); stroke-width: 2.2; }
@@ -338,7 +338,7 @@ function NodeView({ n, p, state, onPointerDown, onDblClick, flashField, enterDel
     ${glyphIcon
       ? html`<g transform=${`translate(20 ${(HEADER - 14) / 2})`} style="color:var(--c)"><${Icon} name=${glyphIcon} size=${14} /></g>`
       : html`<text class="dg-glyph-text" x="27" y=${HEADER / 2 + 4} text-anchor="middle">${c.name.replace(/^_/, "").slice(0, 1).toUpperCase()}</text>`}
-    <text class="dg-title" x="50" y=${HEADER / 2 + (kind || count != null ? -1 : 5)}>${clip(c.name, n.w - 70, "600 14px Inter, ui-sans-serif, system-ui, sans-serif")}</text>
+    <text class="dg-title" x="50" y=${HEADER / 2 + (kind || count != null ? -1 : 5)}>${clip(c.name, n.w - 70, "600 14px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif")}</text>
     ${(kind || count != null) &&
     html`<text class="dg-kind" x="50" y=${HEADER / 2 + 13}>${[kind, count != null ? plural(count, "record") : ""].filter(Boolean).join(" · ")}</text>`}
     ${n.rows.length > 0 && html`<line class="dg-divider" x1="0" x2=${n.w} y1=${HEADER} y2=${HEADER} />`}
@@ -359,7 +359,7 @@ function NodeView({ n, p, state, onPointerDown, onDblClick, flashField, enterDel
         <text class=${cx("dg-name", { system, pk: r.type === "pk" })} x="36" y=${ROW / 2 + 4.5}>${clip(r.name, n.w * 0.52)}</text>
         ${r.field && r.field.required && html`<circle class="dg-req" cx=${38 + Math.min(textWidth(r.name), n.w * 0.52) + 6} cy=${ROW / 2} r="2.2" />`}
         <text class=${cx("dg-type", { rel: r.type === "relation" })} x=${n.w - 14} y=${ROW / 2 + 4} text-anchor="end">
-          ${clip(right + (n.unique.has(r.name) && r.type !== "pk" ? " · unique" : ""), n.w * 0.42, "12px Inter, ui-sans-serif, system-ui, sans-serif")}
+          ${clip(right + (n.unique.has(r.name) && r.type !== "pk" ? " · unique" : ""), n.w * 0.42, "12px 'Inter Variable', Inter, ui-sans-serif, system-ui, sans-serif")}
         </text>
       </g>`;
     })}
@@ -439,7 +439,7 @@ function Inspector({ n, graph, counts, onFocus, onClose }) {
         ${c.type === "auth" ? html`<${Icon} name="users" size=${16} />` : c.type === "view" ? html`<${Icon} name="view" size=${16} />` : c.name.replace(/^_/, "").slice(0, 1)}
       </span>
       <div class="grow" style="min-width:0">
-        <div class="ellipsis" style="font-weight:650">${c.name}</div>
+        <div class="ellipsis" style="font-weight:var(--w-semibold)">${c.name}</div>
         <div class="tiny muted">${c.type}${c.system ? " · system" : ""}${counts[c.id] != null ? " · " + plural(counts[c.id], "record") : ""}</div>
       </div>
       <button class="icon-btn" aria-label="Close" onClick=${onClose}><${Icon} name="close" size=${16} /></button>
@@ -521,7 +521,12 @@ export function Diagram() {
   viewRef.current = view;
   const anim = useRef(0);
 
-  const graph = useMemo(() => buildGraph(collections, { showSystem, detail }), [collections, showSystem, detail]);
+  // card widths are measured with the dashboard's font: measure again once it has loaded
+  const [fontsReady, setFontsReady] = useState(!document.fonts || document.fonts.status === "loaded");
+  useEffect(() => {
+    if (!fontsReady && document.fonts) document.fonts.ready.then(() => setFontsReady(true));
+  }, []);
+  const graph = useMemo(() => buildGraph(collections, { showSystem, detail }), [collections, showSystem, detail, fontsReady]);
   const nodeMap = useMemo(() => new Map(graph.nodes.map((n) => [n.id, n])), [graph]);
 
   // positions for collections that have none yet: the auto layout's, kept clear of the rest

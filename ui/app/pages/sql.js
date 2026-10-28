@@ -84,7 +84,7 @@ export function SqlConsole() {
           <textarea
             ref=${ref}
             class="input code"
-            style="border:0;border-radius:0;min-height:180px;padding:16px 18px;font-size:13px;box-shadow:none;background:var(--surface)"
+            style="border:0;border-radius:0;min-height:180px;padding:16px 18px;font-size:var(--text-sm);box-shadow:none;background:var(--surface)"
             spellcheck="false"
             value=${query}
             onInput=${(e) => setQuery(e.target.value)}

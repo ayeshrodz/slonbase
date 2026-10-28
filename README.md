@@ -247,6 +247,7 @@ Please report security problems [privately](SECURITY.md).
 ## License
 
 [MIT](LICENSE). The dashboard vendors Preact (MIT) and htm (Apache-2.0); their licenses are in
-[ui/app/vendor](ui/app/vendor).
+[ui/app/vendor](ui/app/vendor). It ships the Inter and JetBrains Mono fonts (SIL Open Font
+License 1.1); their licenses are in [ui/app/fonts](ui/app/fonts).
 slonbase is an independent project inspired by PocketBase (also MIT). It is not affiliated
 with or endorsed by PocketBase or its author, and it wouldn't exist without their work.

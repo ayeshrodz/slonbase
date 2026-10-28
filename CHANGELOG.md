@@ -7,6 +7,18 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Changed
+
+- **The dashboard's typography and motion:** it ships its fonts (Inter, with optical sizes, and
+  JetBrains Mono), so it looks the same everywhere instead of falling back to the system font,
+  and every size and weight comes from one scale. Page titles use Inter's display cut, numbers
+  line up in tables and stats, and code shows exactly what's typed (no `!=` drawn as `≠`). New
+  micro-interactions: pages and titles settle in, cards light up their border under the pointer
+  and lift, a pill follows the pointer across the navigation, indicators glide, primary buttons
+  catch a sheen, icons respond (arrows nudge, plus turns, refresh spins), switches stretch,
+  checkboxes draw their tick, menus and toasts arrive softly (toasts show their time left), and
+  the live dot ripples. All of it is off when the system asks for reduced motion.
+
 ## [0.8.0] - 2026-10-28
 
 **Hardening, and a look at your schema.** Soak testing several instances that share a

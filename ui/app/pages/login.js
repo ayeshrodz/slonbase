@@ -11,7 +11,7 @@ export function AuthFrame({ children, title, subtitle }) {
   useAutofocus(ref);
   return html`<div class="auth-page" ref=${ref}>
     <div class="auth-form">
-      <div class="auth-brand"><${Logo} size=${28} /><span>slonbase</span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
+      <div class="auth-brand"><${Logo} size=${28} /><span class="brand-name">slon<b>base</b></span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
       <div class="stack loose">
         <div class="stack tight">
           <h1>${title}</h1>
@@ -76,7 +76,7 @@ export function Login() {
       ${error && html`<${Callout} kind="danger">${error}</${Callout}>`}
       ${mfa
         ? html`<${Field} label="One-time password">
-            <${Input} value=${otp} onInput=${setOtp} autofocus inputmode="numeric" autocomplete="one-time-code" class="mono" style="letter-spacing:.3em;font-size:18px;text-align:center" />
+            <${Input} value=${otp} onInput=${setOtp} autofocus inputmode="numeric" autocomplete="one-time-code" class="mono" style="letter-spacing:.3em;font-size:var(--text-xl);text-align:center" />
           </${Field}>`
         : html`
             <${Field} label="Email">

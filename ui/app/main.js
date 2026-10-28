@@ -17,6 +17,26 @@ import { Health } from "./pages/health.js";
 import { Diagram } from "./pages/diagram.js";
 
 initTheme();
+
+// The spotlight on cards: where the pointer is, relative to the card under it (app.css draws
+// it). Large cards (tables) are left alone, since repainting them on every move is costly.
+let spotFrame = 0;
+document.addEventListener(
+  "pointermove",
+  (e) => {
+    if (spotFrame || e.pointerType === "touch") return;
+    spotFrame = requestAnimationFrame(() => {
+      spotFrame = 0;
+      const card = e.target instanceof Element && e.target.closest(".card");
+      if (!card) return;
+      const r = card.getBoundingClientRect();
+      if (r.height > 560) return;
+      card.style.setProperty("--mx", e.clientX - r.left + "px");
+      card.style.setProperty("--my", e.clientY - r.top + "px");
+    });
+  },
+  { passive: true }
+);
 if (PROJECT) document.title = `${PROJECT} · slonbase`;
 
 const NAV = [
@@ -61,6 +81,8 @@ function ProjectSwitcher() {
 function TopNav({ path }) {
   const ref = useRef();
   const [thumb, setThumb] = useState(null);
+  // a pill under the pointer that glides between the items
+  const [hover, setHover] = useState(null);
   const active = NAV.findIndex((n) => n.match(path));
   useLayoutEffect(() => {
     const measure = () => {
@@ -71,10 +93,16 @@ function TopNav({ path }) {
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
   }, [active]);
-  return html`<nav class="nav" ref=${ref} aria-label="Main">
+  return html`<nav class="nav" ref=${ref} aria-label="Main" onPointerLeave=${() => setHover((h) => h && { ...h, on: false })}>
+    <span class=${cx("nav-hover", { on: hover && hover.on })} style=${hover ? { left: hover.left + "px", width: hover.width + "px" } : null}></span>
     ${thumb && html`<span class="nav-thumb" style=${{ left: thumb.left + "px", width: thumb.width + "px" }}></span>`}
     ${NAV.map(
-      (n, i) => html`<a href=${"#" + n.path} class=${cx({ on: i === active })} aria-current=${i === active ? "page" : undefined}>
+      (n, i) => html`<a
+        href=${"#" + n.path}
+        class=${cx({ on: i === active })}
+        aria-current=${i === active ? "page" : undefined}
+        onPointerEnter=${(e) => setHover({ left: e.currentTarget.offsetLeft, width: e.currentTarget.offsetWidth, on: true })}
+      >
         <${Icon} name=${n.icon} size=${17} /><span>${n.label}</span>
       </a>`
     )}
@@ -169,6 +197,7 @@ function Palette({ onClose }) {
         ${filtered.map(
           (it, i) => html`<div
             class=${cx("palette-item", { on: i === index })}
+            style=${{ "--i": i }}
             onMouseMove=${() => setIndex(i)}
             onClick=${() => run(it)}
           >

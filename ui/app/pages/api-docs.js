@@ -182,7 +182,7 @@ export function ApiDocs({ collection: c }) {
             ${e.rule !== undefined && html`<div class="row small"><${Icon} name="shield" size=${15} /> Access: <code>${ruleText(e.rule)}</code></div>`}
             ${e.note && html`<p class="small muted">${e.note}</p>`}
             ${e.params &&
-            html`<table class="grid" style="font-size:12.5px">
+            html`<table class="grid" style="font-size:var(--text-sm)">
               <tbody>${e.params.map(([k, v]) => html`<tr style="cursor:default"><td style="width:140px"><code>${k}</code></td><td class="muted">${v}</td></tr>`)}</tbody>
             </table>`}
             <div style="position:relative">

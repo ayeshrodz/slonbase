@@ -310,7 +310,7 @@ export function Toasts() {
   const icons = { ok: "check", error: "close", info: "info" };
   return html`<div class="toasts" aria-live="polite">
     ${list.map(
-      (t) => html`<div key=${t.id} class=${cx("toast", t.kind, { leaving: t.leaving })}>
+      (t) => html`<div key=${t.id} class=${cx("toast", t.kind, { leaving: t.leaving })} style=${{ "--life": (t.kind === "error" ? 6000 : 3600) + "ms" }}>
         <span class="toast-icon"><${Icon} name=${icons[t.kind] || "info"} size=${13} /></span>
         <span>${t.message}</span>
         ${t.action &&

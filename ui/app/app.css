@@ -1,5 +1,47 @@
 /* slonbase dashboard: a quiet design with muted color. Tokens first, then components. */
 
+/* Type: Inter (variable, with optical sizes, so headings get the display cut and small text the
+   text cut) and JetBrains Mono, both shipped with the dashboard (SIL OFL 1.1, see fonts/). */
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/inter-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/inter-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("./fonts/jetbrains-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "JetBrains Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url("./fonts/jetbrains-mono-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* The spotlight on cards: how strongly the pointer lights the border (animated, so registered) */
+@property --glow {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
+
 /* Tokens: cool, slightly blue-tinted neutrals, one muted indigo accent (overridable from the
    settings), muted status colors, and eight muted tones for glyphs and select values. */
 :root {
@@ -54,12 +96,36 @@
   --r-xl: 14px;
   --r-pill: 999px;
 
-  --font: "Inter var", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, "JetBrains Mono", "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+  --font: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono Variable", "JetBrains Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+
+  /* one scale: every size in the dashboard is one of these */
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 28px;
+  /* and weights (a variable font, so the in-betweens are real cuts) */
+  --w-regular: 400;
+  --w-book: 450;
+  --w-medium: 520;
+  --w-semibold: 600;
+  --w-bold: 660;
+  /* tracking: tighter as text grows, looser for small capitals */
+  --track-display: -0.024em;
+  --track-title: -0.016em;
+  --track-tight: -0.008em;
+  --track-caps: 0.075em;
 
   --ease: cubic-bezier(0.25, 0.8, 0.25, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
   --ease-spring: cubic-bezier(0.3, 1.3, 0.6, 1);
+  /* indicators that glide to their place and settle with a hint of overshoot */
+  --ease-glide: cubic-bezier(0.34, 1.22, 0.64, 1);
   --t-fast: 110ms;
   --t-med: 180ms;
   --t-slow: 280ms;
@@ -123,13 +189,31 @@ body {
 }
 body {
   font-family: var(--font);
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: var(--text-base);
+  font-weight: var(--w-regular);
+  line-height: 1.5;
   color: var(--ink);
   background: var(--canvas);
   -webkit-font-smoothing: antialiased;
-  font-feature-settings: "cv11", "ss01";
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+  /* single-storey a, a tailed l (never mistaken for I or 1), and capital-aware punctuation */
+  font-feature-settings: "cv11", "cv05", "calt";
+  font-kerning: normal;
   transition: background var(--t-med), color var(--t-med);
+}
+/* a soft light at the top of the page, so the canvas isn't flat */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 520px;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 360px at 12% -120px, color-mix(in srgb, var(--accent), transparent 84%), transparent 70%),
+    radial-gradient(760px 320px at 88% -140px, color-mix(in srgb, var(--tone-7), transparent 88%), transparent 70%);
 }
 #app {
   min-height: 100%;
@@ -141,6 +225,13 @@ a {
 a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  animation: underline-in var(--t-med) ease;
+}
+@keyframes underline-in {
+  from {
+    text-decoration-color: transparent;
+  }
 }
 button,
 input,
@@ -153,30 +244,58 @@ textarea {
   background: var(--accent-ring);
 }
 code,
+kbd,
+pre,
 .mono {
   font-family: var(--mono);
-  font-size: 0.92em;
+  font-size: 0.9em;
+  font-weight: var(--w-regular);
+  font-variant-ligatures: none;
+  /* code reads as typed: no programming ligatures (!= stays !=), a slashed zero */
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  letter-spacing: 0;
 }
 h1,
 h2,
 h3,
 h4 {
   margin: 0;
-  font-weight: 600;
-  letter-spacing: -0.015em;
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-title);
+  line-height: 1.25;
+  color: var(--ink);
+  text-wrap: balance;
 }
 h1 {
-  font-size: 22px;
-  letter-spacing: -0.02em;
+  font-size: var(--text-2xl);
+  font-weight: var(--w-bold);
+  letter-spacing: var(--track-display);
+  line-height: 1.15;
 }
 h2 {
-  font-size: 16px;
+  font-size: var(--text-lg);
 }
 h3 {
-  font-size: 14px;
+  font-size: var(--text-md);
+  letter-spacing: var(--track-tight);
+}
+h4 {
+  font-size: var(--text-base);
+  letter-spacing: var(--track-tight);
 }
 p {
   margin: 0;
+  text-wrap: pretty;
+}
+b,
+strong {
+  font-weight: var(--w-semibold);
+}
+.num,
+table,
+.kv,
+.stat-value {
+  font-variant-numeric: tabular-nums;
 }
 
 .icon {
@@ -191,10 +310,12 @@ p {
   color: var(--faint);
 }
 .small {
-  font-size: 12.5px;
+  font-size: var(--text-sm);
+  line-height: 1.5;
 }
 .tiny {
-  font-size: 11.5px;
+  font-size: var(--text-xs);
+  line-height: 1.45;
 }
 .nowrap {
   white-space: nowrap;
@@ -378,7 +499,7 @@ p {
 }
 
 .enter {
-  animation: rise var(--t-slow) var(--ease-out) backwards;
+  animation: page-in 420ms var(--ease-out) backwards;
 }
 .stagger > * {
   animation: rise var(--t-slow) var(--ease-out) backwards;
@@ -418,8 +539,8 @@ p {
   border: 1px solid var(--btn-line);
   background: var(--btn-bg);
   color: var(--btn-fg);
-  font-weight: 520;
-  font-size: 13px;
+  font-weight: var(--w-medium);
+  font-size: var(--text-sm);
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
@@ -480,20 +601,20 @@ p {
 .btn.sm {
   height: 28px;
   padding: 0 10px;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   gap: 5px;
 }
 .btn.xs {
   height: 24px;
   padding: 0 8px;
-  font-size: 12px;
+  font-size: var(--text-xs);
   gap: 4px;
   border-radius: var(--r-sm);
 }
 .btn.lg {
   height: 40px;
   padding: 0 18px;
-  font-size: 14px;
+  font-size: var(--text-base);
 }
 .btn.block {
   width: 100%;
@@ -564,19 +685,19 @@ p {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12.5px;
-  font-weight: 540;
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
   color: var(--ink-2);
 }
 .field > .label .req {
   color: var(--muted);
 }
 .field .help {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .field .error {
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--danger);
   animation: fade var(--t-med) ease;
 }
@@ -622,7 +743,8 @@ textarea.input {
 textarea.input.code,
 .input.code {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-sm);
 }
 select.input {
   appearance: none;
@@ -674,7 +796,7 @@ select.input {
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .switch .switch-label {
-  font-weight: 480;
+  font-weight: var(--w-book);
 }
 
 .check {
@@ -725,8 +847,8 @@ select.input {
   background: transparent;
   padding: 4px 11px;
   border-radius: var(--r-sm);
-  font-size: 12.5px;
-  font-weight: 520;
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
   color: var(--muted);
   cursor: pointer;
   transition: color var(--t-med);
@@ -742,7 +864,7 @@ select.input {
   border-radius: var(--r-sm);
   background: var(--surface);
   box-shadow: var(--shadow-1), 0 0 0 1px var(--line);
-  transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
+  transition: left 420ms var(--ease-glide), width 420ms var(--ease-glide);
 }
 
 .chips {
@@ -760,8 +882,8 @@ select.input {
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--ink-2);
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--w-medium);
   max-width: 100%;
   white-space: nowrap;
   overflow: hidden;
@@ -832,10 +954,13 @@ select.input {
   padding: 0 4px;
   border-radius: var(--r-xs);
   border: 1px solid var(--line-2);
-  font-size: 10.5px;
+  font-size: var(--text-2xs);
   font-family: var(--mono);
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-weight: var(--w-medium);
   color: var(--muted);
   background: var(--surface);
+  box-shadow: inset 0 -1px 0 var(--line-2);
 }
 
 .dot {
@@ -867,10 +992,20 @@ select.input {
 /* ------------------------------------------------------------------ cards */
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--line);
+  --mx: -1000px;
+  --my: -1000px;
+  border: 1px solid transparent;
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-1);
+  /* a soft light inside, the surface, and the border lit where the pointer is */
+  background:
+    radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) calc(var(--glow) / 7), transparent), transparent 65%) padding-box,
+    linear-gradient(var(--surface), var(--surface)) padding-box,
+    radial-gradient(260px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) var(--glow), var(--line)), var(--line) 80%) border-box;
+  transition: --glow 420ms var(--ease-out), box-shadow var(--t-med) var(--ease), transform var(--t-slow) var(--ease-out);
+}
+.card:hover {
+  --glow: 50%;
 }
 .card.pad {
   padding: 18px;
@@ -895,11 +1030,12 @@ select.input {
   border-radius: 0 0 var(--r-lg) var(--r-lg);
 }
 .section-title {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  color: var(--faint);
+  font-feature-settings: "cv11", "case", "cpsp";
+  color: var(--muted);
 }
 
 .callout {
@@ -911,7 +1047,7 @@ select.input {
   border: 1px solid var(--line);
   background: var(--surface-2);
   color: var(--ink-2);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .callout > .icon {
   color: var(--info);
@@ -989,15 +1125,15 @@ select.input {
   align-items: center;
   gap: 9px;
   color: var(--ink);
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.02em;
+  font-weight: var(--w-bold);
+  font-size: 16px;
+  letter-spacing: -0.03em;
 }
 .brand:hover {
   text-decoration: none;
 }
 .brand .brand-name b {
-  font-weight: 600;
+  font-weight: var(--w-book);
   color: var(--muted);
 }
 
@@ -1016,8 +1152,8 @@ select.input {
   gap: 7px;
   padding: 0 10px;
   color: var(--muted);
-  font-weight: 500;
-  font-size: 13px;
+  font-weight: var(--w-medium);
+  font-size: var(--text-sm);
   transition: color var(--t-fast);
 }
 .nav a:hover {
@@ -1038,7 +1174,7 @@ select.input {
   height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
-  transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
+  transition: left 420ms var(--ease-glide), width 420ms var(--ease-glide);
 }
 
 .search-trigger {
@@ -1069,8 +1205,8 @@ select.input {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  font-weight: 600;
-  font-size: 12px;
+  font-weight: var(--w-semibold);
+  font-size: var(--text-xs);
   color: var(--accent);
   background: var(--accent-soft);
   border: 1px solid color-mix(in srgb, var(--accent), transparent 72%);
@@ -1095,7 +1231,8 @@ select.input {
   margin-bottom: 22px;
 }
 .page-head .eyebrow {
-  font-size: 12px;
+  font-size: var(--text-xs);
+  font-weight: var(--w-medium);
   color: var(--muted);
   margin-bottom: 4px;
   display: flex;
@@ -1180,7 +1317,7 @@ select.input {
   padding: 6px 8px;
   border-radius: var(--r-md);
   color: var(--ink-2);
-  font-weight: 480;
+  font-weight: var(--w-book);
   position: relative;
   transition: background var(--t-fast), color var(--t-fast);
 }
@@ -1192,7 +1329,7 @@ select.input {
 .coll-item.on {
   background: var(--surface);
   color: var(--ink);
-  font-weight: 540;
+  font-weight: var(--w-medium);
   box-shadow: 0 0 0 1px var(--line), var(--shadow-1);
 }
 .coll-item.on::before {
@@ -1211,8 +1348,8 @@ select.input {
   border-radius: var(--r-sm);
   display: grid;
   place-items: center;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: var(--text-2xs);
+  font-weight: var(--w-bold);
   --c: var(--ink-3);
   color: var(--c);
   background: color-mix(in srgb, var(--c), transparent 88%);
@@ -1245,7 +1382,7 @@ select.input {
   width: 36px;
   height: 36px;
   border-radius: var(--r-md);
-  font-size: 15px;
+  font-size: var(--text-md);
 }
 
 .tabs {
@@ -1265,7 +1402,7 @@ select.input {
   gap: 7px;
   padding: 9px 10px 11px;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--w-medium);
   border: 0;
   background: none;
   cursor: pointer;
@@ -1289,10 +1426,10 @@ select.input {
   height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--accent);
-  transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
+  transition: left 420ms var(--ease-glide), width 420ms var(--ease-glide);
 }
 .tabs .badge {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   min-width: 18px;
   height: 17px;
   padding: 0 5px;
@@ -1335,7 +1472,8 @@ select.input {
   outline: 0;
   background: none;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-sm);
 }
 .filter-box > .icon {
   color: var(--faint);
@@ -1353,7 +1491,7 @@ table.grid {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 table.grid th {
   position: sticky;
@@ -1361,8 +1499,9 @@ table.grid th {
   z-index: 2;
   background: var(--surface-2);
   text-align: left;
-  font-weight: 520;
-  font-size: 12px;
+  font-weight: var(--w-medium);
+  font-size: var(--text-xs);
+  letter-spacing: 0.01em;
   color: var(--muted);
   padding: 0 12px;
   height: 36px;
@@ -1425,7 +1564,8 @@ table.grid .col-actions {
 }
 .cell-id {
   font-family: var(--mono);
-  font-size: 12px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-xs);
   color: var(--ink-2);
   display: inline-flex;
   align-items: center;
@@ -1438,7 +1578,8 @@ table.grid .col-actions {
 }
 .cell-json {
   font-family: var(--mono);
-  font-size: 12px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-xs);
   color: var(--muted);
 }
 .thumbs {
@@ -1482,7 +1623,7 @@ table.grid .col-actions {
   gap: 10px;
   margin-top: 12px;
   color: var(--muted);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 .pager .pages {
   display: flex;
@@ -1496,7 +1637,7 @@ table.grid .col-actions {
   background: transparent;
   cursor: pointer;
   color: var(--muted);
-  font-weight: 500;
+  font-weight: var(--w-medium);
   font-variant-numeric: tabular-nums;
   transition: background var(--t-fast), color var(--t-fast);
 }
@@ -1608,10 +1749,10 @@ table.grid .col-actions {
   margin-bottom: 14px;
 }
 .meta-item .k {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--faint);
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
 }
 
@@ -1640,7 +1781,7 @@ table.grid .col-actions {
   text-align: left;
   color: var(--ink-2);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .menu button:hover,
 .menu a:hover {
@@ -1688,7 +1829,7 @@ table.grid .col-actions {
   border: 0;
   outline: 0;
   background: none;
-  font-size: 15px;
+  font-size: var(--text-md);
   color: var(--ink);
 }
 .palette-list {
@@ -1712,7 +1853,7 @@ table.grid .col-actions {
 }
 .palette-item .hint {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--faint);
 }
 
@@ -1740,8 +1881,8 @@ table.grid .col-actions {
   border: 1px solid var(--line-2);
   color: var(--ink);
   box-shadow: var(--shadow-3);
-  font-weight: 480;
-  font-size: 13px;
+  font-weight: var(--w-book);
+  font-size: var(--text-sm);
   animation: drop var(--t-slow) var(--ease-out);
   max-width: min(560px, 92vw);
 }
@@ -1772,8 +1913,8 @@ table.grid .col-actions {
   height: 24px;
   padding: 0 8px;
   cursor: pointer;
-  font-weight: 520;
-  font-size: 12px;
+  font-weight: var(--w-medium);
+  font-size: var(--text-xs);
 }
 
 .tip {
@@ -1789,8 +1930,8 @@ table.grid .col-actions {
   border-radius: var(--r-sm);
   background: var(--ink);
   color: var(--canvas);
-  font-size: 11.5px;
-  font-weight: 480;
+  font-size: var(--text-xs);
+  font-weight: var(--w-book);
   white-space: nowrap;
   opacity: 0;
   pointer-events: none;
@@ -1821,16 +1962,16 @@ table.grid .col-actions {
   align-items: center;
   gap: 10px;
   margin-bottom: 28px;
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: -0.02em;
+  font-weight: var(--w-semibold);
+  font-size: var(--text-md);
+  letter-spacing: var(--track-title);
 }
 .auth-foot {
   margin-top: 28px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
   color: var(--faint);
-  font-size: 12px;
+  font-size: var(--text-xs);
 }
 
 /* ------------------------------------------------------------------ overview */
@@ -1844,12 +1985,13 @@ table.grid .col-actions {
   transition: border-color var(--t-fast);
 }
 .stat:hover {
-  border-color: var(--line-2);
   box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
 }
 .stat .stat-value {
-  font-size: 26px;
-  font-weight: 600;
+  font-size: var(--text-3xl);
+  font-weight: var(--w-semibold);
+  line-height: 1.15;
   letter-spacing: -0.03em;
   font-variant-numeric: tabular-nums;
 }
@@ -1906,12 +2048,11 @@ table.grid .col-actions {
   gap: 12px;
   padding: 12px 14px;
   color: var(--ink);
-  transition: border-color var(--t-fast), background var(--t-fast);
 }
 .coll-card:hover {
   text-decoration: none;
-  border-color: var(--line-2);
-  background: var(--surface-2);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
 }
 
 /* ------------------------------------------------------------------ schema editor */
@@ -1966,9 +2107,10 @@ table.grid .col-actions {
   border: 0;
   background: transparent;
   outline: 0;
-  font-weight: 540;
+  font-weight: var(--w-medium);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-sm);
   padding: 5px 8px;
   border-radius: var(--r-sm);
   transition: background var(--t-fast), box-shadow var(--t-fast);
@@ -2021,7 +2163,8 @@ table.grid .col-actions {
 }
 .rule-editor {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-sm);
   min-height: 44px;
 }
 .rule-locked {
@@ -2033,7 +2176,7 @@ table.grid .col-actions {
   border: 1px dashed var(--line-2);
   color: var(--muted);
   background: var(--surface-2);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
 }
 
 .endpoint {
@@ -2053,8 +2196,9 @@ table.grid .col-actions {
 }
 .method {
   font-family: var(--mono);
-  font-size: 10.5px;
-  font-weight: 600;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
   padding: 2px 6px;
   border-radius: var(--r-xs);
   min-width: 52px;
@@ -2087,7 +2231,8 @@ pre.code {
   border: 1px solid var(--line);
   color: var(--ink-2);
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-sm);
   line-height: 1.6;
   overflow: auto;
   position: relative;
@@ -2132,7 +2277,7 @@ pre.code {
   background: var(--canvas-2);
 }
 .file-tile .name {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   padding: 4px 6px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2220,7 +2365,7 @@ pre.code {
   padding: 7px 10px;
   border-radius: var(--r-md);
   color: var(--ink-3);
-  font-weight: 480;
+  font-weight: var(--w-book);
   transition: background var(--t-fast), color var(--t-fast);
 }
 .settings-nav a:hover {
@@ -2231,7 +2376,7 @@ pre.code {
 .settings-nav a.on {
   background: var(--surface);
   color: var(--ink);
-  font-weight: 540;
+  font-weight: var(--w-medium);
   box-shadow: 0 0 0 1px var(--line), var(--shadow-1);
 }
 .settings-nav a.on .icon {
@@ -2267,7 +2412,8 @@ pre.code {
 
 .sql-grid td {
   font-family: var(--mono);
-  font-size: 12px;
+  font-feature-settings: "calt" 0, "liga" 0, "zero";
+  font-size: var(--text-xs);
 }
 .copy-ok {
   color: var(--ok) !important;
@@ -2338,8 +2484,8 @@ pre.code {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink-2);
-  font-size: 13px;
-  font-weight: 520;
+  font-size: var(--text-sm);
+  font-weight: var(--w-medium);
   cursor: pointer;
   transition: border-color var(--t-fast), background var(--t-fast);
 }
@@ -2380,14 +2526,14 @@ pre.code {
 .project-glyph {
   width: 36px;
   height: 36px;
-  font-size: 15px;
+  font-size: var(--text-md);
   text-transform: uppercase;
 }
 .project-name {
   display: block;
   color: var(--ink);
-  font-weight: 600;
-  font-size: 15px;
+  font-weight: var(--w-semibold);
+  font-size: var(--text-md);
 }
 .project-facts {
   display: grid;
@@ -2429,7 +2575,7 @@ a.btn:hover {
 /* ------------------------------------------------------------------ health */
 
 .health-tile .stat-value {
-  font-size: 22px;
+  font-size: var(--text-2xl);
 }
 .spark {
   width: 100%;
@@ -2518,8 +2664,8 @@ a.btn:hover {
   height: 20px;
 }
 .check-title {
-  font-weight: 600;
-  font-size: 13.5px;
+  font-weight: var(--w-semibold);
+  font-size: var(--text-base);
 }
 .check-item .btn {
   flex: none;
@@ -2529,7 +2675,7 @@ a.btn:hover {
   display: flex;
   align-items: baseline;
   gap: 12px;
-  font-size: 13px;
+  font-size: var(--text-sm);
   padding: 3px 0;
 }
 .kv .kv-value {
@@ -2584,7 +2730,7 @@ a.btn:hover {
   margin-right: 6px;
 }
 .dg-title-block h1 {
-  font-size: 18px;
+  font-size: var(--text-xl);
   margin: 0;
 }
 .dg-search {
@@ -2614,7 +2760,7 @@ a.btn:hover {
   background: transparent;
   color: var(--ink);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
 }
 .dg-results {
   position: absolute;
@@ -2639,7 +2785,7 @@ a.btn:hover {
   background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -2682,7 +2828,7 @@ a.btn:hover {
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow-2);
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   white-space: nowrap;
   pointer-events: none;
   z-index: 8;
@@ -2702,7 +2848,7 @@ a.btn:hover {
   background: color-mix(in srgb, var(--surface), transparent 6%);
   backdrop-filter: blur(8px);
   box-shadow: var(--shadow-2);
-  font-size: 12px;
+  font-size: var(--text-xs);
   color: var(--muted);
   white-space: nowrap;
   z-index: 6;
@@ -2779,7 +2925,7 @@ a.btn:hover {
   background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -2828,13 +2974,13 @@ a.btn:hover {
   background: var(--surface-2);
 }
 .dg-facts b {
-  font-size: 16px;
-  font-weight: 650;
+  font-size: var(--text-lg);
+  font-weight: var(--w-bold);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
 .dg-facts span {
-  font-size: 11px;
+  font-size: var(--text-2xs);
   color: var(--muted);
 }
 .dg-section {
@@ -2855,7 +3001,7 @@ a.btn:hover {
   background: transparent;
   color: var(--ink-2);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--text-sm);
   text-align: left;
   cursor: pointer;
   min-width: 0;
@@ -2877,7 +3023,7 @@ a.btn:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--text-sm);
   padding: 2px 0;
 }
 @media (max-width: 760px) {
@@ -2902,4 +3048,367 @@ a.btn:hover {
   .dg-legend {
     display: none;
   }
+}
+
+/* ------------------------------------------------------------------ micro-interactions */
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+    filter: blur(3px);
+  }
+}
+@keyframes title-in {
+  from {
+    opacity: 0;
+    letter-spacing: 0.01em;
+    filter: blur(5px);
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+    filter: blur(2px);
+  }
+}
+@keyframes spin-in {
+  from {
+    opacity: 0;
+    transform: rotate(-100deg) scale(0.5);
+  }
+}
+@keyframes ripple {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(3.2);
+    opacity: 0;
+  }
+}
+@keyframes draw {
+  from {
+    stroke-dashoffset: 28;
+  }
+}
+@keyframes press-pop {
+  0% {
+    transform: scale(0.8);
+  }
+  60% {
+    transform: scale(1.12);
+  }
+}
+@keyframes float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+@keyframes life {
+  to {
+    transform: scaleX(0);
+  }
+}
+@keyframes ring-in {
+  from {
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* page titles: the top of the scale */
+.page-head h1 {
+  font-size: var(--text-3xl);
+  letter-spacing: -0.028em;
+}
+
+/* page titles settle into place */
+.page-head h1,
+.coll-header h1,
+.dg-title-block h1 {
+  animation: title-in 620ms var(--ease-out) backwards;
+}
+.page-head .eyebrow {
+  animation: rise 420ms var(--ease-out) 60ms backwards;
+}
+.page-head > :not(.grow) {
+  animation: rise 420ms var(--ease-out) 120ms backwards;
+}
+
+/* the top navigation: a pill follows the pointer, the active icon pops */
+.nav .nav-hover {
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  height: 32px;
+  margin-top: -16px;
+  border-radius: var(--r-md);
+  background: var(--hover);
+  opacity: 0;
+  transition: left 300ms var(--ease-glide), width 300ms var(--ease-glide), opacity var(--t-med);
+  pointer-events: none;
+}
+.nav .nav-hover.on {
+  opacity: 1;
+}
+.nav a .icon {
+  transition: transform 320ms var(--ease-spring), color var(--t-fast);
+}
+.nav a:hover .icon {
+  transform: translateY(-1px) scale(1.06);
+}
+.nav a.on .icon {
+  animation: press-pop 420ms var(--ease-out);
+}
+.brand svg {
+  transition: transform 520ms var(--ease-spring);
+}
+.brand:hover svg {
+  transform: rotate(-8deg) scale(1.06);
+}
+.theme-btn .icon {
+  animation: spin-in 520ms var(--ease-spring);
+}
+
+/* buttons: a quick press and a springy release, a sheen across primary ones */
+.btn {
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med), transform 260ms var(--ease-spring);
+}
+.btn:active {
+  transform: scale(0.97);
+  transition-duration: 80ms;
+}
+.btn:focus-visible,
+.icon-btn:focus-visible,
+.input:focus {
+  animation: ring-in 260ms var(--ease-out);
+}
+.btn.primary {
+  overflow: hidden;
+}
+.btn.primary::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.2) 50%, transparent 70%);
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+.btn.primary:hover::after {
+  transform: translateX(130%);
+  transition: transform 750ms var(--ease-out);
+}
+.icon-btn:active {
+  transform: scale(0.92);
+}
+.icon-btn {
+  transition: background var(--t-fast), color var(--t-fast), transform 240ms var(--ease-spring);
+}
+
+/* icons react to what they're on */
+.icon {
+  transition: transform 320ms var(--ease-spring);
+}
+:is(.btn, a, button, .coll-card, .palette-item):hover > .i-arrowRight,
+:is(.coll-card, .coll-item, .palette-item, .dg-link):hover .i-chevronRight {
+  transform: translateX(3px);
+}
+:is(.btn, .icon-btn):hover > .i-plus {
+  transform: rotate(90deg);
+}
+:is(.btn, .icon-btn):hover > .i-refresh {
+  transform: rotate(180deg);
+  transition-duration: 600ms;
+}
+:is(.btn, .icon-btn):hover > .i-sparkle {
+  transform: rotate(18deg) scale(1.12);
+}
+:is(.btn, .icon-btn):hover > .i-download {
+  transform: translateY(2px);
+}
+:is(.btn, .icon-btn):hover > .i-upload {
+  transform: translateY(-2px);
+}
+:is(.btn, .icon-btn):hover > :is(.i-copy, .i-edit, .i-search, .i-filter) {
+  transform: scale(1.1);
+}
+:is(.btn, .icon-btn):hover > .i-trash {
+  transform: rotate(-10deg);
+}
+:is(.btn, .icon-btn):hover > .i-close {
+  transform: rotate(90deg);
+}
+:is(.btn, .icon-btn):hover > :is(.i-sun, .i-moon) {
+  transform: rotate(-20deg);
+}
+
+/* cards: the spotlight follows the pointer (main.js sets --mx and --my) */
+.stat .stat-icon,
+.coll-card .coll-glyph,
+.coll-item .coll-glyph {
+  transition: transform 420ms var(--ease-spring);
+}
+.stat:hover .stat-icon {
+  transform: rotate(-8deg) scale(1.1);
+}
+.coll-card:hover .coll-glyph,
+.coll-item:hover .coll-glyph {
+  transform: scale(1.08);
+}
+.project-card:hover {
+  box-shadow: var(--shadow-2);
+  transform: translateY(-2px);
+}
+
+/* fields: the label lights up with its input */
+.field > .label {
+  transition: color var(--t-med);
+}
+.field:focus-within > .label {
+  color: var(--ink);
+}
+
+/* switches stretch while pressed, checkboxes draw their tick */
+.switch .knob {
+  transition: transform var(--t-slow) var(--ease-spring), width 180ms var(--ease-out);
+}
+.switch:active .knob {
+  width: 18px;
+}
+.switch:active input:checked + .track .knob {
+  transform: translateX(10px);
+}
+.check.on,
+.check.partial {
+  animation: press-pop 300ms var(--ease-out);
+}
+.check.on .icon path,
+.check.on .icon polyline {
+  stroke-dasharray: 28;
+  animation: draw 360ms var(--ease-out) 40ms backwards;
+}
+
+/* live status: a ripple instead of a blink */
+.dot.live {
+  position: relative;
+  animation: none;
+}
+.dot.live::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: currentColor;
+  color: var(--ok);
+  animation: ripple 2.2s var(--ease-out) infinite;
+}
+
+/* menus, the palette and toasts arrive softly; their items follow one another */
+.menu {
+  animation: pop-in 220ms var(--ease-out);
+}
+.menu > button,
+.menu > a {
+  animation: rise 300ms var(--ease-out) backwards;
+}
+.menu > :nth-child(2) {
+  animation-delay: 25ms;
+}
+.menu > :nth-child(3) {
+  animation-delay: 50ms;
+}
+.menu > :nth-child(4) {
+  animation-delay: 75ms;
+}
+.menu > :nth-child(5) {
+  animation-delay: 100ms;
+}
+.menu > :nth-child(n + 6) {
+  animation-delay: 125ms;
+}
+.palette-item {
+  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-med);
+  animation: rise 280ms var(--ease-out) backwards;
+  animation-delay: calc(min(var(--i, 0), 10) * 16ms);
+}
+.toast {
+  position: relative;
+  overflow: hidden;
+  animation: pop-in 380ms var(--ease-spring);
+}
+.toast::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: currentColor;
+  opacity: 0.18;
+  transform-origin: left;
+  animation: life var(--life, 3600ms) linear forwards;
+}
+.backdrop {
+  animation: fade 220ms ease;
+}
+.sheet,
+.palette {
+  animation: pop-in 320ms var(--ease-out);
+}
+
+/* empty states breathe a little */
+.empty .empty-art {
+  animation: float 5s ease-in-out infinite;
+}
+
+
+/* sign in: the wordmark as in the top bar, a display title, and the form arriving in steps */
+.auth-brand {
+  font-size: 17px;
+  font-weight: var(--w-bold);
+  letter-spacing: -0.03em;
+}
+.auth-brand .brand-name b {
+  font-weight: var(--w-book);
+  color: var(--muted);
+}
+.auth-brand svg {
+  transition: transform 520ms var(--ease-spring);
+}
+.auth-brand:hover svg {
+  transform: rotate(-8deg) scale(1.06);
+}
+.auth-form h1 {
+  font-size: var(--text-3xl);
+  letter-spacing: -0.028em;
+  animation: title-in 620ms var(--ease-out) 80ms backwards;
+}
+.auth-form > *,
+.auth-form form > * {
+  animation: rise 460ms var(--ease-out) backwards;
+}
+.auth-form > :nth-child(2) {
+  animation-delay: 60ms;
+}
+.auth-form form > :nth-child(1) {
+  animation-delay: 140ms;
+}
+.auth-form form > :nth-child(2) {
+  animation-delay: 190ms;
+}
+.auth-form form > :nth-child(3) {
+  animation-delay: 240ms;
+}
+.auth-form form > :nth-child(n + 4) {
+  animation-delay: 290ms;
+}
+.auth-form > :last-child {
+  animation-delay: 340ms;
 }

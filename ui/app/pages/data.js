@@ -277,7 +277,7 @@ function CollectionView({ collection, tab, recordId }) {
       <${CollectionGlyph} collection=${collection} />
       <div class="grow">
         <div class="row" style="gap:8px">
-          <h1 style="font-size:22px">${collection.name}</h1>
+          <h1>${collection.name}</h1>
           <span class=${"chip " + (collection.type === "auth" ? "accent" : "outline")}>${collection.type}</span>
           ${collection.system && html`<span class="chip warn"><${Icon} name="lock" size=${12} /> system</span>`}
         </div>
