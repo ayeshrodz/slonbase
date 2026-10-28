@@ -7,6 +7,15 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-28
+
+**Hardening, and a look at your schema.** Soak testing several instances that share a
+database found that realtime delivery fell behind under sustained writes; it now keeps up (from
+a p50 of 7 s, and growing, to 13 ms). Backups can be encrypted at rest, large files reach S3 in
+parts, and S3 servers with a private CA work. The dashboard gains a Health page, with checks of
+the installation and what to do about each, and an interactive diagram of the collections and
+their relations.
+
 ### Added
 
 - **A schema diagram in the dashboard** (`#/diagram`, in the top navigation and the Data panel):
@@ -46,6 +55,13 @@ changes, and they'll be listed here.
   under heavy writes their delivery fell seconds behind, and further each minute. They're now
   read in batches and checked several at a time (still in order for each client): in the soak
   test, from a p50 of 7 s (and growing) to 13 ms.
+
+### Upgrading
+
+- No system migrations this time, and nothing changes until you opt in.
+- Backup encryption is off unless a key is set. With a key, new and uploaded backups are stored
+  encrypted, and existing plain backups still restore. Keep the key somewhere other than the
+  server: encrypted backups can't be restored without it.
 
 ## [0.7.0] - 2026-10-27
 
@@ -485,7 +501,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/ayeshrodz/slonbase/compare/v0.4.2...v0.5.0

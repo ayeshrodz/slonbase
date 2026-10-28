@@ -10,7 +10,7 @@ use the [image](installation.md#docker) from `ghcr.io/ayeshrodz/slonbase`.
 - [Dokploy](#dokploy)
 - [After the first deploy](#after-the-first-deploy)
 
-The templates use the `latest` image. To control upgrades, pin a release (`:0.7.0`) instead.
+The templates use the `latest` image. To control upgrades, pin a release (`:0.8.0`) instead.
 
 **Disks owned by root.** Render, Railway and Fly.io mount their disks at `/data` owned by root.
 The image runs as an unprivileged user, which can start but can't write files there, so file

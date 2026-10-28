@@ -98,7 +98,7 @@ already trust.
 </table>
 
 > [!NOTE]
-> **slonbase is young (0.7, before 1.0).** Expect rough edges, and back up your data. Bug reports
+> **slonbase is young (0.8, before 1.0).** Expect rough edges, and back up your data. Bug reports
 > are very welcome.
 
 ## Coming from PocketBase?

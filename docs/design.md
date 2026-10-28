@@ -993,7 +993,8 @@ the file.
 7. **Parity details** (done in 0.7): `strftime()` in filters, deleting files when a file field is
    removed, OIDC `id_token` validation, Sign in with Apple and its client secret generator,
    the request log's `maxDataSize`.
-8. **Hardening** (0.8): S3 multipart uploads and a custom CA, backup encryption at rest, load and
-   soak tests, a health view in the dashboard.
+8. **Hardening** (done in 0.8): S3 multipart uploads and a custom CA, backup encryption at rest,
+   soak tests (and the realtime delivery fix they led to), a Health page and a schema diagram in
+   the dashboard.
 9. **1.0**: one-click templates (Railway, Coolify, Dokploy), a docs site, and a stability promise
    for the API, configuration and on-disk format.
