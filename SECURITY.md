@@ -2,14 +2,14 @@
 
 ## Supported versions
 
-Before 1.0, only the latest release gets security fixes. Upgrade to it before reporting, if you
-can. From 1.0, the previous minor release also gets them for three months after the next one
-comes out (see [stability](docs/stability.md#security-fixes)).
+The latest minor release gets security fixes, and the previous minor release gets them for three
+months after the next one comes out (see [stability](docs/stability.md#security-fixes)). Upgrade
+to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 0.8.x | ✅ |
-| < 0.8 | ❌ |
+| 1.0.x | ✅ |
+| 0.x | ❌ |
 
 ## Reporting a vulnerability
 

@@ -2,10 +2,18 @@
 
 All notable changes to slonbase are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[Semantic Versioning](https://semver.org/). Before 1.0, a minor version (0.x) may contain breaking
-changes, and they'll be listed here.
+[Semantic Versioning](https://semver.org/): since 1.0, breaking changes wait for a major version
+(see [stability](docs/stability.md)). Before 1.0, a minor version (0.x) could contain breaking
+changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-10-28
+
+**slonbase 1.0.** A stability promise: within 1.x, upgrades don't break the API, configuration,
+your data and backups, hooks, migrations or the Rust library, and a breaking change waits for
+2.0. A documentation site with search, at ayeshrodz.github.io/slonbase/docs. And a dashboard
+with new typography, set in Ubuntu Sans with one type scale, and micro-interactions throughout.
 
 ### Added
 
@@ -17,6 +25,9 @@ changes, and they'll be listed here.
   every guide and the changelog, with a sidebar, an outline that follows the reading position,
   search over every section (`/` or ⌘K), copyable code, and light and dark themes. It's built
   from `docs/` on each change, and the build fails on a link to a missing page or heading.
+- **Platform templates ready for their catalogs** ([deploy/README.md](deploy/README.md)): the
+  Coolify and Dokploy setups with their logos and catalog entries, the pull requests to submit
+  them, and the steps to publish a Railway template.
 
 ### Changed
 
@@ -30,6 +41,14 @@ changes, and they'll be listed here.
   catch a sheen, icons respond (arrows nudge, plus turns, refresh spins), switches stretch,
   checkboxes draw their tick, menus and toasts arrive softly (toasts show their time left), and
   the live dot ripples. All of it is off when the system asks for reduced motion.
+- The security policy: from 1.0, the previous minor release also gets security fixes, for three
+  months after the next one comes out.
+
+### Upgrading
+
+- From 0.8, nothing to do: no system migrations, no configuration changes. Upgrades from older
+  releases apply their migrations on start, as before; read their **Upgrading** sections.
+- From here on, upgrades within 1.x don't break what [stability](docs/stability.md) covers.
 
 ## [0.8.0] - 2026-10-28
 
@@ -525,7 +544,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/ayeshrodz/slonbase/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/ayeshrodz/slonbase/compare/v0.5.0...v0.6.0

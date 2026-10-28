@@ -35,7 +35,7 @@ Open the printed link (the token in it is required) to create the first superuse
 two volumes: `pgdata` (the database) and `slonbase_data` (`/data`: files, backups, hooks and the
 config file).
 
-`SLONBASE_VERSION` in `.env` pins a release (`0.8.0`); the default is `latest`. When the image
+`SLONBASE_VERSION` in `.env` pins a release (`1.0.0`); the default is `latest`. When the image
 can't be pulled, or with `docker compose up --build`, Compose builds it from a checkout of the
 repository (run it there).
 
@@ -48,7 +48,7 @@ and has a health check (`slonbase health`).
 ```sh
 docker run -d --name slonbase -p 8090:8090 -v slonbase_data:/data \
   -e SLONBASE_DATABASE_URL='postgres://user:pass@db.example.com:5432/app?sslmode=require' \
-  ghcr.io/ayeshrodz/slonbase:0.8.0
+  ghcr.io/ayeshrodz/slonbase:1.0.0
 docker logs slonbase 2>&1 | grep "setup?token"
 ```
 
@@ -85,8 +85,8 @@ instead, download the `.deb` or `.rpm` for your architecture from the
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
-sudo apt install ./slonbase_0.8.0_amd64.deb          # Debian, Ubuntu
-sudo dnf install ./slonbase-0.8.0-1.x86_64.rpm       # Fedora, RHEL, Rocky, Alma
+sudo apt install ./slonbase_1.0.0_amd64.deb          # Debian, Ubuntu
+sudo dnf install ./slonbase-1.0.0-1.x86_64.rpm       # Fedora, RHEL, Rocky, Alma
 sudo journalctl -u slonbase | grep "setup?token"     # the one-time setup link
 ```
 
@@ -118,8 +118,8 @@ and enter `postgres://slonbase:change-me@127.0.0.1:5432/slonbase` in the wizard.
 ## Plain binary
 
 ```sh
-curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v0.8.0/slonbase-0.8.0-linux-amd64.tar.gz
-tar xzf slonbase-0.8.0-linux-amd64.tar.gz
+curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v1.0.0/slonbase-1.0.0-linux-amd64.tar.gz
+tar xzf slonbase-1.0.0-linux-amd64.tar.gz
 ./slonbase serve      # starts in setup mode and prints the setup link
 ```
 

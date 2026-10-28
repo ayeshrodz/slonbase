@@ -1,11 +1,11 @@
 # Stability
 
-From 1.0, slonbase follows [Semantic Versioning](https://semver.org/) for everything this page
+Since 1.0, slonbase follows [Semantic Versioning](https://semver.org/) for everything this page
 lists: within 1.x, an upgrade doesn't break what works. A breaking change waits for 2.0, and
 the changelog lists it with what to do.
 
-Until then (0.x), a minor version may break things, and the changelog's **Upgrading** section
-says what. This page is what 1.0 promises.
+Before 1.0 (0.x), a minor version could break things; each one's **Upgrading** section in the
+changelog says what. Upgrading from 0.8 to 1.0 breaks nothing.
 
 ## What's covered
 
@@ -76,6 +76,6 @@ doesn't understand. Take a backup before upgrading, and restore it to go back.
 
 ## Security fixes
 
-The latest minor release gets security fixes. From 1.0, the previous minor release gets them
-too for three months after the next one comes out. See [the security policy](../SECURITY.md)
+The latest minor release gets security fixes, and the previous minor release gets them too for
+three months after the next one comes out. See [the security policy](../SECURITY.md)
 for reporting a vulnerability.

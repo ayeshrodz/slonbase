@@ -98,8 +98,9 @@ already trust.
 </table>
 
 > [!NOTE]
-> **slonbase is young (0.8, before 1.0).** Expect rough edges, and back up your data. Bug reports
-> are very welcome.
+> **slonbase 1.0 is stable:** within 1.x, upgrades don't break the API, configuration, your data,
+> hooks or migrations (see [stability](docs/stability.md)). Back up before upgrading anyway, and
+> bug reports are very welcome.
 
 ## Coming from PocketBase?
 

@@ -52,7 +52,7 @@ const BLURB = {
   "migrating-from-pocketbase": "Moving an app over: data, hooks, migrations and SDKs.",
   design: "How slonbase works inside, and the roadmap.",
   "security-review": "The review of authentication, and what came of it.",
-  stability: "What stays compatible from one release to the next, from 1.0.",
+  stability: "What stays compatible from one release to the next within 1.x.",
   changelog: "Every release and what changed in it.",
 };
 
