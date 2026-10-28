@@ -462,7 +462,7 @@ fn redirect_page(success: bool) -> Response {
         status,
         Html(format!(
             "<!doctype html><meta charset=utf-8><title>slonbase</title>\
-             <p style=\"font-family:system-ui;margin:3rem\">{message}</p>\
+             <p style=\"font-family:'Ubuntu Sans',Ubuntu,system-ui,sans-serif;margin:3rem\">{message}</p>\
              <script>window.close()</script>"
         )),
     )

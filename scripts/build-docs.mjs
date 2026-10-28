@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Builds the documentation site from docs/*.md and CHANGELOG.md: one page per guide, with a
-// sidebar, an outline of the page, search and the dashboard's fonts. No dependencies beyond
+// sidebar, an outline of the page, search and the dashboard's fonts (Ubuntu Sans). No dependencies beyond
 // Node (the Markdown parser is vendored in scripts/vendor).
 //
 //   node scripts/build-docs.mjs <output directory>     # e.g. site-out/docs
@@ -236,7 +236,7 @@ function page({ slug, title, description, content, prefix, toc }) {
 <title>${escape(title)} · slonbase docs</title>
 <meta name="description" content="${escape(description)}">
 <link rel="icon" href="${prefix}../assets/logo.svg" type="image/svg+xml">
-<link rel="preload" href="${prefix}fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="${prefix}fonts/ubuntu-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${prefix}docs.css">
 <script>
   try { var t = localStorage.getItem("theme"); } catch (e) {}
@@ -320,7 +320,7 @@ fs.writeFileSync(path.join(out, "index.html"), page({ slug: "", title: "Document
 fs.writeFileSync(path.join(out, "search.json"), JSON.stringify(index));
 for (const f of ["docs.css", "docs.js"]) fs.copyFileSync(path.join(ROOT, "scripts/docs", f), path.join(out, f));
 fs.mkdirSync(path.join(out, "fonts"), { recursive: true });
-for (const f of ["inter-latin.woff2", "inter-latin-ext.woff2", "jetbrains-mono-latin.woff2", "jetbrains-mono-latin-ext.woff2"]) {
+for (const f of ["ubuntu-sans-latin.woff2", "ubuntu-sans-latin-ext.woff2", "ubuntu-sans-mono-latin.woff2", "ubuntu-sans-mono-latin-ext.woff2", "LICENSE-ubuntu-font-licence.txt"]) {
   fs.copyFileSync(path.join(ROOT, "ui/app/fonts", f), path.join(out, "fonts", f));
 }
 // every link between pages, and every #anchor, has to lead somewhere

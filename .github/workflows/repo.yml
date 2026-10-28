@@ -72,6 +72,8 @@ jobs:
           cp -r site/. site-out/
           mkdir -p site-out/assets
           cp -r docs/assets/. site-out/assets/
+          mkdir -p site-out/assets/fonts
+          cp ui/app/fonts/* site-out/assets/fonts/
       - name: Build the documentation site
         run: node scripts/build-docs.mjs site-out/docs
       - uses: actions/upload-pages-artifact@v5

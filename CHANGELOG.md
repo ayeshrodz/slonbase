@@ -16,10 +16,11 @@ changes, and they'll be listed here.
 
 ### Changed
 
-- **The dashboard's typography and motion:** it ships its fonts (Inter, with optical sizes, and
-  JetBrains Mono), so it looks the same everywhere instead of falling back to the system font,
-  and every size and weight comes from one scale. Page titles use Inter's display cut, numbers
-  line up in tables and stats, and code shows exactly what's typed (no `!=` drawn as `≠`). New
+- **The dashboard's typography and motion:** it ships its fonts (Ubuntu Sans and Ubuntu Sans
+  Mono, variable), so it looks the same everywhere instead of falling back to the system font,
+  and every size and weight comes from one scale. The project's page, the documentation site and
+  the setup wizard use the same fonts. Numbers line up in tables and stats, and code shows
+  exactly what's typed (no `!=` drawn as `≠`). New
   micro-interactions: pages and titles settle in, cards light up their border under the pointer
   and lift, a pill follows the pointer across the navigation, indicators glide, primary buttons
   catch a sheen, icons respond (arrows nudge, plus turns, refresh spins), switches stretch,
