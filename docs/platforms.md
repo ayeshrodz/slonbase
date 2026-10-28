@@ -87,7 +87,7 @@ character setup token and a URL. Deploy, then open `https://<the URL>/_/setup?to
 SERVICE_PASSWORD_64_SETUP>` (see the resource's Environment Variables).
 
 The file follows Coolify's one-click service template format, so it can be added to Coolify's
-catalog.
+catalog (see [deploy/README.md](../deploy/README.md) for submitting it).
 
 ## Dokploy
 

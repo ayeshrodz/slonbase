@@ -1,0 +1,13 @@
+{
+  "id": "slonbase",
+  "name": "slonbase",
+  "version": "latest",
+  "description": "Your whole backend, built on PostgreSQL: collections, a REST and realtime API, auth, files, hooks and an admin dashboard in one binary.",
+  "logo": "slonbase.svg",
+  "links": {
+    "github": "https://github.com/ayeshrodz/slonbase",
+    "website": "https://ayeshrodz.github.io/slonbase/",
+    "docs": "https://ayeshrodz.github.io/slonbase/docs/platforms/#dokploy"
+  },
+  "tags": ["backend", "baas", "postgres", "realtime", "auth", "api"]
+}
