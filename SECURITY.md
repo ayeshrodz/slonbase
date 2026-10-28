@@ -2,15 +2,14 @@
 
 ## Supported versions
 
-slonbase is young, and only the latest release gets security fixes. Upgrade to it before
-reporting, if you can.
+Before 1.0, only the latest release gets security fixes. Upgrade to it before reporting, if you
+can. From 1.0, the previous minor release also gets them for three months after the next one
+comes out (see [stability](docs/stability.md#security-fixes)).
 
 | Version | Supported |
 |---|---|
-| 0.4.x | ✅ |
-| 0.3.x | ❌ |
-| 0.2.x | ❌ |
-| 0.1.x | ❌ |
+| 0.8.x | ✅ |
+| < 0.8 | ❌ |
 
 ## Reporting a vulnerability
 

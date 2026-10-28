@@ -9,6 +9,10 @@ changes, and they'll be listed here.
 
 ### Added
 
+- **The stability promise** ([docs/stability.md](docs/stability.md)): what 1.0 keeps compatible
+  within 1.x (the API, configuration, your data and backups, hooks and migrations, the Rust
+  library, metrics), what it doesn't (the dashboard, message wording, slonbase's own tables),
+  how deprecations and upgrades work, and which PostgreSQL versions and releases are supported.
 - **A documentation site** at [ayeshrodz.github.io/slonbase/docs](https://ayeshrodz.github.io/slonbase/docs/):
   every guide and the changelog, with a sidebar, an outline that follows the reading position,
   search over every section (`/` or ⌘K), copyable code, and light and dark themes. It's built

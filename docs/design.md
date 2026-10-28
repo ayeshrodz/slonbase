@@ -997,4 +997,5 @@ the file.
    soak tests (and the realtime delivery fix they led to), a Health page and a schema diagram in
    the dashboard.
 9. **1.0**: one-click templates (Railway, Coolify, Dokploy), a docs site (done), and a stability
-   promise for the API, configuration and on-disk format.
+   promise for the API, configuration and on-disk format (written in [stability](stability.md);
+   it takes effect with 1.0).

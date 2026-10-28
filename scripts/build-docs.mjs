@@ -23,7 +23,7 @@ const SECTIONS = [
   { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
   { title: "Under the hood", pages: ["design", "security-review"] },
-  { title: "Releases", pages: ["changelog"] },
+  { title: "Releases", pages: ["stability", "changelog"] },
 ];
 const SHORT = {
   installation: "Installation",
@@ -37,6 +37,7 @@ const SHORT = {
   "migrating-from-pocketbase": "From PocketBase",
   design: "Design",
   "security-review": "Security review",
+  stability: "Stability",
   changelog: "Changelog",
 };
 const BLURB = {
@@ -51,6 +52,7 @@ const BLURB = {
   "migrating-from-pocketbase": "Moving an app over: data, hooks, migrations and SDKs.",
   design: "How slonbase works inside, and the roadmap.",
   "security-review": "The review of authentication, and what came of it.",
+  stability: "What stays compatible from one release to the next, from 1.0.",
   changelog: "Every release and what changed in it.",
 };
 

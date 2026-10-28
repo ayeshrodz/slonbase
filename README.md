@@ -201,6 +201,7 @@ The guides are also on the documentation site, with search:
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
 - [Benchmarks](bench/README.md): slonbase next to PocketBase on the same workloads
 - [Design](docs/design.md): the decisions behind slonbase
+- [Stability](docs/stability.md): what 1.0 keeps compatible, deprecations and upgrades
 - [Changelog](CHANGELOG.md)
 
 ## Commands
