@@ -9,6 +9,7 @@ const paths = {
   terminal: `<rect x="3" y="4.5" width="18" height="15" rx="3"/><path d="m7.5 9.5 3 2.5-3 2.5M12.5 15h4"/>`,
   search: `<circle cx="11" cy="11" r="6.5"/><path d="m16 16 4.5 4.5"/>`,
   plus: `<path d="M12 5v14M5 12h14"/>`,
+  minus: `<path d="M5 12h14"/>`,
   close: `<path d="m6.5 6.5 11 11M17.5 6.5l-11 11"/>`,
   check: `<path d="m5 12.5 4.5 4.5L19 7.5"/>`,
   chevronRight: `<path d="m9.5 6 6 6-6 6"/>`,
@@ -74,6 +75,7 @@ const paths = {
   command: `<path d="M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9zm0 0h6m-6 0v6m6-6V6.5A2.5 2.5 0 1 1 17.5 9H15zm0 0v6m0 0v2.5a2.5 2.5 0 1 0 2.5-2.5H15zm0 0H9m0 0v2.5A2.5 2.5 0 1 1 6.5 15H9z"/>`,
   dot: `<circle cx="12" cy="12" r="3.5"/>`,
   arrowRight: `<path d="M4.5 12h15M14 6.5l5.5 5.5-5.5 5.5"/>`,
+  expand: `<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>`,
   undo: `<path d="M9 14.5 4.5 10 9 5.5"/><path d="M4.5 10H15a5 5 0 0 1 0 10h-3"/>`,
 };
 

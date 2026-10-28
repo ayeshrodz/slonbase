@@ -14,6 +14,7 @@ import { Settings, applyAccent } from "./pages/settings.js";
 import { SqlConsole } from "./pages/sql.js";
 import { Projects } from "./pages/projects.js";
 import { Health } from "./pages/health.js";
+import { Diagram } from "./pages/diagram.js";
 
 initTheme();
 if (PROJECT) document.title = `${PROJECT} · slonbase`;
@@ -21,6 +22,7 @@ if (PROJECT) document.title = `${PROJECT} · slonbase`;
 const NAV = [
   { path: "/", match: (p) => p === "/", icon: "overview", label: "Overview" },
   { path: "/data", match: (p) => p.startsWith("/data"), icon: "data", label: "Data" },
+  { path: "/diagram", match: (p) => p.startsWith("/diagram"), icon: "relation", label: "Diagram" },
   { path: "/logs", match: (p) => p.startsWith("/logs"), icon: "logs", label: "Logs" },
   { path: "/sql", match: (p) => p.startsWith("/sql"), icon: "terminal", label: "SQL" },
   // projects are managed from the main installation
@@ -236,6 +238,7 @@ function Shell() {
   if (path === "/") page = html`<${Overview} />`;
   else if ((params = match("/data/:collection?/:tab?/:record?", path))) page = html`<${DataWorkspace} ...${params} />`;
   else if (path.startsWith("/logs")) page = html`<${Logs} />`;
+  else if (path.startsWith("/diagram")) page = html`<${Diagram} />`;
   else if (path.startsWith("/health")) page = html`<${Health} />`;
   else if (path.startsWith("/sql")) page = html`<${SqlConsole} />`;
   else if (path.startsWith("/projects") && !PROJECT) page = html`<${Projects} />`;

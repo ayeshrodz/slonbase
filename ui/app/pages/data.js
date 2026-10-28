@@ -56,6 +56,7 @@ function CollectionsPanel({ active, onNew }) {
         </div>`
     )}
     <span class="spacer"></span>
+    <a class="btn ghost sm block" href="#/diagram"><${Icon} name="relation" size=${15} /> See the diagram</a>
     ${!locked && html`<${Button} icon="plus" class="block" onClick=${onNew}>New collection</${Button}>`}
   </aside>`;
 }

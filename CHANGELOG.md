@@ -9,6 +9,15 @@ changes, and they'll be listed here.
 
 ### Added
 
+- **A schema diagram in the dashboard** (`#/diagram`, in the top navigation and the Data panel):
+  every collection with its fields, types, required and unique fields and record counts, and its
+  relations as curves from the field to the collection it points at, with one-or-many ends,
+  optional relations dashed and cascade deletes marked. Laid out automatically by dependency
+  (referenced collections to the left) and arranged by hand from there, kept per browser. Hover or
+  select a collection to light up its relations; the side panel lists what it references, what
+  references it and its API rules, with links to its records, schema and rules. Find a collection
+  or field, show every field, only the keys or only the names, include the system collections,
+  tidy up the layout, pan, zoom, fit and use the minimap, and export it as PNG or SVG.
 - **A Health page in the dashboard** (`#/health`, linked from the overview): checks of the
   installation with what to do about each (no recent backup, SMTP off, a local application URL,
   rate limits off, several instances with local file storage, errors in the last day, a slow

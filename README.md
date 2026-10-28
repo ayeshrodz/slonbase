@@ -87,7 +87,7 @@ already trust.
 - File fields on disk or any S3-compatible bucket; thumbnails, protected files, byte ranges
 
 **Operations**
-- An admin dashboard with live grids, a schema editor, logs and an SQL console
+- An admin dashboard with live grids, a schema editor and diagram, logs and an SQL console
 - Request logs, rate limits, superuser IP restrictions, Prometheus metrics
 - Backups (on a schedule, to S3) and one-click restores
 - JavaScript hooks, cron jobs, a query builder, and a Rust library API
@@ -177,6 +177,9 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/schema-dark.png"><img alt="Schema editor" src="docs/assets/screenshots/schema-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png"><img alt="Logs" src="docs/assets/screenshots/logs-light.png"></picture> |
 | **API rules** | **API preview** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/api-dark.png"><img alt="API preview" src="docs/assets/screenshots/api-light.png"></picture> |
+
+<picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/diagram-dark.png"><img alt="The schema diagram: every collection with its fields, and its relations" src="docs/assets/screenshots/diagram-light.png"></picture>
+<p align="center"><sub>The schema diagram, drawn from the collections: hover one to follow its relations.</sub></p>
 
 The dashboard follows your system's light or dark theme, works on phones, and ⌘K / Ctrl K jumps
 anywhere. It only uses the public API, so anything it does, you can script too.
