@@ -996,5 +996,5 @@ the file.
 8. **Hardening** (done in 0.8): S3 multipart uploads and a custom CA, backup encryption at rest,
    soak tests (and the realtime delivery fix they led to), a Health page and a schema diagram in
    the dashboard.
-9. **1.0**: one-click templates (Railway, Coolify, Dokploy), a docs site, and a stability promise
-   for the API, configuration and on-disk format.
+9. **1.0**: one-click templates (Railway, Coolify, Dokploy), a docs site (done), and a stability
+   promise for the API, configuration and on-disk format.

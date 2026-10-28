@@ -7,6 +7,13 @@ changes, and they'll be listed here.
 
 ## [Unreleased]
 
+### Added
+
+- **A documentation site** at [ayeshrodz.github.io/slonbase/docs](https://ayeshrodz.github.io/slonbase/docs/):
+  every guide and the changelog, with a sidebar, an outline that follows the reading position,
+  search over every section (`/` or ⌘K), copyable code, and light and dark themes. It's built
+  from `docs/` on each change, and the build fails on a link to a missing page or heading.
+
 ### Changed
 
 - **The dashboard's typography and motion:** it ships its fonts (Inter, with optical sizes, and

@@ -72,8 +72,20 @@ The release workflow checks that the tag matches `Cargo.toml` and that the chang
 version's section. It then builds the packages and publishes the GitHub release, with those notes,
 and the Docker image. Last, it starts the **Package repositories** workflow, which rebuilds the
 apt and dnf repositories from every release's packages and publishes them on GitHub Pages,
-with the project's page (`site/index.html`, using the images in `docs/assets/`) at the root; it
-also runs when the page changes on `main`.
+with the project's page (`site/index.html`, using the images in `docs/assets/`) at the root and
+the documentation site at `/docs/`; it also runs when the page or the docs change on `main`.
+
+The documentation site is built from `docs/*.md` and `CHANGELOG.md` by
+`scripts/build-docs.mjs` (Node, no dependencies). To preview it, build it next to the page and
+serve the folder:
+
+```sh
+mkdir -p /tmp/site && cp -r site/. /tmp/site && cp -r docs/assets /tmp/site/assets
+node scripts/build-docs.mjs /tmp/site/docs && python3 -m http.server -d /tmp/site 8000
+```
+
+The build fails on a link to a page or heading that doesn't exist (CI runs it). A new guide goes
+in `SECTIONS` at the top of the script.
 
 The repositories need, once:
 

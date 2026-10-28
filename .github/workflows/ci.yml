@@ -25,6 +25,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       - run: cargo clippy --all-targets --locked -- -D warnings
+      # the documentation site builds, and its links between pages and headings all resolve
+      - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
 
   # known vulnerabilities in dependencies (RustSec); releases wait for CI, so this blocks them too
   audit:

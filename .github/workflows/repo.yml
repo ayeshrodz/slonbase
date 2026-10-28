@@ -1,7 +1,8 @@
 # Builds the signed apt and dnf repositories from every release's packages and publishes them
 # on GitHub Pages (https://<owner>.github.io/<repo>/), with the project's page (site/) at the
-# root. The Release workflow starts it after publishing a release; it also runs when the page
-# changes on the default branch, and can be run by hand.
+# root and the documentation site (scripts/build-docs.mjs) at /docs/. The Release workflow starts
+# it after publishing a release; it also runs when the page or the docs change on the default
+# branch, and can be run by hand.
 #
 # Needs the REPO_GPG_PRIVATE_KEY secret (an armored signing key without a passphrase) and
 # Settings → Pages → Source: GitHub Actions. See CONTRIBUTING.md.
@@ -13,7 +14,12 @@ on:
     branches: [main]
     paths:
       - site/**
-      - docs/assets/**
+      - docs/**
+      - CHANGELOG.md
+      - Cargo.toml
+      - ui/app/fonts/**
+      - scripts/build-docs.mjs
+      - scripts/docs/**
       - scripts/build-repo.sh
       - .github/workflows/repo.yml
 
@@ -66,6 +72,8 @@ jobs:
           cp -r site/. site-out/
           mkdir -p site-out/assets
           cp -r docs/assets/. site-out/assets/
+      - name: Build the documentation site
+        run: node scripts/build-docs.mjs site-out/docs
       - uses: actions/upload-pages-artifact@v5
         with:
           path: site-out

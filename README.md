@@ -186,6 +186,9 @@ anywhere. It only uses the public API, so anything it does, you can script too.
 
 ## Documentation
 
+The guides are also on the documentation site, with search:
+**[ayeshrodz.github.io/slonbase/docs](https://ayeshrodz.github.io/slonbase/docs/)**.
+
 - [Installation](docs/installation.md): Docker, packages, binaries, first-run setup, upgrades
 - [Configuration](docs/configuration.md): server options and application settings
 - [Hosting platforms](docs/platforms.md): Render, Railway, Fly.io, Coolify and Dokploy
