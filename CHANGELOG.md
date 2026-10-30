@@ -8,6 +8,50 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-30
+
+**The 1.1.0 security fixes, for 1.0.** For installations staying on 1.0 for now: the fixes of
+1.1.0, and nothing else (the details are in the
+[security review](docs/security-review.md#the-platform-110)). The serious one: a client's filter
+could read, one yes-or-no answer at a time, records of collections it isn't allowed to list and
+emails that accounts hide. Upgrade soon, to this release or to 1.1.0.
+
+### Security
+
+- **Filters only see what the client may list (high).** In a client's filter or sort, relation
+  paths (`author.email`) and `@collection` lookups apply the related collection's list rule, and
+  a collection only superusers can list contributes nothing. An auth record's `email` counts as
+  empty unless the record shows it (`emailVisibility`) or it's the caller's own. Before, a guest
+  could read a superusers-only collection's values through a public collection related to it,
+  and hidden emails through relations, lookups or a listable auth collection. API rules still
+  reach every collection.
+- **No more inbox flooding (medium).** The verification, password reset, email change and OTP
+  request endpoints send each account at most one email of each kind per minute, whoever asks.
+  A repeated OTP request answers with the id of the code already sent.
+- **Thumbnails are generated a few at a time (medium)**, so parallel requests for thumbnails of
+  large images can't exhaust the memory.
+- **Protective headers on every response (low):** `X-Content-Type-Options: nosniff`,
+  `X-Frame-Options: SAMEORIGIN` and `Referrer-Policy: strict-origin-when-cross-origin`, and a
+  content security policy on the setup page that allows only its own script.
+- **The health check no longer describes database errors (low)**, which could name internal
+  hosts; the details are in the logs.
+- **The request log redacts secrets in URLs (low):** file and download tokens, and OAuth2 codes.
+- The dashboard links a URL field's value only when it's an `http` or `https` URL, and reads rich
+  text with an inert parser.
+
+### Upgrading
+
+- No system migrations or configuration changes.
+- These fixes tighten what clients can do, as [stability](docs/stability.md) allows for
+  security fixes. A client filter that reached through a relation or `@collection` into a
+  collection the client can't list now matches as if that collection were empty, and filtering
+  or sorting by other accounts' hidden emails no longer works. If an app relied on either,
+  make the related collection listable to those clients (its list rule), or do the lookup in a
+  hook or with a superuser.
+- A client asking for the same kind of email again within a minute gets the usual answer, but
+  no new email.
+- `GET /api/health` answers `Starting.` or `Database unavailable.` without details.
+
 ## [1.0.1] - 2026-10-28
 
 **A fix for the Projects page.** The main installation's dashboard listed no projects on its
@@ -556,7 +600,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.0.2...HEAD
+[1.0.2]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...v1.0.0
 [0.8.0]: https://github.com/ayeshrodz/slonbase/compare/v0.7.0...v0.8.0
