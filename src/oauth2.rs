@@ -40,7 +40,21 @@ enum Kind {
     Microsoft,
     Facebook,
     Apple,
+    Bitbucket,
+    Twitch,
+    Spotify,
+    Patreon,
+    Kakao,
+    Twitter,
     Oidc,
+}
+
+impl Kind {
+    /// Whether the token endpoint wants the client's credentials with HTTP Basic
+    /// authentication instead of in the form.
+    fn basic_auth(self) -> bool {
+        matches!(self, Kind::Bitbucket | Kind::Twitter)
+    }
 }
 
 struct Preset {
@@ -120,6 +134,61 @@ const PRESETS: &[Preset] = &[
         token_url: "https://graph.facebook.com/v18.0/oauth/access_token",
         user_info_url: "https://graph.facebook.com/me?fields=name,email,picture.type(large)",
         scopes: &["email"],
+    },
+    Preset {
+        name: "bitbucket",
+        kind: Kind::Bitbucket,
+        display_name: "Bitbucket",
+        auth_url: "https://bitbucket.org/site/oauth2/authorize",
+        token_url: "https://bitbucket.org/site/oauth2/access_token",
+        user_info_url: "https://api.bitbucket.org/2.0/user",
+        scopes: &["account", "email"],
+    },
+    Preset {
+        name: "twitch",
+        kind: Kind::Twitch,
+        display_name: "Twitch",
+        auth_url: "https://id.twitch.tv/oauth2/authorize",
+        token_url: "https://id.twitch.tv/oauth2/token",
+        user_info_url: "https://api.twitch.tv/helix/users",
+        scopes: &["user:read:email"],
+    },
+    Preset {
+        name: "spotify",
+        kind: Kind::Spotify,
+        display_name: "Spotify",
+        auth_url: "https://accounts.spotify.com/authorize",
+        token_url: "https://accounts.spotify.com/api/token",
+        user_info_url: "https://api.spotify.com/v1/me",
+        scopes: &["user-read-private", "user-read-email"],
+    },
+    Preset {
+        name: "patreon",
+        kind: Kind::Patreon,
+        display_name: "Patreon",
+        auth_url: "https://www.patreon.com/oauth2/authorize",
+        token_url: "https://www.patreon.com/api/oauth2/token",
+        user_info_url: "https://www.patreon.com/api/oauth2/v2/identity?fields%5Buser%5D=full_name,email,is_email_verified,vanity,image_url",
+        scopes: &["identity", "identity[email]"],
+    },
+    Preset {
+        name: "kakao",
+        kind: Kind::Kakao,
+        display_name: "Kakao",
+        auth_url: "https://kauth.kakao.com/oauth/authorize",
+        token_url: "https://kauth.kakao.com/oauth/token",
+        user_info_url: "https://kapi.kakao.com/v2/user/me",
+        scopes: &["account_email", "profile_nickname", "profile_image"],
+    },
+    // X requires PKCE (on by default)
+    Preset {
+        name: "twitter",
+        kind: Kind::Twitter,
+        display_name: "X",
+        auth_url: "https://twitter.com/i/oauth2/authorize",
+        token_url: "https://api.twitter.com/2/oauth2/token",
+        user_info_url: "https://api.twitter.com/2/users/me?user.fields=id,name,username,profile_image_url",
+        scopes: &["users.read", "tweet.read"],
     },
     Preset {
         name: "oidc",
@@ -265,16 +334,22 @@ impl Provider {
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", redirect_url),
-            ("client_id", &self.client_id),
-            ("client_secret", &self.client_secret),
         ];
+        if !self.kind.basic_auth() {
+            form.push(("client_id", &self.client_id));
+            form.push(("client_secret", &self.client_secret));
+        }
         if !verifier.is_empty() {
             form.push(("code_verifier", verifier));
         }
-        let response = client()
+        let mut request = client()
             .post(&self.token_url)
             .timeout(TIMEOUT)
-            .header("accept", "application/json")
+            .header("accept", "application/json");
+        if self.kind.basic_auth() {
+            request = request.basic_auth(&self.client_id, Some(&self.client_secret));
+        }
+        let response = request
             .form(&form)
             .send()
             .await
@@ -352,10 +427,35 @@ impl Provider {
             self.id_token_claims(&token.id_token, chrono::Utc::now().timestamp())
                 .await
                 .context("invalid id_token")?
+        } else if self.kind == Kind::Twitch {
+            // Twitch's API wants the client id along with the token
+            get_json_with(
+                &self.user_info_url,
+                &token.access_token,
+                &[("client-id", &self.client_id)],
+            )
+            .await?
         } else {
             get_json(&self.user_info_url, &token.access_token).await?
         };
+        if self.kind == Kind::Bitbucket && raw["account_status"].as_str() != Some("active") {
+            bail!("the Bitbucket account isn't active");
+        }
         let mut user = extract(self.kind, &raw);
+        if self.kind == Kind::Bitbucket {
+            // the emails are separate: use the confirmed primary one (optional)
+            let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
+            if let Ok(emails) = get_json(&emails_url, &token.access_token).await {
+                user.email = emails["values"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .find(|e| e["is_primary"] == true && e["is_confirmed"] == true)
+                    .and_then(|e| e["email"].as_str())
+                    .unwrap_or_default()
+                    .to_string();
+            }
+        }
         if self.kind == Kind::Github && user.email.is_empty() {
             // a private email: ask for the verified primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
@@ -739,6 +839,56 @@ fn extract(kind: Kind, raw: &Value) -> AuthUser {
             // Facebook only returns confirmed emails
             user.email = text(&raw["email"]);
         }
+        Kind::Bitbucket => {
+            // the email comes from a second request (see `Provider::user`)
+            user.id = text(&raw["uuid"]);
+            user.username = text(&raw["username"]);
+            user.name = text(&raw["display_name"]);
+            user.avatar_url = text(&raw["links"]["avatar"]["href"]);
+        }
+        Kind::Twitch => {
+            let data = &raw["data"][0];
+            user.id = text(&data["id"]);
+            user.username = text(&data["login"]);
+            user.name = text(&data["display_name"]);
+            user.avatar_url = text(&data["profile_image_url"]);
+            // Twitch only returns verified emails
+            user.email = text(&data["email"]);
+        }
+        Kind::Spotify => {
+            user.id = text(&raw["id"]);
+            user.name = text(&raw["display_name"]);
+            user.avatar_url = text(&raw["images"][0]["url"]);
+            // Spotify doesn't verify emails, so `email` isn't used
+        }
+        Kind::Patreon => {
+            let data = &raw["data"];
+            let attributes = &data["attributes"];
+            user.id = text(&data["id"]);
+            user.username = text(&attributes["vanity"]);
+            user.name = text(&attributes["full_name"]);
+            user.avatar_url = text(&attributes["image_url"]);
+            if is_true(&attributes["is_email_verified"]) {
+                user.email = text(&attributes["email"]);
+            }
+        }
+        Kind::Kakao => {
+            let account = &raw["kakao_account"];
+            user.id = text(&raw["id"]);
+            user.name = text(&account["profile"]["nickname"]);
+            user.avatar_url = text(&account["profile"]["profile_image_url"]);
+            if is_true(&account["is_email_valid"]) && is_true(&account["is_email_verified"]) {
+                user.email = text(&account["email"]);
+            }
+        }
+        Kind::Twitter => {
+            // X doesn't give emails with these scopes
+            let data = &raw["data"];
+            user.id = text(&data["id"]);
+            user.username = text(&data["username"]);
+            user.name = text(&data["name"]);
+            user.avatar_url = text(&data["profile_image_url"]);
+        }
     }
     user.email = user.email.trim().to_string();
     user
@@ -761,10 +911,18 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
 
 /// GETs JSON, with the access token if there's one (none for the JWKS).
 async fn get_json(url: &str, access_token: &str) -> Result<Value> {
+    get_json_with(url, access_token, &[]).await
+}
+
+/// [`get_json`] with more headers.
+async fn get_json_with(url: &str, access_token: &str, headers: &[(&str, &str)]) -> Result<Value> {
     let mut request = client()
         .get(url)
         .timeout(TIMEOUT)
         .header("accept", "application/json");
+    for (name, value) in headers {
+        request = request.header(*name, *value);
+    }
     if !access_token.is_empty() {
         request = request.bearer_auth(access_token);
     }
@@ -1132,5 +1290,83 @@ mod tests {
         assert_eq!(user.email, "");
         let user = extract(Kind::Github, &json!({ "id": 42, "login": "octo" }));
         assert_eq!((user.id.as_str(), user.username.as_str()), ("42", "octo"));
+    }
+
+    #[test]
+    fn extracts_the_newer_presets() {
+        let user = extract(
+            Kind::Bitbucket,
+            &json!({ "uuid": "{b-1}", "username": "bb", "display_name": "B B",
+                     "links": { "avatar": { "href": "https://a/b.png" } } }),
+        );
+        assert_eq!(
+            (user.id.as_str(), user.username.as_str(), user.name.as_str()),
+            ("{b-1}", "bb", "B B")
+        );
+        assert_eq!(user.avatar_url, "https://a/b.png");
+
+        let user = extract(
+            Kind::Twitch,
+            &json!({ "data": [{ "id": "t1", "login": "tw", "display_name": "Tw",
+                                "email": "t@x.com", "profile_image_url": "https://a/t.png" }] }),
+        );
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.username.as_str(),
+                user.email.as_str()
+            ),
+            ("t1", "tw", "t@x.com")
+        );
+
+        let user = extract(
+            Kind::Spotify,
+            &json!({ "id": "s1", "display_name": "Sp", "email": "s@x.com",
+                     "images": [{ "url": "https://a/s.png" }] }),
+        );
+        assert_eq!((user.id.as_str(), user.email.as_str()), ("s1", ""));
+        assert_eq!(user.avatar_url, "https://a/s.png");
+
+        let patreon = |verified: bool| {
+            json!({ "data": { "id": "p1", "attributes": {
+                "full_name": "Pa", "vanity": "pa", "email": "p@x.com",
+                "is_email_verified": verified, "image_url": "https://a/p.png" } } })
+        };
+        let user = extract(Kind::Patreon, &patreon(true));
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.username.as_str(),
+                user.email.as_str()
+            ),
+            ("p1", "pa", "p@x.com")
+        );
+        assert_eq!(extract(Kind::Patreon, &patreon(false)).email, "");
+
+        let kakao = |verified: bool| {
+            json!({ "id": 123456, "kakao_account": {
+                "profile": { "nickname": "Ka", "profile_image_url": "https://a/k.png" },
+                "email": "k@x.com", "is_email_valid": true, "is_email_verified": verified } })
+        };
+        let user = extract(Kind::Kakao, &kakao(true));
+        assert_eq!(
+            (user.id.as_str(), user.name.as_str(), user.email.as_str()),
+            ("123456", "Ka", "k@x.com")
+        );
+        assert_eq!(extract(Kind::Kakao, &kakao(false)).email, "");
+
+        let user = extract(
+            Kind::Twitter,
+            &json!({ "data": { "id": "x1", "username": "xx", "name": "X X",
+                               "profile_image_url": "https://a/x.png" } }),
+        );
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.username.as_str(),
+                user.email.as_str()
+            ),
+            ("x1", "xx", "")
+        );
     }
 }

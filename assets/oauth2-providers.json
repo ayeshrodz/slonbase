@@ -35,6 +35,36 @@
   "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"199\" preserveAspectRatio=\"xMidYMid\"><path fill=\"#5865f2\" d=\"M216.9 16.6A209 209 0 0 0 164 0c-2.2 4.1-4.9 9.6-6.7 14a194 194 0 0 0-58.6 0C97 9.6 94.2 4.1 92 0a208 208 0 0 0-53 16.6A222 222 0 0 0 1 165a211 211 0 0 0 65 33 161 161 0 0 0 13.8-22.8q-11.5-4.4-21.8-10.6l5.3-4.3a149 149 0 0 0 129.6 0q2.6 2.3 5.3 4.3a136 136 0 0 1-21.9 10.6q6 12 13.9 22.9a211 211 0 0 0 64.8-33.2c5.3-56.3-9-105.1-38-148.4M85.5 135.1c-12.7 0-23-11.8-23-26.2s10.1-26.2 23-26.2 23.2 11.8 23 26.2c0 14.4-10.2 26.2-23 26.2m85 0c-12.6 0-23-11.8-23-26.2s10.2-26.2 23-26.2 23.3 11.8 23 26.2c0 14.4-10.1 26.2-23 26.2\"/></svg>"
  },
  {
+  "name": "bitbucket",
+  "displayName": "Bitbucket",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#2684ff\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">B</text></svg>"
+ },
+ {
+  "name": "twitch",
+  "displayName": "Twitch",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#9146ff\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">T</text></svg>"
+ },
+ {
+  "name": "spotify",
+  "displayName": "Spotify",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#1db954\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">S</text></svg>"
+ },
+ {
+  "name": "patreon",
+  "displayName": "Patreon",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#ff424d\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">P</text></svg>"
+ },
+ {
+  "name": "kakao",
+  "displayName": "Kakao",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#fee500\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#191919\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">K</text></svg>"
+ },
+ {
+  "name": "twitter",
+  "displayName": "X",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#000\"/><path d=\"M74 70h30l78 116h-30z\" fill=\"#fff\"/><path d=\"M178 70h-18l-40 46 9 13zM78 186h18l40-46-9-13z\" fill=\"#fff\"/></svg>"
+ },
+ {
   "name": "oidc",
   "displayName": "OIDC",
   "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"93\" height=\"84\" fill=\"none\"><path fill=\"#ccc\" d=\"M83.4 32.9c-8.7-5.5-21-8.8-34.3-8.8C22 24 .4 37.5.4 54 .4 69.3 18.5 81.8 42 84v-8.7c-15.9-2-27.8-10.7-27.8-21 0-11.9 15.5-21.6 34.8-21.6 9.5 0 18.2 2.4 24.5 6.3l-9 5.6h27.9V27.3z\"/><path fill=\"#ff6200\" d=\"M42 9.2V84l14-8.7V.2z\"/></svg>"

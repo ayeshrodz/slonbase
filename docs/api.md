@@ -96,7 +96,8 @@ indexes with a `WHERE` clause.
 ## Sign-in
 
 - **Password:** `auth-with-password`, with the identity fields set in `passwordAuth`.
-- **OAuth2:** Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, and any OpenID Connect
+- **OAuth2:** Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, Bitbucket, Twitch,
+  Spotify, Patreon, Kakao, X (`twitter`), and any OpenID Connect
   provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. An OpenID Connect provider
   without a user info URL is read from its validated `id_token`; set `extra.jwksURL` to verify
   its signature and `extra.issuers` to accept only some issuers. Only emails the provider has

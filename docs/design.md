@@ -258,18 +258,22 @@ Signing in with a *different* method and that `mfaId` (body or query string) ret
 An MFA session is bound to its record, expires after `mfa.duration`, and is single-use. MFA
 requires at least two enabled methods. Token refresh and impersonation don't ask for it.
 
-**OAuth2.** Presets for Google, Apple, GitHub, GitLab, Discord, Microsoft and Facebook, and `oidc`,
-`oidc2`, `oidc3` for any OpenID Connect provider (configured URLs). Any preset's URLs can be
-overridden (e.g. self-hosted GitLab).
+**OAuth2.** Presets for Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, Bitbucket,
+Twitch, Spotify, Patreon, Kakao and X (`twitter`), and `oidc`, `oidc2`, `oidc3` for any OpenID
+Connect provider (configured URLs). Any preset's URLs can be overridden (e.g. self-hosted
+GitLab).
 - `auth-methods` lists each provider with a fresh `state` and PKCE pair (`S256`, on unless
   `pkce: false`) and an `authURL` ending in `redirect_uri=` for the client to complete.
-- `auth-with-oauth2` exchanges the code (client secret in the form body, 15 s timeout, 1 MiB
-  response limit) and fetches the provider's user, then picks the record: the linked one, else
+- `auth-with-oauth2` exchanges the code (client secret in the form body, or with HTTP Basic
+  authentication for Bitbucket and X, which want that; 15 s timeout, 1 MiB response limit) and fetches the provider's user, then picks the record: the linked one, else
   the signed-in record of the collection (linking a new provider to it), else the one with the
   provider's email, else a new one.
 - **Only verified emails are used**, since an email links the provider account to an existing
-  record: OIDC/Google need `email_verified`, Discord `verified`, GitHub falls back to the
-  verified primary email; Microsoft's `mail` isn't verified, so it's ignored.
+  record: OIDC/Google need `email_verified`, Discord `verified`, Patreon `is_email_verified`,
+  Kakao `is_email_valid` and `is_email_verified`; GitHub falls back to the verified primary
+  email and Bitbucket asks for the confirmed primary one; Twitch returns only verified emails.
+  Microsoft's `mail` and Spotify's `email` aren't verified, so they're ignored, and X gives
+  none. A Bitbucket account that isn't active can't sign in.
 - An existing **unverified** record with the provider's email may belong to someone who signed up
   with an address they don't own: unless it's the signed-in record, its password is replaced
   with a random one and its token key rotated (signing out every session) before it's marked
@@ -322,8 +326,8 @@ the unlogged `_slonbase.oauth2_names` table (migration 13), and the sign-in with
 takes it. It's in PostgreSQL rather than memory because the redirect and the sign-in may reach
 different instances. The client secret Apple wants is a signed JWT: see the generator below.
 
-**Not yet:** PocketBase's other presets (Bitbucket, Twitch, Spotify, ...); `oidc` covers the
-providers that speak OpenID Connect.
+**Not yet:** PocketBase's other presets (Gitea, Gitee, Linear, Notion, VK, Yandex, Strava, ...);
+`oidc` covers the providers that speak OpenID Connect.
 
 ### Phase 3: realtime and multi-instance sync
 

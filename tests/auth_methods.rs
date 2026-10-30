@@ -474,6 +474,16 @@ impl Provider {
         let router = Router::new()
             .route("/token", post(token))
             .route("/userinfo", get(userinfo))
+            // Bitbucket's emails
+            .route(
+                "/userinfo/emails",
+                get(|| async {
+                    Json(json!({ "values": [
+                        { "email": "old@bb.test", "is_primary": false, "is_confirmed": true },
+                        { "email": "bea@bb.test", "is_primary": true, "is_confirmed": true },
+                    ] }))
+                }),
+            )
             .route("/jwks", get(jwks))
             .route(
                 "/avatar.png",
@@ -508,14 +518,30 @@ fn image_png(out: &mut Vec<u8>) {
 
 async fn token(
     State(provider): State<Provider>,
-    Form(form): Form<HashMap<String, String>>,
+    headers: HeaderMap,
+    Form(mut form): Form<HashMap<String, String>>,
 ) -> (StatusCode, Json<Value>) {
+    // the client's credentials may come with HTTP Basic authentication instead of the form
+    let basic = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Basic "))
+        .map(|v| {
+            use base64::Engine;
+            let decoded = base64::engine::general_purpose::STANDARD.decode(v).unwrap();
+            String::from_utf8(decoded).unwrap()
+        });
+    if let Some(basic) = &basic {
+        form.insert("basic".into(), basic.clone());
+    }
     provider.requests.lock().unwrap().push(form.clone());
     let user = form
         .get("code")
         .and_then(|c| c.strip_prefix("code-"))
         .unwrap_or_default();
-    let valid = form.get("client_secret").map(String::as_str) == Some("s3cret")
+    let secret_ok = form.get("client_secret").map(String::as_str) == Some("s3cret")
+        || basic.as_deref() == Some("client-1:s3cret");
+    let valid = secret_ok
         && form.get("grant_type").map(String::as_str) == Some("authorization_code")
         && provider.users.lock().unwrap().contains_key(user);
     if !valid {
@@ -1289,6 +1315,53 @@ async fn oauth2_with_the_id_token() {
             .is_some(),
         "{res}"
     );
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn providers_that_want_basic_client_auth() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    users_collection(
+        &env,
+        json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "bitbucket", "clientId": "client-1", "clientSecret": "s3cret",
+                "authURL": format!("{url}/authorize"), "tokenURL": format!("{url}/token"),
+                "userInfoURL": format!("{url}/userinfo"),
+            }],
+        } }),
+    )
+    .await;
+    provider.set_user(
+        "bea",
+        json!({ "uuid": "{bea-1}", "username": "bea", "display_name": "Bea",
+                "account_status": "active" }),
+    );
+    let (status, res) = oauth2(&env, None, "bea", json!({ "provider": "bitbucket" })).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["meta"]["id"], "{bea-1}");
+    assert_eq!(res["meta"]["username"], "bea");
+    // the confirmed primary email
+    assert_eq!(res["record"]["email"], "bea@bb.test");
+    // the credentials went with HTTP Basic, not in the form
+    let request = provider.requests.lock().unwrap().last().unwrap().clone();
+    assert_eq!(
+        request.get("basic").map(String::as_str),
+        Some("client-1:s3cret")
+    );
+    assert!(!request.contains_key("client_secret"), "{request:?}");
+
+    // an inactive account can't sign in
+    provider.set_user(
+        "gone",
+        json!({ "uuid": "{gone-1}", "username": "gone", "account_status": "inactive" }),
+    );
+    let (status, res) = oauth2(&env, None, "gone", json!({ "provider": "bitbucket" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
     env.finish().await;
 }
 

@@ -8,6 +8,14 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **Six more OAuth2 providers:** Bitbucket, Twitch, Spotify, Patreon, Kakao and X (`twitter`),
+  with their logos in the dashboard. As with the others, only emails the provider verifies are
+  used: Spotify's aren't verified and X gives none, so signing up with those needs an email
+  from the client (`createData.email`, unverified), as with Microsoft. Bitbucket and X get the client's credentials
+  with HTTP Basic authentication, as they require, and X needs PKCE (on by default).
+
 ### Changed
 
 - **The auth email throttle holds across instances.** The verification, password reset, email

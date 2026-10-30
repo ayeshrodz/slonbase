@@ -224,8 +224,9 @@ pub struct OAuth2Options {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct OAuth2Provider {
-    /// A preset (`google`, `github`, `gitlab`, `discord`, `microsoft`, `facebook`) or
-    /// `oidc`, `oidc2`, `oidc3` for any OpenID Connect provider.
+    /// A preset (`apple`, `google`, `github`, `gitlab`, `discord`, `microsoft`, `facebook`,
+    /// `bitbucket`, `twitch`, `spotify`, `patreon`, `kakao`, `twitter`) or `oidc`, `oidc2`,
+    /// `oidc3` for any OpenID Connect provider.
     pub name: String,
     pub client_id: String,
     /// Never returned by the API; an empty value on update keeps the stored one.
