@@ -3,7 +3,9 @@
 # - when CI passes on main and Cargo.toml has a version without a tag: it releases that commit
 #   and creates the tag (bumping the version on main is how a release is made);
 # - when a version tag (e.g. v0.1.0) is pushed by hand, which is how a backport to an older line
-#   is released (it doesn't become the latest release or the image's `latest`).
+#   is released (it doesn't become the latest release or the image's `latest`);
+# - when started by hand on a branch whose Cargo.toml has a version without a tag (another way
+#   to release a backport, from a branch of the older line).
 name: Release
 
 on:
@@ -13,6 +15,7 @@ on:
     branches: [main]
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -23,7 +26,7 @@ concurrency:
 
 jobs:
   verify:
-    if: github.event_name == 'push' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.version.outputs.version }}
