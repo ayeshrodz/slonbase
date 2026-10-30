@@ -519,7 +519,17 @@ and hooks' `$http`. It's read at startup and applies to the whole process.
 and retried, on its own; then `CompleteMultipartUpload` (whose 200 can carry an error). A
 failure aborts the upload. Tested against a mock server and, in CI, MinIO.
 
-**Not yet:** presigned URLs.
+**Presigned downloads:** with `s3.presignedDownloads`, `serve` does everything up to the
+download hook as usual (record, rule and file token checks, thumbnail generation), then reads
+the file's first 8 KiB from the bucket for its type (a 404 there is a 404 here; an empty file
+falls back to a size check) and answers 302 with a SigV4 query-signed GET URL
+(`UNSIGNED-PAYLOAD`, only `host` signed). `response-content-type`,
+`response-content-disposition` and `response-cache-control` are signed in, so the bucket sends
+what `serve` would. Public files are signed at the start of the hour for two hours, so the URL
+(and the browser's cache of the download) is stable for an hour and the redirect is cached for
+ten minutes; protected files are signed at the start of the minute for five minutes, and the
+redirect is `private, no-store`. Signing is tested against AWS's query-parameter example, and the
+flow against MinIO in CI (tampering with a signed parameter gets a 403 from the bucket).
 
 ### Phase 4a: admin dashboard
 

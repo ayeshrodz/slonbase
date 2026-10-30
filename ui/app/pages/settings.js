@@ -205,6 +205,8 @@ function S3Fields({ s, path, errors }) {
       <${Field} label="Secret" help="Leave empty to keep the saved one"><${Input} type="password" value=${v.secret} onInput=${(x) => s.set(path + ".secret", x)} autocomplete="new-password" placeholder="••••••••" /></${Field}>
     </div>
     <${Switch} checked=${v.forcePathStyle} onChange=${(x) => s.set(path + ".forcePathStyle", x)} label="Path-style URLs (MinIO and most self-hosted servers)" />
+    ${path === "s3" &&
+    html`<${Switch} checked=${v.presignedDownloads} onChange=${(x) => s.set(path + ".presignedDownloads", x)} label="Downloads straight from the bucket (redirects to short-lived signed URLs; clients must reach the endpoint)" />`}
   </div>`;
 }
 

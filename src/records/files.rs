@@ -768,6 +768,22 @@ pub async fn serve(
     }
 
     let storage = core.storage();
+    let download = query
+        .get("download")
+        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "t"));
+    if core.settings().s3.presigned_downloads {
+        if let Some(client) = storage.s3_client() {
+            return presigned_redirect(
+                &storage,
+                client,
+                &served_key,
+                &served_name,
+                download,
+                protected,
+            )
+            .await;
+        }
+    }
     // a single byte range (media players, resumed downloads); several ranges, or If-Range
     // (files have no validators to compare), get the whole file
     let wanted = headers
@@ -827,14 +843,7 @@ pub async fn serve(
         detect_mime(&head, &served_name)
     };
 
-    let download = query
-        .get("download")
-        .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "t"));
-    let disposition = if !download && INLINE.contains(&content_type.as_str()) {
-        "inline"
-    } else {
-        "attachment"
-    };
+    let disposition = disposition(&content_type, download);
     let stream =
         futures_util::stream::once(async move { Ok::<_, std::io::Error>(Bytes::from(head)) })
             .chain(stream);
@@ -869,11 +878,94 @@ pub async fn serve(
     set(
         headers,
         header::CACHE_CONTROL,
-        if protected {
-            "private, no-store".into()
-        } else {
-            "max-age=2592000, stale-while-revalidate=86400".into()
+        cache_control(protected).into(),
+    );
+    Ok(response)
+}
+
+/// `inline` for the types browsers may show ([`INLINE`]), unless a download was asked for.
+fn disposition(content_type: &str, download: bool) -> &'static str {
+    if !download && INLINE.contains(&content_type) {
+        "inline"
+    } else {
+        "attachment"
+    }
+}
+
+fn cache_control(protected: bool) -> &'static str {
+    if protected {
+        "private, no-store"
+    } else {
+        "max-age=2592000, stale-while-revalidate=86400"
+    }
+}
+
+/// Answers a download with a redirect to a presigned URL of the bucket (the
+/// `presignedDownloads` setting), signed with the type, disposition and caching the file
+/// would be served with. Public files get a URL signed at the start of the hour and valid
+/// for two, so it stays the same for an hour and browsers can cache the download; protected
+/// files a URL valid for five minutes at most, never cached.
+async fn presigned_redirect(
+    storage: &crate::storage::Storage,
+    client: &crate::s3::Client,
+    key: &str,
+    name: &str,
+    download: bool,
+    protected: bool,
+) -> Result<Response, ApiError> {
+    // the type comes from the file's first bytes, as when serving it (and a missing file
+    // is a 404 here, not at the bucket)
+    let first = match storage.open_range(key, 0, SNIFF_BYTES - 1).await {
+        Ok(Some(object)) => {
+            let mut first = Vec::new();
+            let mut chunks = object.stream;
+            while let Some(chunk) = chunks.next().await {
+                first.extend_from_slice(&chunk.map_err(|e| ApiError::internal(e.into()))?);
+            }
+            first
+        }
+        Ok(None) => return Err(ApiError::not_found()),
+        // an empty file has no byte to read a range of
+        Err(err) => match storage.size(key).await.map_err(ApiError::internal)? {
+            Some(0) => Vec::new(),
+            Some(_) => return Err(ApiError::internal(err)),
+            None => return Err(ApiError::not_found()),
         },
+    };
+    let content_type = detect_mime(&first, name);
+    let disposition = format!(
+        "{}; filename={name:?}",
+        disposition(&content_type, download)
+    );
+    let now = chrono::Utc::now().timestamp();
+    let (signed_at, expires) = if protected {
+        (now - now % 60, 5 * 60)
+    } else {
+        (now - now % 3600, 2 * 3600)
+    };
+    let signed_at = chrono::DateTime::from_timestamp(signed_at, 0).expect("a valid time");
+    let url = client.presign_get(
+        key,
+        &signed_at,
+        expires,
+        &[
+            ("response-cache-control", cache_control(protected)),
+            ("response-content-disposition", &disposition),
+            ("response-content-type", &content_type),
+        ],
+    );
+    let mut response = StatusCode::FOUND.into_response();
+    let headers = response.headers_mut();
+    if let Ok(location) = HeaderValue::from_str(&url) {
+        headers.insert(header::LOCATION, location);
+    }
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(if protected {
+            "private, no-store"
+        } else {
+            "max-age=600"
+        }),
     );
     Ok(response)
 }

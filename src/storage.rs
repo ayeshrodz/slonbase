@@ -74,6 +74,14 @@ impl Storage {
         }
     }
 
+    /// The S3 client, when files are in S3.
+    pub fn s3_client(&self) -> Option<&s3::Client> {
+        match self {
+            Self::S3(client) => Some(client),
+            _ => None,
+        }
+    }
+
     /// Writes a file (atomically on the local filesystem).
     pub async fn put(&self, key: &str, data: Bytes) -> Result<()> {
         check_key(key)?;

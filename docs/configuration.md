@@ -136,6 +136,16 @@ An S3 server with a certificate from a private CA (a MinIO on your network, say)
 pass its PEM file with `--http-ca-file`. It's trusted besides the usual public roots, for all
 outbound HTTPS (S3, and OAuth2 providers on the same network).
 
+**Downloads straight from the bucket.** With `s3.presignedDownloads` on, a file request
+gets a redirect to a short-lived signed URL of the bucket instead of the file itself, so the
+bytes don't pass through slonbase. The checks stay in slonbase: the file must exist, a protected
+file still needs a valid file token, thumbnails are made first, and the download hook runs. The
+signed URL makes the bucket answer with the type, disposition and caching slonbase would have
+sent. Public files get a URL that stays the same for an hour, so browsers cache them; a protected
+file's URL lasts five minutes at most and isn't cached. Clients must be able to reach the S3
+endpoint, so this suits a public endpoint (AWS, R2, ...) more than a MinIO on an internal
+network. It's off by default, and backups ignore it.
+
 Large files (backups, mostly) are uploaded in 16 MiB parts above 64 MiB, so each part is
 retried on its own and objects can pass the 5 GiB a single upload allows. A failed upload is
 aborted, so no parts are left behind.

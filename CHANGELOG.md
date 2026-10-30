@@ -13,8 +13,14 @@ changes, listed in its **Upgrading** section.
 - **Six more OAuth2 providers:** Bitbucket, Twitch, Spotify, Patreon, Kakao and X (`twitter`),
   with their logos in the dashboard. As with the others, only emails the provider verifies are
   used: Spotify's aren't verified and X gives none, so signing up with those needs an email
-  from the client (`createData.email`, unverified), as with Microsoft. Bitbucket and X get the client's credentials
-  with HTTP Basic authentication, as they require, and X needs PKCE (on by default).
+  from the client (`createData.email`, unverified), as with Microsoft. Bitbucket and X get the
+  client's credentials with HTTP Basic authentication, as they require, and X needs PKCE (on by
+  default).
+- **Downloads straight from S3** (`s3.presignedDownloads`, off by default): file requests are
+  answered with a redirect to a short-lived signed URL of the bucket, after slonbase's usual
+  checks (protected files, thumbnails, the download hook), so file bytes no longer pass through
+  the server. The bucket answers with the same type, disposition and caching. See
+  [configuration](docs/configuration.md#file-storage-in-s3).
 
 ### Changed
 

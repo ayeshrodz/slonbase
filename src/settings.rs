@@ -110,6 +110,9 @@ pub struct S3 {
     /// Never returned by the API; an empty value on update keeps the stored one.
     pub secret: String,
     pub force_path_style: bool,
+    /// For file storage: answer file downloads with a redirect to a short-lived presigned
+    /// URL, so clients download straight from the bucket (which they must be able to reach).
+    pub presigned_downloads: bool,
 }
 
 impl S3 {

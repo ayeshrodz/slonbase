@@ -404,3 +404,188 @@ async fn files_in_s3() {
     drop((app, second));
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn presigned_downloads_from_s3() {
+    let bucket = format!("slonbase-test-{}", slonbase::ids::random_id(8));
+    let Some(config) = s3_config(&bucket) else {
+        eprintln!("skipping: SLONBASE_TEST_S3_ENDPOINT is not set");
+        return;
+    };
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    s3::Client::new(config.clone())
+        .unwrap()
+        .create_bucket()
+        .await
+        .unwrap();
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let s3_settings = |presigned: bool| {
+        json!({ "s3": {
+            "enabled": true,
+            "bucket": config.bucket,
+            "region": config.region,
+            "endpoint": config.endpoint,
+            "accessKey": config.access_key,
+            "secret": config.secret,
+            "forcePathStyle": true,
+            "presignedDownloads": presigned,
+        } })
+    };
+    let (status, res) = admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(s3_settings(true)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["s3"]["presignedDownloads"], true);
+    admin(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "pics",
+            "fields": [
+                { "name": "title", "type": "text" },
+                { "name": "image", "type": "file", "maxSelect": 1, "thumbs": ["50x50"] },
+                { "name": "doc", "type": "file", "maxSelect": 1, "protected": true }
+            ],
+            // protected files are for signed-in callers; the others are public anyway
+            "listRule": "", "viewRule": "@request.auth.id != ''"
+        })),
+    )
+    .await;
+    let original = png(300, 200);
+    let (status, record) = upload(
+        &app,
+        &token,
+        "POST",
+        "/api/collections/pics/records",
+        &[
+            ("image", "photo.png", &original),
+            ("doc", "notes.txt", b"hello there"),
+        ],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    let rid = record["id"].as_str().unwrap();
+    let image = record["image"].as_str().unwrap();
+    let doc = record["doc"].as_str().unwrap();
+
+    // the server answers with a redirect, and the bucket serves the file with the headers
+    // the server would have sent
+    let redirect = |uri: String| {
+        let app = app.clone();
+        async move {
+            let (status, headers, _) = raw_request(&app, "GET", &uri, &[], Vec::new()).await;
+            let location = headers
+                .get("location")
+                .map(|v| v.to_str().unwrap().to_string());
+            let cache = headers
+                .get("cache-control")
+                .map(|v| v.to_str().unwrap().to_string());
+            (status, location, cache)
+        }
+    };
+    let fetch = |url: String| async move {
+        let response = slonbase::http::client().get(&url).send().await.unwrap();
+        let status = response.status().as_u16();
+        let header = |name: &str| {
+            response
+                .headers()
+                .get(name)
+                .map(|v| v.to_str().unwrap().to_string())
+                .unwrap_or_default()
+        };
+        let (content_type, disposition) = (header("content-type"), header("content-disposition"));
+        let body = response.bytes().await.unwrap().to_vec();
+        (status, content_type, disposition, body)
+    };
+
+    let (status, location, cache) = redirect(format!("/api/files/pics/{rid}/{image}")).await;
+    assert_eq!(status, StatusCode::FOUND);
+    let location = location.unwrap();
+    assert!(
+        location.starts_with(&format!(
+            "{}/{bucket}/",
+            config.endpoint.trim_end_matches('/')
+        )),
+        "{location}"
+    );
+    assert_eq!(cache.as_deref(), Some("max-age=600"));
+    let (status, content_type, disposition, body) = fetch(location.clone()).await;
+    assert_eq!(status, 200);
+    assert_eq!(content_type, "image/png");
+    assert_eq!(disposition, format!("inline; filename={image:?}"));
+    assert_eq!(body, original);
+    // the signature covers the URL
+    let tampered = location.replace(
+        "response-content-type=image%2Fpng",
+        "response-content-type=text%2Fhtml",
+    );
+    assert_ne!(tampered, location);
+    assert_eq!(fetch(tampered).await.0, 403);
+
+    let (_, location, _) = redirect(format!("/api/files/pics/{rid}/{image}?download=1")).await;
+    let (_, _, disposition, _) = fetch(location.unwrap()).await;
+    assert_eq!(disposition, format!("attachment; filename={image:?}"));
+
+    // thumbnails are made first, then served from the bucket
+    let (status, location, _) =
+        redirect(format!("/api/files/pics/{rid}/{image}?thumb=50x50")).await;
+    assert_eq!(status, StatusCode::FOUND);
+    let (status, _, _, body) = fetch(location.unwrap()).await;
+    assert_eq!(status, 200);
+    let thumb = image::load_from_memory(&body).unwrap();
+    assert_eq!((thumb.width(), thumb.height()), (50, 50));
+
+    // protected files still need a file token, and their URLs aren't cached
+    let (status, location, _) = redirect(format!("/api/files/pics/{rid}/{doc}")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(location.is_none());
+    let (_, res) = admin(&app, &token, "POST", "/api/files/token", None).await;
+    let file_token = res["token"].as_str().unwrap();
+    let (status, location, cache) =
+        redirect(format!("/api/files/pics/{rid}/{doc}?token={file_token}")).await;
+    assert_eq!(status, StatusCode::FOUND);
+    assert_eq!(cache.as_deref(), Some("private, no-store"));
+    let location = location.unwrap();
+    assert!(location.contains("X-Amz-Expires=300"), "{location}");
+    let (status, content_type, disposition, body) = fetch(location).await;
+    assert_eq!(status, 200);
+    assert!(content_type.starts_with("text/plain"), "{content_type}");
+    assert_eq!(disposition, format!("attachment; filename={doc:?}"));
+    assert_eq!(body, b"hello there");
+
+    // a missing file is a 404 here
+    let (status, _, _) = redirect(format!("/api/files/pics/{rid}/missing_abc123.png")).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // off: the server streams the file again
+    admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(s3_settings(false)),
+    )
+    .await;
+    let (status, _, bytes) = raw_request(
+        &app,
+        "GET",
+        &format!("/api/files/pics/{rid}/{image}"),
+        &[],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, original);
+
+    drop(app);
+    tdb.drop_db().await;
+}

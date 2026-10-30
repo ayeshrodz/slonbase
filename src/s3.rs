@@ -228,6 +228,49 @@ impl Client {
         }
     }
 
+    /// A presigned URL that GETs `key` (SigV4 query authentication), signed at `now` and
+    /// valid for `expires` seconds (S3 allows up to 7 days). `params` are signed with it,
+    /// such as `response-content-type` and `response-content-disposition`, which make S3
+    /// answer with those headers.
+    pub fn presign_get(
+        &self,
+        key: &str,
+        now: &chrono::DateTime<chrono::Utc>,
+        expires: u64,
+        params: &[(&str, &str)],
+    ) -> String {
+        let path = format!("{}{}", self.prefix, uri_encode(key, false));
+        let credential = format!("{}/{}", self.config.access_key, scope(&self.config, now));
+        let date = now.format("%Y%m%dT%H%M%SZ").to_string();
+        let expires = expires.to_string();
+        let mut query: Vec<(String, String)> = [
+            ("X-Amz-Algorithm", "AWS4-HMAC-SHA256"),
+            ("X-Amz-Credential", credential.as_str()),
+            ("X-Amz-Date", date.as_str()),
+            ("X-Amz-Expires", expires.as_str()),
+            ("X-Amz-SignedHeaders", "host"),
+        ]
+        .iter()
+        .chain(params)
+        .map(|(k, v)| (uri_encode(k, true), uri_encode(v, true)))
+        .collect();
+        query.sort();
+        let query = query
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("&");
+        let canonical_request = format!(
+            "GET\n{path}\n{query}\nhost:{}\n\nhost\nUNSIGNED-PAYLOAD",
+            self.host()
+        );
+        let signature = signature(&self.config, &canonical_request, now);
+        format!(
+            "{}{path}?{query}&X-Amz-Signature={signature}",
+            self.base.as_str().trim_end_matches('/')
+        )
+    }
+
     pub async fn put(&self, key: &str, data: Bytes) -> Result<()> {
         let response = self
             .send(
@@ -630,23 +673,37 @@ fn sign(
         .join(";");
     let canonical_request =
         format!("{method}\n{path}\n{query}\n{canonical_headers}\n{signed_headers}\n{payload_hash}");
+    let signature = signature(config, &canonical_request, now);
+    format!(
+        "AWS4-HMAC-SHA256 Credential={}/{}, SignedHeaders={signed_headers}, Signature={signature}",
+        config.access_key,
+        scope(config, now)
+    )
+}
 
+/// The credential scope of a signature made at `now`.
+fn scope(config: &Config, now: &chrono::DateTime<chrono::Utc>) -> String {
+    format!("{}/{}/s3/aws4_request", now.format("%Y%m%d"), config.region)
+}
+
+/// The SigV4 signature of a canonical request made at `now`.
+fn signature(
+    config: &Config,
+    canonical_request: &str,
+    now: &chrono::DateTime<chrono::Utc>,
+) -> String {
     let date = now.format("%Y%m%d").to_string();
-    let scope = format!("{date}/{}/s3/aws4_request", config.region);
     let string_to_sign = format!(
-        "AWS4-HMAC-SHA256\n{}\n{scope}\n{}",
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
         now.format("%Y%m%dT%H%M%SZ"),
+        scope(config, now),
         hex::encode(Sha256::digest(canonical_request.as_bytes()))
     );
     let mut key = hmac(format!("AWS4{}", config.secret).as_bytes(), date.as_bytes());
     for part in [config.region.as_str(), "s3", "aws4_request"] {
         key = hmac(&key, part.as_bytes());
     }
-    let signature = hex::encode(hmac(&key, string_to_sign.as_bytes()));
-    format!(
-        "AWS4-HMAC-SHA256 Credential={}/{scope}, SignedHeaders={signed_headers}, Signature={signature}",
-        config.access_key
-    )
+    hex::encode(hmac(&key, string_to_sign.as_bytes()))
 }
 
 fn hmac(key: &[u8], data: &[u8]) -> Vec<u8> {
@@ -738,6 +795,39 @@ mod tests {
 
     fn example_time() -> chrono::DateTime<chrono::Utc> {
         chrono::Utc.with_ymd_and_hms(2013, 5, 24, 0, 0, 0).unwrap()
+    }
+
+    // the example from AWS's "Authenticating Requests: Using Query Parameters" docs
+    #[test]
+    fn presigns_get_object() {
+        let client = Client::new(example_config()).unwrap();
+        let url = client.presign_get("test.txt", &example_time(), 86400, &[]);
+        assert_eq!(
+            url,
+            "https://examplebucket.s3.amazonaws.com/test.txt\
+             ?X-Amz-Algorithm=AWS4-HMAC-SHA256\
+             &X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request\
+             &X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host\
+             &X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"
+        );
+        // response headers are signed along, in order
+        let url = client.presign_get(
+            "a b.txt",
+            &example_time(),
+            60,
+            &[(
+                "response-content-disposition",
+                "attachment; filename=\"a b.txt\"",
+            )],
+        );
+        assert!(
+            url.starts_with("https://examplebucket.s3.amazonaws.com/a%20b.txt?"),
+            "{url}"
+        );
+        assert!(
+            url.contains("&X-Amz-SignedHeaders=host&response-content-disposition=attachment%3B%20filename%3D%22a%20b.txt%22&X-Amz-Signature="),
+            "{url}"
+        );
     }
 
     // the examples from AWS's "Signature Calculations for the Authorization Header" docs
