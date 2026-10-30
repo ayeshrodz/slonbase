@@ -346,10 +346,12 @@ pub(super) fn send_template(
 }
 
 /// Whether a requested email of `kind` may go to the record now (see
-/// [`crate::guard::MailThrottle`]). The request gets the same answer either way.
-pub(super) fn mail_allowed(core: &Core, record: &AuthRecord, kind: &'static str) -> bool {
-    core.mail_throttle
-        .allow(&format!("{}/{}", record.collection.id, record.id()), kind)
+/// [`crate::guard::claim_mail`]). The request gets the same answer either way.
+pub(super) async fn mail_allowed(core: &Core, record: &AuthRecord, kind: &'static str) -> bool {
+    let account = format!("{}/{}", record.collection.id, record.id());
+    crate::guard::claim_mail(core, &account, kind, "")
+        .await
+        .is_ok()
 }
 
 /// Emails the record a link to verify its email.
@@ -684,7 +686,7 @@ pub async fn request_verification(
                 .get(FIELD_VERIFIED)
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            if !verified && mail_allowed(&e.core, &record, "verification") {
+            if !verified && mail_allowed(&e.core, &record, "verification").await {
                 send_verification(&e.core, &record);
             }
             e.response = Some(no_content());
@@ -789,7 +791,7 @@ pub async fn request_password_reset(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            if mail_allowed(&e.core, &record, "passwordReset") {
+            if mail_allowed(&e.core, &record, "passwordReset").await {
                 send_password_reset(&e.core, &record);
             }
             e.response = Some(no_content());
@@ -932,7 +934,7 @@ pub async fn request_email_change(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            if mail_allowed(&e.core, &record, "emailChange") {
+            if mail_allowed(&e.core, &record, "emailChange").await {
                 send_email_change(&e.core, &record, e.str("newEmail"));
             }
             e.response = Some(no_content());

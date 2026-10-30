@@ -132,7 +132,7 @@ async fn create_otp(
     let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
     // asked again within a minute: the code already sent stands, and nothing is sent
     let account = format!("{}/{}", c.id, record.id());
-    if let Err(sent) = core.mail_throttle.claim(&account, "otp", &id) {
+    if let Err(sent) = crate::guard::claim_mail(&core, &account, "otp", &id).await {
         return Ok(sent);
     }
 

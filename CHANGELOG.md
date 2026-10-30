@@ -8,6 +8,18 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **The auth email throttle holds across instances.** The verification, password reset, email
+  change and OTP request endpoints send each account at most one email of each kind per minute
+  (since 1.1.0); the count is now kept in PostgreSQL, so instances sharing a database share it
+  too, as they do the rate limits. Before, each instance counted on its own. (If the database
+  can't be reached, an instance counts in memory.)
+
+### Upgrading
+
+- System migration 14 adds the `_slonbase.mail_sent` table (unlogged).
+
 ## [1.1.0] - 2026-10-30
 
 **A security release.** A review of the whole platform, with a dependency audit and attacks on a

@@ -156,8 +156,9 @@ but logs are kept for days.
   provider URLs, and the test buttons connect to them, so a superuser can reach addresses on the
   server's network. A project's superusers can too; if they shouldn't, limit the server's
   outbound network.
-- **The email throttle is per instance.** With several instances, an account can get one email
-  of a kind per minute from each. The rate limits are shared across instances.
+- **The email throttle was per instance.** With several instances, an account could get one
+  email of a kind per minute from each. Since 1.2, the instances share it through the database,
+  as they share the rate limits.
 
 ## Authentication (0.4.2)
 

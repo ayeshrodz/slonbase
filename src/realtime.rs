@@ -1366,6 +1366,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                      DELETE FROM _slonbase.instances WHERE seen < now() - interval '10 minutes';
                                      DELETE FROM _slonbase.realtime_forwards WHERE created < now() - interval '1 minute';
                                      DELETE FROM _slonbase.rate_limits WHERE started < now() - interval '1 hour';
+                                     DELETE FROM _slonbase.mail_sent WHERE sent_at < now() - interval '1 hour';
                                      DELETE FROM _slonbase.otps WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';
                                      DELETE FROM _slonbase.mfas WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';"
                                 ))

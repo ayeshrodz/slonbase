@@ -84,6 +84,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "oauth2_names",
         sql: include_str!("../migrations/0013_oauth2_names.sql"),
     },
+    Migration {
+        version: 14,
+        name: "mail_sent",
+        sql: include_str!("../migrations/0014_mail_sent.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

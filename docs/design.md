@@ -359,6 +359,13 @@ so the others count it at once). Alone, an instance doesn't forward at all.
 and otherwise with one upsert per request on the unlogged `_slonbase.rate_limits` table (the
 same fixed windows), falling back to memory if the database can't be reached.
 
+**Shared email throttle.** The one-per-minute limit on requested auth emails (per account and
+kind) is always counted in the database: one upsert on the unlogged `_slonbase.mail_sent`
+table (migration 14) that claims the email only if the last one is a minute old, and returns
+what was sent last otherwise (an OTP request answers with the code already sent). These
+requests are rare, so there's no in-memory path while alone; memory is only the fallback when
+the database can't be reached.
+
 **Listener.** Every instance holds one dedicated connection that runs `LISTEN slonbase`. For an
 event it loads the outbox row and delivers it to its own subscribers, so changes made through
 any instance reach every subscriber. The same channel carries `collections` and `settings`

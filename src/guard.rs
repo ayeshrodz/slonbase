@@ -161,9 +161,8 @@ impl RateLimiter {
 /// email change, OTP) on request.
 pub const MAIL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
-/// One auth email of each kind per account per [`MAIL_INTERVAL`], however many requests ask
-/// for it (and from however many addresses), so the request endpoints can't be used to flood
-/// someone's inbox. Kept in memory, per instance.
+/// One auth email of each kind per account per [`MAIL_INTERVAL`], in memory: what
+/// [`claim_mail`] falls back to when the database can't be reached.
 #[derive(Default)]
 pub struct MailThrottle {
     sent: Mutex<HashMap<MailKey, (Instant, String)>>,
@@ -174,18 +173,13 @@ pub struct MailThrottle {
 type MailKey = (String, &'static str);
 
 impl MailThrottle {
-    /// Forgets what was sent (tests that request one email after another use it).
+    /// Forgets what was sent here.
     pub fn reset(&self) {
         self.sent.lock().expect("mail throttle lock").clear();
     }
 
-    /// Whether `kind` may be sent to the account now (and counts it if so).
-    pub fn allow(&self, account: &str, kind: &'static str) -> bool {
-        self.claim(account, kind, "").is_ok()
-    }
-
-    /// Like [`Self::allow`], remembering `sent` (an OTP's id): `Err` with what was sent last
-    /// when it's too soon.
+    /// Claims `kind` for the account now, remembering `sent` (an OTP's id): `Err` with what
+    /// was sent last when it's too soon.
     pub fn claim(&self, account: &str, kind: &'static str, sent: &str) -> Result<(), String> {
         let now = Instant::now();
         let mut map = self.sent.lock().expect("mail throttle lock");
@@ -198,6 +192,74 @@ impl MailThrottle {
             }
         }
     }
+}
+
+/// One auth email of each kind per account per [`MAIL_INTERVAL`], however many requests ask
+/// for it (from however many addresses, through however many instances), so the request
+/// endpoints can't be used to flood someone's inbox. `Ok` claims the email, remembering
+/// `sent` (an OTP's id); `Err` has what was sent last when it's too soon. Counted in the
+/// database, so the instances share it (in memory if the database can't be reached).
+pub async fn claim_mail(
+    core: &Core,
+    account: &str,
+    kind: &'static str,
+    sent: &str,
+) -> Result<(), String> {
+    match shared_claim_mail(core, account, kind, sent).await {
+        Ok(claimed) => claimed,
+        Err(err) => {
+            tracing::debug!(error = %format!("{err:#}"), "shared mail throttle failed; counting here");
+            core.mail_throttle.claim(account, kind, sent)
+        }
+    }
+}
+
+async fn shared_claim_mail(
+    core: &Core,
+    account: &str,
+    kind: &str,
+    sent: &str,
+) -> anyhow::Result<Result<(), String>> {
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let interval = MAIL_INTERVAL.as_secs_f64();
+    let row = client
+        .query_one(
+            "WITH claimed AS ( \
+               INSERT INTO _slonbase.mail_sent AS m (account, kind, sent_at, sent) VALUES ($1, $2, now(), $3) \
+               ON CONFLICT (account, kind) DO UPDATE SET sent_at = now(), sent = $3 \
+               WHERE m.sent_at <= now() - make_interval(secs => $4::float8) \
+               RETURNING 1) \
+             SELECT EXISTS (SELECT 1 FROM claimed), \
+                    (SELECT sent FROM _slonbase.mail_sent WHERE account = $1 AND kind = $2)",
+            &[
+                &account as &(dyn tokio_postgres::types::ToSql + Sync),
+                &kind,
+                &sent,
+                &interval,
+            ],
+        )
+        .await?;
+    if row.get::<_, bool>(0) {
+        return Ok(Ok(()));
+    }
+    // too soon; the row is missing from this statement's snapshot only when another request
+    // claimed it at the same moment
+    let last = match row.get::<_, Option<String>>(1) {
+        Some(last) => last,
+        None => client
+            .query_opt(
+                "SELECT sent FROM _slonbase.mail_sent WHERE account = $1 AND kind = $2",
+                &[&account, &kind],
+            )
+            .await?
+            .map(|row| row.get(0))
+            .unwrap_or_default(),
+    };
+    Ok(Err(last))
 }
 
 /// Counts a request in its window: in memory while this instance is the only live one,

@@ -160,7 +160,12 @@ fn otp_from_mail(html: &str) -> String {
 
 async fn request_otp(env: &Env, email: &str) -> (String, String) {
     // one OTP email a minute per account: these requests come in quick succession
-    env.app.core().unwrap().mail_throttle.reset();
+    let client = env.tdb.pool().get().await.unwrap();
+    client
+        .execute("DELETE FROM _slonbase.mail_sent", &[])
+        .await
+        .unwrap();
+    drop(client);
     let skip = env.mail_count();
     let res = env
         .ok(
@@ -1521,6 +1526,18 @@ async fn auth_emails_are_throttled_per_account() {
             .await;
         ids.push(res["otpId"].as_str().unwrap().to_string());
     }
+    // the count is in the database, shared by the instances: another one (with its own
+    // memory) doesn't send again either
+    env.app.core().unwrap().mail_throttle.reset();
+    let (status, _) = env
+        .call(
+            None,
+            "POST",
+            "/api/collections/users/request-password-reset",
+            Some(json!({ "email": to })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
     tokio::time::sleep(Duration::from_millis(500)).await;
     // one reset email and one OTP email
     assert_eq!(sent_to(&env), before + 2);
