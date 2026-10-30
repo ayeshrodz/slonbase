@@ -84,14 +84,15 @@ keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts
 uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
 root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:1.0.1`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:1.1.0`) rather than `latest` in production.
 
 ## PostgreSQL
 
 - **Version:** 14 or newer. CI runs on 14 and 17.
 - **Role:** slonbase needs a role that can create schemas in its database (`CREATE` on the
   database), such as the database owner. It doesn't need to be a PostgreSQL superuser, and
-  shouldn't be one if you enable the SQL console.
+  shouldn't be one: view collections' queries and the SQL console run with its privileges (see
+  the [security review](security-review.md#advice-not-changed)).
 - **Connections:** each instance uses up to `--database-max-connections` (16) plus two for
   `LISTEN/NOTIFY`, and up to `projects.max_connections` (4) plus one more for each
   [project](projects.md). Poolers must run in session mode, since transaction mode can't carry

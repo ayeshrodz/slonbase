@@ -344,7 +344,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.0.1</b><span id="pill-title">slonbase 1.0</span><span class="arrow">→</span>
+      <b id="pill-version">v1.1.0</b><span id="pill-title">A security release</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -630,16 +630,16 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.0.1</div>
-        <div class="date" id="rel-date">October 28, 2026</div>
-        <p id="rel-summary">A stability promise for the API, configuration and your data, a documentation site with search, and a dashboard with new typography and micro-interactions.</p>
+        <div class="ver" id="rel-version">v1.1.0</div>
+        <div class="date" id="rel-date">October 30, 2026</div>
+        <p id="rel-summary">A review of the whole platform, with attacks on a running server, found six problems, all fixed: filters only see what the client may list, inbox flooding is throttled, thumbnails can't exhaust the memory, and more.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>The stability promise</li>
-        <li>A documentation site</li>
-        <li>Typography and micro-interactions</li>
-        <li>Templates for Coolify, Dokploy and Railway</li>
+        <li>Filters respect every collection's rules</li>
+        <li>Throttled auth emails</li>
+        <li>Bounded thumbnail memory</li>
+        <li>Protective headers everywhere</li>
       </ul>
     </div>
   </div>
@@ -674,8 +674,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.0.1/slonbase-1.0.1-linux-amd64.tar.gz
-tar xzf slonbase-1.0.1-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.1.0/slonbase-1.1.0-linux-amd64.tar.gz
+tar xzf slonbase-1.1.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'

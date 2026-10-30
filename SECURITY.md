@@ -8,7 +8,8 @@ to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 1.0.x | ✅ |
+| 1.1.x | ✅ |
+| 1.0.x | ✅ until three months after 1.1.0 (January 30, 2027) |
 | 0.x | ❌ |
 
 ## Reporting a vulnerability
