@@ -15,7 +15,9 @@ use chrono::{DateTime, Datelike, Duration, NaiveDate, Timelike, Utc};
 use serde_json::Value;
 
 use super::parser::{Cmp, Expr, Op, Operand};
-use crate::collections::model::{Collection, Field, FieldKind, Storage};
+use crate::collections::model::{
+    Collection, FIELD_EMAIL, FIELD_EMAIL_VISIBILITY, Field, FieldKind, Storage,
+};
 use crate::collections::schema::table_ref;
 use crate::collections::store::Registry;
 use crate::datetime;
@@ -138,21 +140,7 @@ pub fn compile(expr: &Expr, scope: &Scope, params: &mut Params) -> Result<String
         lookups: Vec::new(),
     };
     let sql = compiler.expr(expr)?;
-    if compiler.lookups.is_empty() {
-        return Ok(sql);
-    }
-    // `@collection` references share one row per (collection, alias), like PocketBase's
-    // LEFT JOIN: the condition holds when some combination of rows matches it, and
-    // parts that don't use a lookup still work when its collection is empty
-    let joins: Vec<String> = compiler
-        .lookups
-        .iter()
-        .map(|(_, sql_alias, table)| format!("LEFT JOIN {table} {sql_alias} ON TRUE"))
-        .collect();
-    Ok(format!(
-        "EXISTS (SELECT 1 FROM (SELECT 1) __one {} WHERE {sql})",
-        joins.join(" ")
-    ))
+    Ok(compiler.finish(sql))
 }
 
 /// Splits `@collection.name[:alias].path[:modifier]`.
@@ -224,11 +212,89 @@ struct Compiler<'a, 'p> {
     scope: &'a Scope<'a>,
     params: &'p mut Params,
     aliases: usize,
-    /// `@collection` lookups: (collection name, alias) -> (SQL alias, table)
-    lookups: Vec<(String, String, String)>,
+    /// `@collection` lookups: (collection name, alias) -> (SQL alias, table, join condition)
+    lookups: Vec<(String, String, String, String)>,
 }
 
 impl Compiler<'_, '_> {
+    /// The compiled expression, with its `@collection` lookups joined.
+    fn finish(&self, sql: String) -> String {
+        if self.lookups.is_empty() {
+            return sql;
+        }
+        // `@collection` references share one row per (collection, alias), like PocketBase's
+        // LEFT JOIN: the condition holds when some combination of rows matches it, and
+        // parts that don't use a lookup still work when its collection is empty
+        let joins: Vec<String> = self
+            .lookups
+            .iter()
+            .map(|(_, sql_alias, table, on)| format!("LEFT JOIN {table} {sql_alias} ON {on}"))
+            .collect();
+        format!(
+            "EXISTS (SELECT 1 FROM (SELECT 1) __one {} WHERE {sql})",
+            joins.join(" ")
+        )
+    }
+
+    /// A client's filter only sees the other collections' records that the client could list:
+    /// relation paths and `@collection` lookups get the collection's list rule as a condition
+    /// (`FALSE` when only superusers may list it). Rules and superusers see every record.
+    fn client_rule(
+        &mut self,
+        collection: &Collection,
+        alias: &str,
+    ) -> Result<Option<String>, CompileError> {
+        if self.scope.allow_hidden {
+            return Ok(None);
+        }
+        let rule = match collection.list_rule.as_deref().map(str::trim) {
+            None => return Ok(Some("FALSE".into())),
+            Some("") => return Ok(None),
+            Some(rule) => rule,
+        };
+        let Ok(expr) = super::parser::parse(rule) else {
+            return Ok(Some("FALSE".into()));
+        };
+        let scope = Scope {
+            collection,
+            alias,
+            request: self.scope.request,
+            allow_hidden: true,
+        };
+        let mut inner = Compiler {
+            scope: &scope,
+            params: &mut *self.params,
+            // aliases keep counting, so the rule's never shadow the filter's
+            aliases: self.aliases,
+            lookups: Vec::new(),
+        };
+        let compiled = inner.expr(&expr).map(|sql| inner.finish(sql));
+        self.aliases = inner.aliases + 1;
+        Ok(Some(compiled.unwrap_or_else(|_| "FALSE".into())))
+    }
+
+    /// An auth record's email, for a client's filter: only where the record shows it
+    /// (`emailVisibility`) or it's the caller's own. Other columns are as they are.
+    fn visible_column(
+        &mut self,
+        collection: &Collection,
+        alias: &str,
+        field: &Field,
+        column: String,
+    ) -> String {
+        if self.scope.allow_hidden || !collection.is_auth() || field.name != FIELD_EMAIL {
+            return column;
+        }
+        let visible = format!("{alias}.{}", quote_ident(FIELD_EMAIL_VISIBILITY));
+        match &self.scope.request.auth {
+            Some(auth) if auth.collection_id == collection.id => {
+                let me = self.params.push(auth.id.clone());
+                format!("(CASE WHEN {visible} OR {alias}.\"id\" = {me} THEN {column} END)")
+            }
+            _ => format!("(CASE WHEN {visible} THEN {column} END)"),
+        }
+    }
+
     fn expr(&mut self, expr: &Expr) -> Result<String, CompileError> {
         match expr {
             Expr::And(a, b) => Ok(format!("({} AND {})", self.expr(a)?, self.expr(b)?)),
@@ -782,9 +848,9 @@ impl Compiler<'_, '_> {
         let sql_alias = match self
             .lookups
             .iter()
-            .find(|(key, _, _)| *key == format!("{}:{alias}", collection.id))
+            .find(|(key, _, _, _)| *key == format!("{}:{alias}", collection.id))
         {
-            Some((_, sql_alias, _)) => sql_alias.clone(),
+            Some((_, sql_alias, _, _)) => sql_alias.clone(),
             None => {
                 if self.lookups.len() >= MAX_LOOKUPS {
                     return fail(format!(
@@ -793,10 +859,14 @@ impl Compiler<'_, '_> {
                 }
                 self.aliases += 1;
                 let sql_alias = format!("__c{}", self.aliases);
+                let on = self
+                    .client_rule(&collection, &sql_alias)?
+                    .unwrap_or_else(|| "TRUE".into());
                 self.lookups.push((
                     format!("{}:{alias}", collection.id),
                     sql_alias.clone(),
                     table_ref(&collection.name),
+                    on,
                 ));
                 sql_alias
             }
@@ -829,6 +899,7 @@ impl Compiler<'_, '_> {
             _ => return fail(format!("unknown field {name:?}")),
         };
         let column = format!("{base_alias}.{}", quote_ident(&field.name));
+        let column = self.visible_column(collection, base_alias, field, column);
 
         if !rest.is_empty() {
             return match field.kind {
@@ -956,7 +1027,10 @@ impl Compiler<'_, '_> {
         self.aliases += 1;
         let mut alias = format!("__r{}", self.aliases);
         let from = format!("{} {alias}", table_ref(&collection.name));
-        let condition = link(&alias, &first_column, first.is_multi());
+        let mut condition = link(&alias, &first_column, first.is_multi());
+        if let Some(rule) = self.client_rule(&collection, &alias)? {
+            condition = format!("({condition}) AND ({rule})");
+        }
         let mut joins = Vec::new();
         let mut hops = 1;
 
@@ -969,6 +1043,7 @@ impl Compiler<'_, '_> {
                 _ => return fail(format!("unknown field {part:?} in {:?}", collection.name)),
             };
             let column = format!("{alias}.{}", quote_ident(&field.name));
+            let column = self.visible_column(&collection, &alias, &field, column);
 
             if !last {
                 match &field.kind {
@@ -985,10 +1060,13 @@ impl Compiler<'_, '_> {
                             .ok_or_else(|| missing(part))?;
                         self.aliases += 1;
                         let next = format!("__r{}", self.aliases);
+                        let mut on = link(&next, &column, field.is_multi());
+                        if let Some(rule) = self.client_rule(&collection, &next)? {
+                            on = format!("({on}) AND ({rule})");
+                        }
                         joins.push(format!(
-                            "JOIN {} {next} ON {}",
-                            table_ref(&collection.name),
-                            link(&next, &column, field.is_multi())
+                            "JOIN {} {next} ON {on}",
+                            table_ref(&collection.name)
                         ));
                         alias = next;
                         i += 1;

@@ -945,6 +945,15 @@ fn file_field_with<'c>(c: &'c Collection, record: &Values, filename: &str) -> Op
 
 /// Returns the thumbnail's key, generating it on first use. `None` when the file
 /// isn't an image that can be thumbnailed.
+/// How many thumbnails may be generated at once: a few, by the number of CPUs.
+fn thumb_permits() -> &'static tokio::sync::Semaphore {
+    static PERMITS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    PERMITS.get_or_init(|| {
+        let cpus = std::thread::available_parallelism().map_or(2, |n| n.get());
+        tokio::sync::Semaphore::new(cpus.clamp(2, 4))
+    })
+}
+
 async fn ensure_thumb(
     core: &Core,
     collection_id: &str,
@@ -954,12 +963,22 @@ async fn ensure_thumb(
     size: ThumbSize,
 ) -> Result<Option<String>, ApiError> {
     let key = thumb_key(collection_id, record_id, filename, raw_size);
-    if core
-        .storage()
-        .exists(&key)
+    let exists = || async {
+        core.storage()
+            .exists(&key)
+            .await
+            .map_err(ApiError::internal)
+    };
+    if exists().await? {
+        return Ok(Some(key));
+    }
+    // decoding an image can take hundreds of megabytes: a few at a time, so parallel
+    // requests can't exhaust the memory, and each one first checks whether another made it
+    let _permit = thumb_permits()
+        .acquire()
         .await
-        .map_err(ApiError::internal)?
-    {
+        .map_err(|e| ApiError::internal(e.into()))?;
+    if exists().await? {
         return Ok(Some(key));
     }
     let Some(original) = core

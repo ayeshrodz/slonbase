@@ -129,9 +129,15 @@ async fn create_otp(
     }
     drop(client);
 
+    let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
+    // asked again within a minute: the code already sent stands, and nothing is sent
+    let account = format!("{}/{}", c.id, record.id());
+    if let Err(sent) = core.mail_throttle.claim(&account, "otp", &id) {
+        return Ok(sent);
+    }
+
     // hashing, saving and sending happen in the background, so the answer takes as long
     // as for an unknown email
-    let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
     let otp_id = id.clone();
     tokio::spawn(async move {
         let plain = password.clone();

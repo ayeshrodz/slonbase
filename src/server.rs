@@ -242,7 +242,29 @@ fn app_router(app: Arc<App>) -> Router {
             app.clone(),
             crate::metrics::middleware,
         ))
+        .layer(axum::middleware::from_fn(security_headers))
         .with_state(app)
+}
+
+/// Headers every response gets unless it set its own: no content sniffing, no framing by
+/// other sites, and no full URLs (which may carry tokens) sent to other sites as referrers.
+async fn security_headers(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    use axum::http::{HeaderValue, header};
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    for (name, value) in [
+        (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+        (header::X_FRAME_OPTIONS, "SAMEORIGIN"),
+        (header::REFERRER_POLICY, "strict-origin-when-cross-origin"),
+    ] {
+        headers
+            .entry(name)
+            .or_insert(HeaderValue::from_static(value));
+    }
+    response
 }
 
 async fn health(
@@ -260,7 +282,8 @@ async fn health(
     };
 
     match app.mode() {
-        Mode::Starting { status } => unhealthy(format!("Starting: {status}")),
+        // the details (which may name hosts) are in the logs, not in the answer to anyone
+        Mode::Starting { .. } => unhealthy("Starting.".into()),
         Mode::Setup(_) => Json(json!({
             "code": 200,
             "message": "Setup required.",
@@ -306,7 +329,10 @@ async fn health(
                     "data": data,
                 }))
                 .into_response(),
-                Ok(Err(err)) => unhealthy(format!("Database unavailable: {err}")),
+                Ok(Err(err)) => {
+                    tracing::warn!(error = %err, "health check: the database is unavailable");
+                    unhealthy("Database unavailable.".into())
+                }
                 Err(_) => unhealthy("Database unavailable: timed out".into()),
             }
         }

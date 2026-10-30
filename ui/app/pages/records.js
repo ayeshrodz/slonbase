@@ -73,6 +73,8 @@ export function Cell({ field, record, collections, fileToken }) {
     case "email":
       return v ? html`<span>${v}</span>` : empty;
     case "url":
+      // only web links are links (a value written around the validation could be javascript:)
+      if (v && !/^https?:\/\//i.test(v)) return truncate(v, 40);
       return v ? html`<a href=${v} target="_blank" rel="noopener noreferrer" onClick=${(e) => e.stopPropagation()}>${truncate(v, 40)}</a>` : empty;
     case "geoPoint":
       return v && (v.lat || v.lon) ? html`<span class="mono small"><${Icon} name="pin" size=${12} /> ${v.lat.toFixed(4)}, ${v.lon.toFixed(4)}</span>` : empty;

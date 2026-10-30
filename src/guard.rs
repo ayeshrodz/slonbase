@@ -157,6 +157,49 @@ impl RateLimiter {
     }
 }
 
+/// How often each account may be sent each kind of auth email (verification, password reset,
+/// email change, OTP) on request.
+pub const MAIL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// One auth email of each kind per account per [`MAIL_INTERVAL`], however many requests ask
+/// for it (and from however many addresses), so the request endpoints can't be used to flood
+/// someone's inbox. Kept in memory, per instance.
+#[derive(Default)]
+pub struct MailThrottle {
+    sent: Mutex<HashMap<MailKey, (Instant, String)>>,
+}
+
+/// An account (`collection/record`) and an email kind; mapped to when it was last sent and
+/// what it sent (an OTP's id).
+type MailKey = (String, &'static str);
+
+impl MailThrottle {
+    /// Forgets what was sent (tests that request one email after another use it).
+    pub fn reset(&self) {
+        self.sent.lock().expect("mail throttle lock").clear();
+    }
+
+    /// Whether `kind` may be sent to the account now (and counts it if so).
+    pub fn allow(&self, account: &str, kind: &'static str) -> bool {
+        self.claim(account, kind, "").is_ok()
+    }
+
+    /// Like [`Self::allow`], remembering `sent` (an OTP's id): `Err` with what was sent last
+    /// when it's too soon.
+    pub fn claim(&self, account: &str, kind: &'static str, sent: &str) -> Result<(), String> {
+        let now = Instant::now();
+        let mut map = self.sent.lock().expect("mail throttle lock");
+        map.retain(|_, (at, _)| now.duration_since(*at) < MAIL_INTERVAL);
+        match map.entry((account.to_string(), kind)) {
+            std::collections::hash_map::Entry::Occupied(last) => Err(last.get().1.clone()),
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                slot.insert((now, sent.to_string()));
+                Ok(())
+            }
+        }
+    }
+}
+
 /// Counts a request in its window: in memory while this instance is the only live one,
 /// in the database when instances share it, so the limits apply across them (in memory
 /// again if the database can't be reached).

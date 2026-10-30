@@ -60,10 +60,10 @@ export function truncate(text, n = 80) {
   return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
+// The text of user-written HTML. Parsed into an inert document: nothing in it loads or runs
+// (an element given innerHTML would load images, and run their handlers if the CSP let it).
 export function stripHtml(html) {
-  const div = document.createElement("div");
-  div.innerHTML = html || "";
-  return div.textContent || "";
+  return new DOMParser().parseFromString(html || "", "text/html").body.textContent || "";
 }
 
 export function isImage(name) {

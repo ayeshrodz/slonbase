@@ -210,6 +210,27 @@ impl LogContext {
     }
 }
 
+/// Query parameters whose values are secrets (file and download tokens, OAuth2 codes), kept
+/// out of the request log.
+const SECRET_PARAMS: &[&str] = &["token", "code", "state"];
+
+/// The URL as logged: secret query values replaced.
+fn redact_url(url: &str) -> String {
+    let Some((path, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    let query: Vec<String> = query
+        .split('&')
+        .map(|pair| match pair.split_once('=') {
+            Some((key, value)) if !value.is_empty() && SECRET_PARAMS.contains(&key) => {
+                format!("{key}=REDACTED")
+            }
+            _ => pair.to_string(),
+        })
+        .collect();
+    format!("{path}?{}", query.join("&"))
+}
+
 /// Middleware logging each request once its response is ready.
 pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next: Next) -> Response {
     let Ok(core) = app.core() else {
@@ -226,7 +247,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     let url = request
         .uri()
         .path_and_query()
-        .map(|p| p.as_str().to_string())
+        .map(|p| redact_url(p.as_str()))
         .unwrap_or_else(|| path.clone());
     let (user_agent, referer) = {
         // scoped: a reference to the request can't be held across the await below
@@ -581,6 +602,21 @@ pub async fn truncate(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn secrets_kept_out_of_logged_urls() {
+        assert_eq!(
+            super::redact_url("/api/files/c/r/a.png?thumb=100x100&token=eyJhbGci.x.y"),
+            "/api/files/c/r/a.png?thumb=100x100&token=REDACTED"
+        );
+        assert_eq!(
+            super::redact_url("/api/oauth2-redirect?code=abc&state=xyz"),
+            "/api/oauth2-redirect?code=REDACTED&state=REDACTED"
+        );
+        assert_eq!(super::redact_url("/api/health"), "/api/health");
+        assert_eq!(super::redact_url("/x?token="), "/x?token=");
+    }
+
     use super::*;
 
     #[test]

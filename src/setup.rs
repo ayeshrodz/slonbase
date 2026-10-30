@@ -169,12 +169,34 @@ fn authorize(app: &App, headers: &HeaderMap) -> Result<SetupMode, ApiError> {
     Ok(setup)
 }
 
+/// The setup page's policy: its own inline script (by hash) and nothing from elsewhere, since
+/// its URL carries the setup token.
+fn page_policy() -> &'static str {
+    static POLICY: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    POLICY.get_or_init(|| {
+        use base64::Engine;
+        use sha2::{Digest, Sha256};
+        let script = SETUP_PAGE
+            .split_once("<script>")
+            .and_then(|(_, rest)| rest.split_once("</script>"))
+            .map(|(script, _)| script)
+            .unwrap_or_default();
+        let hash = base64::engine::general_purpose::STANDARD.encode(Sha256::digest(script));
+        format!(
+            "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; \
+             font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; \
+             form-action 'none'; frame-ancestors 'none'"
+        )
+    })
+}
+
 pub async fn page() -> impl IntoResponse {
     (
         [
             ("cache-control", "no-store"),
             ("referrer-policy", "no-referrer"),
             ("x-frame-options", "DENY"),
+            ("content-security-policy", page_policy()),
         ],
         Html(SETUP_PAGE),
     )

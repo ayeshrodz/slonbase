@@ -1,7 +1,7 @@
 //! The `sort` query parameter: `-created,title,@random`.
 
 use super::compile::{CompileError, quote_ident};
-use crate::collections::model::{Collection, Storage};
+use crate::collections::model::{Collection, FIELD_EMAIL, FIELD_EMAIL_VISIBILITY, Storage};
 
 const MAX_SORT_FIELDS: usize = 8;
 
@@ -41,7 +41,14 @@ pub fn compile_sort(
                         "can't sort by the JSON field {name:?}"
                     )));
                 }
-                format!("{alias}.{} {direction}", quote_ident(&field.name))
+                let column = format!("{alias}.{}", quote_ident(&field.name));
+                // a client sorting by email would learn the hidden ones' order
+                if !allow_hidden && collection.is_auth() && field.name == FIELD_EMAIL {
+                    let visible = quote_ident(FIELD_EMAIL_VISIBILITY);
+                    format!("(CASE WHEN {alias}.{visible} THEN {column} END) {direction}")
+                } else {
+                    format!("{column} {direction}")
+                }
             }
         };
         items.push(item);

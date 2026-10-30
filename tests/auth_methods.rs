@@ -159,6 +159,8 @@ fn otp_from_mail(html: &str) -> String {
 }
 
 async fn request_otp(env: &Env, email: &str) -> (String, String) {
+    // one OTP email a minute per account: these requests come in quick succession
+    env.app.core().unwrap().mail_throttle.reset();
     let skip = env.mail_count();
     let res = env
         .ok(
@@ -1465,5 +1467,74 @@ async fn apple_client_secret() {
             .unwrap()
             .starts_with("Failed to generate client secret.")
     );
+    env.finish().await;
+}
+
+/// The request endpoints send each account at most one email of a kind a minute, so they
+/// can't flood someone's inbox; the requests get their usual answer.
+#[tokio::test]
+async fn auth_emails_are_throttled_per_account() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    users_collection(&env, json!({})).await;
+    env.ok(
+        Some(&env.admin.clone()),
+        "PATCH",
+        "/api/collections/users",
+        Some(json!({ "otp": { "enabled": true, "length": 6, "duration": 300 } })),
+    )
+    .await;
+    env.signup("flood@example.com", "password123").await;
+    let to = "flood@example.com";
+    let sent_to = |env: &Env| {
+        env.mailer
+            .sent
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|m| m.to == to)
+            .count()
+    };
+    let before = sent_to(&env);
+
+    for _ in 0..5 {
+        let (status, _) = env
+            .call(
+                None,
+                "POST",
+                "/api/collections/users/request-password-reset",
+                Some(json!({ "email": to })),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+    let mut ids = Vec::new();
+    for _ in 0..5 {
+        let res = env
+            .ok(
+                None,
+                "POST",
+                "/api/collections/users/request-otp",
+                Some(json!({ "email": to })),
+            )
+            .await;
+        ids.push(res["otpId"].as_str().unwrap().to_string());
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    // one reset email and one OTP email
+    assert_eq!(sent_to(&env), before + 2);
+    // the later OTP requests answer with the code already sent, which still works
+    assert!(ids.iter().all(|id| *id == ids[0]), "{ids:?}");
+    let mail = env.mail_after(0, to).await;
+    let (status, res) = env
+        .call(
+            None,
+            "POST",
+            "/api/collections/users/auth-with-otp",
+            Some(json!({ "otpId": ids[0], "password": otp_from_mail(&mail.html) })),
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
     env.finish().await;
 }

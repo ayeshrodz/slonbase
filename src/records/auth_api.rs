@@ -345,6 +345,13 @@ pub(super) fn send_template(
     );
 }
 
+/// Whether a requested email of `kind` may go to the record now (see
+/// [`crate::guard::MailThrottle`]). The request gets the same answer either way.
+pub(super) fn mail_allowed(core: &Core, record: &AuthRecord, kind: &'static str) -> bool {
+    core.mail_throttle
+        .allow(&format!("{}/{}", record.collection.id, record.id()), kind)
+}
+
 /// Emails the record a link to verify its email.
 pub(crate) fn send_verification(core: &Core, record: &AuthRecord) {
     let options = record.collection.auth_options().expect("auth collection");
@@ -677,7 +684,7 @@ pub async fn request_verification(
                 .get(FIELD_VERIFIED)
                 .and_then(Value::as_bool)
                 .unwrap_or(false);
-            if !verified {
+            if !verified && mail_allowed(&e.core, &record, "verification") {
                 send_verification(&e.core, &record);
             }
             e.response = Some(no_content());
@@ -782,7 +789,9 @@ pub async fn request_password_reset(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            send_password_reset(&e.core, &record);
+            if mail_allowed(&e.core, &record, "passwordReset") {
+                send_password_reset(&e.core, &record);
+            }
             e.response = Some(no_content());
             Ok(e)
         },
@@ -923,7 +932,9 @@ pub async fn request_email_change(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            send_email_change(&e.core, &record, e.str("newEmail"));
+            if mail_allowed(&e.core, &record, "emailChange") {
+                send_email_change(&e.core, &record, e.str("newEmail"));
+            }
             e.response = Some(no_content());
             Ok(e)
         },

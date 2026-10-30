@@ -34,6 +34,7 @@ pub struct Core {
     pub backup_lock: tokio::sync::Mutex<()>,
     /// Rate limit counters of this instance.
     pub rate_limiter: crate::guard::RateLimiter,
+    pub mail_throttle: crate::guard::MailThrottle,
     /// The request and app logs queue.
     pub logs: crate::logs::Logger,
     /// Whether the dashboard's SQL console may run queries.
@@ -134,6 +135,7 @@ impl Core {
             realtime: Hub::default(),
             logs,
             rate_limiter: Default::default(),
+            mail_throttle: Default::default(),
             backups_dir: config.backups.path.clone(),
             backup_key: config.backups.encryption_key.clone(),
             backup_lock: tokio::sync::Mutex::new(()),
