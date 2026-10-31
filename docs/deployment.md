@@ -120,6 +120,7 @@ What's per instance:
 - **Files:** use S3 storage (`s3` in the settings), or all instances must share the same storage
   directory.
 - **JavaScript hooks:** deploy the same hook files to every instance.
+- **The encryption key**, if you use one: every instance needs the same.
 
 **No client affinity needed.** A realtime client's event stream lives on one instance, and the
 SDKs set its subscriptions with a separate `POST /api/realtime`. When that request reaches
@@ -192,4 +193,7 @@ the settings on every instance, and signs everyone out, since the signing key is
   installations from before 0.4.2.
 - Keep the config file private (`0600`, which the wizard sets), since it contains the database
   password.
+- Set an [encryption key](configuration.md#encrypting-the-settings) (`SLONBASE_ENCRYPTION_KEY`),
+  so the settings' secrets and the token signing secret aren't readable in the database, its
+  dumps and its backups. Keep it apart from them.
 - Report vulnerabilities as described in [SECURITY.md](../SECURITY.md).

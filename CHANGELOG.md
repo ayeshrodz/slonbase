@@ -8,6 +8,24 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **The settings and the token signing secret can be encrypted in the database**
+  (`SLONBASE_ENCRYPTION_KEY`, `--encryption-key` or `server.encryption_key`: 32 characters,
+  AES-256-GCM). A database dump, a read-only role or a backup then reveals neither the
+  settings' secrets (SMTP password, S3 keys) nor the secret every token is signed with.
+  Existing installations are encrypted on the first start with a key, and tokens stay valid.
+  Without the key, or with another one, slonbase refuses to start and says why; a restore the
+  key can't read is refused. `slonbase rekey --to <key>` changes the key (or removes it) for the
+  main installation and every project. The format is PocketBase's `PB_ENCRYPTION`, so an
+  import with the same key brings PocketBase's encrypted settings along. See
+  [encrypting the settings](docs/configuration.md#encrypting-the-settings).
+
+### Upgrading
+
+- No migrations. Set the encryption key only once every instance runs this version: older ones
+  can't read encrypted settings.
+
 ## [1.2.0] - 2026-10-31
 
 **Downloads from the bucket, and six more sign-ins.** File downloads can come straight from S3

@@ -904,6 +904,19 @@ Precedence: flags > environment variables > config file > defaults. Unknown keys
 file are rejected, so typos fail loudly. Values from flags or env vars are never written back to
 the file.
 
+**Encryption at rest** (`server.encryption_key`, `src/secrets.rs`). The `settings` and
+`auth_secret` rows of `_slonbase.params` are stored as `{"sealed": base64}`: AES-256-GCM with
+the key's 32 bytes, a random 96-bit nonce before the ciphertext and tag, which is PocketBase's
+`security.Encrypt` layout, so a PocketBase import with the same key opens its settings (CI
+imports from a real PocketBase with `PB_ENCRYPTION`). Every read and write of those rows takes
+the core's key. On start with a key, plain rows are sealed (with a compare-and-set, so instances
+starting together don't fight); a sealed row without the key, or one the key can't open, is a
+`KeyError`, which stops startup rather than being retried. A restore checks, inside its
+transaction, that the restored rows open with the installation's key, and rolls back otherwise.
+`slonbase rekey` rewrites both rows of the main database and every project's in one
+transaction each. Not covered: OAuth2 client secrets in collection definitions, and projects'
+role passwords in `_slonbase.projects`.
+
 ## Distribution
 
 - **Static musl binaries** for `amd64` and `arm64`, cross-compiled in CI with `cross`.

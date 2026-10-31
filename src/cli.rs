@@ -79,6 +79,17 @@ struct Cli {
     )]
     backups_encryption_key: Option<String>,
 
+    /// Encrypt the settings and the token signing secret in the database with this key
+    /// (32 characters, e.g. from `openssl rand -hex 16`); every instance needs the same one.
+    /// Prefer the env var, which stays out of the process list.
+    #[arg(
+        long,
+        global = true,
+        env = "SLONBASE_ENCRYPTION_KEY",
+        hide_env_values = true
+    )]
+    encryption_key: Option<String>,
+
     /// Enable the dashboard's SQL console (runs any SQL with the database role's privileges).
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
@@ -235,6 +246,14 @@ enum Command {
         #[command(subcommand)]
         action: MigrateAction,
     },
+    /// Re-encrypt the settings and the token signing secret, of the main installation and
+    /// every project, from the current encryption key (or none) to another one (or none, to
+    /// store them unencrypted). Stop every instance first, and start them with the new key.
+    Rekey {
+        /// The new key (32 characters); leave it out to remove the encryption.
+        #[arg(long, env = "SLONBASE_NEW_ENCRYPTION_KEY", hide_env_values = true)]
+        to: Option<String>,
+    },
     /// Decrypt an encrypted backup into its zip archive, with the backups encryption key.
     DecryptBackup {
         /// The encrypted backup.
@@ -288,6 +307,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         storage_path: cli.storage_path,
         backups_path: cli.backups_path,
         backups_encryption_key: cli.backups_encryption_key,
+        encryption_key: cli.encryption_key,
         sql_console: cli.sql_console.then_some(true),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
@@ -335,6 +355,10 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         Command::Project { action } => {
             let loaded = config::load(&cli.config, overrides)?;
             project_command(loaded, action).await
+        }
+        Command::Rekey { to } => {
+            let loaded = config::load(&cli.config, overrides)?;
+            rekey_command(&loaded, to.filter(|k| !k.is_empty())).await
         }
         Command::DecryptBackup { input, output } => {
             let loaded = config::load(&cli.config, overrides)?;
@@ -524,6 +548,67 @@ async fn migrate_command(
     _action: MigrateAction,
 ) -> Result<()> {
     anyhow::bail!("this build has no JavaScript engine, which migrations need")
+}
+
+async fn rekey_command(loaded: &config::Loaded, to: Option<String>) -> Result<()> {
+    use crate::secrets::{SecretsKey, rekey};
+    let from = loaded
+        .effective
+        .server
+        .encryption_key
+        .as_deref()
+        .map(SecretsKey::new)
+        .transpose()?;
+    let to = to.as_deref().map(SecretsKey::new).transpose()?;
+    let url = loaded.effective.database.url.clone().ok_or_else(|| {
+        anyhow::anyhow!(
+            "no database configured: run `slonbase setup` first, or pass --database-url"
+        )
+    })?;
+    let pool = db::connect(&url, &loaded.effective.database)?;
+    let mut client = pool.get().await.map_err(db::describe_pool_error)?;
+    rekey(&mut client, from.as_ref(), to.as_ref()).await?;
+    let projects = client
+        .query(
+            "SELECT name, database, role, role_password FROM _slonbase.projects ORDER BY name",
+            &[],
+        )
+        .await?;
+    for row in &projects {
+        let name: String = row.get(0);
+        let role = match (row.get(2), row.get(3)) {
+            (Some(role), Some(password)) => Some((role, password)),
+            _ => None,
+        };
+        let project =
+            crate::projects::project_config(loaded, &name, &row.get::<_, String>(1), role);
+        let url = project
+            .effective
+            .database
+            .url
+            .clone()
+            .expect("a project has a database");
+        let pool = db::connect(&url, &project.effective.database)?;
+        let mut client = pool.get().await.map_err(db::describe_pool_error)?;
+        rekey(&mut client, from.as_ref(), to.as_ref())
+            .await
+            .with_context(|| format!("project {name}"))?;
+    }
+    let projects = match projects.len() {
+        0 => String::new(),
+        1 => " and 1 project".into(),
+        n => format!(" and {n} projects"),
+    };
+    if to.is_some() {
+        println!(
+            "Encrypted the main installation{projects} with the new key. Start every instance with it."
+        );
+    } else {
+        println!(
+            "Decrypted the main installation{projects}. Start every instance without an encryption key."
+        );
+    }
+    Ok(())
 }
 
 async fn core_for(cfg: &config::Config) -> Result<std::sync::Arc<crate::core::Core>> {

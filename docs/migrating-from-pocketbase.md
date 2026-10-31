@@ -89,7 +89,7 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | Your data | SQLite file | PostgreSQL tables you can query, replicate and back up with the usual tools |
 | Write durability | `synchronous = NORMAL` | `synchronous_commit = on` by default ([details](deployment.md#postgresql)) |
 | Backups | Zip with the SQLite file | Zip in slonbase's own format, plus any PostgreSQL backup tool |
-| Settings encryption | `PB_ENCRYPTION` | Not supported; protect the database instead |
+| Settings encryption | `PB_ENCRYPTION` | `SLONBASE_ENCRYPTION_KEY`, in the same format; it also covers the token signing secret ([encrypting the settings](configuration.md#encrypting-the-settings)) |
 | Migrations | Go/JS migrations, automigrate | [JS migrations](migrations.md) and automigrate; Go migrations aren't supported |
 | Rate limits | Per process, off on new installations | Per instance, on for new installations (an import keeps PocketBase's setting) |
 | Dashboard | PocketBase's | slonbase's own, with the same features |

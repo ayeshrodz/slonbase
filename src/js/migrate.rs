@@ -238,9 +238,13 @@ pub(super) fn call_in_tx(
         "saveSettings" => (|| {
             let settings = crate::settings::prepare_patch(&ctx.settings(), a.object(0))?;
             let saved = settings.clone();
+            let core = ctx.core.clone();
             ctx.run(handle, move |tx, _| {
                 Box::pin(async move {
-                    saved.save(tx).await.map_err(ApiError::internal)?;
+                    saved
+                        .save(tx, core.secrets_key())
+                        .await
+                        .map_err(ApiError::internal)?;
                     crate::realtime::notify(tx, "settings")
                         .await
                         .map_err(db_error)?;

@@ -1200,7 +1200,7 @@ async fn reload_settings(core: &Arc<Core>) {
         let generation = core.settings_generation();
         let loaded = async {
             let client = core.pool.get().await.map_err(db::describe_pool_error)?;
-            Settings::load(&client).await
+            Settings::load(&client, core.secrets_key()).await
         };
         match loaded.await {
             Ok(settings) => {

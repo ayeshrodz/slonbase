@@ -531,6 +531,16 @@ pub async fn run(core: &Arc<Core>, path: &Path, with_settings: bool) -> Result<R
         })
         .await
         .context("failed to read PocketBase's settings")?;
+        // encrypted with PB_ENCRYPTION: the same format as slonbase's encryption key
+        let raw = match (raw, core.secrets_key()) {
+            (Some(raw), Some(key)) if serde_json::from_str::<Value>(&raw).is_err() => {
+                match key.open(&raw) {
+                    Some(plain) => Some(String::from_utf8_lossy(&plain).into_owned()),
+                    None => Some(raw),
+                }
+            }
+            (raw, _) => raw,
+        };
         match raw.as_deref().map(serde_json::from_str::<Value>) {
             Some(Ok(Value::Object(all))) => {
                 let mut patch = Map::new();
@@ -548,8 +558,9 @@ pub async fn run(core: &Arc<Core>, path: &Path, with_settings: bool) -> Result<R
                 }
             }
             Some(_) => report.warnings.push(
-                "PocketBase's settings are encrypted (PB_ENCRYPTION) and weren't imported; set \
-                 them in the dashboard"
+                "PocketBase's settings are encrypted (PB_ENCRYPTION) and weren't imported: start \
+                 slonbase with the same value as its encryption key (SLONBASE_ENCRYPTION_KEY) to \
+                 import them, or set them in the dashboard"
                     .into(),
             ),
             None => {}

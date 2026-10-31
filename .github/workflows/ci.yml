@@ -183,6 +183,11 @@ jobs:
           unzip -q "$zip" pocketbase
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/import/run.sh
+      - name: compat/import/run.sh, with PocketBase's settings encrypted
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -qc 'CREATE DATABASE import_encrypted'
+          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/import_encrypted?sslmode=disable \
+            ENCRYPTION_KEY=0123456789abcdef0123456789abcdef compat/import/run.sh
 
   # a released slonbase with data, upgraded to this build in place
   upgrade:

@@ -26,6 +26,7 @@ file, and then the defaults.
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
 | `--backups-path` | `SLONBASE_BACKUPS_PATH` | `backups.path` | `slonbase_data/backups` |
 | `--backups-encryption-key` | `SLONBASE_BACKUPS_ENCRYPTION_KEY` | `backups.encryption_key` | none (not encrypted) |
+| `--encryption-key` | `SLONBASE_ENCRYPTION_KEY` | `server.encryption_key` | none (settings not encrypted) |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
@@ -48,6 +49,7 @@ bind = "127.0.0.1:8090"
 sql_console = false
 # metrics_bind = "127.0.0.1:9090"   # Prometheus metrics at /metrics (not authenticated)
 # http_ca_file = "/etc/slonbase/private-ca.pem"   # extra CAs for S3 and OAuth2 providers
+# encryption_key = "..."   # encrypts the settings in the database; prefer SLONBASE_ENCRYPTION_KEY
 
 [database]
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"
@@ -95,6 +97,38 @@ database too; see [logs](#logs).
 
 **SQL console** (`--sql-console`): see [security](deployment.md#security-checklist) before you
 turn it on.
+
+### Encrypting the settings
+
+The settings hold secrets (the SMTP password, the S3 secret keys), and the database also keeps
+the secret every token is signed with: whoever reads it can sign in as anyone. With an
+encryption key, both are stored encrypted (AES-256-GCM), so a database dump, a read-only
+database role or a backup gives nothing away without the key.
+
+```sh
+export SLONBASE_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # 32 characters; keep it safe
+slonbase serve
+```
+
+- **Existing installations** are encrypted on the first start with a key; tokens stay valid.
+- **Every instance**, and the `slonbase` commands you run against the database, need the same
+  key. Projects use the main installation's.
+- **Without the key, or with another one,** slonbase doesn't start, and says why. A lost key
+  can't be recovered: keep it in a password manager or your secrets store, apart from the
+  database and its backups.
+- **Backups** carry them encrypted, and restore only where the key is the same; a restore that
+  can't read them is refused and changes nothing. Restoring a backup made without a key
+  encrypts its settings again.
+- **Changing or removing the key:** stop every instance, run
+  `slonbase rekey --to <new key>` (or `slonbase rekey` with no `--to`, to store them
+  unencrypted) with the current key set as usual, then start the instances with the new one.
+  It covers the main installation and every project.
+- **PocketBase:** the format is `PB_ENCRYPTION`'s, so with the same value as the key, an import
+  brings PocketBase's encrypted settings along.
+
+What it doesn't cover: OAuth2 client secrets (part of the collections' definitions, as in
+PocketBase) and the passwords of projects' own database roles stay readable to whoever can
+read the database.
 
 ## Application settings
 

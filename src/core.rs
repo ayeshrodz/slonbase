@@ -28,6 +28,8 @@ pub struct Core {
     pub realtime: Hub,
     /// The directory for backups (unless they're stored in S3).
     pub backups_dir: PathBuf,
+    /// Encrypts the settings and the signing secret in the database (`server.encryption_key`).
+    secrets_key: Option<Arc<crate::secrets::SecretsKey>>,
     /// Encrypts new backups (`backups.encryption_key`).
     pub(crate) backup_key: Option<String>,
     /// Held while a backup is created or restored on this instance.
@@ -51,22 +53,41 @@ pub struct Core {
     pub hooks: Arc<crate::hooks::Hooks>,
 }
 
-/// The installation's signing secret, created once and shared by all instances.
-async fn load_auth_secret(client: &deadpool_postgres::Client) -> Result<String> {
+/// The installation's signing secret, created once and shared by all instances (encrypted
+/// with `key` if there's one).
+async fn load_auth_secret(
+    client: &deadpool_postgres::Client,
+    key: Option<&crate::secrets::SecretsKey>,
+) -> Result<String> {
+    let new = serde_json::Value::String(ids::random_secret(32));
     client
         .execute(
-            "INSERT INTO _slonbase.params (key, value) VALUES ('auth_secret', to_jsonb($1::text))
+            "INSERT INTO _slonbase.params (key, value) VALUES ('auth_secret', $1)
              ON CONFLICT (key) DO NOTHING",
-            &[&ids::random_secret(32)],
+            &[&crate::secrets::to_stored(&new, key)],
         )
         .await?;
-    Ok(client
+    let stored = client
         .query_one(
-            "SELECT value #>> '{}' FROM _slonbase.params WHERE key = 'auth_secret'",
+            "SELECT value FROM _slonbase.params WHERE key = 'auth_secret'",
             &[],
         )
         .await?
-        .get(0))
+        .get(0);
+    match crate::secrets::from_stored(stored, key, "token signing secret")? {
+        serde_json::Value::String(secret) => Ok(secret),
+        _ => anyhow::bail!("the token signing secret isn't text"),
+    }
+}
+
+/// The encryption key of the configuration, if there's one.
+fn secrets_key(config: &Config) -> Result<Option<Arc<crate::secrets::SecretsKey>>> {
+    config
+        .server
+        .encryption_key
+        .as_deref()
+        .map(|key| crate::secrets::SecretsKey::new(key).map(Arc::new))
+        .transpose()
 }
 
 fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
@@ -115,11 +136,18 @@ impl Core {
     ) -> Result<Arc<Self>> {
         let local_storage = config.storage.path.clone();
         let client = pool.get().await.map_err(describe_pool_error)?;
+        let secrets_key = secrets_key(config)?;
+        if let Some(key) = &secrets_key {
+            let sealed = crate::secrets::seal_plain(&client, key).await?;
+            if sealed > 0 {
+                tracing::info!("encrypted the settings and the token signing secret");
+            }
+        }
 
-        let secret = load_auth_secret(&client).await?;
+        let secret = load_auth_secret(&client, secrets_key.as_deref()).await?;
 
         let registry = store::load(&client).await?;
-        let settings = Settings::load(&client).await?;
+        let settings = Settings::load(&client, secrets_key.as_deref()).await?;
         drop(client);
 
         let logs = crate::logs::Logger::start(pool.clone(), settings.logs.max_data_size);
@@ -138,6 +166,7 @@ impl Core {
             mail_throttle: Default::default(),
             backups_dir: config.backups.path.clone(),
             backup_key: config.backups.encryption_key.clone(),
+            secrets_key,
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,
@@ -195,15 +224,24 @@ impl Core {
     /// disconnected, since their auth may no longer exist.
     pub async fn reload_after_restore(&self) -> Result<()> {
         let client = self.pool.get().await.map_err(describe_pool_error)?;
-        let secret = load_auth_secret(&client).await?;
+        // a backup made without the key comes back unencrypted
+        if let Some(key) = self.secrets_key() {
+            crate::secrets::seal_plain(&client, key).await?;
+        }
+        let secret = load_auth_secret(&client, self.secrets_key()).await?;
         let registry = store::load(&client).await?;
-        let settings = Settings::load(&client).await?;
+        let settings = Settings::load(&client, self.secrets_key()).await?;
         drop(client);
         *self.auth_secret.write().expect("secret lock") = Arc::new(secret.into_bytes());
         self.set_registry(registry);
         self.set_settings(settings);
         self.realtime.disconnect_all();
         Ok(())
+    }
+
+    /// The key the settings and the signing secret are encrypted with, if any.
+    pub(crate) fn secrets_key(&self) -> Option<&crate::secrets::SecretsKey> {
+        self.secrets_key.as_deref()
     }
 
     pub fn settings(&self) -> Arc<Settings> {

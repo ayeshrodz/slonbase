@@ -51,6 +51,7 @@ pub mod projects;
 pub mod realtime;
 pub mod records;
 pub mod s3;
+pub mod secrets;
 pub mod server;
 pub mod settings;
 pub mod setup;

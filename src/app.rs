@@ -210,6 +210,10 @@ impl App {
                     self.enter_setup(Some(pool));
                     return Ok(());
                 }
+                // a missing or wrong encryption key won't fix itself
+                Err(err) if err.chain().any(|e| e.is::<crate::secrets::KeyError>()) => {
+                    return Err(err);
+                }
                 Err(err) => {
                     let status = format!("{err:#}");
                     tracing::warn!(error = %status, retry_in = ?delay, "database not ready");

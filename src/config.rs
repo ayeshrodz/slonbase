@@ -136,6 +136,10 @@ pub struct ServerConfig {
     /// server with a private certificate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub http_ca_file: Option<PathBuf>,
+    /// Encrypts the settings and the token signing secret in the database (32 characters,
+    /// AES-256-GCM, PocketBase's `PB_ENCRYPTION` format). Every instance needs the same one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encryption_key: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -145,6 +149,7 @@ impl Default for ServerConfig {
             sql_console: false,
             metrics_bind: None,
             http_ca_file: None,
+            encryption_key: None,
         }
     }
 }
@@ -192,6 +197,7 @@ pub struct Overrides {
     pub storage_path: Option<PathBuf>,
     pub backups_path: Option<PathBuf>,
     pub backups_encryption_key: Option<String>,
+    pub encryption_key: Option<String>,
     pub sql_console: Option<bool>,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
@@ -257,6 +263,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(key) = effective.backups.encryption_key.as_deref() {
         crate::backup_crypt::check_key(key)?;
+    }
+    if let Some(key) = overrides.encryption_key {
+        effective.server.encryption_key = Some(key);
+    }
+    if let Some(key) = effective.server.encryption_key.as_deref() {
+        crate::secrets::check_key(key)?;
     }
     if let Some(enabled) = overrides.sql_console {
         effective.server.sql_console = enabled;

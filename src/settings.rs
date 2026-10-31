@@ -278,7 +278,12 @@ pub struct TrustedProxy {
 }
 
 impl Settings {
-    pub async fn load(client: &impl GenericClient) -> anyhow::Result<Self> {
+    /// Loads the settings, decrypting them with `key` when they're stored encrypted (see
+    /// [`crate::secrets`]).
+    pub async fn load(
+        client: &impl GenericClient,
+        key: Option<&crate::secrets::SecretsKey>,
+    ) -> anyhow::Result<Self> {
         let row = client
             .query_opt(
                 "SELECT value FROM _slonbase.params WHERE key = $1",
@@ -286,7 +291,9 @@ impl Settings {
             )
             .await?;
         Ok(match row {
-            Some(row) => serde_json::from_value(row.get(0))?,
+            Some(row) => {
+                serde_json::from_value(crate::secrets::from_stored(row.get(0), key, "settings")?)?
+            }
             None => Self::default(),
         })
     }
@@ -305,12 +312,18 @@ impl Settings {
         Ok(())
     }
 
-    pub(crate) async fn save(&self, client: &impl GenericClient) -> anyhow::Result<()> {
+    /// Saves the settings, encrypted with `key` if there's one.
+    pub(crate) async fn save(
+        &self,
+        client: &impl GenericClient,
+        key: Option<&crate::secrets::SecretsKey>,
+    ) -> anyhow::Result<()> {
+        let value = crate::secrets::to_stored(&serde_json::to_value(self)?, key);
         client
             .execute(
                 "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2)
                  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()",
-                &[&PARAMS_KEY, &serde_json::to_value(self)?],
+                &[&PARAMS_KEY, &value],
             )
             .await?;
         Ok(())
@@ -573,7 +586,10 @@ pub(crate) async fn apply_patch(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    settings.save(&client).await.map_err(ApiError::internal)?;
+    settings
+        .save(&client, core.secrets_key())
+        .await
+        .map_err(ApiError::internal)?;
     crate::realtime::notify(&client, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;

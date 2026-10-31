@@ -600,7 +600,10 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
 
     restore_database(core, &manifest, &tmp.0)
         .await
-        .map_err(BackupError::Other)?;
+        .map_err(|err| match err.downcast::<Unreadable>() {
+            Ok(Unreadable(message)) => BackupError::Invalid(message),
+            Err(err) => BackupError::Other(err),
+        })?;
     if manifest.storage {
         replace_local_files(core, &tmp.0.join("storage"))
             .await
@@ -612,6 +615,12 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
     tracing::info!(backup = %name, elapsed = ?started.elapsed(), "restored a backup");
     Ok(())
 }
+
+/// A backup whose settings or signing secret this installation's encryption key can't read
+/// (rolled back before anything changes).
+#[derive(Debug, thiserror::Error)]
+#[error("{0}")]
+struct Unreadable(String);
 
 async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Result<()> {
     let _guard = core.schema_lock.lock().await;
@@ -672,6 +681,28 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         )
         .await
         .with_context(|| format!("failed to restore _slonbase.{}", table.table))?;
+    }
+    // the restored settings and signing secret must open with this installation's key
+    for param in crate::secrets::SEALED_PARAMS {
+        let Some(row) = tx
+            .query_opt(
+                "SELECT value FROM _slonbase.params WHERE key = $1",
+                &[param],
+            )
+            .await?
+        else {
+            continue;
+        };
+        if let Err(err) = crate::secrets::from_stored(
+            row.get(0),
+            core.secrets_key(),
+            crate::secrets::param_name(param),
+        ) {
+            return Err(Unreadable(format!(
+                "The backup can't be restored here: {err}. Restore it with the encryption key it was made with."
+            ))
+            .into());
+        }
     }
 
     let restored = store::load(&tx).await?;
