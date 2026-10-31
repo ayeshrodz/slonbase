@@ -888,10 +888,15 @@ gives NULL, and so on):
   literals only), and JSON numbers round-trip exactly (`serde_json`'s `float_roundtrip`;
   without it `23.400000000000002` read back as `23.4`).
 
-### Planned
+### Tried and left out
 
-- **PostgreSQL builds list responses** (`json_agg`/`row_to_json`), so the server streams JSON
-  instead of converting rows one by one.
+- **PostgreSQL building list responses.** A prototype (in 1.2's cycle) had PostgreSQL write each
+  record's JSON for lists without hooks, `expand` or `fields`, and sent the rows as they came.
+  On the benchmark (`bench/`, alternating builds), plain lists of 30 got about 15–20% faster;
+  sorted, filtered and signed-in lists about 5%, within the run-to-run noise. Not worth a
+  second serializer that every field type would have to match byte for byte (PostgreSQL also
+  writes some numbers differently, `1e+21` against `1e21`). Rows are already read as typed
+  values straight into the response.
 
 ## Configuration
 
@@ -1020,3 +1025,6 @@ the file.
 9. **1.0** (done): a documentation site, a [stability promise](stability.md) for the API,
    configuration and on-disk format, and setups for hosting platforms (Render's is one click; the
    Coolify, Dokploy and Railway ones are ready for their catalogs, see `deploy/README.md`).
+10. **1.1** (done): a security review of the whole platform, with its fixes. **1.2** (done):
+    presigned S3 downloads, Bitbucket, Twitch, Spotify, Patreon, Kakao and X sign-in, and the
+    auth email throttle shared by the instances.

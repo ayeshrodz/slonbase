@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-31
+
+**Downloads from the bucket, and six more sign-ins.** File downloads can come straight from S3
+through short-lived signed URLs; Bitbucket, Twitch, Spotify, Patreon, Kakao and X join the
+OAuth2 providers; and the auth email throttle from 1.1.0 now holds across instances.
+
 ### Added
 
 - **Six more OAuth2 providers:** Bitbucket, Twitch, Spotify, Patreon, Kakao and X (`twitter`),
@@ -32,7 +38,9 @@ changes, listed in its **Upgrading** section.
 
 ### Upgrading
 
-- System migration 14 adds the `_slonbase.mail_sent` table (unlogged).
+- Replace the binary or the image; system migration 14 runs on start and adds the
+  `_slonbase.mail_sent` table (unlogged). Nothing else changes until you turn on
+  `s3.presignedDownloads` or configure a new provider.
 
 ## [1.1.0] - 2026-10-30
 
@@ -670,7 +678,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.1.0
 [1.0.2]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...v1.0.1
