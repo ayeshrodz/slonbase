@@ -77,7 +77,14 @@ async fn sorted(client: &s3::Client, prefix: &str) -> Vec<String> {
     keys
 }
 
+// one test, so both flows run on one runtime: the server's HTTP client is shared, and a
+// connection it pooled on a finished test's runtime can't be used from another
 #[tokio::test]
+async fn s3_end_to_end() {
+    files_in_s3().await;
+    presigned_downloads_from_s3().await;
+}
+
 async fn files_in_s3() {
     let bucket = format!("slonbase-test-{}", slonbase::ids::random_id(8));
     let Some(config) = s3_config(&bucket) else {
@@ -405,7 +412,6 @@ async fn files_in_s3() {
     tdb.drop_db().await;
 }
 
-#[tokio::test]
 async fn presigned_downloads_from_s3() {
     let bucket = format!("slonbase-test-{}", slonbase::ids::random_id(8));
     let Some(config) = s3_config(&bucket) else {
