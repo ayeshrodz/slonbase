@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-01
+
+**Every stored secret encrypted.** With an encryption key, OAuth2 client secrets and projects'
+database role passwords are now encrypted in the database too, like the settings and the token
+signing secret.
+
 ### Security
 
 - **Encryption at rest covers every stored secret.** With an encryption key
@@ -761,7 +767,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.3.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.3.2...HEAD
+[1.3.2]: https://github.com/ayeshrodz/slonbase/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/ayeshrodz/slonbase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...v1.2.0
