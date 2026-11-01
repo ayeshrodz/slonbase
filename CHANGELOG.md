@@ -8,6 +8,18 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **A snappier dashboard.**
+  - **Lists show at once:** a list you've seen shows instantly while the fresh one loads
+    (kept in the tab's memory, forgotten when the signed-in account changes).
+  - **Long pages scroll smoothly:** record pages go up to 500 rows, and pages over 80 draw only
+    the rows in view and around them.
+  - **Deletes are immediate:** deleted records go at once, and come back if the server
+    refuses; saved values show in the table right away.
+  - **Rarely used pages load when opened:** the schema diagram, Logs, Health, the SQL console,
+    Projects and the API docs no longer download on the first visit.
+
 ## [1.3.0] - 2026-11-01
 
 **Faster everywhere, and encrypted secrets.** Lists are 5 to 8 times faster than in 1.2 and

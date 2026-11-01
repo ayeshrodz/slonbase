@@ -929,7 +929,14 @@ under load (`/proc` ticks per process), instruction profiles of the server (call
 - **The dashboard** is served under `/_/v/{build hash}/`, cached for a year as immutable,
   since a new build has another hash; `index.html` (revalidated) links its files there and
   preloads every module (`modulepreload`), so the first load fetches them in parallel instead
-  of as each import is found, and later loads only revalidate the page.
+  of as each import is found, and later loads only revalidate the page. Pages most visits
+  never open (the diagram, Logs, Health, the SQL console, Projects, the API docs) load when
+  first shown (`lazy()` in `core.js`), and the build leaves them out of the preloads.
+- **In the dashboard,** a list seen before is shown at once from memory while the fresh one
+  loads (`remembered` in `api.js`: 40 responses, this tab only, cleared when the signed-in
+  account changes); record pages over 80 rows draw the rows in view and 15 on each side, with
+  spacer rows for the rest (`useRowWindow`); deletes and saves show in the table before the
+  server answers, and a refused delete puts the rows back.
 
 ### Tried and left out
 
