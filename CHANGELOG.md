@@ -8,6 +8,11 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-11-01
+
+**A snappier dashboard.** Lists you've seen show at once, long pages scroll smoothly, deletes
+are immediate, and rarely used pages load only when opened. Nothing changes in the API.
+
 ### Changed
 
 - **A snappier dashboard.**
@@ -741,7 +746,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.3.1...HEAD
+[1.3.1]: https://github.com/ayeshrodz/slonbase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.1.0
