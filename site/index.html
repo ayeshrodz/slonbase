@@ -344,7 +344,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.3.2</b><span id="pill-title">Every stored secret encrypted</span><span class="arrow">→</span>
+      <b id="pill-version">v1.4.0</b><span id="pill-title">15 more sign-in providers</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -635,13 +635,14 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.3.2</div>
+        <div class="ver" id="rel-version">v1.4.0</div>
         <div class="date" id="rel-date">November 1, 2026</div>
-        <p id="rel-summary">With an encryption key, OAuth2 client secrets and project role passwords are encrypted in the database too. Since 1.3.0: lists 5 to 8 times faster than in 1.2, and a dashboard that answers at once.</p>
+        <p id="rel-summary">Sign in with Box, Gitea/Forgejo, Gitee, Instagram, Lark, Linear, LiveChat, mailcow, monday.com, Notion, Planning Center, Strava, Trakt, WakaTime and Yandex: every PocketBase provider but VK. Since 1.3: lists 5 to 8 times faster, and every stored secret encrypted.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>Client secrets and role passwords encrypted</li>
+        <li>15 more OAuth2 providers</li>
+        <li>Every stored secret encrypted (1.3.2)</li>
         <li>A dashboard that answers at once (1.3.1)</li>
         <li>Lists 5 to 8 times faster (1.3.0)</li>
       </ul>
@@ -678,8 +679,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.3.2/slonbase-1.3.2-linux-amd64.tar.gz
-tar xzf slonbase-1.3.2-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.4.0/slonbase-1.4.0-linux-amd64.tar.gz
+tar xzf slonbase-1.4.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'

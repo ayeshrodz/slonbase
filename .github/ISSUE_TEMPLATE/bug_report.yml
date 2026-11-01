@@ -30,7 +30,7 @@ body:
     attributes:
       label: slonbase version
       description: The output of `slonbase --version`.
-      placeholder: slonbase 1.3.2
+      placeholder: slonbase 1.4.0
     validations:
       required: true
   - type: input
