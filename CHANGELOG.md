@@ -21,6 +21,33 @@ changes, listed in its **Upgrading** section.
   import with the same key brings PocketBase's encrypted settings along. See
   [encrypting the settings](docs/configuration.md#encrypting-the-settings).
 
+### Performance
+
+Lists are 5 to 8 times faster than in 1.2, single records 2.85 times, on the same machine and
+data; against PocketBase 0.40.5, lists are 3.3 to 5.3 times faster at about a tenth of its p99
+latency ([benchmarks](bench/README.md)). What changed:
+
+- **A fast allocator in the release binaries.** They're static musl builds, whose allocator
+  serializes threads on every allocation; the binary now uses mimalloc (programs using slonbase
+  as a library keep choosing their own).
+- **Prepared statements** for SQL that repeats, once per connection, so PostgreSQL stops
+  parsing and planning the same queries. SQL seen once runs as before, so a stream of distinct
+  filters can't fill the caches; each connection keeps at most 256, dropped when collections
+  change. List pages pass their limit and offset as parameters, so pages share a statement.
+- **List totals are kept until data changes.** Counting every matching row was most of a
+  list's cost. A total is reused only for the same query and caller, while no data changed
+  (from any instance or program: the realtime triggers report every change), and for 5 s at
+  most; never for view collections or filters on the time (`@now`, `strftime()`).
+- **Lists are written straight from the rows** when no hook, `expand` or `fields` changes them:
+  the same bytes, without building a map per record.
+- **The dashboard is cached for good** between builds: a repeat visit loads 2 files instead of
+  revalidating 33, and the page preloads every module.
+
+### Fixed
+
+- A list hiding emails (`emailVisibility`) no longer moves another field into the email's
+  place in each record; the fields keep their order.
+
 ### Upgrading
 
 - No migrations. Set the encryption key only once every instance runs this version: older ones

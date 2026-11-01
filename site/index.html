@@ -378,7 +378,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="stats reveal">
     <div class="stat"><b>Any source</b><span>of change reaches realtime subscribers: the API, SQL, or another program</span></div>
     <div class="stat"><b>N servers</b><span>on one database, behind any load balancer, no sticky sessions</span></div>
-    <div class="stat"><b>16×</b><span>faster filtered lists in our benchmarks, with lower p99 latency</span></div>
+    <div class="stat"><b>5×</b><span>the lists per second of PocketBase in our benchmarks, at a tenth of its p99 latency</span></div>
     <div class="stat"><b>8 MB</b><span>one static binary, the dashboard built in</span></div>
   </div>
 </div>
@@ -500,24 +500,29 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <p class="sub">Built in Rust with tokio and axum. Filters compile to parameterized SQL, and PostgreSQL's planner uses your indexes. The same seeded data and workloads, on the same machine, through the same HTTP API.</p>
     <div class="bars">
       <div class="bar-row reveal">
-        <div class="label">Filtered list<small>1,175 vs 73 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:6.2%"></div></div>
-        <div class="x">16.1×</div>
+        <div class="label">Filtered list<small>5,965 vs 83 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.4%"></div></div>
+        <div class="x">72×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List 30 records<small>1,557 vs 1,043 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:67%"></div></div>
-        <div class="x">1.5×</div>
+        <div class="label">List 30 records<small>6,863 vs 1,307 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:19%"></div></div>
+        <div class="x">5.3×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List with expand<small>973 vs 701 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:72%"></div></div>
+        <div class="label">List with expand<small>3,079 vs 931 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:30%"></div></div>
+        <div class="x">3.3×</div>
+      </div>
+      <div class="bar-row reveal">
+        <div class="label">View one record<small>13,677 vs 10,083 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:74%"></div></div>
         <div class="x">1.4×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Lower p99 latency<small>lists: 36.5 vs 101.8 ms</small></div>
-        <div class="track"><div class="us" style="width:36%"></div><div class="them" style="width:100%"></div></div>
-        <div class="x">2.8×</div>
+        <div class="label">Lower p99 latency<small>lists: 9.3 vs 81.6 ms</small></div>
+        <div class="track"><div class="us" style="width:11%"></div><div class="them" style="width:100%"></div></div>
+        <div class="x">8.8×</div>
       </div>
     </div>
     <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>

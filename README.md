@@ -226,15 +226,16 @@ default settings ([method and full results](bench/README.md)):
 
 | Scenario | slonbase req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
-| List 30 records | 1,557 | 1,043 | 36.5 / 101.8 |
-| List 30, filtered | 1,175 | 73 | 47.7 / 623.3 |
-| List 30, expand a relation | 973 | 701 | 50.5 / 161.5 |
-| Create a record | 1,728 (2,792 with async commit) | 2,532 | 29.8 / 66.0 |
+| View one record | 13,677 | 10,083 | 5.9 / 27.4 |
+| List 30 records | 6,863 | 1,307 | 9.3 / 81.6 |
+| List 30, filtered | 5,965 | 83 | 10.6 / 533.8 |
+| List 30, expand a relation | 3,079 | 931 | 17.2 / 113.7 |
+| Create a record | 2,204 (4,520 with async commit) | 3,622 | 24.6 / 51.1 |
 
-An embedded SQLite answers a single client's lookups faster, since it runs in the server's
-process. Writes are slower with PostgreSQL's default durability, and a little faster when
-PostgreSQL makes the same trade-off as SQLite's default (`synchronous_commit = off`; see
-[why](docs/deployment.md#postgresql)).
+Writes are slower with PostgreSQL's default durability, and faster when PostgreSQL makes the
+same trade-off as SQLite's default (`synchronous_commit = off`; see
+[why](docs/deployment.md#postgresql)). 1.3 made lists 5 to 8 times faster than 1.2 (see
+[what changed](bench/README.md#what-changed-in-13)).
 
 ## Contributing
 

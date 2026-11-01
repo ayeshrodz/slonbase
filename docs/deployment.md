@@ -101,7 +101,7 @@ root, as the [platform setups](platforms.md) do. Its health check
   own CA.
 - **Durability vs. write latency:** with PostgreSQL's default `synchronous_commit = on`, every
   write waits for the WAL to reach the disk. `ALTER DATABASE slonbase SET synchronous_commit = off`
-  makes writes about 1.5× faster (see the [benchmarks](../bench/README.md)). A crash can then lose
+  makes writes about twice as fast (see the [benchmarks](../bench/README.md)). A crash can then lose
   the last fraction of a second of commits, but never corrupts data. (Embedded SQLite backends
   make the same trade-off by default.)
 - **Your data is ordinary tables** in the `slonbase` schema, so you can query them, replicate
