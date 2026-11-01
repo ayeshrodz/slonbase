@@ -32,6 +32,38 @@ export function useStore(store, select = (s) => s) {
   return value;
 }
 
+// ------------------------------------------------------------------ pages on demand
+
+// A component whose module loads the first time it's shown (pages most visits never open), so
+// the first visit downloads less. `name` is the module's export.
+export function lazy(load, name) {
+  let Component = null;
+  let pending = null;
+  return function Lazy(props) {
+    const [state, setState] = useState(Component ? "ready" : "loading");
+    useEffect(() => {
+      if (Component) return;
+      let alive = true;
+      pending = pending || load().then((m) => (Component = m[name]));
+      pending.then(
+        () => alive && setState("ready"),
+        () => {
+          pending = null;
+          if (alive) setState("failed");
+        }
+      );
+      return () => {
+        alive = false;
+      };
+    }, []);
+    if (Component) return h(Component, props);
+    if (state === "failed") {
+      return html`<div class="empty"><h3>Couldn't load this page</h3><p class="small">Check the connection, then <a href="" onClick=${() => location.reload()}>reload</a>.</p></div>`;
+    }
+    return html`<div class="page-loading" aria-busy="true"><span class="spinner"></span></div>`;
+  };
+}
+
 // ------------------------------------------------------------------ router
 
 function currentRoute() {

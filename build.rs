@@ -79,11 +79,28 @@ fn main() {
         }
     }
     let version = format!("{:016x}", fnv1a(&combined));
-    // every module, fetched at once instead of as each import is found
+    // modules loaded on demand (`import("./x.js")`), which the page doesn't preload
+    let mut on_demand = std::collections::HashSet::new();
+    for path in &paths {
+        let relative = relative_of(path);
+        if !relative.ends_with(".js") {
+            continue;
+        }
+        let code = fs::read_to_string(path).expect("UTF-8 module");
+        let dir = Path::new(&relative).parent().unwrap_or(Path::new(""));
+        for part in code.split("import(\"").skip(1) {
+            let Some(target) = part.split('"').next().filter(|t| t.starts_with("./")) else {
+                continue;
+            };
+            let resolved = dir.join(target.trim_start_matches("./"));
+            on_demand.insert(resolved.to_str().expect("UTF-8 path").replace('\\', "/"));
+        }
+    }
+    // every other module, fetched at once instead of as each import is found
     let preloads: String = paths
         .iter()
         .map(|p| relative_of(p))
-        .filter(|r| r.ends_with(".js") && r != "boot.js")
+        .filter(|r| r.ends_with(".js") && r != "boot.js" && !on_demand.contains(r))
         .map(|r| format!("    <link rel=\"modulepreload\" href=\"./v/{version}/{r}\" />\n"))
         .collect();
 

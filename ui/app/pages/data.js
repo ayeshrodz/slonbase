@@ -1,6 +1,6 @@
 // The data workspace: the collections panel and a collection's tabs. Schema, rules,
 // indexes, auth options and settings edit one draft, saved from the floating save bar.
-import { html, useState, useEffect, useMemo, useStore, navigate, route, cx } from "../lib/core.js";
+import { html, useState, useEffect, useMemo, useStore, navigate, route, cx, lazy } from "../lib/core.js";
 import { api, enc } from "../lib/api.js";
 import { app, loadCollections, upsertCollection, removeCollection } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
@@ -10,7 +10,7 @@ import { Schema } from "./schema.js";
 import { Rules } from "./rules.js";
 import { Indexes } from "./indexes.js";
 import { AuthOptions } from "./auth-options.js";
-import { ApiDocs } from "./api-docs.js";
+const ApiDocs = lazy(() => import("./api-docs.js"), "ApiDocs");
 
 function clone(v) {
   return JSON.parse(JSON.stringify(v));

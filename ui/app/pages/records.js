@@ -1,13 +1,53 @@
 // A collection's records: filter, sort, paginate, select, live updates.
-import { html, useState, useEffect, useRef, navigate, cx, route, useStore } from "../lib/core.js";
-import { api, qs, enc, fileUrl, realtime, getFileToken } from "../lib/api.js";
+import { html, useState, useEffect, useLayoutEffect, useRef, navigate, cx, route, useStore } from "../lib/core.js";
+import { api, qs, enc, fileUrl, realtime, getFileToken, remembered } from "../lib/api.js";
 import { Icon, fieldMeta } from "../lib/icons.js";
 import { Button, IconButton, Check, Skeleton, Empty, Menu, Switch, toast, confirmDialog, CopyButton, Portal, tone } from "../lib/ui.js";
 import { formatDate, relativeTime, truncate, stripHtml, isImage, plural, recordLabel } from "../lib/format.js";
 import { RecordEditor } from "./record-editor.js";
 import { app } from "../lib/state.js";
 
-const PER_PAGE = [20, 50, 100, 200];
+const PER_PAGE = [20, 50, 100, 200, 500];
+// longer pages draw only the rows around the visible ones (plus OVERSCAN on each side)
+const WINDOW_FROM = 80;
+const OVERSCAN = 15;
+
+// The rows of `count` to draw in the scrolling element `ref`, and the row height: all of them
+// for short pages, else those in view and around, kept as the table scrolls or resizes.
+function useRowWindow(ref, count) {
+  const [range, setRange] = useState([0, count]);
+  const height = useRef(43);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || count <= WINDOW_FROM) {
+      setRange([0, count]);
+      return;
+    }
+    const update = () => {
+      const row = el.querySelector("tbody tr[data-row]");
+      if (row) height.current = row.getBoundingClientRect().height || height.current;
+      const head = (el.querySelector("thead") || {}).offsetHeight || 0;
+      const top = Math.max(0, el.scrollTop - head);
+      const start = Math.max(0, Math.floor(top / height.current) - OVERSCAN);
+      const end = Math.min(count, Math.ceil((top + el.clientHeight) / height.current) + OVERSCAN);
+      setRange((r) => (r[0] === start && r[1] === end ? r : [start, end]));
+    };
+    update();
+    let frame = 0;
+    const later = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(update);
+    };
+    el.addEventListener("scroll", later, { passive: true });
+    window.addEventListener("resize", later);
+    return () => {
+      cancelAnimationFrame(frame);
+      el.removeEventListener("scroll", later);
+      window.removeEventListener("resize", later);
+    };
+  }, [count]);
+  return count <= WINDOW_FROM ? { start: 0, end: count, rowHeight: height.current } : { start: range[0], end: Math.min(range[1], count), rowHeight: height.current };
+}
 
 function hiddenKey(c) {
   return "slonbase.columns." + c.id;
@@ -94,7 +134,10 @@ export function Records({ collection: c, recordId }) {
   const [sort, setSort] = useState(c.fields.some((f) => f.name === "created") ? "-created" : "");
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(50);
-  const [result, setResult] = useState(null);
+  const relations = c.fields.filter((f) => f.type === "relation").map((f) => f.name);
+  const listUrl = `/api/collections/${enc(c.name)}/records` + qs({ page, perPage, sort, filter, expand: relations.join(",") });
+  // the last answer to the same request, shown at once while the fresh one loads
+  const [result, setResult] = useState(() => remembered.get(listUrl) || null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState(new Set());
@@ -104,8 +147,6 @@ export function Records({ collection: c, recordId }) {
   const [fileToken, setFileToken] = useState("");
   const isView = c.type === "view";
 
-  const relations = c.fields.filter((f) => f.type === "relation").map((f) => f.name);
-
   useEffect(() => {
     if (c.fields.some((f) => f.type === "file" && f.protected)) getFileToken().then(setFileToken).catch(() => {});
   }, [c.id]);
@@ -113,15 +154,14 @@ export function Records({ collection: c, recordId }) {
   useEffect(() => {
     let alive = true;
     setLoading(true);
+    const known = remembered.get(listUrl);
+    if (known) setResult(known);
     const controller = new AbortController();
     api
-      .get(
-        `/api/collections/${enc(c.name)}/records` +
-          qs({ page, perPage, sort, filter, expand: relations.join(",") }),
-        { signal: controller.signal }
-      )
+      .get(listUrl, { signal: controller.signal })
       .then((res) => {
         if (!alive) return;
+        remembered.set(listUrl, res);
         setResult(res);
         setError(null);
       })
@@ -189,11 +229,17 @@ export function Records({ collection: c, recordId }) {
       danger: true,
     });
     if (!ok) return;
+    // gone at once; back if the server refuses
+    const before = result;
+    const gone = new Set(ids);
+    if (before) setResult({ ...before, items: before.items.filter((r) => !gone.has(r.id)), totalItems: Math.max(0, before.totalItems - ids.length) });
+    setSelected(new Set());
     const results = await Promise.allSettled(ids.map((id) => api.delete(`/api/collections/${enc(c.name)}/records/${enc(id)}`)));
     const failed = results.filter((r) => r.status === "rejected");
-    if (failed.length) toast.error(`${failed.length} couldn't be deleted: ${failed[0].reason.message}`);
-    else toast(`Deleted ${plural(ids.length, "record")}.`);
-    setSelected(new Set());
+    if (failed.length) {
+      toast.error(`${failed.length} couldn't be deleted: ${failed[0].reason.message}`);
+      if (before && failed.length === ids.length) setResult(before);
+    } else toast(`Deleted ${plural(ids.length, "record")}.`);
     setTick((t) => t + 1);
   };
 
@@ -202,6 +248,9 @@ export function Records({ collection: c, recordId }) {
 
   const total = result ? result.totalItems : 0;
   const pages = result ? Math.max(1, result.totalPages) : 1;
+  const wrap = useRef(null);
+  const { start, end, rowHeight } = useRowWindow(wrap, items.length);
+  const span = shown.length + (isView ? 1 : 2);
 
   return html`<div>
     <div class="toolbar">
@@ -245,8 +294,8 @@ export function Records({ collection: c, recordId }) {
 
     ${error
       ? html`<div class="card"><${Empty} icon="warning" title="Couldn't load the records">${error.message}</${Empty}></div>`
-      : html`<div class="grid-wrap">
-          <table class="grid">
+      : html`<div class="grid-wrap" ref=${wrap}>
+          <table class=${cx("grid", { windowed: items.length > WINDOW_FROM })}>
             <thead>
               <tr>
                 ${!isView &&
@@ -279,10 +328,13 @@ export function Records({ collection: c, recordId }) {
                       ${shown.map(() => html`<td><${Skeleton} width=${40 + Math.random() * 50 + "%"} /></td>`)}<td></td>
                     </tr>`
                   )
-                : items.map(
+                : [
+                  start > 0 && html`<tr class="spacer" aria-hidden="true" key="above"><td colspan=${span} style=${{ height: start * rowHeight + "px" }}></td></tr>`,
+                  ...items.slice(start, end).map(
                     (r, i) => html`<tr
                       key=${r.id}
-                      style=${{ "--i": i }}
+                      data-row
+                      style=${{ "--i": start ? 0 : i }}
                       class=${cx({ selected: selected.has(r.id), flash: flash.has(r.id) })}
                       onClick=${() => open(r.id)}
                     >
@@ -301,7 +353,9 @@ export function Records({ collection: c, recordId }) {
                       ${shown.map((f) => html`<td><${Cell} field=${f} record=${r} collections=${collections} fileToken=${fileToken} /></td>`)}
                       <td class="col-actions"><${Icon} name="chevronRight" size=${16} class="faint" /></td>
                     </tr>`
-                  )}
+                  ),
+                  end < items.length && html`<tr class="spacer" aria-hidden="true" key="below"><td colspan=${span} style=${{ height: (items.length - end) * rowHeight + "px" }}></td></tr>`,
+                ]}
             </tbody>
           </table>
           ${result &&
@@ -348,6 +402,10 @@ export function Records({ collection: c, recordId }) {
       recordId=${recordId}
       onClose=${closeEditor}
       onSaved=${(saved, keepOpen) => {
+        // the saved values at once (the refresh brings the expanded relations)
+        if (saved && result && result.items.some((x) => x.id === saved.id)) {
+          setResult({ ...result, items: result.items.map((x) => (x.id === saved.id ? { ...saved, expand: x.expand } : x)) });
+        }
         setTick((t) => t + 1);
         if (!keepOpen) closeEditor();
         else if (recordId === "new") navigate(`/data/${enc(c.name)}/records/${enc(saved.id)}`, true);

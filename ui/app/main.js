@@ -1,5 +1,5 @@
 // The dashboard: auth gate, shell (top navigation, command palette) and routes.
-import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx } from "./lib/core.js";
+import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx, lazy } from "./lib/core.js";
 import { session, refreshAuth, api, PROJECT, listProjects, dashboardUrl } from "./lib/api.js";
 import { app, initTheme, setTheme, loadCollections } from "./lib/state.js";
 import { Icon, Logo } from "./lib/icons.js";
@@ -9,12 +9,13 @@ import { Login, PasswordResetRequest, PasswordResetConfirm } from "./pages/login
 import { PublicAuth } from "./pages/public-auth.js";
 import { Overview } from "./pages/overview.js";
 import { DataWorkspace } from "./pages/data.js";
-import { Logs } from "./pages/logs.js";
 import { Settings, applyAccent } from "./pages/settings.js";
-import { SqlConsole } from "./pages/sql.js";
-import { Projects } from "./pages/projects.js";
-import { Health } from "./pages/health.js";
-import { Diagram } from "./pages/diagram.js";
+// opened by few visits: loaded when first shown (see `lazy`)
+const Logs = lazy(() => import("./pages/logs.js"), "Logs");
+const SqlConsole = lazy(() => import("./pages/sql.js"), "SqlConsole");
+const Projects = lazy(() => import("./pages/projects.js"), "Projects");
+const Health = lazy(() => import("./pages/health.js"), "Health");
+const Diagram = lazy(() => import("./pages/diagram.js"), "Diagram");
 
 initTheme();
 

@@ -48,6 +48,19 @@ function readAuth() {
 let auth = readAuth();
 const listeners = new Set();
 
+// Responses kept in this tab's memory, shown at once while fresh ones load (a list visited
+// before). Forgotten when the signed-in account changes, and capped.
+const recent = new Map();
+const MAX_RECENT = 40;
+export const remembered = {
+  get: (key) => recent.get(key),
+  set(key, value) {
+    recent.delete(key);
+    recent.set(key, value);
+    if (recent.size > MAX_RECENT) recent.delete(recent.keys().next().value);
+  },
+};
+
 export const session = {
   get token() {
     return auth ? auth.token : "";
@@ -56,6 +69,8 @@ export const session = {
     return auth ? auth.record : null;
   },
   set(token, record) {
+    // another account (or none) mustn't see what this one loaded
+    if (!token || !auth || !record || !auth.record || auth.record.id !== record.id) recent.clear();
     auth = token ? { token, record } : null;
     try {
       if (auth) localStorage.setItem(TOKEN_KEY, JSON.stringify(auth));
