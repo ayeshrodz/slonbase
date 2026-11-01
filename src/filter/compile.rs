@@ -62,11 +62,22 @@ pub struct AuthInfo {
     pub values: serde_json::Map<String, Value>,
 }
 
-/// Positional query parameters. Every parameter is sent as text and cast in SQL.
+/// Positional query parameters. Every parameter is sent as text and cast in SQL. The flag
+/// says whether the SQL uses the request's time (`@now` and the like, `strftime()`'s now),
+/// so its result can change without any write.
 #[derive(Debug, Default, Clone)]
-pub struct Params(pub Vec<Option<String>>);
+pub struct Params(pub Vec<Option<String>>, bool);
 
 impl Params {
+    /// Whether the SQL depends on the request's time.
+    pub fn time_dependent(&self) -> bool {
+        self.1
+    }
+
+    fn mark_time_dependent(&mut self) {
+        self.1 = true;
+    }
+
     /// Adds a parameter and returns its placeholder (`$n::text`).
     pub fn push(&mut self, value: impl Into<String>) -> String {
         self.0.push(Some(value.into()));
@@ -635,6 +646,8 @@ impl Compiler<'_, '_> {
             .map(|m| self.params.push(*m))
             .collect();
         let modifiers = format!("ARRAY[{}]::text[]", modifiers.join(", "));
+        // its time value can be 'now', or relative to it
+        self.params.mark_time_dependent();
         let now = format!(
             "({})::bigint",
             self.params
@@ -1281,6 +1294,7 @@ impl Compiler<'_, '_> {
     }
 
     fn macro_value(&mut self, name: &str) -> Result<Val, CompileError> {
+        self.params.mark_time_dependent();
         let now = self.scope.request.now;
         let day_start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
         let month_start = NaiveDate::from_ymd_opt(now.year(), now.month(), 1)

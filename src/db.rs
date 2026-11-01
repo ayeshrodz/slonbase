@@ -224,14 +224,84 @@ pub fn describe_pg_error(err: &tokio_postgres::Error) -> String {
     msg
 }
 
-/// Runs queries whose parameters are all text (the filter compiler's [`Params`]) in one
-/// round trip: the parameter types are sent with the statement, so it isn't prepared first.
+/// Statements kept prepared on one connection, at most; past it, that connection's are
+/// dropped and prepared again as they come.
+const MAX_STATEMENTS: usize = 256;
+/// SQL texts remembered for [`seen_before`]; past it, they're forgotten.
+const MAX_SEEN: usize = 8192;
+
+/// Whether this SQL text ran recently. Only SQL seen before is prepared and kept, so a query
+/// that comes once (a filter typed once, or many sent to fill the caches) runs as before, and
+/// the cache holds what repeats: the queries of the app's screens.
+fn seen_before(sql: &str) -> bool {
+    use std::hash::BuildHasher;
+    static STATE: std::sync::LazyLock<std::hash::RandomState> =
+        std::sync::LazyLock::new(std::hash::RandomState::new);
+    static SEEN: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<u64>>> =
+        std::sync::LazyLock::new(Default::default);
+    let hash = STATE.hash_one(sql);
+    let mut seen = SEEN.lock().expect("seen SQL lock");
+    if seen.contains(&hash) {
+        return true;
+    }
+    if seen.len() >= MAX_SEEN {
+        seen.clear();
+    }
+    seen.insert(hash);
+    false
+}
+
+/// A prepared statement whose result columns changed under it (a table altered by another
+/// program); it's dropped from the cache.
+fn is_stale_plan(err: &tokio_postgres::Error) -> bool {
+    err.code() == Some(&tokio_postgres::error::SqlState::FEATURE_NOT_SUPPORTED)
+        && err
+            .as_db_error()
+            .is_some_and(|db| db.message().contains("cached plan"))
+}
+
+/// Runs queries whose parameters are all text (the filter compiler's [`Params`]). SQL that
+/// repeats runs as a statement prepared once per connection (PostgreSQL parses and plans it
+/// once: a lookup by id costs about a third), the rest in one round trip with the parameter
+/// types sent along, unprepared. Statements are bounded per connection ([`MAX_STATEMENTS`])
+/// and dropped when collections change.
 ///
 /// [`Params`]: crate::filter::Params
 pub trait TextQuery: Sync {
     type Inner: tokio_postgres::GenericClient + Sync;
 
     fn inner(&self) -> &Self::Inner;
+
+    fn statement_cache(&self) -> &deadpool_postgres::StatementCache;
+
+    /// Whether a failed statement aborts a transaction (no retry then).
+    fn in_transaction(&self) -> bool;
+
+    fn prepare_text(
+        &self,
+        sql: &str,
+        count: usize,
+    ) -> impl std::future::Future<Output = Result<tokio_postgres::Statement, tokio_postgres::Error>> + Send;
+
+    /// The statement for `sql` when it repeats (see [`seen_before`]).
+    fn prepared(
+        &self,
+        sql: &str,
+        count: usize,
+    ) -> impl std::future::Future<
+        Output = Result<Option<tokio_postgres::Statement>, tokio_postgres::Error>,
+    > + Send {
+        async move {
+            if !seen_before(sql) {
+                return Ok(None);
+            }
+            let cache = self.statement_cache();
+            if cache.size() >= MAX_STATEMENTS {
+                cache.clear();
+            }
+            self.prepare_text(sql, count).await.map(Some)
+        }
+    }
 
     fn query_text(
         &self,
@@ -240,7 +310,23 @@ pub trait TextQuery: Sync {
     ) -> impl std::future::Future<Output = Result<Vec<tokio_postgres::Row>, tokio_postgres::Error>> + Send
     {
         let typed = params.typed();
-        async move { tokio_postgres::GenericClient::query_typed(self.inner(), sql, &typed).await }
+        async move {
+            use tokio_postgres::GenericClient as _;
+            if let Some(statement) = self.prepared(sql, typed.len()).await? {
+                let values: Vec<_> = typed.iter().map(|(v, _)| *v).collect();
+                match self.inner().query(&statement, &values).await {
+                    Err(err) if is_stale_plan(&err) => {
+                        self.statement_cache()
+                            .remove(sql, &vec![tokio_postgres::types::Type::TEXT; typed.len()]);
+                        if self.in_transaction() {
+                            return Err(err);
+                        }
+                    }
+                    result => return result,
+                }
+            }
+            self.inner().query_typed(sql, &typed).await
+        }
     }
 
     fn query_text_one(
@@ -250,7 +336,23 @@ pub trait TextQuery: Sync {
     ) -> impl std::future::Future<Output = Result<tokio_postgres::Row, tokio_postgres::Error>> + Send
     {
         let typed = params.typed();
-        async move { tokio_postgres::GenericClient::query_typed_one(self.inner(), sql, &typed).await }
+        async move {
+            use tokio_postgres::GenericClient as _;
+            if let Some(statement) = self.prepared(sql, typed.len()).await? {
+                let values: Vec<_> = typed.iter().map(|(v, _)| *v).collect();
+                match self.inner().query_one(&statement, &values).await {
+                    Err(err) if is_stale_plan(&err) => {
+                        self.statement_cache()
+                            .remove(sql, &vec![tokio_postgres::types::Type::TEXT; typed.len()]);
+                        if self.in_transaction() {
+                            return Err(err);
+                        }
+                    }
+                    result => return result,
+                }
+            }
+            self.inner().query_typed_one(sql, &typed).await
+        }
     }
 
     fn query_text_opt(
@@ -261,7 +363,23 @@ pub trait TextQuery: Sync {
         Output = Result<Option<tokio_postgres::Row>, tokio_postgres::Error>,
     > + Send {
         let typed = params.typed();
-        async move { tokio_postgres::GenericClient::query_typed_opt(self.inner(), sql, &typed).await }
+        async move {
+            use tokio_postgres::GenericClient as _;
+            if let Some(statement) = self.prepared(sql, typed.len()).await? {
+                let values: Vec<_> = typed.iter().map(|(v, _)| *v).collect();
+                match self.inner().query_opt(&statement, &values).await {
+                    Err(err) if is_stale_plan(&err) => {
+                        self.statement_cache()
+                            .remove(sql, &vec![tokio_postgres::types::Type::TEXT; typed.len()]);
+                        if self.in_transaction() {
+                            return Err(err);
+                        }
+                    }
+                    result => return result,
+                }
+            }
+            self.inner().query_typed_opt(sql, &typed).await
+        }
     }
 }
 
@@ -270,11 +388,41 @@ impl TextQuery for deadpool_postgres::Client {
     fn inner(&self) -> &Self::Inner {
         self
     }
+    fn statement_cache(&self) -> &deadpool_postgres::StatementCache {
+        &self.statement_cache
+    }
+    fn in_transaction(&self) -> bool {
+        false
+    }
+    fn prepare_text(
+        &self,
+        sql: &str,
+        count: usize,
+    ) -> impl std::future::Future<Output = Result<tokio_postgres::Statement, tokio_postgres::Error>> + Send
+    {
+        let types = vec![tokio_postgres::types::Type::TEXT; count];
+        async move { self.prepare_typed_cached(sql, &types).await }
+    }
 }
 
 impl<'a> TextQuery for deadpool_postgres::Transaction<'a> {
     type Inner = tokio_postgres::Transaction<'a>;
     fn inner(&self) -> &Self::Inner {
         self
+    }
+    fn statement_cache(&self) -> &deadpool_postgres::StatementCache {
+        &self.statement_cache
+    }
+    fn in_transaction(&self) -> bool {
+        true
+    }
+    fn prepare_text(
+        &self,
+        sql: &str,
+        count: usize,
+    ) -> impl std::future::Future<Output = Result<tokio_postgres::Statement, tokio_postgres::Error>> + Send
+    {
+        let types = vec![tokio_postgres::types::Type::TEXT; count];
+        async move { self.prepare_typed_cached(sql, &types).await }
     }
 }

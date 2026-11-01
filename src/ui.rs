@@ -68,7 +68,27 @@ fn dev_file(path: &str) -> Option<Response> {
     })
 }
 
+/// How a file may be cached: for good under the build's version (`v/{version}/`, which the
+/// page links to), otherwise revalidated each time.
 fn file(path: &str, headers: &HeaderMap) -> Response {
+    if let Some(rest) = path.strip_prefix("v/") {
+        let Some((version, path)) = rest.split_once('/') else {
+            return StatusCode::NOT_FOUND.into_response();
+        };
+        let mut response = serve(path, headers);
+        if version == files::VERSION && response.status().is_success() {
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("public, max-age=31536000, immutable"),
+            );
+        }
+        // an older version (a tab open across an upgrade) gets today's file, revalidated
+        return response;
+    }
+    serve(path, headers)
+}
+
+fn serve(path: &str, headers: &HeaderMap) -> Response {
     if let Some(response) = dev_file(path) {
         return response;
     }
@@ -156,6 +176,38 @@ mod tests {
             files::FILES
                 .iter()
                 .any(|(p, _, gz, _)| *p == "index.html" && *gz)
+        );
+        // the page links its files under the build's version, cached for good
+        let page = {
+            let (_, data, _, _) = files::FILES
+                .iter()
+                .find(|(p, ..)| *p == "index.html")
+                .unwrap();
+            let mut plain = String::new();
+            flate2::read::GzDecoder::new(*data)
+                .read_to_string(&mut plain)
+                .unwrap();
+            plain
+        };
+        let versioned = format!("./v/{}/main.js", files::VERSION);
+        assert!(page.contains(&versioned), "{page}");
+        assert!(page.contains("rel=\"modulepreload\""), "{page}");
+        assert!(
+            page.contains("\"./context.js\""),
+            "context.js stays per request"
+        );
+        let main = file(&versioned[2..], &HeaderMap::new());
+        assert_eq!(main.status(), StatusCode::OK);
+        assert_eq!(
+            main.headers()[header::CACHE_CONTROL],
+            "public, max-age=31536000, immutable"
+        );
+        let old = file("v/0000000000000000/main.js", &HeaderMap::new());
+        assert_eq!(old.status(), StatusCode::OK);
+        assert_eq!(old.headers()[header::CACHE_CONTROL], "no-cache");
+        assert_eq!(
+            file("v/nothing", &HeaderMap::new()).status(),
+            StatusCode::NOT_FOUND
         );
         let mut headers = HeaderMap::new();
         // revalidation

@@ -888,6 +888,49 @@ gives NULL, and so on):
   literals only), and JSON numbers round-trip exactly (`serde_json`'s `float_roundtrip`;
   without it `23.400000000000002` read back as `23.4`).
 
+### Performance
+
+Where the time goes was measured, not guessed: CPU split between slonbase and PostgreSQL
+under load (`/proc` ticks per process), instruction profiles of the server (callgrind on the
+`profiling` build profile), and `EXPLAIN ANALYZE` and pgbench on the database side.
+
+- **Allocator.** The release binaries are static musl builds, and musl's allocator serializes
+  threads on every allocation: the 1.2.0 binary answered lists at a quarter of the speed of
+  the same code built for glibc, with slonbase at 250% CPU and PostgreSQL idle. The binary
+  (`src/main.rs`, not the library) uses mimalloc.
+- **Prepared statements** (`db::TextQuery`). PostgreSQL parsing and planning every query was
+  most of its work for small queries: pgbench runs a lookup by id 2.7× faster prepared.
+  Queries now run as statements prepared once per connection, but only SQL seen before
+  (`seen_before`: a process-wide set of SQL hashes), so one-off SQL (a filter typed once, or
+  an attacker's stream of distinct filters) runs unprepared as before and can't fill the
+  caches; each connection keeps at most 256 statements, and every connection's are dropped
+  when collections change. A statement whose result type changed under it (a table altered by
+  another program) is dropped and the query run unprepared. List pages pass `LIMIT` and
+  `OFFSET` as parameters, so every page of a list shares a statement. Lookups whose SQL only
+  depends on the collection (the auth record of a token) use deadpool's cache directly.
+- **List totals** (`count_cache`). `count(*)` visits every matching row (2.4 ms for 10,000,
+  against 0.3 ms for the page itself), so totals are kept between requests: keyed by the exact
+  count SQL and parameters (the rule's, so the caller's id), valid while the data generation
+  they were counted at is current, and at most 5 s. The generation moves on every change any
+  instance or program makes (the realtime triggers' `event:` notifications), at once on this
+  instance's own commits (`Hooks::committed`), on collection changes, restores and imports,
+  and with a `changed` notification after SQL the triggers don't see (the SQL console, and
+  `TRUNCATE` from hooks). It's read before counting, so a write committed during the count
+  leaves the entry stale, not wrong. Not cached: view collections (their query may read any
+  table), counts touching a view, and SQL that depends on the request's time (`@now` and the
+  other date macros, `strftime()`: `Params::time_dependent`). Bounded to 4,096 entries and 8 KiB
+  keys.
+- **Lists written from the rows.** When nothing changes records on the way out (no list or
+  enrich hooks, no `expand`, no `fields`), `access::RecordRow` serializes each row as
+  `output_record` would build it, without a map per record (the maps, their keys' hashing and
+  the copy into the response were a third of a list's instructions). A test compares both
+  paths byte for byte over every field type. Hidden emails are removed keeping the other
+  fields' order (`shift_remove`; it was a swap before).
+- **The dashboard** is served under `/_/v/{build hash}/`, cached for a year as immutable,
+  since a new build has another hash; `index.html` (revalidated) links its files there and
+  preloads every module (`modulepreload`), so the first load fetches them in parallel instead
+  of as each import is found, and later loads only revalidate the page.
+
 ### Tried and left out
 
 - **PostgreSQL building list responses.** A prototype (in 1.2's cycle) had PostgreSQL write each
@@ -895,8 +938,8 @@ gives NULL, and so on):
   On the benchmark (`bench/`, alternating builds), plain lists of 30 got about 15–20% faster;
   sorted, filtered and signed-in lists about 5%, within the run-to-run noise. Not worth a
   second serializer that every field type would have to match byte for byte (PostgreSQL also
-  writes some numbers differently, `1e+21` against `1e21`). Rows are already read as typed
-  values straight into the response.
+  writes some numbers differently, `1e+21` against `1e21`). Writing the JSON in Rust straight
+  from the rows (above) gets most of the gain with the same bytes.
 
 ## Configuration
 

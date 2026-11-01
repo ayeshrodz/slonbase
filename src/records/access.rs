@@ -7,7 +7,7 @@ use serde_json::Value;
 
 use tokio_postgres::Row;
 
-use super::store::{ALIAS, record_json, row_values, select_list};
+use super::store::{ALIAS, field_value, record_json, row_values, select_list};
 use crate::auth::RequestAuth;
 use crate::collections::model::{Collection, FIELD_EMAIL_VISIBILITY, RuleAction};
 use crate::collections::model::{FIELD_EMAIL, Field};
@@ -128,8 +128,55 @@ pub fn output_record(
     email_visible: &Option<String>,
 ) -> Value {
     let mut values = row_values(fields, row);
-    if email_visible.is_some() && !row.get::<_, bool>(fields.len()) {
-        values.remove(FIELD_EMAIL);
+    if email_hidden(fields, row, email_visible) {
+        // keeping the other fields' order
+        values.shift_remove(FIELD_EMAIL);
     }
     record_json(c, values)
+}
+
+fn email_hidden(fields: &[&Field], row: &Row, email_visible: &Option<String>) -> bool {
+    email_visible.is_some() && !row.get::<_, bool>(fields.len())
+}
+
+/// A row selected with [`output_select`], serialized as [`output_record`] would build it (the
+/// same keys, order and values) without building it first: for responses that nothing
+/// changes on the way out, it saves a map per record.
+pub struct RecordRow<'a> {
+    c: &'a Collection,
+    fields: &'a [&'a Field],
+    row: &'a Row,
+    hide_email: bool,
+}
+
+impl<'a> RecordRow<'a> {
+    pub fn new(
+        c: &'a Collection,
+        fields: &'a [&'a Field],
+        row: &'a Row,
+        email_visible: &Option<String>,
+    ) -> Self {
+        Self {
+            c,
+            fields,
+            row,
+            hide_email: email_hidden(fields, row, email_visible),
+        }
+    }
+}
+
+impl serde::Serialize for RecordRow<'_> {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = serializer.serialize_map(Some(self.fields.len() + 2))?;
+        map.serialize_entry("collectionId", &self.c.id)?;
+        map.serialize_entry("collectionName", &self.c.name)?;
+        for (i, f) in self.fields.iter().enumerate() {
+            if self.hide_email && f.name == FIELD_EMAIL {
+                continue;
+            }
+            map.serialize_entry(&f.name, &field_value(f, self.row, i))?;
+        }
+        map.end()
+    }
 }

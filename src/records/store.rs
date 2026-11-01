@@ -51,19 +51,23 @@ pub fn select_list(fields: &[&Field]) -> String {
         .join(", ")
 }
 
+/// The normalized value of field `f`, column `i` of a row selected with [`select_list`].
+pub fn field_value(f: &Field, row: &Row, i: usize) -> Value {
+    match f.storage() {
+        Storage::Text => Value::String(row.get(i)),
+        Storage::Number => values::number(row.get(i)),
+        Storage::Bool => Value::Bool(row.get(i)),
+        Storage::Date => Value::String(row.get::<_, Option<String>>(i).unwrap_or_default()),
+        Storage::Multi => row.get(i),
+        Storage::Json => row.get::<_, Option<Value>>(i).unwrap_or(Value::Null),
+    }
+}
+
 /// Reads normalized values from a row selected with [`select_list`].
 pub fn row_values(fields: &[&Field], row: &Row) -> Values {
     let mut map = Map::with_capacity(fields.len());
     for (i, f) in fields.iter().enumerate() {
-        let value = match f.storage() {
-            Storage::Text => Value::String(row.get(i)),
-            Storage::Number => values::number(row.get(i)),
-            Storage::Bool => Value::Bool(row.get(i)),
-            Storage::Date => Value::String(row.get::<_, Option<String>>(i).unwrap_or_default()),
-            Storage::Multi => row.get(i),
-            Storage::Json => row.get::<_, Option<Value>>(i).unwrap_or(Value::Null),
-        };
-        map.insert(f.name.clone(), value);
+        map.insert(f.name.clone(), field_value(f, row, i));
     }
     map
 }
@@ -90,7 +94,10 @@ pub async fn find_by(
         select_list(&fields),
         table_ref(&c.name)
     );
-    let row = client.query_opt(&sql, &[&value]).await?;
+    // prepared once per connection: the SQL depends on the collection only (token checks run
+    // it on every signed-in request)
+    let statement = client.prepare_cached(&sql).await?;
+    let row = client.query_opt(&statement, &[&value]).await?;
     Ok(row.map(|r| row_values(&fields, &r)))
 }
 

@@ -32,6 +32,25 @@ fn fnv1a(data: &[u8]) -> u64 {
     hash
 }
 
+/// The page with its files under `./v/{version}/` (cached for good: a new build has another
+/// version) and a preload of every module. `context.js` is generated per request, so it stays.
+fn versioned_page(page: &str, version: &str, preloads: &str) -> String {
+    let mut out = String::with_capacity(page.len() + preloads.len());
+    for line in page.lines() {
+        let line = if line.contains("./context.js") {
+            line.to_string()
+        } else {
+            line.replace("\"./", &format!("\"./v/{version}/"))
+        };
+        if line.contains("type=\"module\"") {
+            out.push_str(preloads);
+        }
+        out.push_str(&line);
+        out.push('\n');
+    }
+    out
+}
+
 fn main() {
     let dist = Path::new("ui/app");
     println!("cargo:rerun-if-changed=ui/app");
@@ -41,15 +60,46 @@ fn main() {
 
     let mut paths = Vec::new();
     files(dist, &mut paths);
-    let mut table = String::from("pub static FILES: &[(&str, &[u8], bool, &str)] = &[\n");
-    for path in paths {
-        let relative = path
-            .strip_prefix(dist)
+    let relative_of = |path: &Path| {
+        path.strip_prefix(dist)
             .expect("inside dist")
             .to_str()
             .expect("UTF-8 file name")
-            .replace('\\', "/");
-        let data = fs::read(&path).expect("readable UI file");
+            .replace('\\', "/")
+    };
+    // the build's version: a hash of every file but the page, which names it
+    let mut combined = Vec::new();
+    for path in &paths {
+        let relative = relative_of(path);
+        if relative != "index.html" {
+            combined.extend_from_slice(relative.as_bytes());
+            combined.extend_from_slice(
+                &fnv1a(&fs::read(path).expect("readable UI file")).to_le_bytes(),
+            );
+        }
+    }
+    let version = format!("{:016x}", fnv1a(&combined));
+    // every module, fetched at once instead of as each import is found
+    let preloads: String = paths
+        .iter()
+        .map(|p| relative_of(p))
+        .filter(|r| r.ends_with(".js") && r != "boot.js")
+        .map(|r| format!("    <link rel=\"modulepreload\" href=\"./v/{version}/{r}\" />\n"))
+        .collect();
+
+    let mut table = format!("pub static VERSION: &str = {version:?};\n");
+    table.push_str("pub static FILES: &[(&str, &[u8], bool, &str)] = &[\n");
+    for path in paths {
+        let relative = relative_of(&path);
+        let mut data = fs::read(&path).expect("readable UI file");
+        if relative == "index.html" {
+            data = versioned_page(
+                &String::from_utf8(data).expect("UTF-8 page"),
+                &version,
+                &preloads,
+            )
+            .into_bytes();
+        }
         let hash = fnv1a(&data);
         let gzip = path
             .extension()

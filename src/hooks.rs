@@ -507,6 +507,10 @@ impl Hooks {
 
     /// Fires the after-success hooks of committed changes, in the background.
     pub(crate) fn committed(core: &Arc<Core>, changes: Vec<Change>) {
+        if !changes.is_empty() {
+            // here at once; the other instances hear of it through the triggers' notifications
+            core.counts.changed();
+        }
         let hooks = core.hooks.clone();
         let changes: Vec<Change> = changes
             .into_iter()

@@ -28,6 +28,7 @@ pub mod cli;
 pub mod collections;
 pub mod config;
 pub mod core;
+pub mod count_cache;
 pub mod cron;
 pub mod datetime;
 pub mod db;

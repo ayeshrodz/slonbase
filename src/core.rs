@@ -28,6 +28,8 @@ pub struct Core {
     pub realtime: Hub,
     /// The directory for backups (unless they're stored in S3).
     pub backups_dir: PathBuf,
+    /// List totals kept between requests (see [`crate::count_cache`]).
+    pub(crate) counts: crate::count_cache::CountCache,
     /// Encrypts the settings and the signing secret in the database (`server.encryption_key`).
     secrets_key: Option<Arc<crate::secrets::SecretsKey>>,
     /// Encrypts new backups (`backups.encryption_key`).
@@ -167,6 +169,7 @@ impl Core {
             backups_dir: config.backups.path.clone(),
             backup_key: config.backups.encryption_key.clone(),
             secrets_key,
+            counts: Default::default(),
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,
@@ -190,6 +193,10 @@ impl Core {
     }
 
     pub(crate) fn set_registry(&self, registry: Registry) {
+        // a changed collection (a dropped field, a new rule) can change any count
+        self.counts.changed();
+        // and the prepared statements' tables may have changed
+        self.pool.manager().statement_caches.clear();
         let mut current = self.registry.write().expect("registry lock");
         *current = (current.0 + 1, Arc::new(registry));
     }
@@ -235,8 +242,21 @@ impl Core {
         *self.auth_secret.write().expect("secret lock") = Arc::new(secret.into_bytes());
         self.set_registry(registry);
         self.set_settings(settings);
+        self.counts.changed();
         self.realtime.disconnect_all();
         Ok(())
+    }
+
+    /// Records a change of data that the realtime triggers don't report (a `TRUNCATE`, say),
+    /// here and on the other instances, so no stale list total is served.
+    pub(crate) async fn data_changed_everywhere(
+        &self,
+        client: &impl deadpool_postgres::GenericClient,
+    ) {
+        self.counts.changed();
+        if let Err(err) = crate::realtime::notify(client, "changed").await {
+            tracing::debug!(error = %err, "failed to tell the other instances about a data change");
+        }
     }
 
     /// The key the settings and the signing secret are encrypted with, if any.

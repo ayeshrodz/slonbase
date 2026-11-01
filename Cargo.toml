@@ -54,6 +54,7 @@ webpki-roots = "1.0.9"
 tempfile = "3.27.0"
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
+mimalloc = { version = "0.1", default-features = false }
 
 [features]
 default = ["js"]
@@ -72,6 +73,12 @@ tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring
 lto = "fat"
 codegen-units = 1
 strip = true
+
+# the release build with symbols, for profilers (`cargo build --profile profiling`)
+[profile.profiling]
+inherits = "release"
+strip = false
+debug = "line-tables-only"
 
 # smaller and faster debug builds (backtraces keep file and line numbers)
 [profile.dev]

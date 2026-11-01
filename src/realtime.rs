@@ -1310,6 +1310,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                         let Some(notification) = notification else { break };
                         let Some(core) = weak.upgrade() else { return };
                         let payload = notification.payload();
+                        if payload.starts_with("event:") || payload == "changed" {
+                            core.counts.changed();
+                        }
                         if payload == "collections" {
                             reload_collections(&core).await;
                         } else if payload == "settings" {

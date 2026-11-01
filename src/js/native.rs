@@ -683,6 +683,10 @@ async fn db_query(
         .await
         .map_err(internal)?;
     let result = run_query(&client, sql, params, mode, records).await;
+    // row changes reach the realtime triggers, a TRUNCATE doesn't
+    if result.is_ok() && sql.to_ascii_lowercase().contains("truncate") {
+        core.data_changed_everywhere(&client).await;
+    }
     if client.batch_execute("RESET search_path").await.is_err() {
         // not back to the pool with this search path
         let _ = deadpool_postgres::Object::take(client);

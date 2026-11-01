@@ -129,6 +129,8 @@ pub async fn run(
         tx.rollback().await.map_err(failed)?;
     } else {
         tx.commit().await.map_err(failed)?;
+        // a write, perhaps a TRUNCATE, which the realtime triggers don't see
+        core.data_changed_everywhere(&client).await;
     }
     Ok(Json(json!({
         "execTime": exec_time,

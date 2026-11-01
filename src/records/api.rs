@@ -243,12 +243,28 @@ pub async fn list(
 
     let fields = visible_fields(&c, superuser);
     let table = table_ref(&c.name);
+    // as parameters, so every page shares one prepared statement
+    let limit = params.push(per_page.to_string());
+    let skip = params.push(offset.to_string());
     let items_sql = format!(
-        "SELECT {} FROM {table} {ALIAS} WHERE {where_sql} ORDER BY {} LIMIT {per_page} OFFSET {offset}",
+        "SELECT {} FROM {table} {ALIAS} WHERE {where_sql} ORDER BY {} LIMIT {limit}::bigint OFFSET {skip}::bigint",
         output_select(&fields, &email_visible),
         order.join(", ")
     );
     let count_sql = format!("SELECT count(*) FROM {table} {ALIAS} WHERE {where_sql}");
+    // a total counted before, while no data changed (see `count_cache`)
+    let registry = core.registry();
+    let count_key = (!skip_total
+        && !c.is_view()
+        && !count_params.time_dependent()
+        && !registry
+            .all()
+            .iter()
+            .any(|v| v.is_view() && where_sql.contains(&table_ref(&v.name))))
+    .then(|| crate::count_cache::CountCache::key(&count_sql, &count_params.0))
+    .flatten();
+    let generation = core.counts.generation();
+    let cached = count_key.as_deref().and_then(|key| core.counts.get(key));
 
     let client = core
         .pool
@@ -256,33 +272,64 @@ pub async fn list(
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
     // pipelined on the same connection
-    let (rows, total) = if skip_total {
-        (
+    let (rows, total) = match (skip_total, cached) {
+        (true, _) => (
             client
                 .query_text(&items_sql, &params)
                 .await
                 .map_err(db_error)?,
             -1,
-        )
-    } else {
-        let (rows, count) = tokio::try_join!(
-            client.query_text(&items_sql, &params),
-            client.query_text_one(&count_sql, &count_params)
-        )
-        .map_err(db_error)?;
-        (rows, count.get::<_, i64>(0))
+        ),
+        (false, Some(total)) => (
+            client
+                .query_text(&items_sql, &params)
+                .await
+                .map_err(db_error)?,
+            total,
+        ),
+        (false, None) => {
+            let (rows, count) = tokio::try_join!(
+                client.query_text(&items_sql, &params),
+                client.query_text_one(&count_sql, &count_params)
+            )
+            .map_err(db_error)?;
+            let total = count.get::<_, i64>(0);
+            if let Some(key) = count_key {
+                core.counts.put(key, generation, total);
+            }
+            (rows, total)
+        }
     };
 
     drop(client);
-    let items: Vec<Value> = rows
-        .iter()
-        .map(|row| output_record(&c, &fields, row, &email_visible))
-        .collect();
     let total_pages = if total < 0 {
         -1
     } else {
         (total + per_page - 1) / per_page
     };
+    // nothing changes the records on the way out: written straight from the rows
+    if !core.hooks.on_records_list_request.has_handlers(Some(&c))
+        && !core.hooks.on_record_enrich.has_handlers(Some(&c))
+        && !query.contains_key("expand")
+        && query.get("fields").is_none_or(|f| f.trim().is_empty())
+    {
+        let items: Vec<_> = rows
+            .iter()
+            .map(|row| super::access::RecordRow::new(&c, &fields, row, &email_visible))
+            .collect();
+        return Ok(Json(ListPage {
+            page,
+            per_page,
+            total_items: total,
+            total_pages,
+            items,
+        })
+        .into_response());
+    }
+    let items: Vec<Value> = rows
+        .iter()
+        .map(|row| output_record(&c, &fields, row, &email_visible))
+        .collect();
     let e = RecordsListEvent {
         core: core.clone(),
         collection: c.clone(),
@@ -311,14 +358,25 @@ pub async fn list(
         .map(|item| pick_fields(item, query.get("fields")))
         .collect();
 
-    Ok(Json(json!({
-        "page": e.page,
-        "perPage": e.per_page,
-        "totalItems": e.total_items,
-        "totalPages": e.total_pages,
-        "items": items,
-    }))
+    Ok(Json(ListPage {
+        page: e.page,
+        per_page: e.per_page,
+        total_items: e.total_items,
+        total_pages: e.total_pages,
+        items,
+    })
     .into_response())
+}
+
+/// A page of a records list.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ListPage<T> {
+    page: i64,
+    per_page: i64,
+    total_items: i64,
+    total_pages: i64,
+    items: Vec<T>,
 }
 
 /// `GET /api/collections/{collection}/records/{id}`
