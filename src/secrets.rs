@@ -48,6 +48,16 @@ pub fn check_key(key: &str) -> Result<()> {
     Ok(())
 }
 
+/// The configuration's key, if it has one.
+pub fn from_config(config: &crate::config::Config) -> Result<Option<SecretsKey>> {
+    config
+        .server
+        .encryption_key
+        .as_deref()
+        .map(SecretsKey::new)
+        .transpose()
+}
+
 impl SecretsKey {
     pub fn new(key: &str) -> Result<Self> {
         check_key(key)?;
@@ -117,6 +127,116 @@ pub fn from_stored(stored: Value, key: Option<&SecretsKey>, what: &str) -> Resul
     serde_json::from_slice(&plain).with_context(|| format!("the decrypted {what} aren't JSON"))
 }
 
+/// The OAuth2 client secrets in a collection definition (stored or not).
+fn client_secrets(data: &mut Value) -> impl Iterator<Item = &mut Value> {
+    data.get_mut("oauth2")
+        .and_then(|o| o.get_mut("providers"))
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| p.get_mut("clientSecret"))
+}
+
+/// A collection definition's stored form: its OAuth2 client secrets sealed with `key` (as
+/// `{"sealed": ...}`, which a definition can't be read as, so nothing uses one unopened).
+pub fn seal_collection(data: &mut Value, key: Option<&SecretsKey>) {
+    let Some(key) = key else { return };
+    for secret in client_secrets(data) {
+        if secret.as_str().is_some_and(|s| !s.is_empty()) {
+            *secret = to_stored(secret, Some(key));
+        }
+    }
+}
+
+/// Opens a stored collection definition's sealed client secrets.
+pub fn open_collection(data: &mut Value, key: Option<&SecretsKey>) -> Result<()> {
+    for secret in client_secrets(data) {
+        if is_sealed(secret) {
+            *secret = from_stored(std::mem::take(secret), key, "OAuth2 client secrets")?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether a stored collection definition has a client secret that isn't sealed.
+fn has_plain_secret(data: &mut Value) -> bool {
+    client_secrets(data).any(|s| s.as_str().is_some_and(|s| !s.is_empty()))
+}
+
+/// The prefix of a sealed text column (a project's role password).
+const TEXT_PREFIX: &str = "sealed:";
+
+/// A secret text's stored form: sealed with `key`, or as it is without one.
+pub fn seal_text(plain: &str, key: Option<&SecretsKey>) -> String {
+    match key {
+        Some(key) if !plain.is_empty() => format!("{TEXT_PREFIX}{}", key.seal(plain.as_bytes())),
+        _ => plain.to_string(),
+    }
+}
+
+/// A secret text from its stored form; `what` names it in errors.
+pub fn open_text(stored: &str, key: Option<&SecretsKey>, what: &str) -> Result<String> {
+    let Some(sealed) = stored.strip_prefix(TEXT_PREFIX) else {
+        return Ok(stored.to_string());
+    };
+    let Some(key) = key else {
+        return Err(KeyError(format!("the {what} are encrypted: {KEY_HINT}")).into());
+    };
+    let plain = key.open(sealed).ok_or_else(|| {
+        KeyError(format!(
+            "the {what} can't be decrypted: the encryption key is wrong"
+        ))
+    })?;
+    String::from_utf8(plain).with_context(|| format!("the decrypted {what} aren't text"))
+}
+
+/// Seals what's still plain in the main tables: the collections' client secrets and the
+/// projects' role passwords (each row compare-and-set, as [`seal_plain`]).
+pub async fn seal_plain_rows(client: &impl GenericClient, key: &SecretsKey) -> Result<usize> {
+    let mut sealed = 0;
+    for row in client
+        .query("SELECT id, data FROM _slonbase.collections", &[])
+        .await?
+    {
+        let (id, old): (String, Value) = (row.get(0), row.get(1));
+        let mut data = old.clone();
+        if !has_plain_secret(&mut data) {
+            continue;
+        }
+        seal_collection(&mut data, Some(key));
+        sealed += client
+            .execute(
+                "UPDATE _slonbase.collections SET data = $2 WHERE id = $1 AND data = $3",
+                &[&id, &data, &old],
+            )
+            .await? as usize;
+    }
+    // projects exist in the main installation only
+    let projects = client
+        .query_opt("SELECT to_regclass('_slonbase.projects') IS NOT NULL", &[])
+        .await?
+        .is_some_and(|r| r.get::<_, bool>(0));
+    if projects {
+        for row in client
+            .query(
+                "SELECT name, role_password FROM _slonbase.projects
+                 WHERE role_password IS NOT NULL AND role_password <> '' AND role_password NOT LIKE 'sealed:%'",
+                &[],
+            )
+            .await?
+        {
+            let (name, plain): (String, String) = (row.get(0), row.get(1));
+            sealed += client
+                .execute(
+                    "UPDATE _slonbase.projects SET role_password = $2 WHERE name = $1 AND role_password = $3",
+                    &[&name, &seal_text(&plain, Some(key)), &plain],
+                )
+                .await? as usize;
+        }
+    }
+    Ok(sealed)
+}
+
 /// Seals the params of [`SEALED_PARAMS`] that are still plain (a new key, or a restored backup
 /// made without one). Values sealed meanwhile by another instance are left alone.
 pub async fn seal_plain(client: &impl GenericClient, key: &SecretsKey) -> Result<usize> {
@@ -145,8 +265,9 @@ pub async fn seal_plain(client: &impl GenericClient, key: &SecretsKey) -> Result
     Ok(sealed)
 }
 
-/// Re-stores the params of [`SEALED_PARAMS`] under another key (`to: None` stores them plain),
-/// in one transaction. Every instance must be stopped, and started again with the new key.
+/// Re-stores everything sealed (the params of [`SEALED_PARAMS`], the collections' client
+/// secrets, the projects' role passwords) under another key (`to: None` stores them plain), in
+/// one transaction. Every instance must be stopped, and started again with the new key.
 pub async fn rekey(
     client: &mut deadpool_postgres::Client,
     from: Option<&SecretsKey>,
@@ -171,6 +292,42 @@ pub async fn rekey(
                 &[param, &to_stored(&value, to)],
             )
             .await? as usize;
+    }
+    for row in tx
+        .query("SELECT id, data FROM _slonbase.collections FOR UPDATE", &[])
+        .await?
+    {
+        let (id, mut data): (String, Value) = (row.get(0), row.get(1));
+        open_collection(&mut data, from)?;
+        seal_collection(&mut data, to);
+        changed += tx
+            .execute(
+                "UPDATE _slonbase.collections SET data = $2 WHERE id = $1",
+                &[&id, &data],
+            )
+            .await? as usize;
+    }
+    let projects = tx
+        .query_opt("SELECT to_regclass('_slonbase.projects') IS NOT NULL", &[])
+        .await?
+        .is_some_and(|r| r.get::<_, bool>(0));
+    if projects {
+        for row in tx
+            .query(
+                "SELECT name, role_password FROM _slonbase.projects WHERE role_password IS NOT NULL FOR UPDATE",
+                &[],
+            )
+            .await?
+        {
+            let (name, stored): (String, String) = (row.get(0), row.get(1));
+            let plain = open_text(&stored, from, "project role passwords")?;
+            changed += tx
+                .execute(
+                    "UPDATE _slonbase.projects SET role_password = $2 WHERE name = $1",
+                    &[&name, &seal_text(&plain, to)],
+                )
+                .await? as usize;
+        }
     }
     tx.commit().await?;
     Ok(changed)

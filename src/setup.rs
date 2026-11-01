@@ -108,7 +108,9 @@ pub async fn perform(
         return Err(SetupError::Validation(errors));
     }
 
-    app::prepare(&pool)
+    let key = crate::secrets::from_config(&loaded.effective)
+        .map_err(|e| SetupError::BadRequest(format!("{e:#}")))?;
+    app::prepare(&pool, key.as_ref())
         .await
         .map_err(|e| SetupError::BadRequest(format!("{e:#}")))?;
 

@@ -302,7 +302,7 @@ async fn create_locked(core: &Core, name: &str, target: &Storage) -> Result<()> 
             file,
         });
     }
-    let registry = store::load(&tx).await?;
+    let registry = store::load_with(&tx, core.secrets_key()).await?;
     // views hold no data: they're recreated from their definitions
     for (i, c) in registry
         .all()
@@ -610,7 +610,7 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
             .map_err(BackupError::Other)?;
     }
     // collections created after the backup's version (e.g. new system collections)
-    crate::collections::system::ensure(&core.pool).await?;
+    crate::collections::system::ensure_with(&core.pool, core.secrets_key()).await?;
     core.reload_after_restore().await?;
     tracing::info!(backup = %name, elapsed = ?started.elapsed(), "restored a backup");
     Ok(())
@@ -636,7 +636,7 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
     tx.batch_execute("SET LOCAL slonbase.realtime = off")
         .await?;
 
-    let current = store::load(&tx).await?;
+    let current = store::load_with(&tx, core.secrets_key()).await?;
     // views first: they depend on the tables
     let mut drop_order: Vec<_> = current.all().iter().collect();
     drop_order.sort_by_key(|c| !c.is_view());
@@ -682,7 +682,19 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         .await
         .with_context(|| format!("failed to restore _slonbase.{}", table.table))?;
     }
-    // the restored settings and signing secret must open with this installation's key
+    // the restored secrets must open with this installation's key
+    for row in tx
+        .query("SELECT data FROM _slonbase.collections", &[])
+        .await?
+    {
+        let mut data: serde_json::Value = row.get(0);
+        if let Err(err) = crate::secrets::open_collection(&mut data, core.secrets_key()) {
+            return Err(Unreadable(format!(
+                "The backup can't be restored here: {err}. Restore it with the encryption key it was made with."
+            ))
+            .into());
+        }
+    }
     for param in crate::secrets::SEALED_PARAMS {
         let Some(row) = tx
             .query_opt(
@@ -705,7 +717,7 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         }
     }
 
-    let restored = store::load(&tx).await?;
+    let restored = store::load_with(&tx, core.secrets_key()).await?;
     let mut create_order: Vec<_> = restored.all().iter().collect();
     create_order.sort_by_key(|c| c.is_view());
     for c in create_order {

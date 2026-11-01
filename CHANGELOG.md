@@ -8,6 +8,21 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **Encryption at rest covers every stored secret.** With an encryption key
+  (`SLONBASE_ENCRYPTION_KEY`), OAuth2 client secrets in auth collections and the passwords of
+  projects' own database roles are now stored encrypted too, besides the settings and the
+  token signing secret: a database dump or a backup no longer reveals them. Existing ones are
+  encrypted on the next start with the key, `slonbase rekey` covers them, and a restore checks
+  that this installation's key opens them.
+
+### Upgrading
+
+- With an encryption key set, the first instance of this version to start encrypts the client
+  secrets, which earlier versions can't read: upgrade every instance together (stop them all,
+  then start the new version), not one at a time. Without a key, nothing changes.
+
 ## [1.3.1] - 2026-11-01
 
 **A snappier dashboard.** Lists you've seen show at once, long pages scroll smoothly, deletes

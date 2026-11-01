@@ -576,8 +576,14 @@ async fn rekey_command(loaded: &config::Loaded, to: Option<String>) -> Result<()
         .await?;
     for row in &projects {
         let name: String = row.get(0);
-        let role = match (row.get(2), row.get(3)) {
-            (Some(role), Some(password)) => Some((role, password)),
+        let role = match (
+            row.get::<_, Option<String>>(2),
+            row.get::<_, Option<String>>(3),
+        ) {
+            (Some(role), Some(password)) => Some((
+                role,
+                crate::secrets::open_text(&password, from.as_ref(), "project role passwords")?,
+            )),
             _ => None,
         };
         let project =

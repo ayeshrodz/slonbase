@@ -109,6 +109,7 @@ pub async fn import(
     items: Vec<Value>,
     delete_missing: bool,
     single: bool,
+    key: Option<&crate::secrets::SecretsKey>,
 ) -> Result<Imported, ApiError> {
     let failed = if single {
         "Failed to save collection."
@@ -216,9 +217,9 @@ pub async fn import(
     let removed_files = std::sync::Mutex::new(Vec::new());
     let apply = async |changes: Vec<Change<'_>>| -> Result<Registry, ApiError> {
         if changes.is_empty() {
-            store::load(tx).await.map_err(ApiError::internal)
+            store::load_with(tx, key).await.map_err(ApiError::internal)
         } else {
-            let applied = store::apply_in(tx, changes)
+            let applied = store::apply_in_with(tx, changes, key)
                 .await
                 .map_err(|e| write_error(e, failed))?;
             removed_files
@@ -279,6 +280,7 @@ pub async fn delete(
     tx: &Transaction<'_>,
     registry: &Registry,
     id_or_name: &str,
+    key: Option<&crate::secrets::SecretsKey>,
 ) -> Result<(Registry, Arc<Collection>), ApiError> {
     let failed = "Failed to delete collection.";
     let c = registry.get(id_or_name).cloned().ok_or_else(|| {
@@ -304,7 +306,7 @@ pub async fn delete(
             referencing.join(", ")
         )));
     }
-    let registry = store::apply_in(tx, vec![Change::Delete(&c)])
+    let registry = store::apply_in_with(tx, vec![Change::Delete(&c)], key)
         .await
         .map_err(|e| write_error(e, failed))?
         .registry;

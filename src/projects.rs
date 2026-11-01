@@ -472,7 +472,10 @@ impl Projects {
                     .unwrap_or_default(),
                 &project.app.config().effective.database,
             )?;
-            let prepared = crate::app::prepare(&pool).await;
+            let prepared = match crate::secrets::from_config(&project.app.config().effective) {
+                Ok(key) => crate::app::prepare(&pool, key.as_ref()).await,
+                Err(err) => Err(err),
+            };
             let first = match prepared {
                 Ok(_) => crate::superusers::create_first(&pool, email, password).await,
                 Err(err) => Err(err),
@@ -503,7 +506,9 @@ impl Projects {
                         &name,
                         &database,
                         &role.as_ref().map(|(r, _)| r.clone()),
-                        &role.as_ref().map(|(_, p)| p.clone()),
+                        &role
+                            .as_ref()
+                            .map(|(_, p)| crate::secrets::seal_text(p, core.secrets_key())),
                     ],
                 )
                 .await?
@@ -565,10 +570,7 @@ impl Projects {
             .map_err(|e| ApiError::internal(e.into()))?
             .ok_or_else(ApiError::not_found)?;
         let database: String = row.get(0);
-        let role: Option<(String, String)> = match (row.get(1), row.get(2)) {
-            (Some(role), Some(password)) => Some((role, password)),
-            _ => None,
-        };
+        let role = role_of(&core, row.get(1), row.get(2)).map_err(ApiError::internal)?;
         let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
 
         // the backup comes first: no backup, no delete
@@ -779,19 +781,32 @@ async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
             &[],
         )
         .await?;
-    Ok(rows
-        .iter()
-        .map(|r| Row {
-            name: r.get(0),
-            database: r.get(1),
-            hosts: r.get(2),
-            created: r.get(3),
-            role: match (r.get(4), r.get(5)) {
-                (Some(role), Some(password)) => Some((role, password)),
-                _ => None,
-            },
+    rows.iter()
+        .map(|r| {
+            Ok(Row {
+                name: r.get(0),
+                database: r.get(1),
+                hosts: r.get(2),
+                created: r.get(3),
+                role: role_of(core, r.get(4), r.get(5))?,
+            })
         })
-        .collect())
+        .collect()
+}
+
+/// A project's own role and its password, decrypted (see [`crate::secrets`]).
+fn role_of(
+    core: &Core,
+    role: Option<String>,
+    password: Option<String>,
+) -> anyhow::Result<Option<(String, String)>> {
+    Ok(match (role, password) {
+        (Some(role), Some(password)) => Some((
+            role,
+            crate::secrets::open_text(&password, core.secrets_key(), "project role passwords")?,
+        )),
+        _ => None,
+    })
 }
 
 /// Builds a project's app (not started yet): the main configuration, with the project's
@@ -904,19 +919,16 @@ pub async fn database_of(
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
-    Ok(client
+    let Some(r) = client
         .query_opt(
             "SELECT database, role, role_password FROM _slonbase.projects WHERE name = $1",
             &[&name],
         )
         .await?
-        .map(|r| {
-            let role = match (r.get(1), r.get(2)) {
-                (Some(role), Some(password)) => Some((role, password)),
-                _ => None,
-            };
-            (r.get(0), role)
-        }))
+    else {
+        return Ok(None);
+    };
+    Ok(Some((r.get(0), role_of(core, r.get(1), r.get(2))?)))
 }
 
 /// Project names: lowercase letters, digits and dashes, starting with a letter.

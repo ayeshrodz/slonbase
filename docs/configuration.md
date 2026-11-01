@@ -100,17 +100,19 @@ turn it on.
 
 ### Encrypting the settings
 
-The settings hold secrets (the SMTP password, the S3 secret keys), and the database also keeps
-the secret every token is signed with: whoever reads it can sign in as anyone. With an
-encryption key, both are stored encrypted (AES-256-GCM), so a database dump, a read-only
-database role or a backup gives nothing away without the key.
+The database holds secrets: the settings' (the SMTP password, the S3 secret keys), the secret
+every token is signed with (whoever reads it can sign in as anyone), the OAuth2 providers'
+client secrets in auth collections, and the passwords of [projects](projects.md)' own database
+roles. With an encryption key, all of them are stored encrypted (AES-256-GCM), so a database
+dump, a read-only database role or a backup gives nothing away without the key.
 
 ```sh
 export SLONBASE_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # 32 characters; keep it safe
 slonbase serve
 ```
 
-- **Existing installations** are encrypted on the first start with a key; tokens stay valid.
+- **Existing installations** are encrypted on the first start with a key (the settings, the
+  signing secret, client secrets and project role passwords); tokens stay valid.
 - **Every instance**, and the `slonbase` commands you run against the database, need the same
   key. Projects use the main installation's.
 - **Without the key, or with another one,** slonbase doesn't start, and says why. A lost key
@@ -126,9 +128,8 @@ slonbase serve
 - **PocketBase:** the format is `PB_ENCRYPTION`'s, so with the same value as the key, an import
   brings PocketBase's encrypted settings along.
 
-What it doesn't cover: OAuth2 client secrets (part of the collections' definitions, as in
-PocketBase) and the passwords of projects' own database roles stay readable to whoever can
-read the database.
+Records themselves aren't encrypted: protect them with the database's own access control, and
+encrypted disks and backups.
 
 ## Application settings
 

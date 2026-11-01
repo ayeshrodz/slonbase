@@ -178,11 +178,12 @@ impl App {
 
         // fails only on configuration errors (bad URL, unreadable CA file)
         let pool = db::connect(&url, &config.effective.database)?;
+        let key = crate::secrets::from_config(&config.effective)?;
 
         let mut delay = Duration::from_secs(1);
         loop {
             let attempt = async {
-                if prepare(&pool).await? {
+                if prepare(&pool, key.as_ref()).await? {
                     Ok(Some(
                         Core::start_with(
                             pool.clone(),
@@ -273,13 +274,13 @@ impl App {
 }
 
 /// Checks the server, applies migrations and reports whether a superuser exists.
-pub(crate) async fn prepare(pool: &Pool) -> Result<bool> {
+pub(crate) async fn prepare(pool: &Pool, key: Option<&crate::secrets::SecretsKey>) -> Result<bool> {
     db::check_server(pool).await?;
     let applied = migrations::run(pool).await?;
     if !applied.is_empty() {
         tracing::info!(?applied, "applied system migrations");
     }
-    crate::collections::system::ensure(pool).await?;
-    crate::collections::store::heal_views(pool).await?;
+    crate::collections::system::ensure_with(pool, key).await?;
+    crate::collections::store::heal_views_with(pool, key).await?;
     Ok(superusers::count(pool).await? > 0)
 }

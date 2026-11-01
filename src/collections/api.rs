@@ -86,7 +86,7 @@ async fn infer_view(
 /// Reloads the registry under the schema lock, so validation sees changes
 /// made by other instances.
 async fn fresh_registry(core: &Core) -> Result<Registry, ApiError> {
-    let registry = store::load_from_pool(&core.pool)
+    let registry = store::load_from_pool_with(&core.pool, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
     core.set_registry(registry.clone());
@@ -553,9 +553,9 @@ async fn create_checked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collectio
     // changes are ignored: the collection is validated
     before_hook(core, &core.hooks.on_collection_validate, c.clone()).await?;
     let hook = &core.hooks.on_collection_create_execute;
-    let (pool, new) = (core.pool.clone(), c.clone());
+    let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let registry = execute_hook(core, hook, &c, move || async move {
-        store::apply(&pool, Change::Create(&new))
+        store::apply_with(&pool, Change::Create(&new), key.as_deref())
             .await
             .map(|applied| applied.registry)
             .map_err(|e| write_error(e, failed))
@@ -663,13 +663,18 @@ async fn update_checked(
     }
     before_hook(core, &core.hooks.on_collection_validate, new.clone()).await?;
     let hook = &core.hooks.on_collection_update_execute;
-    let (pool, stored, changed) = (core.pool.clone(), old.clone(), new.clone());
+    let (pool, stored, changed, key) = (
+        core.pool.clone(),
+        old.clone(),
+        new.clone(),
+        core.secrets_key_owned(),
+    );
     let applied = execute_hook(core, hook, &new, move || async move {
         let change = Change::Update {
             old: &stored,
             new: &changed,
         };
-        store::apply(&pool, change)
+        store::apply_with(&pool, change, key.as_deref())
             .await
             .map_err(|e| write_error(e, failed))
     })
@@ -773,9 +778,9 @@ async fn delete_checked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiErr
     // changes are ignored: the collection is deleted
     before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
     let hook = &core.hooks.on_collection_delete_execute;
-    let (pool, deleted) = (core.pool.clone(), c.clone());
+    let (pool, deleted, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let registry = execute_hook(core, hook, &c, move || async move {
-        store::apply(&pool, Change::Delete(&deleted))
+        store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
             .await
             .map(|applied| applied.registry)
             .map_err(|e| write_error(e, failed))
@@ -1017,7 +1022,15 @@ pub(crate) async fn import_definitions(
         .transaction()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    let imported = super::tx::import(&tx, &registry, definitions, delete_missing, false).await?;
+    let imported = super::tx::import(
+        &tx,
+        &registry,
+        definitions,
+        delete_missing,
+        false,
+        core.secrets_key(),
+    )
+    .await?;
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;

@@ -140,15 +140,16 @@ impl Core {
         let client = pool.get().await.map_err(describe_pool_error)?;
         let secrets_key = secrets_key(config)?;
         if let Some(key) = &secrets_key {
-            let sealed = crate::secrets::seal_plain(&client, key).await?;
+            let sealed = crate::secrets::seal_plain(&client, key).await?
+                + crate::secrets::seal_plain_rows(&client, key).await?;
             if sealed > 0 {
-                tracing::info!("encrypted the settings and the token signing secret");
+                tracing::info!(count = sealed, "encrypted stored secrets");
             }
         }
 
         let secret = load_auth_secret(&client, secrets_key.as_deref()).await?;
 
-        let registry = store::load(&client).await?;
+        let registry = store::load_with(&client, secrets_key.as_deref()).await?;
         let settings = Settings::load(&client, secrets_key.as_deref()).await?;
         drop(client);
 
@@ -234,9 +235,10 @@ impl Core {
         // a backup made without the key comes back unencrypted
         if let Some(key) = self.secrets_key() {
             crate::secrets::seal_plain(&client, key).await?;
+            crate::secrets::seal_plain_rows(&client, key).await?;
         }
         let secret = load_auth_secret(&client, self.secrets_key()).await?;
-        let registry = store::load(&client).await?;
+        let registry = store::load_with(&client, self.secrets_key()).await?;
         let settings = Settings::load(&client, self.secrets_key()).await?;
         drop(client);
         *self.auth_secret.write().expect("secret lock") = Arc::new(secret.into_bytes());
@@ -257,6 +259,11 @@ impl Core {
         if let Err(err) = crate::realtime::notify(client, "changed").await {
             tracing::debug!(error = %err, "failed to tell the other instances about a data change");
         }
+    }
+
+    /// [`Core::secrets_key`], to keep (in a task, say).
+    pub(crate) fn secrets_key_owned(&self) -> Option<Arc<crate::secrets::SecretsKey>> {
+        self.secrets_key.clone()
     }
 
     /// The key the settings and the signing secret are encrypted with, if any.

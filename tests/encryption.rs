@@ -12,6 +12,31 @@ const KEY: &str = "0123456789abcdef0123456789abcdef";
 const OTHER_KEY: &str = "fedcba9876543210fedcba9876543210";
 const SMTP_PASSWORD: &str = "smtp-password-in-plain-sight";
 
+const CLIENT_SECRET: &str = "oauth2-client-secret-in-plain-sight";
+
+/// The stored definition of the `members` collection.
+async fn members_data(tdb: &TestDb) -> Value {
+    let client = tdb.pool().get().await.unwrap();
+    client
+        .query_one(
+            "SELECT data FROM _slonbase.collections WHERE name = 'members'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0)
+}
+
+/// The client secret the running app uses.
+fn secret_in_use(app: &std::sync::Arc<slonbase::app::App>) -> String {
+    let core = app.core().unwrap();
+    let registry = core.registry();
+    let c = registry.get("members").unwrap();
+    c.auth_options().unwrap().oauth2.providers[0]
+        .client_secret
+        .clone()
+}
+
 async fn params(tdb: &TestDb) -> (Value, Value) {
     let client = tdb.pool().get().await.unwrap();
     let get = |key: &'static str| {
@@ -70,6 +95,22 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     let (settings, secret) = params(&tdb).await;
     assert!(settings.to_string().contains(SMTP_PASSWORD));
     assert!(!sealed(&secret));
+    // and an OAuth2 client secret in a collection
+    let (status, res) = admin(
+        &plain,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "members", "type": "auth",
+            "oauth2": { "enabled": true, "providers": [{
+                "name": "github", "clientId": "client-1", "clientSecret": CLIENT_SECRET,
+            }] },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert!(members_data(&tdb).await.to_string().contains(CLIENT_SECRET));
     drop(plain);
 
     // started with a key: both are sealed, and everything keeps working (the same signing
@@ -87,6 +128,37 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     assert!(sealed(&secret), "{secret}");
     assert!(!settings.to_string().contains(SMTP_PASSWORD));
     assert!(!settings.to_string().contains("smtp.example.com"));
+    // the client secret too, and it's still the one in use
+    let stored = members_data(&tdb).await;
+    assert!(!stored.to_string().contains(CLIENT_SECRET), "{stored}");
+    assert!(
+        sealed(&stored["oauth2"]["providers"][0]["clientSecret"]),
+        "{stored}"
+    );
+    assert_eq!(secret_in_use(&keyed), CLIENT_SECRET);
+    // changing the collection keeps it sealed (an empty secret keeps the stored one)
+    let (status, res) = admin(
+        &keyed,
+        &token,
+        "PATCH",
+        "/api/collections/members",
+        Some(json!({ "oauth2": { "enabled": true, "providers": [{
+            "name": "github", "clientId": "client-2", "clientSecret": "",
+        }] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(
+        res["oauth2"]["providers"][0]["clientSecret"], "",
+        "never shown"
+    );
+    let stored = members_data(&tdb).await;
+    assert!(
+        sealed(&stored["oauth2"]["providers"][0]["clientSecret"]),
+        "{stored}"
+    );
+    assert_eq!(stored["oauth2"]["providers"][0]["clientId"], "client-2");
+    assert_eq!(secret_in_use(&keyed), CLIENT_SECRET);
     let (status, res) = admin(&keyed, &token, "GET", "/api/settings", None).await;
     assert_eq!(status, StatusCode::OK, "{res}");
     assert_eq!(res["smtp"]["host"], "smtp.example.com");
@@ -194,6 +266,10 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     let (settings, secret) = params(&tdb).await;
     assert!(!sealed(&settings) && !sealed(&secret));
     assert_eq!(settings["smtp"]["password"], SMTP_PASSWORD);
+    assert_eq!(
+        members_data(&tdb).await["oauth2"]["providers"][0]["clientSecret"],
+        CLIENT_SECRET
+    );
     let (_dir5, config5) = temp_config();
     let unsealed = new_app(&config5, Some(tdb.url.clone()));
     unsealed.bootstrap().await.unwrap();
@@ -223,4 +299,134 @@ async fn a_new_installation_starts_sealed() {
     );
     drop(app);
     tdb.drop_db().await;
+}
+
+#[tokio::test]
+async fn project_role_passwords_encrypted_at_rest() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // the main installation's role may create databases and roles (projects with their own)
+    let main_role = format!("{}_main", tdb.name);
+    admin_exec(
+        &tdb.admin_url,
+        &format!(
+            "CREATE ROLE {main_role} LOGIN PASSWORD 'main-role-password' CREATEDB CREATEROLE;
+             ALTER DATABASE {} OWNER TO {main_role};",
+            tdb.name
+        ),
+    )
+    .await;
+    let main_url = {
+        let (scheme, rest) = tdb.url.split_once("://").unwrap();
+        let rest = rest.split_once('@').map(|(_, host)| host).unwrap_or(rest);
+        format!("{scheme}://{main_role}:main-role-password@{rest}")
+    };
+    let (_dir, config) = temp_config();
+    let app = new_app_configured(
+        &config,
+        Some(main_url.clone()),
+        Default::default(),
+        with_key(KEY),
+    );
+    app.bootstrap().await.unwrap();
+    let (status, body) = call(
+        &app,
+        "POST",
+        "/api/setup/complete",
+        Some(app.setup_token()),
+        Some(json!({ "email": ADMIN_EMAIL, "password": ADMIN_PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (_, auth) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": ADMIN_EMAIL, "password": ADMIN_PASSWORD })),
+    )
+    .await;
+    let token = auth["token"].as_str().unwrap().to_string();
+    let (status, project) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/projects",
+        Some(json!({ "name": "vault", "superuserEmail": "p@example.com",
+                     "superuserPassword": "project-password-1", "ownRole": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+
+    // stored sealed
+    let client = tdb.pool().get().await.unwrap();
+    let stored: String = client
+        .query_one(
+            "SELECT role_password FROM _slonbase.projects WHERE name = 'vault'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(stored.starts_with("sealed:"), "{stored}");
+
+    // and the project, served with the role's password, works; again after a restart
+    let sign_in = |app: std::sync::Arc<slonbase::app::App>| async move {
+        for _ in 0..100 {
+            let (status, _) = request(
+                &app,
+                "POST",
+                "/p/vault/api/collections/_superusers/auth-with-password",
+                &[],
+                Some(json!({ "identity": "p@example.com", "password": "project-password-1" })),
+            )
+            .await;
+            if status == StatusCode::OK {
+                return true;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        false
+    };
+    assert!(sign_in(app.clone()).await, "the project answers");
+    drop(app);
+    let (_dir2, config2) = temp_config();
+    let again = new_app_configured(&config2, Some(main_url), Default::default(), with_key(KEY));
+    again.bootstrap().await.unwrap();
+    assert!(
+        sign_in(again.clone()).await,
+        "the project answers after a restart"
+    );
+
+    // rekeying covers it
+    let mut main = tdb.pool().get().await.unwrap();
+    let key = slonbase::secrets::SecretsKey::new(KEY).unwrap();
+    slonbase::secrets::rekey(&mut main, Some(&key), None)
+        .await
+        .unwrap();
+    let stored: String = client
+        .query_one(
+            "SELECT role_password FROM _slonbase.projects WHERE name = 'vault'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(!stored.starts_with("sealed:"));
+
+    drop((again, client, main));
+    let admin_url = tdb.admin_url.clone();
+    let database = format!("{}_vault", tdb.name);
+    admin_exec(
+        &admin_url,
+        &format!("DROP DATABASE IF EXISTS {database} WITH (FORCE)"),
+    )
+    .await;
+    tdb.drop_db().await;
+    admin_exec(
+        &admin_url,
+        &format!("DROP ROLE IF EXISTS {database}; DROP ROLE IF EXISTS {main_role};"),
+    )
+    .await;
 }

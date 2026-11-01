@@ -963,9 +963,13 @@ the core's key. On start with a key, plain rows are sealed (with a compare-and-s
 starting together don't fight); a sealed row without the key, or one the key can't open, is a
 `KeyError`, which stops startup rather than being retried. A restore checks, inside its
 transaction, that the restored rows open with the installation's key, and rolls back otherwise.
-`slonbase rekey` rewrites both rows of the main database and every project's in one
-transaction each. Not covered: OAuth2 client secrets in collection definitions, and projects'
-role passwords in `_slonbase.projects`.
+OAuth2 client secrets in collection definitions are stored as `{"sealed": ...}` in place of the
+string (`secrets::seal_collection`, applied by `store`'s `_with` functions, which every caller
+passes the key to; the forms without it remain for library users), so a definition can't be
+read as a collection unopened; projects' role passwords are stored as `sealed:<base64>`
+(`seal_text`). Plain ones are sealed on start (`seal_plain_rows`), and a restore checks the
+collections' secrets too. `slonbase rekey` rewrites all of it, in the main database and every
+project's, in one transaction each.
 
 ## Distribution
 

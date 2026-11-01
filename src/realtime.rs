@@ -1180,7 +1180,7 @@ async fn reload_collections(core: &Core) {
     // also have been the only one to see another instance's change).
     for _ in 0..5 {
         let generation = core.registry_generation();
-        match store::load_from_pool(&core.pool).await {
+        match store::load_from_pool_with(&core.pool, core.secrets_key()).await {
             Ok(registry) => {
                 if core.set_registry_if(generation, registry) {
                     return;

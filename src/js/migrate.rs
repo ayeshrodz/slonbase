@@ -266,10 +266,18 @@ pub(super) fn call_in_tx(
             };
             let registry = ctx.registry();
             let single = name == "saveCollection";
+            let key = ctx.core.secrets_key_owned();
             let imported = ctx.run(handle, move |tx, _| {
                 Box::pin(async move {
-                    crate::collections::tx::import(tx, &registry, items, delete_missing, single)
-                        .await
+                    crate::collections::tx::import(
+                        tx,
+                        &registry,
+                        items,
+                        delete_missing,
+                        single,
+                        key.as_deref(),
+                    )
+                    .await
                 })
             })?;
             let saved = imported.saved.first().map(|c| collection_json(c));
@@ -279,8 +287,11 @@ pub(super) fn call_in_tx(
         "deleteCollection" => (|| {
             let registry = ctx.registry();
             let id = a.str(0);
+            let key = ctx.core.secrets_key_owned();
             let (registry, deleted) = ctx.run(handle, move |tx, _| {
-                Box::pin(async move { crate::collections::tx::delete(tx, &registry, &id).await })
+                Box::pin(async move {
+                    crate::collections::tx::delete(tx, &registry, &id, key.as_deref()).await
+                })
             })?;
             ctx.collections_saved(registry, vec![deleted], Vec::new());
             Ok(Value::Null)
@@ -423,6 +434,7 @@ async fn run_one(
 ) -> Result<bool> {
     let (tx, effects, worker) = TxHandle::start(core);
     let file = name.to_string();
+    let key = core.secrets_key_owned();
     let started = tx
         .run(move |tx, _| {
             Box::pin(async move {
@@ -437,7 +449,9 @@ async fn run_one(
                     .await
                     .map_err(db_error)?
                     .is_some();
-                let registry = store::load(tx).await.map_err(ApiError::internal)?;
+                let registry = store::load_with(tx, key.as_deref())
+                    .await
+                    .map_err(ApiError::internal)?;
                 Ok((applied, registry))
             })
         })

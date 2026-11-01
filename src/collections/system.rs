@@ -92,12 +92,12 @@ fn legacy(id: &str) -> Option<(&'static str, &'static str)> {
 }
 
 /// Creates the missing system collections (moving rows from legacy tables).
-pub async fn ensure(pool: &Pool) -> Result<()> {
+pub async fn ensure_with(pool: &Pool, key: Option<&crate::secrets::SecretsKey>) -> Result<()> {
     let mut client = pool.get().await.map_err(describe_pool_error)?;
     let tx = client.transaction().await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
-    let mut registry = store::load(&tx).await?;
+    let mut registry = store::load_with(&tx, key).await?;
 
     let mut created = Vec::new();
     for mut c in [superusers(), external_auths()] {
@@ -126,7 +126,7 @@ pub async fn ensure(pool: &Pool) -> Result<()> {
                 .await
                 .with_context(|| format!("failed to create {}", c.name))?;
         }
-        store::insert_metadata(&tx, &c).await?;
+        store::insert_metadata_with(&tx, &c, key).await?;
 
         if let Some((table, copy)) = legacy(&c.id) {
             let exists: bool = tx
@@ -144,7 +144,7 @@ pub async fn ensure(pool: &Pool) -> Result<()> {
             }
         }
         created.push(c.name.clone());
-        registry = store::load(&tx).await?;
+        registry = store::load_with(&tx, key).await?;
     }
 
     if !created.is_empty() {
@@ -153,4 +153,9 @@ pub async fn ensure(pool: &Pool) -> Result<()> {
         tracing::info!(?created, "created system collections");
     }
     Ok(())
+}
+
+/// [`ensure_with`] without an encryption key (the signature before 1.3, for library users).
+pub async fn ensure(pool: &Pool) -> Result<()> {
+    ensure_with(pool, None).await
 }

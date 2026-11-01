@@ -13,6 +13,7 @@ use super::schema;
 use crate::datetime;
 use crate::db::describe_pool_error;
 use crate::migrations::SCHEMA_LOCK_KEY;
+use crate::secrets::SecretsKey;
 
 /// A snapshot of all collections, ordered by creation.
 #[derive(Debug, Default, Clone)]
@@ -60,7 +61,9 @@ impl Registry {
     }
 }
 
-pub async fn load(client: &impl GenericClient) -> Result<Registry> {
+/// Loads every collection, decrypting their OAuth2 client secrets with `key` (see
+/// [`crate::secrets`]).
+pub async fn load_with(client: &impl GenericClient, key: Option<&SecretsKey>) -> Result<Registry> {
     let rows = client
         .query(
             &format!(
@@ -74,7 +77,8 @@ pub async fn load(client: &impl GenericClient) -> Result<Registry> {
 
     let mut items = Vec::with_capacity(rows.len());
     for row in rows {
-        let data: serde_json::Value = row.get(0);
+        let mut data: serde_json::Value = row.get(0);
+        crate::secrets::open_collection(&mut data, key)?;
         let mut c: Collection =
             serde_json::from_value(data).context("invalid stored collection")?;
         c.created = row.get(1);
@@ -84,13 +88,15 @@ pub async fn load(client: &impl GenericClient) -> Result<Registry> {
     Ok(Registry::new(items))
 }
 
-pub async fn load_from_pool(pool: &Pool) -> Result<Registry> {
+pub async fn load_from_pool_with(pool: &Pool, key: Option<&SecretsKey>) -> Result<Registry> {
     let client = pool.get().await.map_err(describe_pool_error)?;
-    load(&client).await
+    load_with(&client, key).await
 }
 
-fn stored_json(c: &Collection) -> serde_json::Value {
+/// The stored form of a collection, its OAuth2 client secrets encrypted with `key`.
+fn stored_json(c: &Collection, key: Option<&SecretsKey>) -> serde_json::Value {
     let mut value = serde_json::to_value(c).expect("collection serializes");
+    crate::secrets::seal_collection(&mut value, key);
     if let Some(obj) = value.as_object_mut() {
         // kept in their own columns
         obj.remove("created");
@@ -150,6 +156,7 @@ impl From<tokio_postgres::Error> for WriteError {
 async fn rebuild_view(
     tx: &deadpool_postgres::Transaction<'_>,
     view: &mut Collection,
+    key: Option<&SecretsKey>,
 ) -> Result<(), WriteError> {
     tx.batch_execute(super::view::SEARCH_PATH).await?;
     let query = view.view_query.clone().unwrap_or_default();
@@ -169,7 +176,7 @@ async fn rebuild_view(
     if changed {
         tx.execute(
             "UPDATE _slonbase.collections SET data = $2, updated = now() WHERE id = $1",
-            &[&view.id, &stored_json(view)],
+            &[&view.id, &stored_json(view, key)],
         )
         .await?;
     }
@@ -178,9 +185,9 @@ async fn rebuild_view(
 
 /// Recreates view collections whose PostgreSQL view is missing (e.g. dropped by hand).
 /// Problems are logged; the collection then fails on reads until its query is fixed.
-pub async fn heal_views(pool: &Pool) -> Result<()> {
+pub async fn heal_views_with(pool: &Pool, key: Option<&SecretsKey>) -> Result<()> {
     let mut client = pool.get().await.map_err(describe_pool_error)?;
-    let registry = load(&client).await?;
+    let registry = load_with(&client, key).await?;
     for view in registry.all().iter().filter(|c| c.is_view()) {
         let exists: bool = client
             .query_one(
@@ -196,7 +203,7 @@ pub async fn heal_views(pool: &Pool) -> Result<()> {
         tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
             .await?;
         let mut view = view.as_ref().clone();
-        match rebuild_view(&tx, &mut view).await {
+        match rebuild_view(&tx, &mut view, key).await {
             Ok(()) => {
                 tx.commit().await?;
                 tracing::warn!(collection = %view.name, "recreated a missing view");
@@ -211,14 +218,15 @@ pub async fn heal_views(pool: &Pool) -> Result<()> {
 }
 
 /// Stores a new collection's definition (its table must be created in the same transaction).
-pub async fn insert_metadata(
+pub async fn insert_metadata_with(
     client: &impl GenericClient,
     c: &Collection,
+    key: Option<&SecretsKey>,
 ) -> Result<(), tokio_postgres::Error> {
     client
         .execute(
             "INSERT INTO _slonbase.collections (id, name, data) VALUES ($1, $2, $3)",
-            &[&c.id, &c.name, &stored_json(c)],
+            &[&c.id, &c.name, &stored_json(c, key)],
         )
         .await?;
     Ok(())
@@ -227,6 +235,7 @@ pub async fn insert_metadata(
 async fn apply_one(
     tx: &deadpool_postgres::Transaction<'_>,
     change: &Change<'_>,
+    key: Option<&SecretsKey>,
 ) -> Result<(), WriteError> {
     let statements = match change {
         Change::Create(c) => schema::create(c),
@@ -239,11 +248,11 @@ async fn apply_one(
     }
 
     match change {
-        Change::Create(c) => insert_metadata(tx, c).await?,
+        Change::Create(c) => insert_metadata_with(tx, c, key).await?,
         Change::Update { new, .. } => {
             tx.execute(
                 "UPDATE _slonbase.collections SET name = $2, data = $3, updated = now() WHERE id = $1",
-                &[&new.id, &new.name, &stored_json(new)],
+                &[&new.id, &new.name, &stored_json(new, key)],
             )
             .await?;
         }
@@ -291,24 +300,33 @@ pub struct Applied {
 }
 
 /// Applies a validated change and returns the reloaded registry.
-pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Applied, WriteError> {
-    apply_all(pool, vec![change]).await
+pub async fn apply_with(
+    pool: &Pool,
+    change: Change<'_>,
+    key: Option<&SecretsKey>,
+) -> Result<Applied, WriteError> {
+    apply_all_with(pool, vec![change], key).await
 }
 
 /// Applies validated changes in one transaction and returns the reloaded registry.
-pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Applied, WriteError> {
+pub async fn apply_all_with(
+    pool: &Pool,
+    changes: Vec<Change<'_>>,
+    key: Option<&SecretsKey>,
+) -> Result<Applied, WriteError> {
     let mut client = pool.get().await.map_err(describe_pool_error)?;
     let tx = client.transaction().await?;
-    let applied = apply_in(&tx, changes).await?;
+    let applied = apply_in_with(&tx, changes, key).await?;
     tx.commit().await?;
     Ok(applied)
 }
 
 /// Applies validated changes in the caller's transaction and returns the registry as it is
 /// in it. Other instances reload their collections when the transaction commits.
-pub async fn apply_in(
+pub async fn apply_in_with(
     tx: &deadpool_postgres::Transaction<'_>,
     mut changes: Vec<Change<'_>>,
+    key: Option<&SecretsKey>,
 ) -> Result<Applied, WriteError> {
     // views go after the tables they read, and are dropped before them
     changes.sort_by_key(|change| match change {
@@ -336,7 +354,12 @@ pub async fn apply_in(
                 Change::Update { new, .. } => new.id.as_str(),
             })
             .collect();
-        for view in load(tx).await?.all().iter().filter(|c| c.is_view()) {
+        for view in load_with(tx, key)
+            .await?
+            .all()
+            .iter()
+            .filter(|c| c.is_view())
+        {
             if changed.contains(&view.id.as_str()) {
                 continue;
             }
@@ -352,13 +375,13 @@ pub async fn apply_in(
         if let Change::Update { old, new } = change {
             removed_files.extend(files_of_removed_fields(tx, old, new).await?);
         }
-        apply_one(tx, change).await?;
+        apply_one(tx, change, key).await?;
     }
     for mut view in rebuild {
-        rebuild_view(tx, &mut view).await?;
+        rebuild_view(tx, &mut view, key).await?;
     }
 
-    let registry = load(tx).await?;
+    let registry = load_with(tx, key).await?;
     // other instances reload their collections when this commits
     crate::realtime::notify(tx, "collections").await?;
     Ok(Applied {
@@ -399,4 +422,48 @@ async fn files_of_removed_fields(
         }
     }
     Ok(files)
+}
+
+// The signatures before encryption at rest (1.3), kept for programs using the library: they
+// read and write without an encryption key (an installation using one needs the `_with` forms).
+
+/// [`load_with`] without an encryption key.
+pub async fn load(client: &impl GenericClient) -> Result<Registry> {
+    load_with(client, None).await
+}
+
+/// [`load_from_pool_with`] without an encryption key.
+pub async fn load_from_pool(pool: &Pool) -> Result<Registry> {
+    load_from_pool_with(pool, None).await
+}
+
+/// [`insert_metadata_with`] without an encryption key.
+pub async fn insert_metadata(
+    client: &impl GenericClient,
+    c: &Collection,
+) -> Result<(), tokio_postgres::Error> {
+    insert_metadata_with(client, c, None).await
+}
+
+/// [`apply_with`] without an encryption key.
+pub async fn apply(pool: &Pool, change: Change<'_>) -> Result<Applied, WriteError> {
+    apply_with(pool, change, None).await
+}
+
+/// [`apply_all_with`] without an encryption key.
+pub async fn apply_all(pool: &Pool, changes: Vec<Change<'_>>) -> Result<Applied, WriteError> {
+    apply_all_with(pool, changes, None).await
+}
+
+/// [`apply_in_with`] without an encryption key.
+pub async fn apply_in(
+    tx: &deadpool_postgres::Transaction<'_>,
+    changes: Vec<Change<'_>>,
+) -> Result<Applied, WriteError> {
+    apply_in_with(tx, changes, None).await
+}
+
+/// [`heal_views_with`] without an encryption key.
+pub async fn heal_views(pool: &Pool) -> Result<()> {
+    heal_views_with(pool, None).await
 }
