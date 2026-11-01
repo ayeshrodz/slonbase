@@ -1083,4 +1083,5 @@ role passwords in `_slonbase.projects`.
    Coolify, Dokploy and Railway ones are ready for their catalogs, see `deploy/README.md`).
 10. **1.1** (done): a security review of the whole platform, with its fixes. **1.2** (done):
     presigned S3 downloads, Bitbucket, Twitch, Spotify, Patreon, Kakao and X sign-in, and the
-    auth email throttle shared by the instances.
+    auth email throttle shared by the instances. **1.3** (done): the settings and the signing
+    secret encrypted at rest, and lists 5 to 8 times faster (see [performance](#performance)).

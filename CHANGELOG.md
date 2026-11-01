@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-01
+
+**Faster everywhere, and encrypted secrets.** Lists are 5 to 8 times faster than in 1.2 and
+single records 2.85 times, with the dashboard cached between builds; and the settings and the
+token signing secret can be stored encrypted in the database.
+
 ### Added
 
 - **The settings and the token signing secret can be encrypted in the database**
@@ -723,7 +729,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.1.0
 [1.0.2]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.0.2
