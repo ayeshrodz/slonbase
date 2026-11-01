@@ -46,6 +46,21 @@ enum Kind {
     Patreon,
     Kakao,
     Twitter,
+    Box,
+    Gitea,
+    Gitee,
+    Instagram,
+    Lark,
+    Linear,
+    Livechat,
+    Mailcow,
+    Monday,
+    Notion,
+    PlanningCenter,
+    Strava,
+    Trakt,
+    Wakatime,
+    Yandex,
     Oidc,
 }
 
@@ -53,7 +68,18 @@ impl Kind {
     /// Whether the token endpoint wants the client's credentials with HTTP Basic
     /// authentication instead of in the form.
     fn basic_auth(self) -> bool {
-        matches!(self, Kind::Bitbucket | Kind::Twitter)
+        matches!(self, Kind::Bitbucket | Kind::Twitter | Kind::Notion)
+    }
+
+    /// Whether PKCE is on unless the provider's `pkce` says otherwise.
+    fn pkce(self) -> bool {
+        // Linear's token endpoint rejects it
+        self != Kind::Linear
+    }
+
+    /// Whether the provider has no default URLs (OpenID Connect, self-hosted mailcow).
+    fn needs_urls(self) -> bool {
+        matches!(self, Kind::Oidc | Kind::Mailcow)
     }
 }
 
@@ -191,6 +217,144 @@ const PRESETS: &[Preset] = &[
         scopes: &["users.read", "tweet.read"],
     },
     Preset {
+        name: "box",
+        kind: Kind::Box,
+        display_name: "Box",
+        auth_url: "https://account.box.com/api/oauth2/authorize",
+        token_url: "https://api.box.com/oauth2/token",
+        user_info_url: "https://api.box.com/2.0/users/me",
+        scopes: &["root_readonly"],
+    },
+    // gitea.com by default; set the URLs of your own Gitea or Forgejo
+    Preset {
+        name: "gitea",
+        kind: Kind::Gitea,
+        display_name: "Gitea/Forgejo",
+        auth_url: "https://gitea.com/login/oauth/authorize",
+        token_url: "https://gitea.com/login/oauth/access_token",
+        user_info_url: "https://gitea.com/api/v1/user",
+        scopes: &["read:user", "user:email"],
+    },
+    Preset {
+        name: "gitee",
+        kind: Kind::Gitee,
+        display_name: "Gitee",
+        auth_url: "https://gitee.com/oauth/authorize",
+        token_url: "https://gitee.com/oauth/token",
+        user_info_url: "https://gitee.com/api/v5/user",
+        scopes: &["user_info", "emails"],
+    },
+    Preset {
+        name: "instagram2",
+        kind: Kind::Instagram,
+        display_name: "Instagram",
+        auth_url: "https://www.instagram.com/oauth/authorize",
+        token_url: "https://api.instagram.com/oauth/access_token",
+        user_info_url: "https://graph.instagram.com/me?fields=id,username,account_type,user_id,name,profile_picture_url",
+        scopes: &["instagram_business_basic"],
+    },
+    Preset {
+        name: "lark",
+        kind: Kind::Lark,
+        display_name: "Lark",
+        auth_url: "https://accounts.feishu.cn/open-apis/authen/v1/authorize",
+        token_url: "https://open.feishu.cn/open-apis/authen/v2/oauth/token",
+        user_info_url: "https://open.feishu.cn/open-apis/authen/v1/user_info",
+        scopes: &[],
+    },
+    // the user comes from a GraphQL query (see `Provider::user`)
+    Preset {
+        name: "linear",
+        kind: Kind::Linear,
+        display_name: "Linear",
+        auth_url: "https://linear.app/oauth/authorize",
+        token_url: "https://api.linear.app/oauth/token",
+        user_info_url: "https://api.linear.app/graphql",
+        scopes: &["read"],
+    },
+    Preset {
+        name: "livechat",
+        kind: Kind::Livechat,
+        display_name: "LiveChat",
+        auth_url: "https://accounts.livechat.com/",
+        token_url: "https://accounts.livechat.com/token",
+        user_info_url: "https://accounts.livechat.com/v2/accounts/me",
+        scopes: &[],
+    },
+    // self-hosted: the URLs are your server's (/oauth/authorize, /oauth/token, /oauth/profile)
+    Preset {
+        name: "mailcow",
+        kind: Kind::Mailcow,
+        display_name: "mailcow",
+        auth_url: "",
+        token_url: "",
+        user_info_url: "",
+        scopes: &["profile"],
+    },
+    Preset {
+        name: "monday",
+        kind: Kind::Monday,
+        display_name: "monday.com",
+        auth_url: "https://auth.monday.com/oauth2/authorize",
+        token_url: "https://auth.monday.com/oauth2/token",
+        user_info_url: "https://api.monday.com/v2",
+        scopes: &["me:read"],
+    },
+    Preset {
+        name: "notion",
+        kind: Kind::Notion,
+        display_name: "Notion",
+        auth_url: "https://api.notion.com/v1/oauth/authorize",
+        token_url: "https://api.notion.com/v1/oauth/token",
+        user_info_url: "https://api.notion.com/v1/users/me",
+        scopes: &[],
+    },
+    Preset {
+        name: "planningcenter",
+        kind: Kind::PlanningCenter,
+        display_name: "Planning Center",
+        auth_url: "https://api.planningcenteronline.com/oauth/authorize",
+        token_url: "https://api.planningcenteronline.com/oauth/token",
+        user_info_url: "https://api.planningcenteronline.com/people/v2/me",
+        scopes: &["people"],
+    },
+    Preset {
+        name: "strava",
+        kind: Kind::Strava,
+        display_name: "Strava",
+        auth_url: "https://www.strava.com/oauth/authorize",
+        token_url: "https://www.strava.com/api/v3/oauth/token",
+        user_info_url: "https://www.strava.com/api/v3/athlete",
+        scopes: &["profile:read_all"],
+    },
+    Preset {
+        name: "trakt",
+        kind: Kind::Trakt,
+        display_name: "Trakt",
+        auth_url: "https://trakt.tv/oauth/authorize",
+        token_url: "https://api.trakt.tv/oauth/token",
+        user_info_url: "https://api.trakt.tv/users/settings",
+        scopes: &[],
+    },
+    Preset {
+        name: "wakatime",
+        kind: Kind::Wakatime,
+        display_name: "WakaTime",
+        auth_url: "https://wakatime.com/oauth/authorize",
+        token_url: "https://wakatime.com/oauth/token",
+        user_info_url: "https://wakatime.com/api/v1/users/current",
+        scopes: &["email"],
+    },
+    Preset {
+        name: "yandex",
+        kind: Kind::Yandex,
+        display_name: "Yandex",
+        auth_url: "https://oauth.yandex.com/authorize",
+        token_url: "https://oauth.yandex.com/token",
+        user_info_url: "https://login.yandex.ru/info",
+        scopes: &["login:email", "login:avatar", "login:info"],
+    },
+    Preset {
         name: "oidc",
         kind: Kind::Oidc,
         display_name: "OIDC",
@@ -234,7 +398,7 @@ pub fn is_known(name: &str) -> bool {
 
 /// Whether the provider needs its URLs configured (OpenID Connect).
 pub fn needs_urls(name: &str) -> bool {
-    preset(name).is_some_and(|p| p.kind == Kind::Oidc)
+    preset(name).is_some_and(|p| p.kind.needs_urls())
 }
 
 /// A configured provider with the preset's defaults filled in.
@@ -271,7 +435,7 @@ impl Provider {
             token_url: or(&config.token_url, preset.token_url),
             user_info_url: or(&config.user_info_url, preset.user_info_url),
             scopes: preset.scopes.iter().map(|s| s.to_string()).collect(),
-            pkce: config.pkce.unwrap_or(true),
+            pkce: config.pkce.unwrap_or(preset.kind.pkce()),
             kind: preset.kind,
             extra: config.extra.clone(),
         })
@@ -339,7 +503,8 @@ impl Provider {
             form.push(("client_id", &self.client_id));
             form.push(("client_secret", &self.client_secret));
         }
-        if !verifier.is_empty() {
+        // only with PKCE: some providers (Linear) refuse a verifier they didn't ask for
+        if self.pkce && !verifier.is_empty() {
             form.push(("code_verifier", verifier));
         }
         let mut request = client()
@@ -435,11 +600,52 @@ impl Provider {
                 &[("client-id", &self.client_id)],
             )
             .await?
+        } else if self.kind == Kind::Trakt {
+            get_json_with(
+                &self.user_info_url,
+                &token.access_token,
+                &[
+                    ("trakt-api-key", &self.client_id),
+                    ("trakt-api-version", "2"),
+                ],
+            )
+            .await?
+        } else if self.kind == Kind::Notion {
+            get_json_with(
+                &self.user_info_url,
+                &token.access_token,
+                &[("notion-version", "2022-06-28")],
+            )
+            .await?
+        } else if self.kind == Kind::Linear {
+            post_json(
+                &self.user_info_url,
+                &token.access_token,
+                &json!({ "query": "query Me { viewer { id displayName name email avatarUrl active } }" }),
+            )
+            .await?
+        } else if self.kind == Kind::Monday {
+            post_json(
+                &self.user_info_url,
+                &token.access_token,
+                &json!({ "query": "query { me { id enabled name email is_verified photo_small } }" }),
+            )
+            .await?
         } else {
             get_json(&self.user_info_url, &token.access_token).await?
         };
-        if self.kind == Kind::Bitbucket && raw["account_status"].as_str() != Some("active") {
-            bail!("the Bitbucket account isn't active");
+        // accounts their provider reports as disabled don't sign in
+        let inactive = match self.kind {
+            Kind::Bitbucket => raw["account_status"].as_str() != Some("active"),
+            Kind::Box => raw["status"].as_str() != Some("active"),
+            Kind::Linear => raw["data"]["viewer"]["active"] != true,
+            Kind::Monday => raw["data"]["me"]["enabled"] != true,
+            Kind::Mailcow => raw["active"] != 1,
+            Kind::PlanningCenter => raw["data"]["attributes"]["status"].as_str() != Some("active"),
+            _ => false,
+        };
+        if inactive {
+            bail!("the {} account isn't active", self.display_name);
         }
         let mut user = extract(self.kind, &raw);
         if self.kind == Kind::Bitbucket {
@@ -453,6 +659,33 @@ impl Provider {
                     .find(|e| e["is_primary"] == true && e["is_confirmed"] == true)
                     .and_then(|e| e["email"].as_str())
                     .unwrap_or_default()
+                    .to_string();
+            }
+        }
+        if matches!(self.kind, Kind::Gitea | Kind::Gitee) {
+            // the emails are separate: use the verified primary one (optional)
+            let emails_url = match self.kind {
+                Kind::Gitee => {
+                    let base = self.user_info_url.trim_end_matches('/');
+                    format!("{}/emails", base.strip_suffix("/user").unwrap_or(base))
+                }
+                _ => format!("{}/emails", self.user_info_url.trim_end_matches('/')),
+            };
+            if let Ok(Value::Array(emails)) = get_json(&emails_url, &token.access_token).await {
+                user.email = emails
+                    .iter()
+                    .find(|e| match self.kind {
+                        Kind::Gitee => {
+                            e["state"] == "confirmed"
+                                && e["scope"]
+                                    .as_array()
+                                    .is_some_and(|s| s.iter().any(|x| x == "primary"))
+                        }
+                        _ => e["primary"] == true && e["verified"] == true,
+                    })
+                    .and_then(|e| e["email"].as_str())
+                    .unwrap_or_default()
+                    .trim()
                     .to_string();
             }
         }
@@ -889,6 +1122,128 @@ fn extract(kind: Kind, raw: &Value) -> AuthUser {
             user.name = text(&data["name"]);
             user.avatar_url = text(&data["profile_image_url"]);
         }
+        Kind::Box => {
+            user.id = text(&raw["id"]);
+            user.name = text(&raw["name"]);
+            user.avatar_url = text(&raw["avatar_url"]);
+            // Box only authorizes accounts with a verified email
+            user.email = text(&raw["login"]);
+        }
+        Kind::Gitea | Kind::Gitee => {
+            // the email comes from a second request (see `Provider::user`)
+            user.id = text(&raw["id"]);
+            user.username = text(&raw["login"]);
+            user.name = text(
+                &raw[if kind == Kind::Gitea {
+                    "full_name"
+                } else {
+                    "name"
+                }],
+            );
+            user.avatar_url = text(&raw["avatar_url"]);
+        }
+        Kind::Instagram => {
+            user.id = text(&raw["user_id"]);
+            user.username = text(&raw["username"]);
+            user.name = text(&raw["name"]);
+            user.avatar_url = text(&raw["profile_picture_url"]);
+        }
+        Kind::Lark => {
+            let data = &raw["data"];
+            user.id = text(&data["union_id"]);
+            user.name = text(&data["name"]);
+            user.avatar_url = text(&data["avatar_url"]);
+        }
+        Kind::Linear => {
+            // Linear accounts sign in with their email, so it's verified
+            let viewer = &raw["data"]["viewer"];
+            user.id = text(&viewer["id"]);
+            user.name = text(&viewer["name"]);
+            user.username = text(&viewer["displayName"]);
+            user.email = text(&viewer["email"]);
+            user.avatar_url = text(&viewer["avatarUrl"]);
+        }
+        Kind::Livechat => {
+            user.id = text(&raw["account_id"]);
+            user.name = text(&raw["name"]);
+            user.avatar_url = text(&raw["avatar_url"]);
+            if is_true(&raw["email_verified"]) {
+                user.email = text(&raw["email"]);
+            }
+        }
+        Kind::Mailcow => {
+            // the mailbox is the account
+            user.id = text(&raw["id"]);
+            // its usernames are the addresses: keep the part before the @
+            let username = text(&raw["username"]);
+            user.username = username.split('@').next().unwrap_or_default().to_string();
+            user.name = text(&raw["full_name"]);
+            user.email = text(&raw["email"]);
+        }
+        Kind::Monday => {
+            let me = &raw["data"]["me"];
+            user.id = text(&me["id"]);
+            user.name = text(&me["name"]);
+            user.avatar_url = text(&me["photo_small"]);
+            if is_true(&me["is_verified"]) {
+                user.email = text(&me["email"]);
+            }
+        }
+        Kind::Notion => {
+            // the workspace's owner, who signed in with their email
+            let owner = &raw["bot"]["owner"]["user"];
+            user.id = text(&owner["id"]);
+            user.name = text(&owner["name"]);
+            user.avatar_url = text(&owner["avatar_url"]);
+            user.email = text(&owner["person"]["email"]);
+        }
+        Kind::PlanningCenter => {
+            let data = &raw["data"];
+            user.id = text(&data["id"]);
+            user.name = text(&data["attributes"]["name"]);
+            user.avatar_url = text(&data["attributes"]["avatar"]);
+        }
+        Kind::Strava => {
+            // Strava doesn't give emails
+            user.id = text(&raw["id"]);
+            user.name = format!("{} {}", text(&raw["firstname"]), text(&raw["lastname"]))
+                .trim()
+                .to_string();
+            user.username = text(&raw["username"]);
+            user.avatar_url = text(&raw["profile"]);
+        }
+        Kind::Trakt => {
+            // Trakt doesn't give emails
+            let u = &raw["user"];
+            user.id = text(&u["ids"]["uuid"]);
+            user.username = text(&u["username"]);
+            user.name = text(&u["name"]);
+            user.avatar_url = text(&u["images"]["avatar"]["full"]);
+        }
+        Kind::Wakatime => {
+            let data = &raw["data"];
+            user.id = text(&data["id"]);
+            user.name = text(&data["display_name"]);
+            user.username = text(&data["username"]);
+            if is_true(&data["photo_public"]) {
+                user.avatar_url = text(&data["photo"]);
+            }
+            if is_true(&data["is_email_confirmed"]) {
+                user.email = text(&data["email"]);
+            }
+        }
+        Kind::Yandex => {
+            // Yandex's addresses are its own
+            user.id = text(&raw["id"]);
+            user.name = text(&raw["real_name"]);
+            user.username = text(&raw["login"]);
+            user.email = text(&raw["default_email"]);
+            let avatar = text(&raw["default_avatar_id"]);
+            if !avatar.is_empty() && !is_true(&raw["is_avatar_empty"]) {
+                user.avatar_url =
+                    format!("https://avatars.yandex.net/get-yapic/{avatar}/islands-200");
+            }
+        }
     }
     user.email = user.email.trim().to_string();
     user
@@ -912,6 +1267,26 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
 /// GETs JSON, with the access token if there's one (none for the JWKS).
 async fn get_json(url: &str, access_token: &str) -> Result<Value> {
     get_json_with(url, access_token, &[]).await
+}
+
+/// POSTs a JSON body (a GraphQL query) with the access token, for JSON.
+async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value> {
+    let response = client()
+        .post(url)
+        .timeout(TIMEOUT)
+        .header("accept", "application/json")
+        .bearer_auth(access_token)
+        .header("content-type", "application/json")
+        .body(body.to_string())
+        .send()
+        .await
+        .context("request failed")?;
+    let status = response.status();
+    let body = read_limited(response, MAX_RESPONSE).await?;
+    if !status.is_success() {
+        bail!("{url} answered {status}");
+    }
+    serde_json::from_slice(&body).context("invalid JSON response")
 }
 
 /// [`get_json`] with more headers.
@@ -1368,5 +1743,143 @@ mod tests {
             ),
             ("x1", "xx", "")
         );
+    }
+
+    #[test]
+    fn extracts_the_parity_presets() {
+        let user = extract(
+            Kind::Box,
+            &json!({ "id": "b1", "name": "Bo", "login": "b@x.com", "status": "active" }),
+        );
+        assert_eq!((user.id.as_str(), user.email.as_str()), ("b1", "b@x.com"));
+
+        let user = extract(
+            Kind::Gitea,
+            &json!({ "id": 5, "login": "ge", "full_name": "Ge A", "email": "g@x.com" }),
+        );
+        // the email only comes from the /emails request
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.username.as_str(),
+                user.name.as_str(),
+                user.email.as_str()
+            ),
+            ("5", "ge", "Ge A", "")
+        );
+        assert_eq!(
+            extract(Kind::Gitee, &json!({ "id": 6, "name": "Gi" })).name,
+            "Gi"
+        );
+
+        let linear = json!({ "data": { "viewer": { "id": "l1", "displayName": "li",
+            "name": "Li N", "email": "l@x.com", "active": true } } });
+        let user = extract(Kind::Linear, &linear);
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.username.as_str(),
+                user.email.as_str()
+            ),
+            ("l1", "li", "l@x.com")
+        );
+
+        let livechat = |verified: bool| json!({ "account_id": "c1", "name": "Lc", "email": "c@x.com", "email_verified": verified });
+        assert_eq!(extract(Kind::Livechat, &livechat(true)).email, "c@x.com");
+        assert_eq!(extract(Kind::Livechat, &livechat(false)).email, "");
+
+        let user = extract(
+            Kind::Mailcow,
+            &json!({ "id": "m1", "username": "box@mail.example", "full_name": "Mc",
+                     "email": "box@mail.example", "active": 1 }),
+        );
+        assert_eq!(
+            (user.username.as_str(), user.email.as_str()),
+            ("box", "box@mail.example")
+        );
+
+        let monday = |verified: bool| {
+            json!({ "data": { "me": { "id": 9, "name": "Mo", "email": "m@x.com",
+                                      "is_verified": verified, "enabled": true } } })
+        };
+        assert_eq!(extract(Kind::Monday, &monday(true)).email, "m@x.com");
+        assert_eq!(extract(Kind::Monday, &monday(false)).email, "");
+        assert_eq!(extract(Kind::Monday, &monday(true)).id, "9");
+
+        let user = extract(
+            Kind::Notion,
+            &json!({ "bot": { "owner": { "user": { "id": "n1", "name": "No",
+                "person": { "email": "n@x.com" } } } } }),
+        );
+        assert_eq!((user.id.as_str(), user.email.as_str()), ("n1", "n@x.com"));
+
+        let user = extract(
+            Kind::Strava,
+            &json!({ "id": 77, "firstname": "St", "lastname": "Ra", "email": "s@x.com" }),
+        );
+        assert_eq!(
+            (user.id.as_str(), user.name.as_str(), user.email.as_str()),
+            ("77", "St Ra", "")
+        );
+
+        let user = extract(
+            Kind::Trakt,
+            &json!({ "user": { "username": "tr", "ids": { "uuid": "u-1" } } }),
+        );
+        assert_eq!((user.id.as_str(), user.username.as_str()), ("u-1", "tr"));
+
+        let waka = |confirmed: bool| {
+            json!({ "data": { "id": "w1", "username": "wa", "email": "w@x.com",
+                              "is_email_confirmed": confirmed, "photo": "https://a/w.png",
+                              "photo_public": false } })
+        };
+        let user = extract(Kind::Wakatime, &waka(true));
+        assert_eq!(
+            (user.email.as_str(), user.avatar_url.as_str()),
+            ("w@x.com", "")
+        );
+        assert_eq!(extract(Kind::Wakatime, &waka(false)).email, "");
+
+        let user = extract(
+            Kind::Yandex,
+            &json!({ "id": "y1", "login": "ya", "real_name": "Ya", "default_email": "y@ya.ru",
+                     "default_avatar_id": "abc", "is_avatar_empty": false }),
+        );
+        assert_eq!(user.email, "y@ya.ru");
+        assert_eq!(
+            user.avatar_url,
+            "https://avatars.yandex.net/get-yapic/abc/islands-200"
+        );
+
+        for (kind, raw) in [
+            (
+                Kind::Instagram,
+                json!({ "user_id": "i1", "username": "ig" }),
+            ),
+            (
+                Kind::Lark,
+                json!({ "data": { "union_id": "on_1", "name": "La" } }),
+            ),
+            (
+                Kind::PlanningCenter,
+                json!({ "data": { "id": "p1", "attributes": { "name": "Pc" } } }),
+            ),
+        ] {
+            let user = extract(kind, &raw);
+            assert!(!user.id.is_empty() && user.email.is_empty(), "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn every_preset_has_a_logo_and_a_kind() {
+        let logos: Vec<Value> =
+            serde_json::from_str(include_str!("../assets/oauth2-providers.json")).unwrap();
+        for preset in PRESETS {
+            assert!(
+                logos.iter().any(|l| l["name"] == preset.name),
+                "{} has no logo",
+                preset.name
+            );
+        }
     }
 }

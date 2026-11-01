@@ -97,8 +97,10 @@ indexes with a `WHERE` clause.
 
 - **Password:** `auth-with-password`, with the identity fields set in `passwordAuth`.
 - **OAuth2:** Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, Bitbucket, Twitch,
-  Spotify, Patreon, Kakao, X (`twitter`), and any OpenID Connect
-  provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE. An OpenID Connect provider
+  Spotify, Patreon, Kakao, X (`twitter`), Box, Gitea/Forgejo (`gitea`), Gitee, Instagram
+  (`instagram2`), Lark, Linear, LiveChat, mailcow (with your URLs), monday.com (`monday`),
+  Notion, Planning Center (`planningcenter`), Strava, Trakt, WakaTime, Yandex, and any OpenID
+  Connect provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE (except Linear). An OpenID Connect provider
   without a user info URL is read from its validated `id_token`; set `extra.jwksURL` to verify
   its signature and `extra.issuers` to accept only some issuers. Only emails the provider has
   verified are used to find existing records. Client secrets are never returned by the API.

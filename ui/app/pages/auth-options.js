@@ -77,6 +77,9 @@ function AppleSecret({ clientId, onSecret }) {
 function ProviderSheet({ provider, meta, onSave, onRemove, onClose }) {
   const [p, setP] = useState({ ...provider });
   const oidc = p.name.startsWith("oidc");
+  // mailcow has no default URLs; Gitea/Forgejo and GitLab may be self-hosted
+  const urls = p.name === "mailcow" ? "required" : p.name === "gitea" || p.name === "gitlab" ? "optional" : "";
+  const urlHelp = urls === "optional" ? "Leave empty for the public service." : undefined;
   const set = (patch) => setP({ ...p, ...patch });
   return html`<${Modal} size="narrow" onClose=${onClose}>
     ${(close) => html`
@@ -107,8 +110,14 @@ function ProviderSheet({ provider, meta, onSave, onRemove, onClose }) {
             </${Field}>
           `}
         `}
+        ${urls &&
+        html`
+          <${Field} label="Authorization URL" help=${urlHelp}><${Input} value=${p.authURL} onInput=${(v) => set({ authURL: v })} /></${Field}>
+          <${Field} label="Token URL" help=${urlHelp}><${Input} value=${p.tokenURL} onInput=${(v) => set({ tokenURL: v })} /></${Field}>
+          <${Field} label="User info URL" help=${urlHelp}><${Input} value=${p.userInfoURL} onInput=${(v) => set({ userInfoURL: v })} /></${Field}>
+        `}
         ${p.name === "apple" && html`<${AppleSecret} clientId=${p.clientId} onSecret=${(secret) => set({ clientSecret: secret })} />`}
-        <${Switch} checked=${p.pkce !== false} onChange=${(v) => set({ pkce: v })} label="Use PKCE" />
+        <${Switch} checked=${p.pkce ?? p.name !== "linear"} onChange=${(v) => set({ pkce: v })} label="Use PKCE" />
       </div>
       <div class="sheet-foot">
         ${onRemove && html`<${Button} variant="danger-ghost" icon="trash" onClick=${() => {

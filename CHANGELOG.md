@@ -8,6 +8,19 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **15 more OAuth2 providers**, for the same presets as PocketBase: Box, Gitea/Forgejo
+  (`gitea`), Gitee, Instagram (`instagram2`), Lark, Linear, LiveChat, mailcow, monday.com
+  (`monday`), Notion, Planning Center (`planningcenter`), Strava, Trakt, WakaTime and Yandex,
+  each with its logo in the dashboard. As with the others, only emails the provider has
+  verified link accounts, and accounts the provider reports as inactive can't sign in.
+
+### Fixed
+
+- The PKCE verifier is only sent with the code when the provider uses PKCE (`pkce: false`
+  turned off the challenge but still sent the verifier, which some providers refuse).
+
 ## [1.3.2] - 2026-11-01
 
 **Every stored secret encrypted.** With an encryption key, OAuth2 client secrets and projects'

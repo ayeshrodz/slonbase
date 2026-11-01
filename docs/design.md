@@ -259,13 +259,17 @@ An MFA session is bound to its record, expires after `mfa.duration`, and is sing
 requires at least two enabled methods. Token refresh and impersonation don't ask for it.
 
 **OAuth2.** Presets for Google, Apple, GitHub, GitLab, Discord, Microsoft, Facebook, Bitbucket,
-Twitch, Spotify, Patreon, Kakao and X (`twitter`), and `oidc`, `oidc2`, `oidc3` for any OpenID
-Connect provider (configured URLs). Any preset's URLs can be overridden (e.g. self-hosted
-GitLab).
+Twitch, Spotify, Patreon, Kakao, X (`twitter`), Box, Gitea/Forgejo (`gitea`, gitea.com by
+default), Gitee, Instagram (`instagram2`), Lark, Linear, LiveChat, mailcow (no default URLs),
+monday.com, Notion, Planning Center, Strava, Trakt, WakaTime and Yandex, and `oidc`, `oidc2`,
+`oidc3` for any OpenID Connect provider (configured URLs). Any preset's URLs can be overridden
+(e.g. self-hosted GitLab or Forgejo). Linear and monday.com are read with a GraphQL query;
+Trakt and Notion get the headers their APIs want; Linear's authorization doesn't do PKCE, so
+it's off by default there and no verifier is sent.
 - `auth-methods` lists each provider with a fresh `state` and PKCE pair (`S256`, on unless
   `pkce: false`) and an `authURL` ending in `redirect_uri=` for the client to complete.
 - `auth-with-oauth2` exchanges the code (client secret in the form body, or with HTTP Basic
-  authentication for Bitbucket and X, which want that; 15 s timeout, 1 MiB response limit) and fetches the provider's user, then picks the record: the linked one, else
+  authentication for Bitbucket, X and Notion, which want that; 15 s timeout, 1 MiB response limit) and fetches the provider's user, then picks the record: the linked one, else
   the signed-in record of the collection (linking a new provider to it), else the one with the
   provider's email, else a new one.
 - **Only verified emails are used**, since an email links the provider account to an existing
@@ -273,7 +277,11 @@ GitLab).
   Kakao `is_email_valid` and `is_email_verified`; GitHub falls back to the verified primary
   email and Bitbucket asks for the confirmed primary one; Twitch returns only verified emails.
   Microsoft's `mail` and Spotify's `email` aren't verified, so they're ignored, and X gives
-  none. A Bitbucket account that isn't active can't sign in.
+  none. Gitea and Gitee ask for the verified primary email; LiveChat needs `email_verified`,
+  monday.com `is_verified` and WakaTime `is_email_confirmed`. Box, Linear, mailcow, Notion
+  and Yandex only have addresses their users signed in with, so theirs are used; Strava, Trakt,
+  Instagram, Lark and Planning Center give none. Bitbucket, Box, Linear, monday.com, mailcow
+  and Planning Center accounts that aren't active can't sign in.
 - An existing **unverified** record with the provider's email may belong to someone who signed up
   with an address they don't own: unless it's the signed-in record, its password is replaced
   with a random one and its token key rotated (signing out every session) before it's marked
@@ -326,8 +334,8 @@ the unlogged `_slonbase.oauth2_names` table (migration 13), and the sign-in with
 takes it. It's in PostgreSQL rather than memory because the redirect and the sign-in may reach
 different instances. The client secret Apple wants is a signed JWT: see the generator below.
 
-**Not yet:** PocketBase's other presets (Gitea, Gitee, Linear, Notion, VK, Yandex, Strava, ...);
-`oidc` covers the providers that speak OpenID Connect.
+**Not yet:** VK, whose email comes with the token response rather than its user API. `oidc`
+covers the providers that speak OpenID Connect.
 
 ### Phase 3: realtime and multi-instance sync
 

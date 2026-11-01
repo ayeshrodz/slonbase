@@ -473,7 +473,8 @@ impl Provider {
         let provider = Self::default();
         let router = Router::new()
             .route("/token", post(token))
-            .route("/userinfo", get(userinfo))
+            // GraphQL providers (Linear, monday.com) POST their query
+            .route("/userinfo", get(userinfo).post(userinfo))
             // Bitbucket's emails
             .route(
                 "/userinfo/emails",
@@ -1361,6 +1362,48 @@ async fn providers_that_want_basic_client_auth() {
         json!({ "uuid": "{gone-1}", "username": "gone", "account_status": "inactive" }),
     );
     let (status, res) = oauth2(&env, None, "gone", json!({ "provider": "bitbucket" })).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    env.finish().await;
+}
+
+#[tokio::test]
+async fn graphql_providers() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    users_collection(
+        &env,
+        json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "linear", "clientId": "client-1", "clientSecret": "s3cret",
+                "authURL": format!("{url}/authorize"), "tokenURL": format!("{url}/token"),
+                "userInfoURL": format!("{url}/userinfo"),
+            }],
+        } }),
+    )
+    .await;
+    provider.set_user(
+        "lin",
+        json!({ "data": { "viewer": { "id": "lin-1", "displayName": "lin", "name": "Lin Ear",
+                                      "email": "lin@linear.test", "active": true } } }),
+    );
+    let (status, res) = oauth2(&env, None, "lin", json!({ "provider": "linear" })).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["meta"]["id"], "lin-1");
+    assert_eq!(res["meta"]["name"], "Lin Ear");
+    assert_eq!(res["record"]["email"], "lin@linear.test");
+    // Linear doesn't do PKCE: no verifier goes with the code
+    let request = provider.requests.lock().unwrap().last().unwrap().clone();
+    assert!(!request.contains_key("code_verifier"), "{request:?}");
+
+    // a deactivated account can't sign in
+    provider.set_user(
+        "off",
+        json!({ "data": { "viewer": { "id": "off-1", "email": "off@linear.test", "active": false } } }),
+    );
+    let (status, res) = oauth2(&env, None, "off", json!({ "provider": "linear" })).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
     env.finish().await;
 }

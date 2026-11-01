@@ -65,6 +65,81 @@
   "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#000\"/><path d=\"M74 70h30l78 116h-30z\" fill=\"#fff\"/><path d=\"M178 70h-18l-40 46 9 13zM78 186h18l40-46-9-13z\" fill=\"#fff\"/></svg>"
  },
  {
+  "name": "box",
+  "displayName": "Box",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#0061d5\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">b</text></svg>"
+ },
+ {
+  "name": "gitea",
+  "displayName": "Gitea/Forgejo",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#609926\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">G</text></svg>"
+ },
+ {
+  "name": "gitee",
+  "displayName": "Gitee",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#c71d23\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">G</text></svg>"
+ },
+ {
+  "name": "instagram2",
+  "displayName": "Instagram",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#e1306c\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">I</text></svg>"
+ },
+ {
+  "name": "lark",
+  "displayName": "Lark",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#3370ff\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">L</text></svg>"
+ },
+ {
+  "name": "linear",
+  "displayName": "Linear",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#5e6ad2\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">L</text></svg>"
+ },
+ {
+  "name": "livechat",
+  "displayName": "LiveChat",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#ff5100\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">L</text></svg>"
+ },
+ {
+  "name": "mailcow",
+  "displayName": "mailcow",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#0e2f44\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">m</text></svg>"
+ },
+ {
+  "name": "monday",
+  "displayName": "monday.com",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#ff3d57\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">m</text></svg>"
+ },
+ {
+  "name": "notion",
+  "displayName": "Notion",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#000\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">N</text></svg>"
+ },
+ {
+  "name": "planningcenter",
+  "displayName": "Planning Center",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#2266f7\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">P</text></svg>"
+ },
+ {
+  "name": "strava",
+  "displayName": "Strava",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#fc4c02\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">S</text></svg>"
+ },
+ {
+  "name": "trakt",
+  "displayName": "Trakt",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#ed1c24\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">T</text></svg>"
+ },
+ {
+  "name": "wakatime",
+  "displayName": "WakaTime",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#000\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">W</text></svg>"
+ },
+ {
+  "name": "yandex",
+  "displayName": "Yandex",
+  "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"256\" height=\"256\"><rect width=\"256\" height=\"256\" rx=\"56\" fill=\"#fc3f1d\"/><text x=\"128\" y=\"128\" dy=\".35em\" fill=\"#fff\" font-family=\"Ubuntu Sans,Helvetica,Arial,sans-serif\" font-size=\"150\" font-weight=\"700\" text-anchor=\"middle\">Я</text></svg>"
+ },
+ {
   "name": "oidc",
   "displayName": "OIDC",
   "logo": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"93\" height=\"84\" fill=\"none\"><path fill=\"#ccc\" d=\"M83.4 32.9c-8.7-5.5-21-8.8-34.3-8.8C22 24 .4 37.5.4 54 .4 69.3 18.5 81.8 42 84v-8.7c-15.9-2-27.8-10.7-27.8-21 0-11.9 15.5-21.6 34.8-21.6 9.5 0 18.2 2.4 24.5 6.3l-9 5.6h27.9V27.3z\"/><path fill=\"#ff6200\" d=\"M42 9.2V84l14-8.7V.2z\"/></svg>"
