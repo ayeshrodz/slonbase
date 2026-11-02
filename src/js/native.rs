@@ -237,6 +237,11 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
     match name {
         "isReady" => return Ok(Value::Bool(shared.core().is_ok())),
         "randomString" => return Ok(Value::String(random_string(a.int(0), &a.str(1))?)),
+        "randomStringByRegex" => {
+            return crate::ids::generate(&a.str(0))
+                .map(Value::String)
+                .map_err(ApiError::bad_request);
+        }
         "hash" => return Ok(Value::String(hash(&a.str(0), &a.str(1))?)),
         "hmac" => {
             use hmac::{KeyInit, Mac};

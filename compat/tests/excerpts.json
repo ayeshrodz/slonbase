@@ -1,0 +1,4331 @@
+[
+ {
+  "html": "<p>Hello <b>world</b>!</p><p>Second   paragraph</p>",
+  "excerpts": {
+   "1": "H",
+   "3": "Hel",
+   "10": "Hello worl",
+   "25": "Hello world! Second parag",
+   "80": "Hello world! Second paragraph",
+   "400": "Hello world! Second paragraph",
+   "3,true": "Hel...",
+   "25,true": "Hello world! Second parag..."
+  }
+ },
+ {
+  "html": "<h1>Title</h1><p>Body with <a href='#'>a link</a> and <code>code</code>.</p>",
+  "excerpts": {
+   "1": "T",
+   "3": "Tit",
+   "10": "Title Body",
+   "25": "Title Body with a link an",
+   "80": "Title Body with a link and code.",
+   "400": "Title Body with a link and code.",
+   "3,true": "Tit...",
+   "25,true": "Title Body with a link an..."
+  }
+ },
+ {
+  "html": "plain text without tags",
+  "excerpts": {
+   "1": "p",
+   "3": "pla",
+   "10": "plain text",
+   "25": "plain text without tags",
+   "80": "plain text without tags",
+   "400": "plain text without tags",
+   "3,true": "pla...",
+   "25,true": "plain text without tags"
+  }
+ },
+ {
+  "html": "  leading and trailing   spaces  ",
+  "excerpts": {
+   "1": "l",
+   "3": "lea",
+   "10": "leading an",
+   "25": "leading and trailing spac",
+   "80": "leading and trailing spaces",
+   "400": "leading and trailing spaces",
+   "3,true": "lea...",
+   "25,true": "leading and trailing spac..."
+  }
+ },
+ {
+  "html": "<p>a<p>b<p>c",
+  "excerpts": {
+   "1": "a",
+   "3": "a b",
+   "10": "a b c",
+   "25": "a b c",
+   "80": "a b c",
+   "400": "a b c",
+   "3,true": "a b...",
+   "25,true": "a b c"
+  }
+ },
+ {
+  "html": "<div><p>nested <span>inline <em>deep</em></span></p><ul><li>one</li><li>two</li></ul></div>",
+  "excerpts": {
+   "1": "n",
+   "3": "nes",
+   "10": "nested inl",
+   "25": "nested inline deep one tw",
+   "80": "nested inline deep one two",
+   "400": "nested inline deep one two",
+   "3,true": "nes...",
+   "25,true": "nested inline deep one tw..."
+  }
+ },
+ {
+  "html": "<p>entities: &amp; &lt;tag&gt; &quot;q&quot; &#39;s&#39; &copy; &nbsp;x&nbsp;&nbsp;y</p>",
+  "excerpts": {
+   "1": "e",
+   "3": "ent",
+   "10": "entities:",
+   "25": "entities: & <tag> \"q\" 's'",
+   "80": "entities: & <tag> \"q\" 's' ©  x  y",
+   "400": "entities: & <tag> \"q\" 's' ©  x  y",
+   "3,true": "ent...",
+   "25,true": "entities: & <tag> \"q\" 's'..."
+  }
+ },
+ {
+  "html": "<style>p{color:red}</style><script>alert(1)</script><p>visible</p>",
+  "excerpts": {
+   "1": "v",
+   "3": "vis",
+   "10": "visible",
+   "25": "visible",
+   "80": "visible",
+   "400": "visible",
+   "3,true": "vis...",
+   "25,true": "visible"
+  }
+ },
+ {
+  "html": "<p>before<img src=x alt=image>after</p><svg><text>svg text</text></svg><p>end</p>",
+  "excerpts": {
+   "1": "b",
+   "3": "bef",
+   "10": "beforeafte",
+   "25": "beforeafter end",
+   "80": "beforeafter end",
+   "400": "beforeafter end",
+   "3,true": "bef...",
+   "25,true": "beforeafter end"
+  }
+ },
+ {
+  "html": "<button>btn</button><form><input value=v><textarea>ta</textarea></form><select><option>o</option></select>ok",
+  "excerpts": {
+   "1": "o",
+   "3": "ok",
+   "10": "ok",
+   "25": "ok",
+   "80": "ok",
+   "400": "ok",
+   "3,true": "ok",
+   "25,true": "ok"
+  }
+ },
+ {
+  "html": "<template><p>hidden</p></template><dialog>d</dialog><iframe>if</iframe>shown",
+  "excerpts": {
+   "1": "s",
+   "3": "sho",
+   "10": "shown",
+   "25": "shown",
+   "80": "shown",
+   "400": "shown",
+   "3,true": "sho...",
+   "25,true": "shown"
+  }
+ },
+ {
+  "html": "<table><tr><td>cell1</td><td>cell2</td></tr></table>",
+  "excerpts": {
+   "1": "c",
+   "3": "cel",
+   "10": "cell1 cell",
+   "25": "cell1 cell2",
+   "80": "cell1 cell2",
+   "400": "cell1 cell2",
+   "3,true": "cel...",
+   "25,true": "cell1 cell2"
+  }
+ },
+ {
+  "html": "<table>foster<tr><td>x</td></tr></table>",
+  "excerpts": {
+   "1": "f",
+   "3": "fos",
+   "10": "foster x",
+   "25": "foster x",
+   "80": "foster x",
+   "400": "foster x",
+   "3,true": "fos...",
+   "25,true": "foster x"
+  }
+ },
+ {
+  "html": "<p>line<br>break<br/>again</p>",
+  "excerpts": {
+   "1": "l",
+   "3": "lin",
+   "10": "linebreaka",
+   "25": "linebreakagain",
+   "80": "linebreakagain",
+   "400": "linebreakagain",
+   "3,true": "lin...",
+   "25,true": "linebreakagain"
+  }
+ },
+ {
+  "html": "<!-- a comment --><p>after comment</p>",
+  "excerpts": {
+   "1": "a",
+   "3": "aft",
+   "10": "after comm",
+   "25": "after comment",
+   "80": "after comment",
+   "400": "after comment",
+   "3,true": "aft...",
+   "25,true": "after comment"
+  }
+ },
+ {
+  "html": "<title>head title</title><p>body</p>",
+  "excerpts": {
+   "1": "b",
+   "3": "bod",
+   "10": "body",
+   "25": "body",
+   "80": "body",
+   "400": "body",
+   "3,true": "bod...",
+   "25,true": "body"
+  }
+ },
+ {
+  "html": "<p>Привет, мир! Это длинный текст на русском языке для проверки обрезки.</p>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет, ми",
+   "25": "Привет, мир! Это длинный",
+   "80": "Привет, мир! Это длинный текст на русском языке для проверки обрезки.",
+   "400": "Привет, мир! Это длинный текст на русском языке для проверки обрезки.",
+   "3,true": "При...",
+   "25,true": "Привет, мир! Это длинный..."
+  }
+ },
+ {
+  "html": "<p>日本語のテキストです。これは長い文章で、切り詰めのテストに使います。</p>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語のテキストです",
+   "25": "日本語のテキストです。これは長い文章で、切り詰めの",
+   "80": "日本語のテキストです。これは長い文章で、切り詰めのテストに使います。",
+   "400": "日本語のテキストです。これは長い文章で、切り詰めのテストに使います。",
+   "3,true": "日本語...",
+   "25,true": "日本語のテキストです。これは長い文章で、切り詰めの..."
+  }
+ },
+ {
+  "html": "<p>emoji 🎉🎉🎉 party 🥳 time</p>",
+  "excerpts": {
+   "1": "e",
+   "3": "emo",
+   "10": "emoji 🎉🎉🎉",
+   "25": "emoji 🎉🎉🎉 party 🥳 time",
+   "80": "emoji 🎉🎉🎉 party 🥳 time",
+   "400": "emoji 🎉🎉🎉 party 🥳 time",
+   "3,true": "emo...",
+   "25,true": "emoji 🎉🎉🎉 party 🥳 time"
+  }
+ },
+ {
+  "html": "<p>tabs\tand\nnewlines\r\nand\fform feeds</p>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tabs and n",
+   "25": "tabs and newlines and for",
+   "80": "tabs and newlines and form feeds",
+   "400": "tabs and newlines and form feeds",
+   "3,true": "tab...",
+   "25,true": "tabs and newlines and for..."
+  }
+ },
+ {
+  "html": "<noscript>no script text</noscript><p>after</p>",
+  "excerpts": {
+   "1": "a",
+   "3": "aft",
+   "10": "after",
+   "25": "after",
+   "80": "after",
+   "400": "after",
+   "3,true": "aft...",
+   "25,true": "after"
+  }
+ },
+ {
+  "html": "<p>unclosed <b>bold <i>italic</p> after",
+  "excerpts": {
+   "1": "u",
+   "3": "unc",
+   "10": "unclosed b",
+   "25": "unclosed bold italic afte",
+   "80": "unclosed bold italic after",
+   "400": "unclosed bold italic after",
+   "3,true": "unc...",
+   "25,true": "unclosed bold italic afte..."
+  }
+ },
+ {
+  "html": "<pre>  pre   formatted\n  text  </pre>",
+  "excerpts": {
+   "1": "p",
+   "3": "pre",
+   "10": "pre format",
+   "25": "pre formatted text",
+   "80": "pre formatted text",
+   "400": "pre formatted text",
+   "3,true": "pre...",
+   "25,true": "pre formatted text"
+  }
+ },
+ {
+  "html": "<p>a</p>\n\n<p>b</p>",
+  "excerpts": {
+   "1": "a",
+   "3": "a b",
+   "10": "a b",
+   "25": "a b",
+   "80": "a b",
+   "400": "a b",
+   "3,true": "a b",
+   "25,true": "a b"
+  }
+ },
+ {
+  "html": "<blockquote>quote</blockquote><hr><p>after hr</p>",
+  "excerpts": {
+   "1": "q",
+   "3": "quo",
+   "10": "quote afte",
+   "25": "quote after hr",
+   "80": "quote after hr",
+   "400": "quote after hr",
+   "3,true": "quo...",
+   "25,true": "quote after hr"
+  }
+ },
+ {
+  "html": "<p>word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word </p>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word word",
+   "25": "word word word word word",
+   "80": "word word word word word word word word word word word word word word word word",
+   "400": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+   "3,true": "wor...",
+   "25,true": "word word word word word..."
+  }
+ },
+ {
+  "html": "<p><b>xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</b></p>",
+  "excerpts": {
+   "1": "x",
+   "3": "xxx",
+   "10": "xxxxxxxxxx",
+   "25": "xxxxxxxxxxxxxxxxxxxxxxxxx",
+   "80": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "400": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "3,true": "xxx...",
+   "25,true": "xxxxxxxxxxxxxxxxxxxxxxxxx..."
+  }
+ },
+ {
+  "html": "<p>short</p>",
+  "excerpts": {
+   "1": "s",
+   "3": "sho",
+   "10": "short",
+   "25": "short",
+   "80": "short",
+   "400": "short",
+   "3,true": "sho...",
+   "25,true": "short"
+  }
+ },
+ {
+  "html": "",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<p></p><p> </p>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<span>in</span><span>line</span><div>block</div><span>again</span>",
+  "excerpts": {
+   "1": "i",
+   "3": "inl",
+   "10": "inline blo",
+   "25": "inline block again",
+   "80": "inline block again",
+   "400": "inline block again",
+   "3,true": "inl...",
+   "25,true": "inline block again"
+  }
+ },
+ {
+  "html": "<p>&amp;amp; &unknown; &#x1F600; &#128512;</p>",
+  "excerpts": {
+   "1": "&",
+   "3": "&am",
+   "10": "&amp; &unk",
+   "25": "&amp; &unknown; 😀 😀",
+   "80": "&amp; &unknown; 😀 😀",
+   "400": "&amp; &unknown; 😀 😀",
+   "3,true": "&am...",
+   "25,true": "&amp; &unknown; 😀 😀"
+  }
+ },
+ {
+  "html": "<math><mi>x</mi></math> math",
+  "excerpts": {
+   "1": "x",
+   "3": "x m",
+   "10": "x math",
+   "25": "x math",
+   "80": "x math",
+   "400": "x math",
+   "3,true": "x m...",
+   "25,true": "x math"
+  }
+ },
+ {
+  "html": "<p>x</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p><p>y</p>",
+  "excerpts": {
+   "1": "x",
+   "3": "x y",
+   "10": "x y y y y",
+   "25": "x y y y y y y y y y y y y",
+   "80": "x y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y",
+   "400": "x y y y y y y y y y y y y y y y y y y y y y y y y y y y y y y",
+   "3,true": "x y...",
+   "25,true": "x y y y y y y y y y y y y..."
+  }
+ },
+ {
+  "html": "<button></button><center>></center>",
+  "excerpts": {
+   "1": ">",
+   "3": ">",
+   "10": ">",
+   "25": ">",
+   "80": ">",
+   "400": ">",
+   "3,true": ">",
+   "25,true": ">"
+  }
+ },
+ {
+  "html": "<small class=\"c\"> \f<small>123​zero<abbr><ol>long text that goes on and on<td><!-- c -->  spaced   out  <select>a&b<dl>&copy;  spaced   out  &gt;</dl></select></td></ol></abbr></small></small>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123​zero l",
+   "25": "123​zero long text that g",
+   "80": "123​zero long text that goes on and on spaced out",
+   "400": "123​zero long text that goes on and on spaced out",
+   "3,true": "123...",
+   "25,true": "123​zero long text that g..."
+  }
+ },
+ {
+  "html": "&lt;<!-- c --><tr></tr>123<!-- c -->word< <td></td>",
+  "excerpts": {
+   "1": "<",
+   "3": "<12",
+   "10": "<123word<",
+   "25": "<123word<",
+   "80": "<123word<",
+   "400": "<123word<",
+   "3,true": "<12...",
+   "25,true": "<123word<"
+  }
+ },
+ {
+  "html": "\t\ttab&copy;<!-- c -->word <!-- c -->long text that goes on and on em&copy; em</textarea> <embed><header><form><article><br>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab©word l",
+   "25": "tab©word long text that g",
+   "80": "tab©word long text that goes on and on em© em",
+   "400": "tab©word long text that goes on and on em© em",
+   "3,true": "tab...",
+   "25,true": "tab©word long text that g..."
+  }
+ },
+ {
+  "html": "&copy;<br>&#160;<u><select></select><mark>&nbsp;\r\ncrlf<sub></sub><object><button><object>word<header></header>\t\ttab<select class=\"c\"></select>123</col><ol></ol></object></button></object></mark></u></br>",
+  "excerpts": {
+   "1": "©",
+   "3": "©",
+   "10": "©    crlf",
+   "25": "©    crlf",
+   "80": "©    crlf",
+   "400": "©    crlf",
+   "3,true": "©",
+   "25,true": "©    crlf"
+  }
+ },
+ {
+  "html": "<iframe>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<dt>​zero <dt class=\"c\">&nbsp;</dt>​zero<!-- c --></dt></a><option></option><!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero   ​z",
+   "25": "​zero   ​zero",
+   "80": "​zero   ​zero",
+   "400": "​zero   ​zero",
+   "3,true": "​ze...",
+   "25,true": "​zero   ​zero"
+  }
+ },
+ {
+  "html": "<!-- c --><form> <title>&nbsp;\f\nnew\nline<object class=\"c\"><article>  spaced   out  🎉Привет</article> <a></a></object></title></form>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><frameset><caption class=\"c\"><p>  spaced   out  <figcaption></colgroup><em class=\"c\">wordhello​zero</em><code class=\"c\">x ",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<img>&#160;<!-- c --> <!-- c --><ins>🎉</ins></img>",
+  "excerpts": {
+   "1": "",
+   "3": "🎉",
+   "10": "🎉",
+   "25": "🎉",
+   "80": "🎉",
+   "400": "🎉",
+   "3,true": "🎉",
+   "25,true": "🎉"
+  }
+ },
+ {
+  "html": "\t\ttab<embed class=\"c\"><!-- c --></img>ünïcödé<ul class=\"c\"><frameset></frameset></ul></embed>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tabünïcödé",
+   "25": "tabünïcödé",
+   "80": "tabünïcödé",
+   "400": "tabünïcödé",
+   "3,true": "tab...",
+   "25,true": "tabünïcödé"
+  }
+ },
+ {
+  "html": "</mark><!-- c --><!-- c --><hr>hello<!-- c -->\nnew\nline&unknown;&amp;<picture>a&b<sub></input><strong>hello><footer>long text that goes on and on\t\ttab<sub><code><caption></caption></code></sub></footer></strong></sub></picture></hr>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello new",
+   "25": "hello new line&unknown;&",
+   "80": "hello new line&unknown;&",
+   "400": "hello new line&unknown;&",
+   "3,true": "hel...",
+   "25,true": "hello new line&unknown;&"
+  }
+ },
+ {
+  "html": "Привет<head><!-- c -->\r\ncrlf<blockquote></blockquote>\r\ncrlf<center>&copy;x<select></select> <time>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет crl",
+   "25": "Привет crlf crlf ©x",
+   "80": "Привет crlf crlf ©x",
+   "400": "Привет crlf crlf ©x",
+   "3,true": "При...",
+   "25,true": "Привет crlf crlf ©x"
+  }
+ },
+ {
+  "html": "\f&#x1F600;&gt;<sub><img><blockquote class=\"c\"><sup><caption>&copy;<!-- c -->ünïcödé<td><!-- c --> </header></td>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀>",
+   "10": "😀> ©ünïcöd",
+   "25": "😀> ©ünïcödé",
+   "80": "😀> ©ünïcödé",
+   "400": "😀> ©ünïcödé",
+   "3,true": "😀>",
+   "25,true": "😀> ©ünïcödé"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->🎉<!-- c -->&#160;\t\ttab123<object>\t\ttab></object><td class=\"c\"><script>🎉 </script>123</td><col>&copy;<span><form>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉",
+   "10": "🎉  tab1231",
+   "25": "🎉  tab123123©",
+   "80": "🎉  tab123123©",
+   "400": "🎉  tab123123©",
+   "3,true": "🎉...",
+   "25,true": "🎉  tab123123©"
+  }
+ },
+ {
+  "html": "<colgroup>hello</colgroup><mark><h1 class=\"c\"></h1><!-- c --> hello日本語<br></br><!-- c -->123\f",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello  hel",
+   "25": "hello  hello日本語123",
+   "80": "hello  hello日本語123",
+   "400": "hello  hello日本語123",
+   "3,true": "hel...",
+   "25,true": "hello  hello日本語123"
+  }
+ },
+ {
+  "html": "a&b<!-- c --><!-- c -->🎉",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b🎉",
+   "25": "a&b🎉",
+   "80": "a&b🎉",
+   "400": "a&b🎉",
+   "3,true": "a&b...",
+   "25,true": "a&b🎉"
+  }
+ },
+ {
+  "html": "a&b\nnew\nline<<!-- c -->x",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b new li",
+   "25": "a&b new line<x",
+   "80": "a&b new line<x",
+   "400": "a&b new line<x",
+   "3,true": "a&b...",
+   "25,true": "a&b new line<x"
+  }
+ },
+ {
+  "html": "&nbsp;<pre class=\"c\"></pre>&gt;word<!-- c -->123<title>a&b</title> 123<!-- c --><!-- c --> em<!-- c -->🎉<!-- c --><!-- c --><select></select><ol>",
+  "excerpts": {
+   "1": ">",
+   "3": ">wo",
+   "10": ">word123 1",
+   "25": ">word123 a&b 123 em🎉",
+   "80": ">word123 a&b 123 em🎉",
+   "400": ">word123 a&b 123 em🎉",
+   "3,true": ">wo...",
+   "25,true": ">word123 a&b 123 em🎉"
+  }
+ },
+ {
+  "html": "<cite> </cite>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<option> em<marquee><caption class=\"c\">",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<u> </u><!-- c -->&amp;\r\ncrlf",
+  "excerpts": {
+   "1": "&",
+   "3": "& c",
+   "10": "& crlf",
+   "25": "& crlf",
+   "80": "& crlf",
+   "400": "& crlf",
+   "3,true": "& c...",
+   "25,true": "& crlf"
+  }
+ },
+ {
+  "html": "\nnew\nline<!-- c -->&gt;​zero日本語<embed></title><col><caption> &copy;<!-- c -->&unknown;日本語<mark><cite><colgroup></colgroup> <ol>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line>​",
+   "25": "new line>​zero日本語 ©&unkno",
+   "80": "new line>​zero日本語 ©&unknown;日本語",
+   "400": "new line>​zero日本語 ©&unknown;日本語",
+   "3,true": "new...",
+   "25,true": "new line>​zero日本語 ©&unkno..."
+  }
+ },
+ {
+  "html": "<!-- c -->&#160;<div></div>  <html></html><pre></pre>​zero🎉&nbsp;<figcaption class=\"c\">\t\ttab<i><i></i></i></figcaption>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero🎉",
+   "25": "​zero🎉  tab",
+   "80": "​zero🎉  tab",
+   "400": "​zero🎉  tab",
+   "3,true": "​ze...",
+   "25,true": "​zero🎉  tab"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->&unknown;&unknown;word<div><u><img></img><s>\f&amp;\f<b class=\"c\"><small>x</small> em\f</s>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;&",
+   "25": "&unknown;&unknown;word &",
+   "80": "&unknown;&unknown;word & x em",
+   "400": "&unknown;&unknown;word & x em",
+   "3,true": "&un...",
+   "25,true": "&unknown;&unknown;word &..."
+  }
+ },
+ {
+  "html": "world <!-- c -->123<q class=\"c\"><mark><i><code>&unknown;long text that goes on and on<h1>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "world 123",
+   "25": "world 123 &unknown;long t",
+   "80": "world 123 &unknown;long text that goes on and on",
+   "400": "world 123 &unknown;long text that goes on and on",
+   "3,true": "wor...",
+   "25,true": "world 123 &unknown;long t..."
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><br class=\"c\"><style>&nbsp;x</style></br><!-- c --><small>\t\ttab<ol><ol><tbody></tbody></ol><marquee></head>&nbsp;<body class=\"c\">word",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab  word",
+   "25": "tab  word",
+   "80": "tab  word",
+   "400": "tab  word",
+   "3,true": "tab...",
+   "25,true": "tab  word"
+  }
+ },
+ {
+  "html": "</abbr>Привет<!-- c --><col><q><ol class=\"c\">&lt;</ol></q>ünïcödé日本語></col> ​zero<!-- c --> <tbody><!-- c -->",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Приветünïc",
+   "25": "Привет < ünïcödé日本語> ​zer",
+   "80": "Привет < ünïcödé日本語> ​zero",
+   "400": "Привет < ünïcödé日本語> ​zero",
+   "3,true": "При...",
+   "25,true": "Привет < ünïcödé日本語> ​zer..."
+  }
+ },
+ {
+  "html": "<!-- c --><style class=\"c\"><footer><frameset class=\"c\"></frameset><ul class=\"c\">Привет<script></script></ul></footer></style>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "long text that goes on and on&#160;<!-- c --><input></input>ünïcödé&nbsp;<!-- c --> <body>hellox</body><marquee></article></marquee><img> </li> &#x1F600;</img>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on ünïcödé  hellox 😀",
+   "400": "long text that goes on and on ünïcödé  hellox 😀",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->><b class=\"c\"><!-- c --><ins><sub>\r\ncrlf<dt class=\"c\">Привет<tr><button><svg>  spaced   out  🎉<br><th>​zero",
+  "excerpts": {
+   "1": ">",
+   "3": "> c",
+   "10": "> crlf При",
+   "25": "> crlf Привет",
+   "80": "> crlf Привет",
+   "400": "> crlf Привет",
+   "3,true": "> c...",
+   "25,true": "> crlf Привет"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->&copy;</pre><!-- c --><!-- c --><figcaption class=\"c\"><b><cite class=\"c\">x<!-- c -->\nnew\nline<option>&nbsp;<math class=\"c\">",
+  "excerpts": {
+   "1": "©",
+   "3": "© x",
+   "10": "© x new li",
+   "25": "© x new line",
+   "80": "© x new line",
+   "400": "© x new line",
+   "3,true": "© x...",
+   "25,true": "© x new line"
+  }
+ },
+ {
+  "html": "\t\ttab​zero<div>&copy;<html></colgroup></html>\r\ncrlf </header><picture></picture></del></div>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab​zero ©",
+   "25": "tab​zero © crlf",
+   "80": "tab​zero © crlf",
+   "400": "tab​zero © crlf",
+   "3,true": "tab...",
+   "25,true": "tab​zero © crlf"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><!-- c --><form></form>&#x1F600;&lt;</form><p><embed><math><\t\ttab <title><!-- c --><ul class=\"c\"></marquee> <title>&amp;<time></time></title></ul></title></math></embed></p>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀<",
+   "10": "😀< < tab",
+   "25": "😀< < tab  &<time></time>",
+   "80": "😀< < tab  &<time></time>",
+   "400": "😀< < tab  &<time></time>",
+   "3,true": "😀<",
+   "25,true": "😀< < tab  &<time></time>"
+  }
+ },
+ {
+  "html": "<ol>&lt;&copy;<select><noscript>&copy;🎉&amp;long text that goes on and on<dl></dl>>></noscript> </select>",
+  "excerpts": {
+   "1": "<",
+   "3": "<©",
+   "10": "<©",
+   "25": "<©",
+   "80": "<©",
+   "400": "<©",
+   "3,true": "<©",
+   "25,true": "<©"
+  }
+ },
+ {
+  "html": "<!-- c --><small> 🎉</small><&unknown;<!-- c -->long text that goes on and on<time class=\"c\"></time>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉<&",
+   "10": "🎉<&unknown",
+   "25": "🎉<&unknown;long text that",
+   "80": "🎉<&unknown;long text that goes on and on",
+   "400": "🎉<&unknown;long text that goes on and on",
+   "3,true": "🎉<&...",
+   "25,true": "🎉<&unknown;long text that..."
+  }
+ },
+ {
+  "html": "&lt;<marquee>hello  spaced   out  &amp;</marquee><i></i>hello<!-- c --><!-- c --><tr><colgroup> em<h1 class=\"c\"> </h1>",
+  "excerpts": {
+   "1": "<",
+   "3": "< h",
+   "10": "< hello sp",
+   "25": "< hello spaced out & hell",
+   "80": "< hello spaced out & hello em",
+   "400": "< hello spaced out & hello em",
+   "3,true": "< h...",
+   "25,true": "< hello spaced out & hell..."
+  }
+ },
+ {
+  "html": "<header>日本語</colgroup>&#x1F600;  spaced   out  </b></header><b>a&b&lt;<iframe><script> ",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語😀 space",
+   "25": "日本語😀 spaced out a&b<",
+   "80": "日本語😀 spaced out a&b<",
+   "400": "日本語😀 spaced out a&b<",
+   "3,true": "日本語...",
+   "25,true": "日本語😀 spaced out a&b<"
+  }
+ },
+ {
+  "html": "<template></figcaption></template><!-- c --><dialog>xa&b日本語<template class=\"c\"><code class=\"c\">word</code> em</template></dialog>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><",
+  "excerpts": {
+   "1": "<",
+   "3": "<",
+   "10": "<",
+   "25": "<",
+   "80": "<",
+   "400": "<",
+   "3,true": "<",
+   "25,true": "<"
+  }
+ },
+ {
+  "html": "<tbody class=\"c\"><header>world</template>long text that goes on and on\t\ttab<object><footer>a&b<th>​zero</th></footer><dd>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "worldlong",
+   "25": "worldlong text that goes",
+   "80": "worldlong text that goes on and on tab",
+   "400": "worldlong text that goes on and on tab",
+   "3,true": "wor...",
+   "25,true": "worldlong text that goes..."
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->ünïcödé日本語<dd></dd><!-- c -->&lt;<html><pre></pre></html> <!-- c -->\nnew\nline<tr class=\"c\"></dt></tr>word &lt;<!-- c --> <picture></picture>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé日本語",
+   "25": "ünïcödé日本語 < new lineword",
+   "80": "ünïcödé日本語 < new lineword <",
+   "400": "ünïcödé日本語 < new lineword <",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé日本語 < new lineword..."
+  }
+ },
+ {
+  "html": "&amp;<br><!-- c --><header class=\"c\"><tbody></tbody></header> emword &#160;<a><cite><embed><hr>a&b</hr></embed></cite></a></br>",
+  "excerpts": {
+   "1": "&",
+   "3": "&",
+   "10": "&  emword",
+   "25": "&  emword   a&b",
+   "80": "&  emword   a&b",
+   "400": "&  emword   a&b",
+   "3,true": "&...",
+   "25,true": "&  emword   a&b"
+  }
+ },
+ {
+  "html": "Привет<th>  spaced   out  &gt;</label><style></style></th>&gt;<select class=\"c\">123</select>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет spa",
+   "25": "Привет spaced out >>",
+   "80": "Привет spaced out >>",
+   "400": "Привет spaced out >>",
+   "3,true": "При...",
+   "25,true": "Привет spaced out >>"
+  }
+ },
+ {
+  "html": "<!-- c -->🎉<!-- c --><!-- c -->&amp;<i class=\"c\"><i class=\"c\">",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉&",
+   "10": "🎉&",
+   "25": "🎉&",
+   "80": "🎉&",
+   "400": "🎉&",
+   "3,true": "🎉&",
+   "25,true": "🎉&"
+  }
+ },
+ {
+  "html": "&amp;<!-- c --><dialog><mark></mark></dialog>",
+  "excerpts": {
+   "1": "&",
+   "3": "&",
+   "10": "&",
+   "25": "&",
+   "80": "&",
+   "400": "&",
+   "3,true": "&",
+   "25,true": "&"
+  }
+ },
+ {
+  "html": "<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c -->&unknown;<em>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;",
+   "25": "&unknown;",
+   "80": "&unknown;",
+   "400": "&unknown;",
+   "3,true": "&un...",
+   "25,true": "&unknown;"
+  }
+ },
+ {
+  "html": "<!-- c --><head>&lt;​zero&gt;long text that goes on and on<picture><!-- c -->&nbsp; <small>",
+  "excerpts": {
+   "1": "<",
+   "3": "<​z",
+   "10": "<​zero>lon",
+   "25": "<​zero>long text that goe",
+   "80": "<​zero>long text that goes on and on",
+   "400": "<​zero>long text that goes on and on",
+   "3,true": "<​z...",
+   "25,true": "<​zero>long text that goe..."
+  }
+ },
+ {
+  "html": "ünïcödé<!-- c --><section></section>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé",
+   "25": "ünïcödé",
+   "80": "ünïcödé",
+   "400": "ünïcödé",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé"
+  }
+ },
+ {
+  "html": "  <<template><del></del><!-- c --></template>",
+  "excerpts": {
+   "1": "<",
+   "3": "<",
+   "10": "<",
+   "25": "<",
+   "80": "<",
+   "400": "<",
+   "3,true": "<",
+   "25,true": "<"
+  }
+ },
+ {
+  "html": "<style>ünïcödé<sup><cite>long text that goes on and on<body class=\"c\"><svg>\fhello",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c -->&#x1F600;</marquee><!-- c --><!-- c --> ><!-- c -->\nnew\nline  spaced   out  &#x1F600;   <frameset><<article> <iframe class=\"c\"></iframe></article></frameset>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀 >",
+   "10": "😀 > new li",
+   "25": "😀 > new line spaced out 😀",
+   "80": "😀 > new line spaced out 😀 <",
+   "400": "😀 > new line spaced out 😀 <",
+   "3,true": "😀 >...",
+   "25,true": "😀 > new line spaced out 😀..."
+  }
+ },
+ {
+  "html": "long text that goes on and on<!-- c -->&gt;&nbsp;<marquee></marquee>Привет>&copy;<h2>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on>  Привет>©",
+   "400": "long text that goes on and on>  Привет>©",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": " <!-- c -->  spaced   out  <dialog>long text that goes on and on  spaced   out  <h2>&unknown;<q><sup class=\"c\"><small></small></sup></q></h2></dialog>",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out",
+   "80": "spaced out",
+   "400": "spaced out",
+   "3,true": "spa...",
+   "25,true": "spaced out"
+  }
+ },
+ {
+  "html": "<noscript>123<em></em></figcaption><td></em><font><h1> <!-- c --><del><button></button>🎉</del></h1></font></td></noscript>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><<dialog></dialog><\nnew\nline>123<label class=\"c\"> em ",
+  "excerpts": {
+   "1": "<",
+   "3": "<<",
+   "10": "<< new lin",
+   "25": "<< new line>123 em",
+   "80": "<< new line>123 em",
+   "400": "<< new line>123 em",
+   "3,true": "<<...",
+   "25,true": "<< new line>123 em"
+  }
+ },
+ {
+  "html": "<th><hr>\t\ttab<!-- c -->&copy;</hr><i><🎉world <h1>hello</h1></i></th>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab©<🎉worl",
+   "25": "tab©<🎉world hello",
+   "80": "tab©<🎉world hello",
+   "400": "tab©<🎉world hello",
+   "3,true": "tab...",
+   "25,true": "tab©<🎉world hello"
+  }
+ },
+ {
+  "html": "&amp;<!-- c --><!-- c --><input></input><!-- c -->word\f&#160;&copy; <!-- c -->x<!-- c -->&gt; <hr><cite></cite></hr><!-- c --><!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "&",
+   "3": "&wo",
+   "10": "&word  © x",
+   "25": "&word  © x>",
+   "80": "&word  © x>",
+   "400": "&word  © x>",
+   "3,true": "&wo...",
+   "25,true": "&word  © x>"
+  }
+ },
+ {
+  "html": "<label> ema&b&gt;<form>​zero</form> long text that goes on and on</object>",
+  "excerpts": {
+   "1": "e",
+   "3": "ema",
+   "10": "ema&b> lon",
+   "25": "ema&b> long text that goe",
+   "80": "ema&b> long text that goes on and on",
+   "400": "ema&b> long text that goes on and on",
+   "3,true": "ema...",
+   "25,true": "ema&b> long text that goe..."
+  }
+ },
+ {
+  "html": "\r\ncrlf<!-- c --></section><article><b class=\"c\">\nnew\nline<!-- c --><object><iframe>  spaced   out  </iframe>ünïcödé</object><!-- c -->&gt;<q class=\"c\">ünïcödé<html></html></q></b></article>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf new l",
+   "25": "crlf new line>ünïcödé",
+   "80": "crlf new line>ünïcödé",
+   "400": "crlf new line>ünïcödé",
+   "3,true": "crl...",
+   "25,true": "crlf new line>ünïcödé"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->🎉<del><math> em</math><a> <abbr>&gt;\t\ttab<footer></footer></abbr>\r\ncrlf</a></del><!-- c --><!-- c -->\nnew\nline<!-- c -->",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉 n",
+   "10": "🎉  em > ta",
+   "25": "🎉  em > tab crlf new line",
+   "80": "🎉  em > tab crlf new line",
+   "400": "🎉  em > tab crlf new line",
+   "3,true": "🎉 n...",
+   "25,true": "🎉  em > tab crlf new line"
+  }
+ },
+ {
+  "html": "<th>ünïcödé</font>&gt;<dl> <select> </select><u><svg>🎉 <!-- c --><select><<svg class=\"c\">​zero&nbsp;</svg><script><span><code>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé>",
+   "25": "ünïcödé>",
+   "80": "ünïcödé>",
+   "400": "ünïcödé>",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé>"
+  }
+ },
+ {
+  "html": "&#x1F600;<!-- c --> <p>world<object>日本語</object>hello<del><i class=\"c\"></i></del></p>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀",
+   "10": "😀 worldhel",
+   "25": "😀 worldhello",
+   "80": "😀 worldhello",
+   "400": "😀 worldhello",
+   "3,true": "😀",
+   "25,true": "😀 worldhello"
+  }
+ },
+ {
+  "html": " <!-- c --><li class=\"c\">&unknown;</li><title><svg><dl class=\"c\">&copy;</dl></svg></title>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;",
+   "25": "&unknown; <svg><dl class=",
+   "80": "&unknown; <svg><dl class=\"c\">©</dl></svg>",
+   "400": "&unknown; <svg><dl class=\"c\">©</dl></svg>",
+   "3,true": "&un...",
+   "25,true": "&unknown; <svg><dl class=..."
+  }
+ },
+ {
+  "html": " <!-- c --> ><!-- c --><ol></ol>​zero<object>🎉&nbsp;<th><li><b>\t\ttab</b>  em<!-- c -->&#x1F600;</li></th></object>",
+  "excerpts": {
+   "1": ">",
+   "3": "> ​",
+   "10": "> ​zero",
+   "25": "> ​zero",
+   "80": "> ​zero",
+   "400": "> ​zero",
+   "3,true": "> ​...",
+   "25,true": "> ​zero"
+  }
+ },
+ {
+  "html": "<textarea></textarea><!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c -->\nnew\nline&lt;<html class=\"c\"><title class=\"c\"><object></object>\fa&b<!-- c --></title><sub>\f</sub>Привет<i><noscript class=\"c\">x<!-- c --><",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line<",
+   "25": "new line< <object></objec",
+   "80": "new line< <object></object> a&b<!-- c --> Привет x<!-- c --><",
+   "400": "new line< <object></object> a&b<!-- c --> Привет x<!-- c --><",
+   "3,true": "new...",
+   "25,true": "new line< <object></objec..."
+  }
+ },
+ {
+  "html": "<frameset>long text that goes on and on<figure><em>&#160;</abbr>  spaced   out  ",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "</p><object>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --></colgroup>&amp;<s></s>",
+  "excerpts": {
+   "1": "&",
+   "3": "&",
+   "10": "&",
+   "25": "&",
+   "80": "&",
+   "400": "&",
+   "3,true": "&",
+   "25,true": "&"
+  }
+ },
+ {
+  "html": "<!-- c --><div class=\"c\"></div><marquee>  spaced   out   &copy;日本語ünïcödé <body></body></marquee><article class=\"c\"><blockquote class=\"c\">&copy;<script>&gt;</script></blockquote></article>",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out ©日本語ünïcödé",
+   "80": "spaced out ©日本語ünïcödé ©",
+   "400": "spaced out ©日本語ünïcödé ©",
+   "3,true": "spa...",
+   "25,true": "spaced out ©日本語ünïcödé"
+  }
+ },
+ {
+  "html": "<!-- c --><img class=\"c\"><dl><td class=\"c\"></td></dl></img>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<caption class=\"c\"><br></script></br>word<em class=\"c\"></em></caption>&nbsp;<small></small><ins><!-- c --></ins><!-- c -->&#x1F600;<ins class=\"c\"><sup><!-- c --><u></u></sup></ins>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word  😀",
+   "25": "word  😀",
+   "80": "word  😀",
+   "400": "word  😀",
+   "3,true": "wor...",
+   "25,true": "word  😀"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><div><</div> em<!-- c --><ul></ul>&#x1F600;\r\ncrlf<!-- c --><!-- c -->ünïcödé</q><!-- c --><!-- c --><embed><div>  spaced   out  ",
+  "excerpts": {
+   "1": "<",
+   "3": "<",
+   "10": "<  em 😀 cr",
+   "25": "<  em 😀 crlfünïcödé",
+   "80": "<  em 😀 crlfünïcödé spaced out",
+   "400": "<  em 😀 crlfünïcödé spaced out",
+   "3,true": "<...",
+   "25,true": "<  em 😀 crlfünïcödé"
+  }
+ },
+ {
+  "html": "<cite></cite><!-- c --><!-- c --><dl><!-- c -->helloa&b&lt;<noscript>><hr><ul></button></strong><q><!-- c -->long text that goes on and onworld\r\ncrlf<frameset><dd></dd><ul class=\"c\">",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "helloa&b<",
+   "25": "helloa&b< ><hr><ul></butt",
+   "80": "helloa&b< ><hr><ul></button></strong><q><!-- c -->long text that goes on and onw",
+   "400": "helloa&b< ><hr><ul></button></strong><q><!-- c -->long text that goes on and onworld crlf<frameset><dd></dd><ul class=\"c\">",
+   "3,true": "hel...",
+   "25,true": "helloa&b< ><hr><ul></butt..."
+  }
+ },
+ {
+  "html": "</math>&amp;<q><select> </select>a&b<marquee>\f123<!-- c --></marquee> em\t\ttab<footer></footer></q><html>",
+  "excerpts": {
+   "1": "&",
+   "3": "&a&",
+   "10": "&a&b 123",
+   "25": "&a&b 123  em tab",
+   "80": "&a&b 123  em tab",
+   "400": "&a&b 123  em tab",
+   "3,true": "&a&...",
+   "25,true": "&a&b 123  em tab"
+  }
+ },
+ {
+  "html": " em<!-- c --><!-- c --><!-- c --><code><style class=\"c\"><span>&gt;\t\ttab<caption><</caption><dt>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em",
+   "25": "em",
+   "80": "em",
+   "400": "em",
+   "3,true": "em",
+   "25,true": "em"
+  }
+ },
+ {
+  "html": "&lt;日本語<td></td><img>a&b</blockquote></figcaption><dl><table><math><center></center></math></table></dl></img>",
+  "excerpts": {
+   "1": "<",
+   "3": "<日本",
+   "10": "<日本語a&b",
+   "25": "<日本語a&b",
+   "80": "<日本語a&b",
+   "400": "<日本語a&b",
+   "3,true": "<日本...",
+   "25,true": "<日本語a&b"
+  }
+ },
+ {
+  "html": "<!-- c --></font><marquee>  spaced   out  <!-- c -->world Привет<select class=\"c\"><title></title><s class=\"c\">&unknown;<colgroup class=\"c\"><embed>&lt;\f<blockquote></blockquote><article class=\"c\"><!-- c -->hello&copy; </article></embed></colgroup></s></select></marquee>",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out world Привет",
+   "80": "spaced out world Привет",
+   "400": "spaced out world Привет",
+   "3,true": "spa...",
+   "25,true": "spaced out world Привет"
+  }
+ },
+ {
+  "html": "<frameset>&#160;</frameset><div></div>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "   <!-- c --></label><!-- c --></del>\t\ttab<textarea><b><iframe><<figure><!-- c -->",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab",
+   "25": "tab",
+   "80": "tab",
+   "400": "tab",
+   "3,true": "tab",
+   "25,true": "tab"
+  }
+ },
+ {
+  "html": "<!-- c -->123a&b<  spaced   out  > <!-- c -->&unknown; <!-- c -->🎉<!-- c --><html>a&b<b class=\"c\">🎉<button></button> em</td><!-- c -->\t\ttab</p>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123a&b< sp",
+   "25": "123a&b< spaced out > &unk",
+   "80": "123a&b< spaced out > &unknown; 🎉a&b🎉 em tab",
+   "400": "123a&b< spaced out > &unknown; 🎉a&b🎉 em tab",
+   "3,true": "123...",
+   "25,true": "123a&b< spaced out > &unk..."
+  }
+ },
+ {
+  "html": "x&amp;</td><script>Привет<h2></h2></script>",
+  "excerpts": {
+   "1": "x",
+   "3": "x&",
+   "10": "x&",
+   "25": "x&",
+   "80": "x&",
+   "400": "x&",
+   "3,true": "x&",
+   "25,true": "x&"
+  }
+ },
+ {
+  "html": "<sup>> </sup>🎉<!-- c --><!-- c --><!-- c -->  spaced   out  ​zerohello&nbsp;<tbody></tbody><!-- c --><a>world日本語</a>ünïcödé",
+  "excerpts": {
+   "1": ">",
+   "3": "> 🎉",
+   "10": "> 🎉 spaced",
+   "25": "> 🎉 spaced out ​zerohello",
+   "80": "> 🎉 spaced out ​zerohello world日本語ünïcödé",
+   "400": "> 🎉 spaced out ​zerohello world日本語ünïcödé",
+   "3,true": "> 🎉...",
+   "25,true": "> 🎉 spaced out ​zerohello..."
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->\f<time></time><!-- c --><marquee><ul>  spaced   out  x<center class=\"c\">&gt; &lt;<del>world🎉",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out x > < world🎉",
+   "80": "spaced out x > < world🎉",
+   "400": "spaced out x > < world🎉",
+   "3,true": "spa...",
+   "25,true": "spaced out x > < world🎉"
+  }
+ },
+ {
+  "html": "&gt;<section class=\"c\"><!-- c -->&unknown;</select></section><!-- c --><!-- c --> <!-- c --><body></body></u><center class=\"c\"><code>\t\ttab</code>hellox</button><center class=\"c\"><img class=\"c\"><center></center></img>",
+  "excerpts": {
+   "1": ">",
+   "3": "> &",
+   "10": "> &unknown",
+   "25": "> &unknown; tabhellox",
+   "80": "> &unknown; tabhellox",
+   "400": "> &unknown; tabhellox",
+   "3,true": "> &...",
+   "25,true": "> &unknown; tabhellox"
+  }
+ },
+ {
+  "html": "</div><!-- c --><dt class=\"c\"><code><iframe>&nbsp;&lt;</iframe>\t\ttab</ul><head>x",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tabx",
+   "25": "tabx",
+   "80": "tabx",
+   "400": "tabx",
+   "3,true": "tab...",
+   "25,true": "tabx"
+  }
+ },
+ {
+  "html": "<style></figure><!-- c -->&unknown;world​zero&amp;</style><strong></strong><br><b>\nnew\nline </b></br><span class=\"c\">&unknown;world em</span>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line &",
+   "25": "new line &unknown;world e",
+   "80": "new line &unknown;world em",
+   "400": "new line &unknown;world em",
+   "3,true": "new...",
+   "25,true": "new line &unknown;world e..."
+  }
+ },
+ {
+  "html": "&gt;<<body><table></table>&copy;hello<title>\nnew\nline123\r\ncrlf</br>\t\ttab</title>hellox</body><!-- c --> ",
+  "excerpts": {
+   "1": ">",
+   "3": "><",
+   "10": ">< ©hello",
+   "25": ">< ©hello new line123 crl",
+   "80": ">< ©hello new line123 crlf</br> tab hellox",
+   "400": ">< ©hello new line123 crlf</br> tab hellox",
+   "3,true": "><...",
+   "25,true": ">< ©hello new line123 crl..."
+  }
+ },
+ {
+  "html": "  spaced   out  ​zero",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out ​zero",
+   "80": "spaced out ​zero",
+   "400": "spaced out ​zero",
+   "3,true": "spa...",
+   "25,true": "spaced out ​zero"
+  }
+ },
+ {
+  "html": "<!-- c -->word&amp;<a></a><!-- c --><!-- c --><small class=\"c\">hello\r\ncrlf123long text that goes on and onПривет&gt;<figcaption class=\"c\"><time>&unknown;</time>world  spaced   out  </body></figcaption></small>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word&hello",
+   "25": "word&hello crlf123long te",
+   "80": "word&hello crlf123long text that goes on and onПривет> &unknown;world spaced out",
+   "400": "word&hello crlf123long text that goes on and onПривет> &unknown;world spaced out",
+   "3,true": "wor...",
+   "25,true": "word&hello crlf123long te..."
+  }
+ },
+ {
+  "html": "<s><s></math><ins class=\"c\">\t\ttab</ins>123<figcaption></figcaption></s>word<p>&gt;</p></s><!-- c -->123<dd> <dd><time class=\"c\"></caption>\r\ncrlf</time></dd></dd>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab 123 wo",
+   "25": "tab 123 word > 123 crlf",
+   "80": "tab 123 word > 123 crlf",
+   "400": "tab 123 word > 123 crlf",
+   "3,true": "tab...",
+   "25,true": "tab 123 word > 123 crlf"
+  }
+ },
+ {
+  "html": "<!-- c --><tbody><blockquote></blockquote></tbody><!-- c --><tr>x</tr>",
+  "excerpts": {
+   "1": "x",
+   "3": "x",
+   "10": "x",
+   "25": "x",
+   "80": "x",
+   "400": "x",
+   "3,true": "x",
+   "25,true": "x"
+  }
+ },
+ {
+  "html": "  Привет><tbody>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет>",
+   "25": "Привет>",
+   "80": "Привет>",
+   "400": "Привет>",
+   "3,true": "При...",
+   "25,true": "Привет>"
+  }
+ },
+ {
+  "html": "<select>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "</li><th class=\"c\">日本語<frameset class=\"c\">&#x1F600;</body>hello<code><a class=\"c\">&nbsp;&copy;</a></code></frameset></th>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語😀hello",
+   "25": "日本語😀hello ©",
+   "80": "日本語😀hello ©",
+   "400": "日本語😀hello ©",
+   "3,true": "日本語...",
+   "25,true": "日本語😀hello ©"
+  }
+ },
+ {
+  "html": "<!-- c -->&#160;<<title><noscript class=\"c\">\r\ncrlf<span>日本語123<!-- c --><<article></article>",
+  "excerpts": {
+   "1": "<",
+   "3": "< <",
+   "10": "< <noscrip",
+   "25": "< <noscript class=\"c\"> cr",
+   "80": "< <noscript class=\"c\"> crlf<span>日本語123<!-- c --><<article></article>",
+   "400": "< <noscript class=\"c\"> crlf<span>日本語123<!-- c --><<article></article>",
+   "3,true": "< <...",
+   "25,true": "< <noscript class=\"c\"> cr..."
+  }
+ },
+ {
+  "html": "<ins class=\"c\"></ins></dd><embed>&nbsp;</embed></span> ",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<dl><sub><!-- c -->&#x1F600;<ins> &#x1F600;<figure><dl><div> <textarea><textarea><</textarea></textarea></div></dl></figure></ins></sub></dl>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀",
+   "10": "😀 😀",
+   "25": "😀 😀",
+   "80": "😀 😀",
+   "400": "😀 😀",
+   "3,true": "😀",
+   "25,true": "😀 😀"
+  }
+ },
+ {
+  "html": "<font class=\"c\">&copy;\r\ncrlf <form>Привет&unknown;</form><body><dl><u>&copy;\r\ncrlf​zero<abbr class=\"c\"></abbr></u></dl></body></font>",
+  "excerpts": {
+   "1": "©",
+   "3": "© c",
+   "10": "© crlf © c",
+   "25": "© crlf © crlf​zero",
+   "80": "© crlf © crlf​zero",
+   "400": "© crlf © crlf​zero",
+   "3,true": "© c...",
+   "25,true": "© crlf © crlf​zero"
+  }
+ },
+ {
+  "html": "&#160;<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "</style>\t\ttab&amp;\nnew\nline<section>&gt;",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab& new l",
+   "25": "tab& new line >",
+   "80": "tab& new line >",
+   "400": "tab& new line >",
+   "3,true": "tab...",
+   "25,true": "tab& new line >"
+  }
+ },
+ {
+  "html": "<dt>🎉<sup class=\"c\"></sup><embed><picture class=\"c\"><s class=\"c\"><!-- c -->\t\ttabПривет</s></picture></embed></dt>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉",
+   "10": "🎉",
+   "25": "🎉",
+   "80": "🎉",
+   "400": "🎉",
+   "3,true": "🎉",
+   "25,true": "🎉"
+  }
+ },
+ {
+  "html": "<!-- c --><tbody>🎉<tr>🎉<svg class=\"c\"></svg></tr><col><article class=\"c\"><font class=\"c\"><svg><style>&copy;</object></style></svg></font></article></col></tbody>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉🎉",
+   "10": "🎉🎉",
+   "25": "🎉🎉",
+   "80": "🎉🎉",
+   "400": "🎉🎉",
+   "3,true": "🎉🎉",
+   "25,true": "🎉🎉"
+  }
+ },
+ {
+  "html": "<!-- c --><h2></h2><!-- c --></template><picture class=\"c\"></picture><title><input></input><time>日本語<ul class=\"c\"><sup>​zero<!-- c --><div> em<code class=\"c\"></code> hello</div></sup></ul></time></title>",
+  "excerpts": {
+   "1": "<",
+   "3": "<in",
+   "10": "<input></i",
+   "25": "<input></input><time>日本語<",
+   "80": "<input></input><time>日本語<ul class=\"c\"><sup>​zero<!-- c --><div> em<code class=\"c",
+   "400": "<input></input><time>日本語<ul class=\"c\"><sup>​zero<!-- c --><div> em<code class=\"c\"></code> hello</div></sup></ul></time>",
+   "3,true": "<in...",
+   "25,true": "<input></input><time>日本語<..."
+  }
+ },
+ {
+  "html": "</code>ünïcödé \r\ncrlf<!-- c -->&#x1F600;<table></table> em<!-- c --><!-- c --><script></script><!-- c --><!-- c --><span>​zero</span>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé cr",
+   "25": "ünïcödé crlf😀  em​zero",
+   "80": "ünïcödé crlf😀  em​zero",
+   "400": "ünïcödé crlf😀  em​zero",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé crlf😀  em​zero"
+  }
+ },
+ {
+  "html": "\t\ttab",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab",
+   "25": "tab",
+   "80": "tab",
+   "400": "tab",
+   "3,true": "tab",
+   "25,true": "tab"
+  }
+ },
+ {
+  "html": "\f\nnew\nline\t\ttab<h1>Привет</h1><style>&nbsp;<dd>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line t",
+   "25": "new line tab Привет",
+   "80": "new line tab Привет",
+   "400": "new line tab Привет",
+   "3,true": "new...",
+   "25,true": "new line tab Привет"
+  }
+ },
+ {
+  "html": "<span><b class=\"c\"><mark>\t\ttab<footer><header></header><strong><cite>\f<li></li> &nbsp;</cite><div>  spaced   out  <button><label><abbr></abbr><blockquote></blockquote> </cite></label></button></div></strong></footer></mark></b></span>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab   spac",
+   "25": "tab   spaced out",
+   "80": "tab   spaced out",
+   "400": "tab   spaced out",
+   "3,true": "tab",
+   "25,true": "tab   spaced out"
+  }
+ },
+ {
+  "html": "word<!-- c --><!-- c --><!-- c --><!-- c --><footer><object><tbody></header></tbody><figure><select><!-- c -->long text that goes on and on&#160; ​zeroa&b<picture class=\"c\"><code>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word",
+   "25": "word",
+   "80": "word",
+   "400": "word",
+   "3,true": "wor...",
+   "25,true": "word"
+  }
+ },
+ {
+  "html": "<article><textarea class=\"c\"></textarea><script><abbr></abbr>&gt;<font> em<option><head class=\"c\"><strong><th><strong></strong></th></strong></head></option></font></script></article>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><h1>&nbsp;<title class=\"c\"><center class=\"c\"></center></title><tbody><!-- c -->  spaced   out  <div>&copy;</div></tbody>123</p>&copy;</h1>",
+  "excerpts": {
+   "1": "s",
+   "3": "<ce",
+   "10": "<center cl",
+   "25": "<center class=\"c\"></cente",
+   "80": "<center class=\"c\"></center> spaced out © 123 ©",
+   "400": "<center class=\"c\"></center> spaced out © 123 ©",
+   "3,true": "<ce...",
+   "25,true": "<center class=\"c\"></cente..."
+  }
+ },
+ {
+  "html": " \r\ncrlf</strong>ünïcödé<a><title><object> <!-- c --><th><div class=\"c\"></div><time><!-- c -->\f<html class=\"c\"></html></time></th></object></title></a>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlfünïcöd",
+   "25": "crlfünïcödé <object> <!--",
+   "80": "crlfünïcödé <object> <!-- c --><th><div class=\"c\"></div><time><!-- c --> <html c",
+   "400": "crlfünïcödé <object> <!-- c --><th><div class=\"c\"></div><time><!-- c --> <html class=\"c\"></html></time></th></object>",
+   "3,true": "crl...",
+   "25,true": "crlfünïcödé <object> <!--..."
+  }
+ },
+ {
+  "html": "<!-- c --><<!-- c -->\t\ttab<!-- c -->",
+  "excerpts": {
+   "1": "<",
+   "3": "< t",
+   "10": "< tab",
+   "25": "< tab",
+   "80": "< tab",
+   "400": "< tab",
+   "3,true": "< t...",
+   "25,true": "< tab"
+  }
+ },
+ {
+  "html": "<dialog>></dialog></svg>  spaced   out  ünïcödé​zero<<!-- c -->ünïcödéПривет&gt;\r\ncrlf<mark></span></mark><!-- c -->&amp;<abbr><ul></div><!-- c --> ",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out ünïcödé​zero<ü",
+   "80": "spaced out ünïcödé​zero<ünïcödéПривет> crlf &",
+   "400": "spaced out ünïcödé​zero<ünïcödéПривет> crlf &",
+   "3,true": "spa...",
+   "25,true": "spaced out ünïcödé​zero<ü..."
+  }
+ },
+ {
+  "html": "<!-- c -->&unknown;<!-- c -->​zero<!-- c --><!-- c -->long text that goes on and on<a>Привет</a></blockquote><!-- c --><!-- c --><!-- c -->&#160;<!-- c --> <!-- c --><!-- c --><header class=\"c\"></caption></header>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;​",
+   "25": "&unknown;​zerolong text t",
+   "80": "&unknown;​zerolong text that goes on and onПривет",
+   "400": "&unknown;​zerolong text that goes on and onПривет",
+   "3,true": "&un...",
+   "25,true": "&unknown;​zerolong text t..."
+  }
+ },
+ {
+  "html": "​zero</template> <select>&#x1F600;<article></iframe><abbr class=\"c\"></abbr></article></select>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero",
+   "25": "​zero",
+   "80": "​zero",
+   "400": "​zero",
+   "3,true": "​ze...",
+   "25,true": "​zero"
+  }
+ },
+ {
+  "html": "<html class=\"c\"><u> <ol><!-- c --><dialog>word\f<article><\r\ncrlf<!-- c --><!-- c --><li>&gt;<del><button><footer><del>&#160;<frameset>hello emünïcödé",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<div></div>word ",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word",
+   "25": "word",
+   "80": "word",
+   "400": "word",
+   "3,true": "wor...",
+   "25,true": "word"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c -->&amp;<figure><object><<img> em<form>world<!-- c -->worldünïcödé</form></img></object></figure>",
+  "excerpts": {
+   "1": "&",
+   "3": "&",
+   "10": "&",
+   "25": "&",
+   "80": "&",
+   "400": "&",
+   "3,true": "&",
+   "25,true": "&"
+  }
+ },
+ {
+  "html": "<dl><style>\t\ttab&#160;<label></label><pre class=\"c\"></pre>&amp; long text that goes on and on<em>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><sup class=\"c\">\f<!-- c -->日本語🎉<table>🎉<!-- c --></table></sup>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語🎉🎉",
+   "25": "日本語🎉🎉",
+   "80": "日本語🎉🎉",
+   "400": "日本語🎉🎉",
+   "3,true": "日本語...",
+   "25,true": "日本語🎉🎉"
+  }
+ },
+ {
+  "html": "<u></u>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": " <!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "日本語<!-- c --><font class=\"c\">123 <pre><!-- c --><dialog>&copy;\t\ttab</dialog>&nbsp;&#160;long text that goes on and on</pre>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語 123",
+   "25": "日本語 123   long text that",
+   "80": "日本語 123   long text that goes on and on",
+   "400": "日本語 123   long text that goes on and on",
+   "3,true": "日本語",
+   "25,true": "日本語 123   long text that..."
+  }
+ },
+ {
+  "html": " 🎉<ol class=\"c\"><span><button><font>><th class=\"c\">123<table>word &nbsp;</table>\t\ttab<footer></footer></th></font></button></span></ol>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉",
+   "10": "🎉",
+   "25": "🎉",
+   "80": "🎉",
+   "400": "🎉",
+   "3,true": "🎉",
+   "25,true": "🎉"
+  }
+ },
+ {
+  "html": "\r\ncrlf</ol>long text that goes on and on\nnew\nline<!-- c --><!-- c -->x<!-- c -->&unknown;&#160; </footer><code></code>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlflong t",
+   "25": "crlflong text that goes o",
+   "80": "crlflong text that goes on and on new linex&unknown;",
+   "400": "crlflong text that goes on and on new linex&unknown;",
+   "3,true": "crl...",
+   "25,true": "crlflong text that goes o..."
+  }
+ },
+ {
+  "html": "\t\ttab<q>&lt;<!-- c --></q>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab<",
+   "25": "tab<",
+   "80": "tab<",
+   "400": "tab<",
+   "3,true": "tab...",
+   "25,true": "tab<"
+  }
+ },
+ {
+  "html": "<title> </title>​zerohello<p>&gt;<frameset></frameset></p>&nbsp;&amp;<sup><dl><footer>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zerohello",
+   "25": "​zerohello >  &",
+   "80": "​zerohello >  &",
+   "400": "​zerohello >  &",
+   "3,true": "​ze...",
+   "25,true": "​zerohello >  &"
+  }
+ },
+ {
+  "html": "word</sub><sub><ünïcödélong text that goes on and on></sub>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word<ünïcö",
+   "25": "word<ünïcödélong text tha",
+   "80": "word<ünïcödélong text that goes on and on>",
+   "400": "word<ünïcödélong text that goes on and on>",
+   "3,true": "wor...",
+   "25,true": "word<ünïcödélong text tha..."
+  }
+ },
+ {
+  "html": "<section></section>&amp;<strong class=\"c\"> long text that goes on and on&unknown;</strong>​zero long text that goes on and on<b><math><th class=\"c\"></th>></math></b>",
+  "excerpts": {
+   "1": "&",
+   "3": "& l",
+   "10": "& long tex",
+   "25": "& long text that goes on",
+   "80": "& long text that goes on and on&unknown;​zero long text that goes on and on >",
+   "400": "& long text that goes on and on&unknown;​zero long text that goes on and on >",
+   "3,true": "& l...",
+   "25,true": "& long text that goes on..."
+  }
+ },
+ {
+  "html": "<!-- c --><object>&gt;</object><!-- c --><li class=\"c\">&#160;ünïcödé<!-- c --></mark></li>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé",
+   "25": "ünïcödé",
+   "80": "ünïcödé",
+   "400": "ünïcödé",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé"
+  }
+ },
+ {
+  "html": "<<small></svg><figcaption><dt>&lt;</dt></figcaption></small>",
+  "excerpts": {
+   "1": "<",
+   "3": "< <",
+   "10": "< <",
+   "25": "< <",
+   "80": "< <",
+   "400": "< <",
+   "3,true": "< <",
+   "25,true": "< <"
+  }
+ },
+ {
+  "html": "<!-- c --> &#160;<center><svg></svg>&copy;<!-- c --></center><!-- c --><!-- c --><i></i><!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "©",
+   "10": "©",
+   "25": "©",
+   "80": "©",
+   "400": "©",
+   "3,true": "©",
+   "25,true": "©"
+  }
+ },
+ {
+  "html": "&lt;<font> \fx",
+  "excerpts": {
+   "1": "<",
+   "3": "< x",
+   "10": "< x",
+   "25": "< x",
+   "80": "< x",
+   "400": "< x",
+   "3,true": "< x",
+   "25,true": "< x"
+  }
+ },
+ {
+  "html": "<p>&lt;</p><marquee></marquee>&unknown; emhello em<!-- c --><!-- c --><label> </label><u>long text that goes on and on<dialog>",
+  "excerpts": {
+   "1": "<",
+   "3": "< &",
+   "10": "< &unknown",
+   "25": "< &unknown; emhello em",
+   "80": "< &unknown; emhello em long text that goes on and on",
+   "400": "< &unknown; emhello em long text that goes on and on",
+   "3,true": "< &...",
+   "25,true": "< &unknown; emhello em"
+  }
+ },
+ {
+  "html": "<small></small> <!-- c --><dialog>hello<!-- c -->&#160;</dialog><title class=\"c\"><li class=\"c\"><!-- c --></li><tbody><q>\r\ncrlf  spaced   out  <!-- c -->🎉<dl>",
+  "excerpts": {
+   "1": "<",
+   "3": "<li",
+   "10": "<li class=",
+   "25": "<li class=\"c\"><!-- c --><",
+   "80": "<li class=\"c\"><!-- c --></li><tbody><q> crlf spaced out <!-- c -->🎉<dl>",
+   "400": "<li class=\"c\"><!-- c --></li><tbody><q> crlf spaced out <!-- c -->🎉<dl>",
+   "3,true": "<li...",
+   "25,true": "<li class=\"c\"><!-- c --><..."
+  }
+ },
+ {
+  "html": "<!-- c --><sup></sup>world🎉<th>>&unknown;</th><!-- c --> <frameset></th></frameset><!-- c --> <time class=\"c\"><embed></embed></time>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "world🎉>&un",
+   "25": "world🎉>&unknown;",
+   "80": "world🎉>&unknown;",
+   "400": "world🎉>&unknown;",
+   "3,true": "wor...",
+   "25,true": "world🎉>&unknown;"
+  }
+ },
+ {
+  "html": "<footer>long text that goes on and on</footer><form>&gt;<div><caption></caption>​zero<tr class=\"c\">\f&#160;&amp;</tr><math></math></div></form>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on",
+   "400": "long text that goes on and on",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "\nnew\nline123</tr><!-- c --><cite class=\"c\">\r\ncrlf &gt;<blockquote><dt></dt></blockquote>&#160; hello<p>Привет",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line12",
+   "25": "new line123 crlf >   hell",
+   "80": "new line123 crlf >   hello Привет",
+   "400": "new line123 crlf >   hello Привет",
+   "3,true": "new...",
+   "25,true": "new line123 crlf >   hell..."
+  }
+ },
+ {
+  "html": "<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": " <mark> em<colgroup class=\"c\"><body></body></colgroup></mark>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em",
+   "25": "em",
+   "80": "em",
+   "400": "em",
+   "3,true": "em",
+   "25,true": "em"
+  }
+ },
+ {
+  "html": "<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --></figcaption>a&b<math><svg class=\"c\"><tbody>a&b</small>​zero<span><option><u></marquee>x<figure>x <blockquote><!-- c -->123</font></blockquote></figure></u></option></span></tbody></svg></math>",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b",
+   "25": "a&b",
+   "80": "a&b",
+   "400": "a&b",
+   "3,true": "a&b",
+   "25,true": "a&b"
+  }
+ },
+ {
+  "html": "\nnew\nline&gt;<!-- c --><label><i><abbr>&#160; </abbr></table></abbr></i><a class=\"c\"> \t\ttab<s>🎉&nbsp;",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line>",
+   "25": "new line>   tab 🎉",
+   "80": "new line>   tab 🎉",
+   "400": "new line>   tab 🎉",
+   "3,true": "new...",
+   "25,true": "new line>   tab 🎉"
+  }
+ },
+ {
+  "html": "<q><dt>&gt;日本語</dt>&#x1F600;<figcaption>world</figcaption>hello em</q><time><cite><!-- c --></q></span></cite><!-- c --> <textarea>><figcaption>",
+  "excerpts": {
+   "1": ">",
+   "3": ">日本",
+   "10": ">日本語 😀 hel",
+   "25": ">日本語 😀 world hello em",
+   "80": ">日本語 😀 world hello em",
+   "400": ">日本語 😀 world hello em",
+   "3,true": ">日本...",
+   "25,true": ">日本語 😀 world hello em"
+  }
+ },
+ {
+  "html": " <!-- c --><!-- c -->&#160;<img>日本語a&b<hr></hr></img>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語a&b",
+   "25": "日本語a&b",
+   "80": "日本語a&b",
+   "400": "日本語a&b",
+   "3,true": "日本語...",
+   "25,true": "日本語a&b"
+  }
+ },
+ {
+  "html": "123world\nnew\nline&#x1F600;",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123world n",
+   "25": "123world new line😀",
+   "80": "123world new line😀",
+   "400": "123world new line😀",
+   "3,true": "123...",
+   "25,true": "123world new line😀"
+  }
+ },
+ {
+  "html": " &nbsp;\t\ttab</dt><s><textarea><!-- c --></textarea></s><title><embed>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab <embed",
+   "25": "tab <embed>",
+   "80": "tab <embed>",
+   "400": "tab <embed>",
+   "3,true": "tab",
+   "25,true": "tab <embed>"
+  }
+ },
+ {
+  "html": "123<footer> </footer><i></i>long text that goes on and on<pre><cite>&#160;</cite>&amp;</pre>&gt;&gt;<!-- c --><!-- c --><mark class=\"c\">\nnew\nline<pre>&#x1F600;</pre></mark><!-- c --><style>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123 long t",
+   "25": "123 long text that goes o",
+   "80": "123 long text that goes on and on  & >> new line 😀",
+   "400": "123 long text that goes on and on  & >> new line 😀",
+   "3,true": "123...",
+   "25,true": "123 long text that goes o..."
+  }
+ },
+ {
+  "html": "<!-- c --><th><q><object><i><em class=\"c\">\nnew\nline </em><time>\f<</time><small>&copy;</small></i>worldworld&nbsp;hello<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<embed>  spaced   out  </embed><!-- c -->hello<embed><col><html><font class=\"c\">></font></title> <colgroup>x</colgroup></colgroup><s></object><u> <ins></ins>x\t\ttab",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out hello >  x x t",
+   "80": "spaced out hello >  x x tab",
+   "400": "spaced out hello >  x x tab",
+   "3,true": "spa...",
+   "25,true": "spaced out hello >  x x t..."
+  }
+ },
+ {
+  "html": "hello<!-- c -->123<strong>  spaced   out  </strong>&unknown;<font><cite class=\"c\"><center class=\"c\"></center><a><col>  spaced   out  </col></a></select><td class=\"c\"></td><embed></dd> \f  spaced   out  </embed></cite></font>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello123 s",
+   "25": "hello123 spaced out &unkn",
+   "80": "hello123 spaced out &unknown; spaced out spaced out",
+   "400": "hello123 spaced out &unknown; spaced out spaced out",
+   "3,true": "hel...",
+   "25,true": "hello123 spaced out &unkn..."
+  }
+ },
+ {
+  "html": "123<!-- c -->hello<html></html>  spaced   out  <ünïcödé<svg>&#x1F600;<embed></object><!-- c --> </embed></svg>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123hello s",
+   "25": "123hello spaced out <ünïc",
+   "80": "123hello spaced out <ünïcödé",
+   "400": "123hello spaced out <ünïcödé",
+   "3,true": "123...",
+   "25,true": "123hello spaced out <ünïc..."
+  }
+ },
+ {
+  "html": "word​zero&#160;  spaced   out  <span>world<code></code></span>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word​zero",
+   "25": "word​zero  spaced out wor",
+   "80": "word​zero  spaced out world",
+   "400": "word​zero  spaced out world",
+   "3,true": "wor...",
+   "25,true": "word​zero  spaced out wor..."
+  }
+ },
+ {
+  "html": "Привет<!-- c -->",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет",
+   "25": "Привет",
+   "80": "Привет",
+   "400": "Привет",
+   "3,true": "При...",
+   "25,true": "Привет"
+  }
+ },
+ {
+  "html": "Привет<!-- c --><!-- c --> <footer><html class=\"c\">​zero<q><input>&copy;</input>&#x1F600;<input></input>\t\ttab</q><h1>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет",
+   "25": "Привет ​zero©😀 tab",
+   "80": "Привет ​zero©😀 tab",
+   "400": "Привет ​zero©😀 tab",
+   "3,true": "При...",
+   "25,true": "Привет ​zero©😀 tab"
+  }
+ },
+ {
+  "html": "<mark></mark>ünïcödé<i><frameset class=\"c\"></frameset></i> <!-- c --><col>&amp;</col>\nnew\nline</footer>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé &",
+   "25": "ünïcödé & new line",
+   "80": "ünïcödé & new line",
+   "400": "ünïcödé & new line",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé & new line"
+  }
+ },
+ {
+  "html": "<pre>&#x1F600;<tr><figcaption></figcaption> \nnew\nline<figure><img><s>\r\ncrlf日本語\t\ttabx</dt> &gt;a&b&nbsp;<button><form class=\"c\"><caption></dd></caption></form></button></s></img></figure></tr></pre>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀 n",
+   "10": "😀 new line",
+   "25": "😀 new line crlf日本語 tabx >",
+   "80": "😀 new line crlf日本語 tabx >a&b",
+   "400": "😀 new line crlf日本語 tabx >a&b",
+   "3,true": "😀 n...",
+   "25,true": "😀 new line crlf日本語 tabx >..."
+  }
+ },
+ {
+  "html": "<!-- c -->​zero&#x1F600;>\nnew\nline<marquee>  spaced   out  <dialog> </button><option class=\"c\"> <ul></ul></option></dialog></marquee>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero😀> ne",
+   "25": "​zero😀> new line spaced o",
+   "80": "​zero😀> new line spaced out",
+   "400": "​zero😀> new line spaced out",
+   "3,true": "​ze...",
+   "25,true": "​zero😀> new line spaced o..."
+  }
+ },
+ {
+  "html": "<!-- c -->\r\ncrlfünïcödé<!-- c -->hello<!-- c -->world\nnew\nline <pre><!-- c --></b><button><!-- c --><td></td></button>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlfünïcöd",
+   "25": "crlfünïcödéhelloworld new",
+   "80": "crlfünïcödéhelloworld new line",
+   "400": "crlfünïcödéhelloworld new line",
+   "3,true": "crl...",
+   "25,true": "crlfünïcödéhelloworld new..."
+  }
+ },
+ {
+  "html": "<!-- c --></header><!-- c --></dialog><colgroup class=\"c\"><head><li>\r\ncrlf</li><span>&amp;<title></title></span><embed></embed><br></br>\r\ncrlf</head>&unknown;<dialog>&lt;<li></picture>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf & crl",
+   "25": "crlf & crlf&unknown;",
+   "80": "crlf & crlf&unknown;",
+   "400": "crlf & crlf&unknown;",
+   "3,true": "crl...",
+   "25,true": "crlf & crlf&unknown;"
+  }
+ },
+ {
+  "html": "a&b<!-- c --><footer>123",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b 123",
+   "25": "a&b 123",
+   "80": "a&b 123",
+   "400": "a&b 123",
+   "3,true": "a&b...",
+   "25,true": "a&b 123"
+  }
+ },
+ {
+  "html": "<br></br><i>&copy;&copy;</i>",
+  "excerpts": {
+   "1": "©",
+   "3": "©©",
+   "10": "©©",
+   "25": "©©",
+   "80": "©©",
+   "400": "©©",
+   "3,true": "©©",
+   "25,true": "©©"
+  }
+ },
+ {
+  "html": "🎉world<!-- c -->&nbsp;</ul> <button></button>\r\ncrlf<body><ins> <img class=\"c\"></img><q></style></q></ins></body>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉wo",
+   "10": "🎉world   c",
+   "25": "🎉world   crlf",
+   "80": "🎉world   crlf",
+   "400": "🎉world   crlf",
+   "3,true": "🎉wo...",
+   "25,true": "🎉world   crlf"
+  }
+ },
+ {
+  "html": "&gt;<!-- c -->🎉",
+  "excerpts": {
+   "1": ">",
+   "3": ">🎉",
+   "10": ">🎉",
+   "25": ">🎉",
+   "80": ">🎉",
+   "400": ">🎉",
+   "3,true": ">🎉",
+   "25,true": ">🎉"
+  }
+ },
+ {
+  "html": "<!-- c -->123<!-- c --><!-- c --> &gt;<!-- c -->world",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123 >world",
+   "25": "123 >world",
+   "80": "123 >world",
+   "400": "123 >world",
+   "3,true": "123...",
+   "25,true": "123 >world"
+  }
+ },
+ {
+  "html": "<i><html></html>\nnew\nline</i>a&b<!-- c --><\f em<!-- c -->Привет<!-- c -->&copy;<svg>&amp;</svg>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new linea&",
+   "25": "new linea&b<  emПривет©",
+   "80": "new linea&b<  emПривет©",
+   "400": "new linea&b<  emПривет©",
+   "3,true": "new...",
+   "25,true": "new linea&b<  emПривет©"
+  }
+ },
+ {
+  "html": "<!-- c -->ünïcödé<article></article><!-- c --><!-- c -->&#160;&unknown;<!-- c -->><i>word<style class=\"c\"><i> em</i></blockquote><iframe>word</iframe>123<!-- c --><title></title></style></i>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé  &",
+   "25": "ünïcödé  &unknown;>word",
+   "80": "ünïcödé  &unknown;>word",
+   "400": "ünïcödé  &unknown;>word",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé  &unknown;>word"
+  }
+ },
+ {
+  "html": "</dl>Привет em&lt;<u><!-- c --></u>\t\ttab<!-- c --><s class=\"c\"> <col></form></col></s><del>\f日本語</del><<!-- c --><br>​zero</br>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет em<",
+   "25": "Привет em< tab 日本語 <​zero",
+   "80": "Привет em< tab 日本語 <​zero",
+   "400": "Привет em< tab 日本語 <​zero",
+   "3,true": "При...",
+   "25,true": "Привет em< tab 日本語 <​zero"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><center></ul>x&gt;  spaced   out  <svg>",
+  "excerpts": {
+   "1": "x",
+   "3": "x>",
+   "10": "x> spaced",
+   "25": "x> spaced out",
+   "80": "x> spaced out",
+   "400": "x> spaced out",
+   "3,true": "x>...",
+   "25,true": "x> spaced out"
+  }
+ },
+ {
+  "html": "<u><!-- c --><del><figure>world</figure>   spaced   out  <h2></form><caption><caption class=\"c\">a&b<!-- c --><th></th><u><input>hello</input></u></caption></caption></h2></del></u>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "world spac",
+   "25": "world spaced out a&b hell",
+   "80": "world spaced out a&b hello",
+   "400": "world spaced out a&b hello",
+   "3,true": "wor...",
+   "25,true": "world spaced out a&b hell..."
+  }
+ },
+ {
+  "html": " <!-- c -->\nnew\nline<embed>&gt;</embed> 123a&b&unknown;<!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line>",
+   "25": "new line> 123a&b&unknown;",
+   "80": "new line> 123a&b&unknown;",
+   "400": "new line> 123a&b&unknown;",
+   "3,true": "new...",
+   "25,true": "new line> 123a&b&unknown;"
+  }
+ },
+ {
+  "html": "<!-- c -->Приветword<!-- c --><img> </article>&copy;world<th></th>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Приветword",
+   "25": "Приветword ©world",
+   "80": "Приветword ©world",
+   "400": "Приветword ©world",
+   "3,true": "При...",
+   "25,true": "Приветword ©world"
+  }
+ },
+ {
+  "html": "Привет</picture><!-- c --><!-- c --><header class=\"c\">\nnew\nline<small class=\"c\"><iframe></small>  spaced   out  </abbr><title><&nbsp;</title>hello&unknown;<sub>\r\ncrlf\t\ttab</sub></iframe></small></header>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет",
+   "25": "Привет new line",
+   "80": "Привет new line",
+   "400": "Привет new line",
+   "3,true": "При...",
+   "25,true": "Привет new line"
+  }
+ },
+ {
+  "html": "</font> worldhello<body><!-- c --> <q>&#x1F600;</q>\r\ncrlfword</body>&copy;&lt;",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "worldhello",
+   "25": "worldhello 😀 crlfword©<",
+   "80": "worldhello 😀 crlfword©<",
+   "400": "worldhello 😀 crlfword©<",
+   "3,true": "wor...",
+   "25,true": "worldhello 😀 crlfword©<"
+  }
+ },
+ {
+  "html": "&copy; <&#x1F600; ",
+  "excerpts": {
+   "1": "©",
+   "3": "© <",
+   "10": "© <😀",
+   "25": "© <😀",
+   "80": "© <😀",
+   "400": "© <😀",
+   "3,true": "© <...",
+   "25,true": "© <😀"
+  }
+ },
+ {
+  "html": "<form><!-- c -->hello</form>\t\ttab<!-- c --><dt class=\"c\">\f em<svg>&nbsp;&amp;a&b\r\ncrlfworld</svg></dt><!-- c -->&gt;<a>&#160;&lt;</a>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab  em >",
+   "25": "tab  em > <",
+   "80": "tab  em > <",
+   "400": "tab  em > <",
+   "3,true": "tab...",
+   "25,true": "tab  em > <"
+  }
+ },
+ {
+  "html": "<sub></sub> &#x1F600;<!-- c -->\nnew\nline <header><!-- c --><u> Привет <html></html><em></em><dialog><dd>日本語<pre> ",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀 n",
+   "10": "😀 new line",
+   "25": "😀 new line Привет",
+   "80": "😀 new line Привет",
+   "400": "😀 new line Привет",
+   "3,true": "😀 n...",
+   "25,true": "😀 new line Привет"
+  }
+ },
+ {
+  "html": "</strong><!-- c --><!-- c -->&amp;<!-- c --><time><math><svg><iframe class=\"c\">",
+  "excerpts": {
+   "1": "&",
+   "3": "&",
+   "10": "&",
+   "25": "&",
+   "80": "&",
+   "400": "&",
+   "3,true": "&",
+   "25,true": "&"
+  }
+ },
+ {
+  "html": "<<!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "<",
+   "3": "<",
+   "10": "<",
+   "25": "<",
+   "80": "<",
+   "400": "<",
+   "3,true": "<",
+   "25,true": "<"
+  }
+ },
+ {
+  "html": "<hr>&nbsp;\t\ttab</body></hr>&#x1F600;&#x1F600;</option><cite></cite> <center class=\"c\"> <form>&lt;</form> 日本語</marquee>&#x1F600;<col><title><option></option></title></col></center>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab😀😀",
+   "25": "tab😀😀 日本語😀",
+   "80": "tab😀😀 日本語😀 <option></option>",
+   "400": "tab😀😀 日本語😀 <option></option>",
+   "3,true": "tab...",
+   "25,true": "tab😀😀 日本語😀"
+  }
+ },
+ {
+  "html": "日本語<cite class=\"c\">&#160;<!-- c --><b><time> hello <!-- c --><title></title>&gt; </time></b></cite><cite></cite>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語  hello",
+   "25": "日本語  hello >",
+   "80": "日本語  hello >",
+   "400": "日本語  hello >",
+   "3,true": "日本語",
+   "25,true": "日本語  hello >"
+  }
+ },
+ {
+  "html": "</dd><!-- c --><!-- c --><!-- c --><!-- c --> &gt;<span></span>&#x1F600;<!-- c --><small>\f</small>&gt;</b>🎉 emünïcödé",
+  "excerpts": {
+   "1": ">",
+   "3": ">😀>",
+   "10": ">😀 >🎉 emün",
+   "25": ">😀 >🎉 emünïcödé",
+   "80": ">😀 >🎉 emünïcödé",
+   "400": ">😀 >🎉 emünïcödé",
+   "3,true": ">😀>...",
+   "25,true": ">😀 >🎉 emünïcödé"
+  }
+ },
+ {
+  "html": "<hr><!-- c --></hr><!-- c --><font></font>&#x1F600;<small><sup>ünïcödé<<span class=\"c\">a&b\r\ncrlf</span><pre>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀ün",
+   "10": "😀ünïcödé<",
+   "25": "😀ünïcödé<a&b crlf",
+   "80": "😀ünïcödé<a&b crlf",
+   "400": "😀ünïcödé<a&b crlf",
+   "3,true": "😀ün...",
+   "25,true": "😀ünïcödé<a&b crlf"
+  }
+ },
+ {
+  "html": "\nnew\nline<!-- c --> <!-- c --><iframe></iframe>long text that goes on and on<!-- c --><!-- c --><<!-- c -->\nnew\nline",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line l",
+   "25": "new line long text that g",
+   "80": "new line long text that goes on and on< new line",
+   "400": "new line long text that goes on and on< new line",
+   "3,true": "new...",
+   "25,true": "new line long text that g..."
+  }
+ },
+ {
+  "html": "&gt;<!-- c -->",
+  "excerpts": {
+   "1": ">",
+   "3": ">",
+   "10": ">",
+   "25": ">",
+   "80": ">",
+   "400": ">",
+   "3,true": ">",
+   "25,true": ">"
+  }
+ },
+ {
+  "html": "a&b<span></span><abbr><col>&#160;Привет<label>\nnew\nline123</label>  spaced   out  </col></abbr>",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b Привет",
+   "25": "a&b Привет new line123 sp",
+   "80": "a&b Привет new line123 spaced out",
+   "400": "a&b Привет new line123 spaced out",
+   "3,true": "a&b...",
+   "25,true": "a&b Привет new line123 sp..."
+  }
+ },
+ {
+  "html": "<tbody></tbody><picture><html><!-- c -->​zero<u>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<small><textarea class=\"c\"></textarea>&#x1F600;<article><<col>Привет123&nbsp;<textarea class=\"c\"></textarea></col></article></small><article>&lt;<span></span>Привет",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀",
+   "10": "😀 <Привет1",
+   "25": "😀 <Привет123  <Привет",
+   "80": "😀 <Привет123  <Привет",
+   "400": "😀 <Привет123  <Привет",
+   "3,true": "😀",
+   "25,true": "😀 <Привет123  <Привет"
+  }
+ },
+ {
+  "html": "&gt;<script>\nnew\nline<!-- c --></script><!-- c --><!-- c -->",
+  "excerpts": {
+   "1": ">",
+   "3": ">",
+   "10": ">",
+   "25": ">",
+   "80": ">",
+   "400": ">",
+   "3,true": ">",
+   "25,true": ">"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><!-- c --><!-- c --><!-- c --><!-- c --> <s></s>word</iframe>x<!-- c --><body><em><dl>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "wordx",
+   "25": "wordx",
+   "80": "wordx",
+   "400": "wordx",
+   "3,true": "wor...",
+   "25,true": "wordx"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --> <code class=\"c\"></code>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<object>&copy;&amp;<picture>a&b<a><ol></ol>\nnew\nline</a>ünïcödé<colgroup><p><dialog></dialog> <dd class=\"c\">&copy;日本語</dd></p>&lt;",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "123<!-- c --><embed class=\"c\">123<!-- c --><sub class=\"c\">x<option></option></sub>&#160;",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123123x",
+   "25": "123123x",
+   "80": "123123x",
+   "400": "123123x",
+   "3,true": "123...",
+   "25,true": "123123x"
+  }
+ },
+ {
+  "html": "<!-- c -->&unknown;&gt;<noscript>&unknown;\t\ttab123\nnew\nline&#160; </noscript><b> \r\ncrlf ünïcödé</b><center class=\"c\"> <!-- c --><math><title></title></math></center>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;>",
+   "25": "&unknown;> &unknown; tab1",
+   "80": "&unknown;> &unknown; tab123 new line&#160; crlf ünïcödé",
+   "400": "&unknown;> &unknown; tab123 new line&#160; crlf ünïcödé",
+   "3,true": "&un...",
+   "25,true": "&unknown;> &unknown; tab1..."
+  }
+ },
+ {
+  "html": "<!-- c -->&unknown;&unknown;<col>&copy;<strong><s><pre><title class=\"c\">  </title>🎉word&copy;<noscript></noscript></pre></s></strong></col>",
+  "excerpts": {
+   "1": "&",
+   "3": "&un",
+   "10": "&unknown;&",
+   "25": "&unknown;&unknown;© 🎉word",
+   "80": "&unknown;&unknown;© 🎉word©",
+   "400": "&unknown;&unknown;© 🎉word©",
+   "3,true": "&un...",
+   "25,true": "&unknown;&unknown;© 🎉word..."
+  }
+ },
+ {
+  "html": "<ol class=\"c\">日本語<form><colgroup></body></colgroup><div>&#x1F600;</div></form>long text that goes on and on​zero</ol><!-- c -->",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語long te",
+   "25": "日本語long text that goes on",
+   "80": "日本語long text that goes on and on​zero",
+   "400": "日本語long text that goes on and on​zero",
+   "3,true": "日本語...",
+   "25,true": "日本語long text that goes on..."
+  }
+ },
+ {
+  "html": "<colgroup>long text that goes on and on123</colgroup>123<figure></figure>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on123123",
+   "400": "long text that goes on and on123123",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "\r\ncrlf",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf",
+   "25": "crlf",
+   "80": "crlf",
+   "400": "crlf",
+   "3,true": "crl...",
+   "25,true": "crlf"
+  }
+ },
+ {
+  "html": " </blockquote></sup></template></dialog><figcaption class=\"c\"><figure class=\"c\"> </figure>​zero em</figcaption></object><!-- c --><!-- c --> <ol><footer></footer><picture></blockquote>ünïcödé</del></picture></ol>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero em",
+   "25": "​zero em",
+   "80": "​zero em",
+   "400": "​zero em",
+   "3,true": "​ze...",
+   "25,true": "​zero em"
+  }
+ },
+ {
+  "html": "a&b<!-- c --></mark><col><time><!-- c --> <!-- c --></time></col>",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&b",
+   "25": "a&b",
+   "80": "a&b",
+   "400": "a&b",
+   "3,true": "a&b",
+   "25,true": "a&b"
+  }
+ },
+ {
+  "html": "<table></embed></table><!-- c --><caption><!-- c -->  </caption><!-- c --><!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<strong><a>\t\ttablong text that goes on and on&gt;</blockquote><colgroup></col>>a&b<i>日本語</ol><abbr> </abbr>\t\ttabhelloworld<script> emworld<br class=\"c\"><marquee class=\"c\"></small></marquee></br></script></i></colgroup></a></strong>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tablong te",
+   "25": "tablong text that goes on",
+   "80": "tablong text that goes on and on>>a&b日本語 tabhelloworld",
+   "400": "tablong text that goes on and on>>a&b日本語 tabhelloworld",
+   "3,true": "tab...",
+   "25,true": "tablong text that goes on..."
+  }
+ },
+ {
+  "html": "a&b<!-- c -->ünïcödé",
+  "excerpts": {
+   "1": "a",
+   "3": "a&b",
+   "10": "a&bünïcödé",
+   "25": "a&bünïcödé",
+   "80": "a&bünïcödé",
+   "400": "a&bünïcödé",
+   "3,true": "a&b...",
+   "25,true": "a&bünïcödé"
+  }
+ },
+ {
+  "html": "<title><dl> 日本語<u> a&b</u><dt></dt></dl></title>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><frameset>hello&nbsp;<body>x\f🎉long text that goes on and on</body></frameset>🎉ünïcödé<li>&gt; </li><textarea class=\"c\"><textarea><section></section></textarea></textarea>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<p></p><colgroup> </col></colgroup><!-- c --> Привет<!-- c --><h1>x<button>world<br class=\"c\">",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет",
+   "25": "Привет x",
+   "80": "Привет x",
+   "400": "Привет x",
+   "3,true": "При...",
+   "25,true": "Привет x"
+  }
+ },
+ {
+  "html": "   spaced   out  <a>&unknown;<marquee class=\"c\">&gt;日本語&#x1F600;</dd></marquee></a>",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out &unknown; >日本語",
+   "80": "spaced out &unknown; >日本語😀",
+   "400": "spaced out &unknown; >日本語😀",
+   "3,true": "spa...",
+   "25,true": "spaced out &unknown; >日本語..."
+  }
+ },
+ {
+  "html": "hello em<button class=\"c\"></button><small><style></style>&copy;&nbsp;</small>&amp;<!-- c --><label class=\"c\"><colgroup><!-- c --></dd><small class=\"c\"><figcaption class=\"c\">日本語</figcaption></small></colgroup></label>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello em©",
+   "25": "hello em© & 日本語",
+   "80": "hello em© & 日本語",
+   "400": "hello em© & 日本語",
+   "3,true": "hel...",
+   "25,true": "hello em© & 日本語"
+  }
+ },
+ {
+  "html": "<ul><!-- c -->ünïcödé<code></code></ul>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé",
+   "25": "ünïcödé",
+   "80": "ünïcödé",
+   "400": "ünïcödé",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé"
+  }
+ },
+ {
+  "html": "<mark></mark><section class=\"c\"> <textarea class=\"c\"><li>&lt;\fworld\r\ncrlf</li></textarea></section>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c -->\nnew\nlinelong text that goes on and on<html></html>ünïcödéa&b &#x1F600;<caption>\nnew\nline<form></del>&unknown;  spaced   out  </form></caption>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new linelo",
+   "25": "new linelong text that go",
+   "80": "new linelong text that goes on and onünïcödéa&b 😀 new line",
+   "400": "new linelong text that goes on and onünïcödéa&b 😀 new line",
+   "3,true": "new...",
+   "25,true": "new linelong text that go..."
+  }
+ },
+ {
+  "html": "<\r\ncrlf<font> em<<marquee class=\"c\"></marquee><&#x1F600;&#160;</font>",
+  "excerpts": {
+   "1": "<",
+   "3": "< c",
+   "10": "< crlf  em",
+   "25": "< crlf  em< <😀",
+   "80": "< crlf  em< <😀",
+   "400": "< crlf  em< <😀",
+   "3,true": "< c...",
+   "25,true": "< crlf  em< <😀"
+  }
+ },
+ {
+  "html": "\r\ncrlf<header><mark class=\"c\"><​zero\f<!-- c -->Привет</mark></header><form>\t\ttab<input><strong>></strong><div>",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf <​zer",
+   "25": "crlf <​zero Привет",
+   "80": "crlf <​zero Привет",
+   "400": "crlf <​zero Привет",
+   "3,true": "crl...",
+   "25,true": "crlf <​zero Привет"
+  }
+ },
+ {
+  "html": "\f<!-- c --><q><!-- c --></q><!-- c --></tr>&#x1F600;&#x1F600;\nnew\nline><dt class=\"c\"></dt>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀😀",
+   "10": "😀😀 new lin",
+   "25": "😀😀 new line>",
+   "80": "😀😀 new line>",
+   "400": "😀😀 new line>",
+   "3,true": "😀😀...",
+   "25,true": "😀😀 new line>"
+  }
+ },
+ {
+  "html": "<strong><figcaption class=\"c\"><!-- c --><center></center>\flong text that goes on and on&lt;</figcaption></noscript><sub><button></button>&copy;<div><a></a><span class=\"c\"><html><code><s><tr>&gt;\r\ncrlf</tr></s></code></html></span></div></sub></strong>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on< © > crlf",
+   "400": "long text that goes on and on< © > crlf",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "<button> hello",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<p></mark>\nnew\nline<input class=\"c\"></input>long text that goes on and on</p>a&b<html class=\"c\"><br></br><i class=\"c\">hello&amp; a&b</i></html><body>x</body><!-- c --><!-- c -->",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new linelo",
+   "25": "new linelong text that go",
+   "80": "new linelong text that goes on and on a&bhello& a&bx",
+   "400": "new linelong text that goes on and on a&bhello& a&bx",
+   "3,true": "new...",
+   "25,true": "new linelong text that go..."
+  }
+ },
+ {
+  "html": "<!-- c --><s>ünïcödé</s> <select>日本語 <em>&lt;</style><hr> <code><time>123<!-- c --><u class=\"c\">  em></time><dl>&#x1F600;</a>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé",
+   "25": "ünïcödé",
+   "80": "ünïcödé",
+   "400": "ünïcödé",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé"
+  }
+ },
+ {
+  "html": "🎉hello<!-- c -->\fПривет&amp; </abbr><time class=\"c\"><><body><blockquote class=\"c\"></blockquote></body></time>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉he",
+   "10": "🎉hello При",
+   "25": "🎉hello Привет& <>",
+   "80": "🎉hello Привет& <>",
+   "400": "🎉hello Привет& <>",
+   "3,true": "🎉he...",
+   "25,true": "🎉hello Привет& <>"
+  }
+ },
+ {
+  "html": "<script>\nnew\nline world <frameset><body><article>hello</article><tbody></tbody>Привет<div></figure> em<ins></ins><frameset class=\"c\">xlong text that goes on and on</del>&#160;</frameset></div></body></frameset></script>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><figure><label>\r\ncrlf",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf",
+   "25": "crlf",
+   "80": "crlf",
+   "400": "crlf",
+   "3,true": "crl...",
+   "25,true": "crlf"
+  }
+ },
+ {
+  "html": "<style><option><!-- c -->\nnew\nline<br class=\"c\">&nbsp;日本語</br><small></small>&unknown;  spaced   out  <pre>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c -->\t\ttab<col>\f</col>Привет<font class=\"c\">x</font><!-- c --><!-- c --><a class=\"c\"><sup><\f  em\nnew\nline<!-- c --></sup></a>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab Привет",
+   "25": "tab Привет x <   em new l",
+   "80": "tab Привет x <   em new line",
+   "400": "tab Привет x <   em new line",
+   "3,true": "tab...",
+   "25,true": "tab Привет x <   em new l..."
+  }
+ },
+ {
+  "html": " &lt;<!-- c --></ins><!-- c --><!-- c -->word<caption>word \r\ncrlf<form><p><ins></ins><head></head></p></form>​zero\r\ncrlf<section class=\"c\">",
+  "excerpts": {
+   "1": "<",
+   "3": "<wo",
+   "10": "<wordword",
+   "25": "<wordword crlf​zero crlf",
+   "80": "<wordword crlf​zero crlf",
+   "400": "<wordword crlf​zero crlf",
+   "3,true": "<wo...",
+   "25,true": "<wordword crlf​zero crlf"
+  }
+ },
+ {
+  "html": "<!-- c -->world<!-- c --><!-- c --><!-- c --><!-- c --><option class=\"c\">",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "world",
+   "25": "world",
+   "80": "world",
+   "400": "world",
+   "3,true": "wor...",
+   "25,true": "world"
+  }
+ },
+ {
+  "html": "word <!-- c -->&unknown;<!-- c --><<!-- c --> <!-- c --><!-- c --><!-- c -->ünïcödé<button></abbr><s><form><style><h1 class=\"c\">>word\f<title></title></h1></style></form></s></button>",
+  "excerpts": {
+   "1": "w",
+   "3": "wor",
+   "10": "word &unkn",
+   "25": "word &unknown;< ünïcödé",
+   "80": "word &unknown;< ünïcödé",
+   "400": "word &unknown;< ünïcödé",
+   "3,true": "wor...",
+   "25,true": "word &unknown;< ünïcödé"
+  }
+ },
+ {
+  "html": "<option> &gt;<textarea>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --> em<dl></s></dl><col class=\"c\">🎉<div>&lt;</div>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em 🎉 <",
+   "25": "em 🎉 <",
+   "80": "em 🎉 <",
+   "400": "em 🎉 <",
+   "3,true": "em...",
+   "25,true": "em 🎉 <"
+  }
+ },
+ {
+  "html": "<embed>\r\ncrlf&gt;word",
+  "excerpts": {
+   "1": "c",
+   "3": "crl",
+   "10": "crlf>word",
+   "25": "crlf>word",
+   "80": "crlf>word",
+   "400": "crlf>word",
+   "3,true": "crl...",
+   "25,true": "crlf>word"
+  }
+ },
+ {
+  "html": "<!-- c -->🎉<h1></h1>&lt;<article></object>&#160;<sub>&#x1F600;<figcaption></figcaption>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉 <",
+   "10": "🎉 <  😀",
+   "25": "🎉 <  😀",
+   "80": "🎉 <  😀",
+   "400": "🎉 <  😀",
+   "3,true": "🎉 <",
+   "25,true": "🎉 <  😀"
+  }
+ },
+ {
+  "html": "<dialog class=\"c\">ünïcödéünïcödé  spaced   out  </dialog><!-- c --><em> <body>🎉 em\nnew\nline </body></em>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉 e",
+   "10": "🎉 em new l",
+   "25": "🎉 em new line",
+   "80": "🎉 em new line",
+   "400": "🎉 em new line",
+   "3,true": "🎉 e...",
+   "25,true": "🎉 em new line"
+  }
+ },
+ {
+  "html": "<body><font></font>&#x1F600;</body></form></picture><!-- c -->worldünïcödé<em class=\"c\"><center>ünïcödé</center><marquee> world<h2 class=\"c\">a&b&#x1F600;</h2></marquee></em>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀wo",
+   "10": "😀worldünïc",
+   "25": "😀worldünïcödé ünïcödé",
+   "80": "😀worldünïcödé ünïcödé world a&b😀",
+   "400": "😀worldünïcödé ünïcödé world a&b😀",
+   "3,true": "😀wo...",
+   "25,true": "😀worldünïcödé ünïcödé"
+  }
+ },
+ {
+  "html": " <!-- c --><cite class=\"c\">hello </col><span class=\"c\"></span><!-- c -->\r\ncrlfhello><!-- c --><label></label>​zero&nbsp;<object>world<ul> </ul><cite></cite></object></cite>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello crlf",
+   "25": "hello crlfhello>​zero",
+   "80": "hello crlfhello>​zero",
+   "400": "hello crlfhello>​zero",
+   "3,true": "hel...",
+   "25,true": "hello crlfhello>​zero"
+  }
+ },
+ {
+  "html": "hello<abbr></abbr>\t\ttab<object class=\"c\"><html>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello tab",
+   "25": "hello tab",
+   "80": "hello tab",
+   "400": "hello tab",
+   "3,true": "hel...",
+   "25,true": "hello tab"
+  }
+ },
+ {
+  "html": "​zero<!-- c -->\r\ncrlf​zero<title>\r\ncrlf\nnew\nline<col class=\"c\">ünïcödé</col>🎉",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero crlf",
+   "25": "​zero crlf​zero crlf new",
+   "80": "​zero crlf​zero crlf new line<col class=\"c\">ünïcödé</col>🎉",
+   "400": "​zero crlf​zero crlf new line<col class=\"c\">ünïcödé</col>🎉",
+   "3,true": "​ze...",
+   "25,true": "​zero crlf​zero crlf new..."
+  }
+ },
+ {
+  "html": "\t\ttab&lt;",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab<",
+   "25": "tab<",
+   "80": "tab<",
+   "400": "tab<",
+   "3,true": "tab...",
+   "25,true": "tab<"
+  }
+ },
+ {
+  "html": "  spaced   out  <li>Привет</li><!-- c -->Привет&gt;world&unknown;<!-- c --> &#x1F600;<h2 class=\"c\">\r\ncrlf</h2> ",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out Привет Привет>",
+   "80": "spaced out Привет Привет>world&unknown; 😀 crlf",
+   "400": "spaced out Привет Привет>world&unknown; 😀 crlf",
+   "3,true": "spa...",
+   "25,true": "spaced out Привет Привет>..."
+  }
+ },
+ {
+  "html": "\nnew\nlinehello<img></iframe></img>​zero</b></select><!-- c --><select></select>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new linehe",
+   "25": "new linehello​zero",
+   "80": "new linehello​zero",
+   "400": "new linehello​zero",
+   "3,true": "new...",
+   "25,true": "new linehello​zero"
+  }
+ },
+ {
+  "html": "<select>&copy; <tr></tr>world<hr><sup></sup>a&b <br><head></head>ünïcödé\r\ncrlf</br></hr></select>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><li><svg>hello</svg>ünïcödé&lt;&gt;<!-- c -->word<iframe class=\"c\">&amp;日本語<mark class=\"c\">ünïcödé​zero ",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödé<>w",
+   "25": "ünïcödé<>word",
+   "80": "ünïcödé<>word",
+   "400": "ünïcödé<>word",
+   "3,true": "ünï...",
+   "25,true": "ünïcödé<>word"
+  }
+ },
+ {
+  "html": "<!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<abbr><!-- c --></abbr>&copy;",
+  "excerpts": {
+   "1": "©",
+   "3": "©",
+   "10": "©",
+   "25": "©",
+   "80": "©",
+   "400": "©",
+   "3,true": "©",
+   "25,true": "©"
+  }
+ },
+ {
+  "html": "&lt;<!-- c -->Привет123<figcaption><center><h2></h2></center></figcaption></tbody>123<body class=\"c\"></body>",
+  "excerpts": {
+   "1": "<",
+   "3": "<Пр",
+   "10": "<Привет123",
+   "25": "<Привет123 123",
+   "80": "<Привет123 123",
+   "400": "<Привет123 123",
+   "3,true": "<Пр...",
+   "25,true": "<Привет123 123"
+  }
+ },
+ {
+  "html": " &lt;<sub>&lt;123<hr><caption></caption>Привет<abbr class=\"c\"></abbr></hr></sub>",
+  "excerpts": {
+   "1": "<",
+   "3": "<<1",
+   "10": "<<123 Прив",
+   "25": "<<123 Привет",
+   "80": "<<123 Привет",
+   "400": "<<123 Привет",
+   "3,true": "<<1...",
+   "25,true": "<<123 Привет"
+  }
+ },
+ {
+  "html": "<h2><br class=\"c\"><frameset></frameset><!-- c --><ol></ol>\f123</br>   </td>&nbsp;x</h2><button>word</sup></noscript>&amp;<h2>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123  x",
+   "25": "123  x",
+   "80": "123  x",
+   "400": "123  x",
+   "3,true": "123...",
+   "25,true": "123  x"
+  }
+ },
+ {
+  "html": "<colgroup>x<colgroup class=\"c\"></colgroup><span><sub>   spaced   out  </sub>  spaced   out  <col><long text that goes on and on<s>x</s><select></select>&gt;ünïcödé</col><header class=\"c\"><input>",
+  "excerpts": {
+   "1": "x",
+   "3": "x s",
+   "10": "x spaced o",
+   "25": "x spaced out spaced out x",
+   "80": "x spaced out spaced out x>ünïcödé",
+   "400": "x spaced out spaced out x>ünïcödé",
+   "3,true": "x s...",
+   "25,true": "x spaced out spaced out x..."
+  }
+ },
+ {
+  "html": "&nbsp;<colgroup>&#160;</table><script>\t\ttab</script></colgroup>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "日本語<ol><time>日本語<em>a&b</em>ünïcödé</time>&lt;word</ol><math> \r\ncrlf<em>&unknown;<abbr class=\"c\"></abbr></em></math>&unknown;&gt;<code>&copy;",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語 日本語ünï",
+   "25": "日本語 日本語a&bünïcödé<word &u",
+   "80": "日本語 日本語a&bünïcödé<word   crlf &unknown;&unknown;>©",
+   "400": "日本語 日本語a&bünïcödé<word   crlf &unknown;&unknown;>©",
+   "3,true": "日本語...",
+   "25,true": "日本語 日本語a&bünïcödé<word &u..."
+  }
+ },
+ {
+  "html": "<caption class=\"c\">Привет<iframe><iframe>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет",
+   "25": "Привет",
+   "80": "Привет",
+   "400": "Привет",
+   "3,true": "При...",
+   "25,true": "Привет"
+  }
+ },
+ {
+  "html": "<strong class=\"c\"><p></h2>&copy;<td><script><style>world</style>&lt;<sub>&#160;",
+  "excerpts": {
+   "1": "©",
+   "3": "©",
+   "10": "©",
+   "25": "©",
+   "80": "©",
+   "400": "©",
+   "3,true": "©",
+   "25,true": "©"
+  }
+ },
+ {
+  "html": "<!-- c -->\t\ttab <!-- c --><sup class=\"c\">ünïcödé<font><td></body>&#160;</td><!-- c --><picture><!-- c --><header class=\"c\">&#160;&lt;",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab ünïcöd",
+   "25": "tab ünïcödé",
+   "80": "tab ünïcödé",
+   "400": "tab ünïcödé",
+   "3,true": "tab...",
+   "25,true": "tab ünïcödé"
+  }
+ },
+ {
+  "html": "<!-- c --><b><strong><body></body> <tbody class=\"c\"> <ul class=\"c\">&#160;🎉&#160;<time></time></ul>\nnew\nline<div><h2>world</frameset></h2><hr>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉",
+   "10": "🎉  new lin",
+   "25": "🎉  new line world",
+   "80": "🎉  new line world",
+   "400": "🎉  new line world",
+   "3,true": "🎉...",
+   "25,true": "🎉  new line world"
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><br></br><pre>Привет<time><html><!-- c --></html></time>123</pre><ins>x\nnew\nline &copy;</ins>  spaced   out  ",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет123",
+   "25": "Привет123 x new line © sp",
+   "80": "Привет123 x new line © spaced out",
+   "400": "Привет123 x new line © spaced out",
+   "3,true": "При...",
+   "25,true": "Привет123 x new line © sp..."
+  }
+ },
+ {
+  "html": "&gt; <td>🎉<b><frameset>&unknown;</frameset>\nnew\nline<dt></dt></b></td>",
+  "excerpts": {
+   "1": ">",
+   "3": "> 🎉",
+   "10": "> 🎉&unknow",
+   "25": "> 🎉&unknown; new line",
+   "80": "> 🎉&unknown; new line",
+   "400": "> 🎉&unknown; new line",
+   "3,true": "> 🎉",
+   "25,true": "> 🎉&unknown; new line"
+  }
+ },
+ {
+  "html": "&gt;<span><dd><dl class=\"c\"><figcaption>  em<table> em<template class=\"c\"><q></q>",
+  "excerpts": {
+   "1": ">",
+   "3": ">",
+   "10": ">  em em",
+   "25": ">  em em",
+   "80": ">  em em",
+   "400": ">  em em",
+   "3,true": ">...",
+   "25,true": ">  em em"
+  }
+ },
+ {
+  "html": "🎉<!-- c --><!-- c -->Привет<select>123<dialog><template><p></blockquote><footer></footer> <ins></footer><head><option>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉Пр",
+   "10": "🎉Привет",
+   "25": "🎉Привет",
+   "80": "🎉Привет",
+   "400": "🎉Привет",
+   "3,true": "🎉Пр...",
+   "25,true": "🎉Привет"
+  }
+ },
+ {
+  "html": "<!-- c -->\nnew\nline</center>  spaced   out  123<!-- c --><!-- c --></b>123<h1><colgroup><abbr>><!-- c -->",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line s",
+   "25": "new line spaced out 12312",
+   "80": "new line spaced out 123123 >",
+   "400": "new line spaced out 123123 >",
+   "3,true": "new...",
+   "25,true": "new line spaced out 12312..."
+  }
+ },
+ {
+  "html": "<!-- c -->ünïcödé<!-- c -->a&bПривет>",
+  "excerpts": {
+   "1": "ü",
+   "3": "ünï",
+   "10": "ünïcödéa&b",
+   "25": "ünïcödéa&bПривет>",
+   "80": "ünïcödéa&bПривет>",
+   "400": "ünïcödéa&bПривет>",
+   "3,true": "ünï...",
+   "25,true": "ünïcödéa&bПривет>"
+  }
+ },
+ {
+  "html": "<script><b>\f<caption><<q>&amp;日本語<html><figcaption><template><blockquote class=\"c\"></blockquote></template></figcaption></html></q></caption></b></script>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "  spaced   out  ",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out",
+   "80": "spaced out",
+   "400": "spaced out",
+   "3,true": "spa...",
+   "25,true": "spaced out"
+  }
+ },
+ {
+  "html": " em<!-- c -->&#160;<!-- c --><a><col><style><!-- c -->123 </svg></style></col><article class=\"c\"><picture class=\"c\"></picture><ul></dialog>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em",
+   "25": "em",
+   "80": "em",
+   "400": "em",
+   "3,true": "em",
+   "25,true": "em"
+  }
+ },
+ {
+  "html": "Привет<!-- c -->&gt;<\r\ncrlf\t\ttab</strong>  spaced   out  <html> em<col> long text that goes on and on</col></html>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет>< c",
+   "25": "Привет>< crlf tab spaced",
+   "80": "Привет>< crlf tab spaced out  em long text that goes on and on",
+   "400": "Привет>< crlf tab spaced out  em long text that goes on and on",
+   "3,true": "При...",
+   "25,true": "Привет>< crlf tab spaced..."
+  }
+ },
+ {
+  "html": "<em>\nnew\nline em</u><th>日本語</th></em>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line e",
+   "25": "new line em日本語",
+   "80": "new line em日本語",
+   "400": "new line em日本語",
+   "3,true": "new...",
+   "25,true": "new line em日本語"
+  }
+ },
+ {
+  "html": "\t\ttab&copy;<dd>\r\ncrlf</dd><html></html><dd>&#160;<center class=\"c\">hello</footer><svg></svg></center></dd>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab© crlf",
+   "25": "tab© crlf   hello",
+   "80": "tab© crlf   hello",
+   "400": "tab© crlf   hello",
+   "3,true": "tab...",
+   "25,true": "tab© crlf   hello"
+  }
+ },
+ {
+  "html": "&#x1F600;<span>\fhello<body class=\"c\"></body><mark><textarea><option><body>word日本語 &unknown;<div>x</div></body></option></textarea></mark></span>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀 h",
+   "10": "😀 hello",
+   "25": "😀 hello",
+   "80": "😀 hello",
+   "400": "😀 hello",
+   "3,true": "😀 h...",
+   "25,true": "😀 hello"
+  }
+ },
+ {
+  "html": "<s class=\"c\"></s>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "\nnew\nline<col class=\"c\">🎉<button><td>​zero</td></button><ul class=\"c\"></ul>long text that goes on and on<frameset><figure></embed></div></select><svg></section>world<center><select><h1><!-- c --></h1></select></center></svg></figure></frameset></col>",
+  "excerpts": {
+   "1": "n",
+   "3": "new",
+   "10": "new line🎉",
+   "25": "new line🎉 long text that",
+   "80": "new line🎉 long text that goes on and on",
+   "400": "new line🎉 long text that goes on and on",
+   "3,true": "new...",
+   "25,true": "new line🎉 long text that..."
+  }
+ },
+ {
+  "html": "🎉</q><!-- c --><!-- c --><head><input></input><u><option class=\"c\">Привет</ins></option>> <figcaption><pre></pre>​zero\t\ttab<del></del></figcaption></u></head>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉",
+   "10": "🎉 >  ​zero",
+   "25": "🎉 >  ​zero tab",
+   "80": "🎉 >  ​zero tab",
+   "400": "🎉 >  ​zero tab",
+   "3,true": "🎉",
+   "25,true": "🎉 >  ​zero tab"
+  }
+ },
+ {
+  "html": "</blockquote>Привет&gt;",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет>",
+   "25": "Привет>",
+   "80": "Привет>",
+   "400": "Привет>",
+   "3,true": "При...",
+   "25,true": "Привет>"
+  }
+ },
+ {
+  "html": " <!-- c --><!-- c --></picture><!-- c --><!-- c -->&nbsp;< <!-- c --></th>&unknown;<!-- c --><script><object></object><s>&lt;</s> ",
+  "excerpts": {
+   "1": "<",
+   "3": "< &",
+   "10": "< &unknown",
+   "25": "< &unknown;",
+   "80": "< &unknown;",
+   "400": "< &unknown;",
+   "3,true": "< &...",
+   "25,true": "< &unknown;"
+  }
+ },
+ {
+  "html": "<head class=\"c\"></head>long text that goes on and on🎉&lt;<ins class=\"c\"><blockquote class=\"c\"><select> ünïcödé🎉world<select><body><ul class=\"c\">日本語&#160;  spaced   out  <form><embed></embed></section></form></ul></body></select></select></blockquote></ins>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on🎉< 日本語  spaced out",
+   "400": "long text that goes on and on🎉< 日本語  spaced out",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "<figure></figure><<!-- c --><select class=\"c\"></div></figure>&unknown;</select>&#160;  <dl>123&#x1F600;ünïcödé<option class=\"c\"><footer class=\"c\"><blockquote class=\"c\"><svg></svg></blockquote></footer></option></dl>",
+  "excerpts": {
+   "1": "<",
+   "3": "<",
+   "10": "<  123😀ünï",
+   "25": "<  123😀ünïcödé",
+   "80": "<  123😀ünïcödé",
+   "400": "<  123😀ünïcödé",
+   "3,true": "<...",
+   "25,true": "<  123😀ünïcödé"
+  }
+ },
+ {
+  "html": "<font class=\"c\"></font><u><h2> </h2></u> <!-- c -->",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<p><\nnew\nline</sub></p><colgroup>",
+  "excerpts": {
+   "1": "<",
+   "3": "< n",
+   "10": "< new line",
+   "25": "< new line",
+   "80": "< new line",
+   "400": "< new line",
+   "3,true": "< n...",
+   "25,true": "< new line"
+  }
+ },
+ {
+  "html": "&lt;<!-- c -->  spaced   out  <!-- c --><section><q></q><&lt;​zero</section>",
+  "excerpts": {
+   "1": "<",
+   "3": "< s",
+   "10": "< spaced o",
+   "25": "< spaced out <<​zero",
+   "80": "< spaced out <<​zero",
+   "400": "< spaced out <<​zero",
+   "3,true": "< s...",
+   "25,true": "< spaced out <<​zero"
+  }
+ },
+ {
+  "html": "<dt><td class=\"c\"><img><<label class=\"c\">&amp;word<input><html></html></input></label></img>&copy;</td></dt>123<label class=\"c\"></h2><!-- c -->",
+  "excerpts": {
+   "1": "<",
+   "3": "<&w",
+   "10": "<&word© 12",
+   "25": "<&word© 123",
+   "80": "<&word© 123",
+   "400": "<&word© 123",
+   "3,true": "<&w...",
+   "25,true": "<&word© 123"
+  }
+ },
+ {
+  "html": " em<!-- c --><em>🎉<i></i></em>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em🎉",
+   "25": "em🎉",
+   "80": "em🎉",
+   "400": "em🎉",
+   "3,true": "em",
+   "25,true": "em🎉"
+  }
+ },
+ {
+  "html": " em\r\ncrlf<!-- c -->&gt; <dialog>ünïcödé<iframe>&#x1F600;<template>long text that goes on and on<input>  </input></template></iframe></dialog>",
+  "excerpts": {
+   "1": "e",
+   "3": "em",
+   "10": "em crlf>",
+   "25": "em crlf>",
+   "80": "em crlf>",
+   "400": "em crlf>",
+   "3,true": "em...",
+   "25,true": "em crlf>"
+  }
+ },
+ {
+  "html": "​zero<figure></figure> <col><!-- c --></col>a&bworld<!-- c --><!-- c -->  spaced   out  &nbsp;hello<a><mark>&copy;&amp;<strong>",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero a&bw",
+   "25": "​zero a&bworld spaced out",
+   "80": "​zero a&bworld spaced out  hello ©&",
+   "400": "​zero a&bworld spaced out  hello ©&",
+   "3,true": "​ze...",
+   "25,true": "​zero a&bworld spaced out..."
+  }
+ },
+ {
+  "html": "long text that goes on and on<i><s><style></style>\fhellolong text that goes on and on</cite>\r\ncrlf</s><blockquote>&unknown;&#x1F600;​zerox</time></blockquote>&unknown;<frameset><math></math></frameset></i>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on hellolong text that goes on and on crlf &unknown;😀",
+   "400": "long text that goes on and on hellolong text that goes on and on crlf &unknown;😀​zerox &unknown;",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ },
+ {
+  "html": "​zero<!-- c -->",
+  "excerpts": {
+   "1": "​",
+   "3": "​ze",
+   "10": "​zero",
+   "25": "​zero",
+   "80": "​zero",
+   "400": "​zero",
+   "3,true": "​ze...",
+   "25,true": "​zero"
+  }
+ },
+ {
+  "html": "Привет\r\ncrlf<button>world&gt;> em<center class=\"c\">&#x1F600;</center></button>",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет crl",
+   "25": "Привет crlf",
+   "80": "Привет crlf",
+   "400": "Привет crlf",
+   "3,true": "При...",
+   "25,true": "Привет crlf"
+  }
+ },
+ {
+  "html": "hello<!-- c -->123<!-- c -->x<!-- c --><u>long text that goes on and on🎉long text that goes on and on\r\ncrlf a&b<textarea>\nnew\nline&unknown;<br><code class=\"c\">a&b<math>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello123x",
+   "25": "hello123x long text that",
+   "80": "hello123x long text that goes on and on🎉long text that goes on and on crlf a&b",
+   "400": "hello123x long text that goes on and on🎉long text that goes on and on crlf a&b",
+   "3,true": "hel...",
+   "25,true": "hello123x long text that..."
+  }
+ },
+ {
+  "html": "<!-- c --></dt><tr><frameset><form class=\"c\">>&#x1F600;<frameset></frameset></col>ünïcödé<ol>&unknown;<figure></figure></ol>&unknown;\f&gt; </form>\f<cite class=\"c\"></cite></frameset></tr>",
+  "excerpts": {
+   "1": "",
+   "3": "",
+   "10": "",
+   "25": "",
+   "80": "",
+   "400": "",
+   "3,true": "",
+   "25,true": ""
+  }
+ },
+ {
+  "html": "<!-- c --><!-- c --><font>\f<a></a><title class=\"c\"><body class=\"c\"><p></p></body></title><!-- c --></abbr>123 word&gt;</font><ul>x&lt;",
+  "excerpts": {
+   "1": "<",
+   "3": "<bo",
+   "10": "<body clas",
+   "25": "<body class=\"c\"><p></p></",
+   "80": "<body class=\"c\"><p></p></body> 123 word> x<",
+   "400": "<body class=\"c\"><p></p></body> 123 word> x<",
+   "3,true": "<bo...",
+   "25,true": "<body class=\"c\"><p></p></..."
+  }
+ },
+ {
+  "html": "<!-- c --><code>🎉<dd><!-- c --></dd>\r\ncrlf><div></div>word</math><a>​zero</a><mark></ol></mark>日本語<!-- c --> </code><li>world</li>",
+  "excerpts": {
+   "1": "🎉",
+   "3": "🎉 c",
+   "10": "🎉 crlf> wo",
+   "25": "🎉 crlf> word​zero 日本語",
+   "80": "🎉 crlf> word​zero 日本語  world",
+   "400": "🎉 crlf> word​zero 日本語  world",
+   "3,true": "🎉 c...",
+   "25,true": "🎉 crlf> word​zero 日本語"
+  }
+ },
+ {
+  "html": "hello <pre><math><span>\f</span></math></pre>",
+  "excerpts": {
+   "1": "h",
+   "3": "hel",
+   "10": "hello",
+   "25": "hello",
+   "80": "hello",
+   "400": "hello",
+   "3,true": "hel...",
+   "25,true": "hello"
+  }
+ },
+ {
+  "html": "<br>Привет\nnew\nline</title><!-- c -->&amp;word<th>\fünïcödé<pre></pre>  </th>&copy;</br><dl>x</dl><!-- c -->&unknown;<!-- c -->",
+  "excerpts": {
+   "1": "П",
+   "3": "При",
+   "10": "Привет new",
+   "25": "Привет new line&word ünïc",
+   "80": "Привет new line&word ünïcödé © x &unknown;",
+   "400": "Привет new line&word ünïcödé © x &unknown;",
+   "3,true": "При...",
+   "25,true": "Привет new line&word ünïc..."
+  }
+ },
+ {
+  "html": "<\nnew\nline em<!-- c -->long text that goes on and on<dt><em> &#160;&copy; </em>&#x1F600;&#x1F600;<td> </td></dt> ><!-- c --><button class=\"c\">",
+  "excerpts": {
+   "1": "<",
+   "3": "< n",
+   "10": "< new line",
+   "25": "< new line emlong text th",
+   "80": "< new line emlong text that goes on and on   © 😀😀 >",
+   "400": "< new line emlong text that goes on and on   © 😀😀 >",
+   "3,true": "< n...",
+   "25,true": "< new line emlong text th..."
+  }
+ },
+ {
+  "html": "\t\ttab\t\ttab<figure class=\"c\"><code> <i></noscript><!-- c --></i><div></math><embed>🎉<cite></noscript></cite>&#x1F600;<sub><img><a class=\"c\"><!-- c --><li></li> </a></img></sub></embed></div></code></figure>",
+  "excerpts": {
+   "1": "t",
+   "3": "tab",
+   "10": "tab tab 🎉😀",
+   "25": "tab tab 🎉😀",
+   "80": "tab tab 🎉😀",
+   "400": "tab tab 🎉😀",
+   "3,true": "tab...",
+   "25,true": "tab tab 🎉😀"
+  }
+ },
+ {
+  "html": " 日本語hello</template> &lt;<u>&copy;<!-- c -->&nbsp;<u><article>&gt;long text that goes on and on<!-- c -->123<!-- c --></head></article></u></u>",
+  "excerpts": {
+   "1": "日",
+   "3": "日本語",
+   "10": "日本語hello <",
+   "25": "日本語hello < ©  >long text",
+   "80": "日本語hello < ©  >long text that goes on and on123",
+   "400": "日本語hello < ©  >long text that goes on and on123",
+   "3,true": "日本語...",
+   "25,true": "日本語hello < ©  >long text..."
+  }
+ },
+ {
+  "html": "<em class=\"c\">  spaced   out  </em>",
+  "excerpts": {
+   "1": "s",
+   "3": "spa",
+   "10": "spaced out",
+   "25": "spaced out",
+   "80": "spaced out",
+   "400": "spaced out",
+   "3,true": "spa...",
+   "25,true": "spaced out"
+  }
+ },
+ {
+  "html": "<!-- c -->123&unknown;<select class=\"c\"> &gt;<td class=\"c\">ünïcödé<head>word&#x1F600;&gt;Привет</head>world&gt;long text that goes on and on<select>\r\ncrlf </select></td></select>",
+  "excerpts": {
+   "1": "1",
+   "3": "123",
+   "10": "123&unknow",
+   "25": "123&unknown; crlf",
+   "80": "123&unknown; crlf",
+   "400": "123&unknown; crlf",
+   "3,true": "123...",
+   "25,true": "123&unknown; crlf"
+  }
+ },
+ {
+  "html": "&gt;</small>><noscript>\nnew\nline</noscript>日本語<!-- c -->x>​zero<p></p>&gt;<!-- c --> <marquee class=\"c\"></small> </marquee>",
+  "excerpts": {
+   "1": ">",
+   "3": ">>",
+   "10": ">> new lin",
+   "25": ">> new line 日本語x>​zero >",
+   "80": ">> new line 日本語x>​zero >",
+   "400": ">> new line 日本語x>​zero >",
+   "3,true": ">>...",
+   "25,true": ">> new line 日本語x>​zero >"
+  }
+ },
+ {
+  "html": "</ul><ol><!-- c -->&#x1F600;  spaced   out  🎉\f</ol>",
+  "excerpts": {
+   "1": "😀",
+   "3": "😀 s",
+   "10": "😀 spaced o",
+   "25": "😀 spaced out 🎉",
+   "80": "😀 spaced out 🎉",
+   "400": "😀 spaced out 🎉",
+   "3,true": "😀 s...",
+   "25,true": "😀 spaced out 🎉"
+  }
+ },
+ {
+  "html": "long text that goes on and on<code><col><li></li>123</col>>\nnew\nline日本語<cite></cite></code>",
+  "excerpts": {
+   "1": "l",
+   "3": "lon",
+   "10": "long text",
+   "25": "long text that goes on an",
+   "80": "long text that goes on and on 123> new line日本語",
+   "400": "long text that goes on and on 123> new line日本語",
+   "3,true": "lon...",
+   "25,true": "long text that goes on an..."
+  }
+ }
+]

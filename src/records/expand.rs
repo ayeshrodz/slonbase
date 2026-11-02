@@ -93,6 +93,11 @@ pub fn apply<'a>(
                         None => continue,
                     }
                 };
+                // as in PocketBase, every record gets an `expand` object once the path
+                // resolves, even when there's nothing in it
+                for record in records.iter_mut() {
+                    expand_map(record);
+                }
                 let mut ids: Vec<String> = Vec::new();
                 for record in records.iter() {
                     for id in values::as_strings(record.get(&field.name).unwrap_or(&Value::Null)) {
@@ -121,11 +126,15 @@ pub fn apply<'a>(
                 for record in records.iter_mut() {
                     let refs = values::as_strings(record.get(&field.name).unwrap_or(&Value::Null));
                     let value = if field.is_multi() {
-                        Value::Array(
-                            refs.iter()
-                                .filter_map(|id| by_id.get(id).cloned())
-                                .collect(),
-                        )
+                        let list: Vec<Value> = refs
+                            .iter()
+                            .filter_map(|id| by_id.get(id).cloned())
+                            .collect();
+                        // none found (missing or forbidden): no key, as in PocketBase
+                        if list.is_empty() {
+                            continue;
+                        }
+                        Value::Array(list)
                     } else {
                         match refs.first().and_then(|id| by_id.get(id)) {
                             Some(r) => r.clone(),
@@ -151,6 +160,9 @@ pub fn apply<'a>(
                 matches!(&field.kind, FieldKind::Relation(o) if o.collection_id == c.id);
             if !points_here {
                 continue;
+            }
+            for record in records.iter_mut() {
+                expand_map(record);
             }
             let ids: Vec<String> = records
                 .iter()

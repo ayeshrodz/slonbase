@@ -413,3 +413,57 @@ routerAdd("GET", "/compat/bytes", (e) => {
     row,
   });
 }, $apis.requireSuperuserAuth());
+
+// record.set() with PocketBase's modifiers, on a fields_items record (see fields.test.mjs)
+routerAdd("POST", "/compat/record-set", (e) => {
+  const people = $app.findCollectionByNameOrId("fields_people");
+  const ann = new Record(people);
+  ann.set("name", "ann");
+  $app.save(ann);
+  const bob = new Record(people);
+  bob.set("name", "bob");
+  $app.save(bob);
+
+  const r = new Record($app.findCollectionByNameOrId("fields_items"));
+  const steps = {};
+  r.set("tags", ["a"]);
+  r.set("tags+", "b");
+  r.set("+tags", ["c", "a"]);
+  steps.tagsBefore = r.get("tags");
+  r.set("tags-", "a");
+  steps.tags = r.get("tags");
+  r.set("tags+", '["a","a",""]');
+  steps.tagsJson = r.get("tags");
+  r.set("kind+", "x");
+  steps.kindOne = r.get("kind");
+  r.set("kind+", ["y", "z"]);
+  steps.kindLast = r.get("kind");
+  r.set("kind-", "z");
+  steps.kindNone = r.get("kind");
+  r.set("owners+", ann.id);
+  r.set("+owners", [bob.id, ann.id]);
+  steps.owners = r.get("owners");
+  r.set("views", 5);
+  r.set("views+", "2.5");
+  r.set("views-", true);
+  r.set("views+", " 3");
+  r.set("views+", "0x10");
+  steps.views = r.get("views");
+  r.set("code:autogenerate", "INV-");
+  steps.code = r.get("code");
+  r.set("note:autogenerate", 42);
+  steps.note = r.get("note");
+  r.set("nofield+", 1);
+  steps.custom = r.get("nofield+");
+  r.set("expand", { a: 1 });
+  steps.expand = r.expand();
+  steps.expandGet = r.get("expand");
+  $app.save(r);
+  const saved = $app.findRecordById("fields_items", r.id);
+  return e.json(200, {
+    steps,
+    saved: { tags: saved.get("tags"), owners: saved.get("owners"), views: saved.get("views"), code: saved.get("code") },
+    regex: $security.randomStringByRegex("(ab|cd)-[0-9]{3}"),
+    ids: [ann.id, bob.id],
+  });
+}, $apis.requireSuperuserAuth());

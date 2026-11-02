@@ -361,7 +361,8 @@ async fn expand_relations() {
         ["title", "expand"]
     );
     assert_eq!(items[1]["expand"]["author"]["name"], "bob");
-    assert!(items[2].get("expand").is_none(), "nothing to expand");
+    // nothing to expand: an empty expand, as PocketBase answers
+    assert_eq!(items[2]["expand"], json!({}));
 
     // create and update responses
     let created = env

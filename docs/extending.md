@@ -90,7 +90,10 @@ those collections.
 - `Record`: `new Record(collection)`, `get`/`set`/`getString`/`getInt`/`getBool`/...,
   `email()`, `setPassword`, `validatePassword`, `hide`/`unhide`, and tokens:
   `newAuthToken`, `newStaticAuthToken(duration)`, `newVerificationToken`,
-  `newPasswordResetToken`, `newEmailChangeToken(newEmail)`, `newFileToken`.
+  `newPasswordResetToken`, `newEmailChangeToken(newEmail)`, `newFileToken`. As in
+  PocketBase, `set()` takes modifiers: `tags+` / `+tags` / `tags-` on select, relation and file
+  fields, `views+` / `views-` on numbers, `code:autogenerate` on text fields; `set("expand", ...)`
+  and `get("expand")` are the expand, and other keys are kept as given.
 - `$mails`: `sendRecordVerification($app, record)`, `sendRecordPasswordReset`,
   `sendRecordChangeEmail(app, record, newEmail)`, `sendRecordOTP(app, record, otpId, password)`,
   `sendRecordAuthAlert(app, record, info)`: the emails the auth endpoints send, with the
@@ -100,7 +103,7 @@ those collections.
 - `$filesystem`: `fileFromBytes`, `fileFromPath`, `fileFromURL` (`http(s)` only); in routes,
   `e.findUploadedFiles(key)` returns a multipart request's files. Files are limited to 32 MiB.
 - `$http.send({url, method, headers, body, timeout})`.
-- `$security`: `randomString`, `randomStringWithAlphabet`, `sha256`, `sha512`, `hs256`,
+- `$security`: `randomString`, `randomStringWithAlphabet`, `randomStringByRegex`, `sha256`, `sha512`, `hs256`,
   `md5`, `equal`, ...
 - `$os.getenv`, `console.log/info/warn/error`, and `require()` for modules in the hooks
   directory.
