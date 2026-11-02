@@ -7,7 +7,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 
@@ -233,6 +233,9 @@ fn app_router(app: Arc<App>) -> Router {
         ))
         // the `fields` parameter, on every JSON answer (routerUse ones included)
         .layer(axum::middleware::from_fn(crate::picker::layer))
+        // JSON answers compressed (brotli or gzip), but never those that carry secrets
+        .layer(axum::middleware::from_fn(mark_secret_answers))
+        .layer(compression())
         // inner layers run last: the guard runs inside the logger, so rejections are logged
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
@@ -250,6 +253,58 @@ fn app_router(app: Arc<App>) -> Router {
         ))
         .layer(axum::middleware::from_fn(security_headers))
         .with_state(app)
+}
+
+/// Answers that carry tokens or secrets, kept out of compression: compressing a secret next to
+/// text an attacker can choose leaks it through the compressed size (BREACH).
+#[derive(Clone, Copy)]
+struct Uncompressed;
+
+fn carries_secrets(path: &str) -> bool {
+    path.contains("/auth-with-")
+        || path.ends_with("/auth-refresh")
+        || path.contains("/impersonate/")
+        || path.starts_with("/api/files/token")
+        || path.starts_with("/api/setup")
+        || path.starts_with("/api/settings/apple/")
+}
+
+async fn mark_secret_answers(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let secret = carries_secrets(request.uri().path());
+    let mut response = next.run(request).await;
+    if secret {
+        response.extensions_mut().insert(Uncompressed);
+    }
+    response
+}
+
+/// Compression for JSON answers of 1 KiB or more, when the client takes brotli or gzip (at a
+/// level that keeps most of the gain for a fraction of the CPU). Not for answers marked
+/// [`Uncompressed`], nor ones that ask not to be transformed (`Cache-Control: no-transform`).
+fn compression()
+-> tower_http::compression::CompressionLayer<impl tower_http::compression::Predicate> {
+    use tower_http::compression::predicate::{Predicate, SizeAbove};
+    use tower_http::compression::{CompressionLayer, CompressionLevel};
+    let json_only = |_: StatusCode,
+                     _: axum::http::Version,
+                     headers: &HeaderMap,
+                     extensions: &axum::http::Extensions| {
+        let json = headers
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.starts_with("application/json"));
+        let no_transform = headers
+            .get(header::CACHE_CONTROL)
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.contains("no-transform"));
+        json && !no_transform && extensions.get::<Uncompressed>().is_none()
+    };
+    CompressionLayer::new()
+        .quality(CompressionLevel::Precise(4))
+        .compress_when(SizeAbove::new(1024).and(json_only))
 }
 
 /// Headers every response gets unless it set its own: no content sniffing, no framing by

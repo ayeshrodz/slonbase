@@ -48,7 +48,7 @@ tokio-postgres = { version = "0.7.18", features = ["with-chrono-0_4", "with-serd
 tokio-postgres-rustls = "0.14.0"
 toml = "1.1.8"
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.1", features = ["trace"] }
+tower-http = { version = "0.7.1", features = ["trace", "compression-br", "compression-gzip"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 webpki-roots = "1.0.9"
