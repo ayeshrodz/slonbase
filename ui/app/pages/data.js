@@ -75,6 +75,55 @@ export function CollectionTree({ active, onNavigate }) {
   </div>`;
 }
 
+// What a view query would give, before saving: its fields and a sample of its rows
+// (POST /api/collections/meta/dry-run-view, nothing is saved).
+function ViewPreview({ query }) {
+  const [state, setState] = useState(null); // null, "busy", { fields, sample } or { error }
+  const run = async () => {
+    setState("busy");
+    try {
+      setState(await api.post("/api/collections/meta/dry-run-view", { query }));
+    } catch (err) {
+      const fields = err.fieldErrors ? err.fieldErrors() : {};
+      setState({ error: fields.query || err.message });
+    }
+  };
+  const columns = state && state.fields ? state.fields.slice(0, 8) : [];
+  return html`<div class="view-preview">
+    <div class="row">
+      <${Button} size="sm" icon="play" loading=${state === "busy"} disabled=${!query.trim()} onClick=${run}>Preview</${Button}>
+      <span class="small muted">Runs the query read-only and shows what the view would hold. Nothing is saved.</span>
+    </div>
+    ${state && state.error && html`<${Callout} kind="danger">${state.error}</${Callout}>`}
+    ${state &&
+    state.fields &&
+    html`<div class="stack tight enter">
+      <div class="row wrap" style="gap:6px">
+        ${state.fields.map((f) => html`<span class="chip outline"><b>${f.name}</b> <span class="muted">${f.type}</span></span>`)}
+      </div>
+      ${state.sample.length === 0
+        ? html`<div class="small muted">The query returns no rows yet.</div>`
+        : html`<div class="grid-wrap" style="max-height:280px;min-height:0">
+            <table class="grid">
+              <thead><tr>${columns.map((f) => html`<th>${f.name}</th>`)}</tr></thead>
+              <tbody>
+                ${state.sample.map(
+                  (r) => html`<tr style="cursor:default">${columns.map((f) => html`<td class=${f.name === "id" ? "mono small" : ""}>${cell(r[f.name])}</td>`)}</tr>`
+                )}
+              </tbody>
+            </table>
+          </div>`}
+      <div class="tiny faint">${state.sample.length} of up to 10 rows${state.fields.length > columns.length ? ` · ${state.fields.length - columns.length} more columns not shown` : ""}</div>
+    </div>`}
+  </div>`;
+}
+
+function cell(v) {
+  if (v === null || v === undefined || v === "") return html`<span class="faint">—</span>`;
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
 function NewCollection({ onClose }) {
   const [name, setName] = useState("");
   const [type, setType] = useState("base");
@@ -117,7 +166,7 @@ function NewCollection({ onClose }) {
     auth: "Users who can sign in: email, password, OAuth2, OTP and MFA.",
     view: "Read-only records from a SQL query; fields come from its columns.",
   };
-  return html`<${Modal} size="narrow" onClose=${onClose}>
+  return html`<${Modal} size=${type === "view" ? "mid" : "narrow"} onClose=${onClose}>
     ${(close) => html`<form onSubmit=${(e) => submit(e, close)}>
       <${SheetHead} title="New collection" icon="data" onClose=${close} />
       <div class="sheet-body stack">
@@ -132,7 +181,8 @@ function NewCollection({ onClose }) {
         ${type === "view" &&
         html`<${Field} label="Query" help="A SELECT returning an id column; collections are tables by their names (FROM posts). Needs the SQL console (--sql-console).">
           <${TextArea} code rows=${5} value=${query} onInput=${setQuery} />
-        </${Field}>`}
+        </${Field}>
+        <${ViewPreview} query=${query} />`}
       </div>
       <div class="sheet-foot">
         <span class="spacer"></span>
@@ -222,6 +272,7 @@ function CollectionSettings({ draft, setDraft, collection }) {
       <div class="card-body stack">
         <${TextArea} code rows=${8} value=${draft.viewQuery || ""} onInput=${(v) => setDraft({ ...draft, viewQuery: v })} />
         <span class="help small muted">Return an <code>id</code> column. Collections are tables by their names, e.g. <code>FROM posts</code>.</span>
+        <${ViewPreview} query=${draft.viewQuery || ""} />
       </div>
     </div>`}
     ${!collection.system &&

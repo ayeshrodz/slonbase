@@ -139,6 +139,20 @@ fn cast(field: &Field) -> String {
     format!("{expr} AS {}", quote_ident(&field.name))
 }
 
+/// The query reading a sample of a view query's rows, as the view would give them (the
+/// columns cast to their fields' storage), for [`crate::records::store::row_values`].
+pub fn sample(query: &str, fields: &[Field], limit: usize) -> String {
+    let columns: Vec<String> = fields.iter().map(cast).collect();
+    let refs: Vec<&Field> = fields.iter().collect();
+    format!(
+        "SELECT {} FROM (SELECT {} FROM ({}) _q LIMIT {limit}) {}",
+        crate::records::store::select_list(&refs),
+        columns.join(", "),
+        normalized(query),
+        crate::records::store::ALIAS
+    )
+}
+
 /// Unqualified table names in view queries are collections (`FROM posts`, as in
 /// PocketBase). Runs in the transaction that creates or inspects the view.
 pub const SEARCH_PATH: &str = "SET LOCAL search_path = slonbase, public";

@@ -90,6 +90,10 @@ fn app_router(app: Arc<App>) -> Router {
             get(collections::api::scaffolds),
         )
         .route(
+            "/api/collections/meta/dry-run-view",
+            post(collections::api::dry_run_view),
+        )
+        .route(
             "/api/collections/meta/oauth2-providers",
             get(collections::api::oauth2_providers),
         )

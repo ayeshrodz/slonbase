@@ -806,6 +806,116 @@ pub(crate) async fn save_definition(
     saved.into_iter().next().ok_or_else(not_found)
 }
 
+/// `POST /api/collections/meta/dry-run-view`: the fields a view query would have and a sample
+/// of its records (10), without saving anything, as PocketBase answers. The query runs like a
+/// view's does, so this needs the SQL console too; it runs read-only, with a time limit, in a
+/// transaction that's rolled back.
+pub async fn dry_run_view(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    JsonObject(body): JsonObject,
+) -> Result<Json<Value>, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let query = body
+        .get("query")
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    let invalid = |message: String| {
+        let mut errors = crate::validation::Errors::new();
+        errors.invalid("query", message);
+        ApiError::invalid_data(
+            "An error occurred while validating the submitted data.",
+            &errors,
+        )
+    };
+    if query.trim().is_empty() {
+        let mut errors = crate::validation::Errors::new();
+        errors.add("query", "validation_required", "Cannot be blank.");
+        return Err(ApiError::invalid_data(
+            "An error occurred while validating the submitted data.",
+            &errors,
+        ));
+    }
+    if let Err(message) = super::view::check_query(&query) {
+        return Err(invalid(message));
+    }
+    if !core.sql_console {
+        return Err(ApiError::forbidden(
+            "View queries run SQL with the database role's privileges, so trying them needs the \
+             SQL console: start slonbase with --sql-console.",
+        ));
+    }
+    let mut client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let tx = client
+        .build_transaction()
+        .read_only(true)
+        .start()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    tx.batch_execute(&format!(
+        "{}; SET LOCAL statement_timeout = '15s'",
+        super::view::SEARCH_PATH
+    ))
+    .await
+    .map_err(|e| ApiError::internal(e.into()))?;
+    let fields = super::view::infer_fields(&tx, &query, &[])
+        .await
+        .map_err(|message| {
+            ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
+        })?;
+    let rows = tx
+        .query(&super::view::sample(&query, &fields, 10), &[])
+        .await
+        .map_err(|e| {
+            let message = e
+                .as_db_error()
+                .map(|db| db.message().to_string())
+                .unwrap_or_else(|| e.to_string());
+            ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
+        })?;
+    drop(tx);
+    let temp = parse(Map::from_iter([
+        (
+            "id".to_string(),
+            json!(format!("pbc_{}", crate::ids::random_id(10))),
+        ),
+        ("type".to_string(), json!("view")),
+        (
+            "name".to_string(),
+            json!(format!("temp_view_{}", crate::ids::random_id(5))),
+        ),
+    ]))?;
+    let refs: Vec<&super::model::Field> = fields.iter().collect();
+    let mut ids = std::collections::HashSet::new();
+    let mut sample = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let record = crate::records::store::record_json(
+            &temp,
+            crate::records::store::row_values(&refs, row),
+        );
+        let id = record["id"].as_str().unwrap_or_default().to_string();
+        // a quick hint, as PocketBase gives (not a guarantee: only the sample is looked at)
+        if id.is_empty() {
+            return Err(ApiError::bad_request(
+                "Invalid view query. Raw error: \nthe query could return records with empty or invalid ids",
+            ));
+        }
+        if !ids.insert(id) {
+            return Err(ApiError::bad_request(
+                "Invalid view query. Raw error: \nthe query could return records with non-unique ids",
+            ));
+        }
+        sample.push(record);
+    }
+    Ok(Json(json!({ "fields": fields, "sample": sample })))
+}
+
 /// `GET /api/collections/meta/scaffolds`: the default definition of each collection type
 /// (used by the dashboard for new collections).
 pub async fn scaffolds(

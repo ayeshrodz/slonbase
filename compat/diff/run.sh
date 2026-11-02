@@ -28,7 +28,8 @@ sb="${SLONBASE_BIN:-../../target/debug/slonbase}"
 pb_pid=$!
 common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-path "$work/backups" --hooks-dir "$work/hooks")
 "$sb" "${common[@]}" setup --database-url "$DATABASE_URL" --email "$COMPAT_EMAIL" --password "$COMPAT_PASSWORD" > "$work/sb-setup.log" 2>&1
-"$sb" "${common[@]}" --bind "${sb_url#http://}" serve > "$work/sb.log" 2>&1 &
+# (views need the SQL console in slonbase; PocketBase has them on)
+"$sb" "${common[@]}" --bind "${sb_url#http://}" --sql-console serve > "$work/sb.log" 2>&1 &
 sb_pid=$!
 stop() {
   kill "$pb_pid" "$sb_pid" 2>/dev/null || true

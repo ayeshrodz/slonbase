@@ -219,7 +219,16 @@ async function seedServer(url) {
   }
 }
 
-// the requests: [name, method, path, body?, auth?]
+// a dry-run view's answer, as it can be compared
+function viewShape(json) {
+  if (!json || !Array.isArray(json.fields)) return json;
+  return {
+    fields: json.fields.map((f) => ({ name: f.name, type: f.type })),
+    sample: (json.sample || []).map((r) => ({ ...r, collectionName: typeof r.collectionName, collectionId: typeof r.collectionId })),
+  };
+}
+
+// the requests: [name, method, path, body?, auth?, shape?]
 function cases() {
   const out = [];
   const one = postId(0);
@@ -292,6 +301,18 @@ function cases() {
       }
     }
   }
+  // fields are compared by name and type: PocketBase copies a column's source field (with
+  // its id and options) where slonbase infers each from the column's PostgreSQL type
+  const dry = (query) => ["POST", "/api/collections/meta/dry-run-view", { query }, true, viewShape];
+  out.push(["dry-run view", ...dry("SELECT id, title, views, published, meta FROM posts ORDER BY id")]);
+  out.push(["dry-run view joined", ...dry("SELECT p.id, p.title, a.name AS author_name FROM posts p JOIN authors a ON a.id = p.author ORDER BY p.id")]);
+  out.push(["dry-run view fields picked", "POST", "/api/collections/meta/dry-run-view?fields=sample.id,fields.name", { query: "SELECT id, title FROM posts ORDER BY id" }]);
+  out.push(["dry-run view no id", ...dry("SELECT title FROM posts")]);
+  out.push(["dry-run view duplicate ids", ...dry("SELECT author AS id FROM posts")]);
+  out.push(["dry-run view not a select", ...dry("DELETE FROM posts")]);
+  out.push(["dry-run view blank", ...dry("")]);
+  out.push(["dry-run view bad sql", ...dry("SELECT id FROM nope")]);
+  out.push(["dry-run view guest", "POST", "/api/collections/meta/dry-run-view", { query: "SELECT id FROM posts" }, false]);
   out.push(["collections list fields", "GET", "/api/collections?fields=name&sort=name&filter=" + encodeURIComponent("name~'posts'")]);
   return out;
 }
@@ -327,15 +348,15 @@ async function main() {
   const tokens = [await login(pbURL), await login(sbURL)];
   let failed = 0;
   let passed = 0;
-  for (const [name, method, path, body, auth = true] of cases()) {
+  for (const [name, method, path, body, auth = true, shape = (j) => j] of cases()) {
     if (only && !name.includes(only)) continue;
     const [a, b] = await Promise.all(
       [pbURL, sbURL].map((u, i) => call(u, auth ? tokens[i] : null, method, path, body))
     );
     const statusOk = a.status === b.status;
     // error bodies differ in wording; compare their status only
-    const ja = a.status < 300 ? JSON.stringify(normalize(a.json)) : "";
-    const jb = b.status < 300 ? JSON.stringify(normalize(b.json)) : "";
+    const ja = a.status < 300 ? JSON.stringify(normalize(shape(a.json))) : "";
+    const jb = b.status < 300 ? JSON.stringify(normalize(shape(b.json))) : "";
     if (statusOk && ja === jb) {
       passed++;
       if (verbose) console.log("ok  ", name);

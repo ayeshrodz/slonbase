@@ -1954,6 +1954,13 @@ table.grid .col-actions {
 .sheet.narrow {
   max-width: 440px;
 }
+/* a form inside a sheet passes the height on, so the body scrolls */
+.sheet > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
 /* a drawer from the right (the record editor): the page stays in view beside it */
 .backdrop.at-side {
   justify-content: flex-end;
@@ -4021,4 +4028,15 @@ a.btn:hover {
 .page-loading .spinner {
   opacity: 0;
   animation: fade var(--t-med) ease 0.15s forwards, spin 0.8s linear infinite;
+}
+
+/* a view query's preview (data.js): fields as chips, then a few rows */
+.view-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+.view-preview table.grid td {
+  height: 38px;
 }
