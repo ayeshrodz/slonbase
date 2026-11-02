@@ -178,7 +178,12 @@ request a guest request, as in PocketBase.
 
 **Differences from PocketBase so far:**
 - Field names can't start with `_` (reserved for internal columns).
-- `autogeneratePattern` supports only the `[charset]{n}` form.
+- `autogeneratePattern` takes any regular expression, as in PocketBase, and values are random
+  strings it matches (`[charset]{n}`, the common form, has a fast path). As in PocketBase,
+  anchors and word boundaries are refused, unbounded repetitions stop at 6, `.` gives letters
+  and digits, and a pattern is tried ten times against the field's own limits when the
+  collection is saved. Other large classes (`[^...]`, `\W`) give printable ASCII characters
+  from the class, where PocketBase can give any character, control characters included.
 
 Relation paths, `expand`, `@collection`, auth and view collections, file fields and multipart
 bodies, all missing in this phase, came in later phases (below).

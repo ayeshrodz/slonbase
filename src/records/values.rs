@@ -48,10 +48,13 @@ enum Modifier {
     Append,
     Prepend,
     Remove,
+    /// `field:autogenerate`: the value followed by a generated one (text fields).
+    Autogenerate,
 }
 
 /// Applies a request body to `values`. Unknown keys are ignored (like PocketBase).
-/// Supports the `field+` / `+field` / `field-` modifiers for multi-valued and number fields.
+/// Supports the `field+` / `+field` / `field-` modifiers for multi-valued and number fields,
+/// and `field:autogenerate` for text fields.
 /// What a request body changed, beyond the values themselves.
 #[derive(Debug, Default)]
 pub struct Changes {
@@ -72,10 +75,14 @@ pub fn apply_body(
     let mut changes = Changes::default();
     // plain values first, then modifiers, regardless of key order
     let mut keys: Vec<(&String, &Value)> = body.iter().collect();
-    keys.sort_by_key(|(k, _)| k.starts_with('+') || k.ends_with('+') || k.ends_with('-'));
+    keys.sort_by_key(|(k, _)| {
+        k.starts_with('+') || k.ends_with('+') || k.ends_with('-') || k.ends_with(":autogenerate")
+    });
 
     for (key, raw) in keys {
-        let (name, modifier) = if let Some(n) = key.strip_prefix('+') {
+        let (name, modifier) = if let Some(n) = key.strip_suffix(":autogenerate") {
+            (n, Modifier::Autogenerate)
+        } else if let Some(n) = key.strip_prefix('+') {
             (n, Modifier::Prepend)
         } else if let Some(n) = key.strip_suffix('+') {
             (n, Modifier::Append)
@@ -86,6 +93,10 @@ pub fn apply_body(
         };
 
         let Some(field) = c.field(name) else { continue };
+        // (as in PocketBase, only text fields know `:autogenerate`)
+        if matches!(modifier, Modifier::Autogenerate) && !matches!(field.kind, FieldKind::Text(_)) {
+            continue;
+        }
         if matches!(field.kind, FieldKind::Autodate(_)) || (field.is_primary_key() && !is_create) {
             continue;
         }
@@ -124,6 +135,18 @@ pub fn apply_body(
 
         let next = match (&modifier, field.storage()) {
             (Modifier::Set, _) => incoming,
+            (Modifier::Autogenerate, _) => {
+                let FieldKind::Text(o) = &field.kind else {
+                    unreachable!()
+                };
+                let mut text = incoming.as_str().unwrap_or_default().to_string();
+                if !o.autogenerate_pattern.is_empty() {
+                    text.push_str(
+                        &ids::generate_from_pattern(&o.autogenerate_pattern).unwrap_or_default(),
+                    );
+                }
+                Value::String(text)
+            }
             (m, Storage::Multi) => {
                 let mut list = as_strings(&current);
                 let items = as_strings(&incoming);
@@ -131,7 +154,7 @@ pub fn apply_body(
                     Modifier::Append => list.extend(items),
                     Modifier::Prepend => list.splice(0..0, items).for_each(drop),
                     Modifier::Remove => list.retain(|v| !items.contains(v)),
-                    Modifier::Set => unreachable!(),
+                    Modifier::Set | Modifier::Autogenerate => unreachable!(),
                 }
                 Value::Array(dedupe(list).into_iter().map(Value::String).collect())
             }
@@ -392,7 +415,7 @@ fn fail(code: &'static str, message: impl Into<String>) -> Failure {
     (code, message.into())
 }
 
-fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
+pub(crate) fn validate_value(field: &Field, value: &Value) -> Result<(), Failure> {
     match &field.kind {
         FieldKind::Text(o) => {
             let s = value.as_str().unwrap_or_default();
@@ -849,6 +872,66 @@ mod tests {
         finalize(&c, &mut values, is_create, &Utc::now(), &mut errors);
         validate(&c, &values, &changes, is_create, &mut errors);
         (values, errors)
+    }
+
+    #[test]
+    fn autogenerate_patterns_and_modifier() {
+        let c: Collection = serde_json::from_value(json!({
+            "id": "pbc_2", "name": "invoices",
+            "fields": [
+                default_id_field(),
+                { "id": "a", "name": "number", "type": "text", "autogeneratePattern": "INV-(19|20)[0-9]{2}-[A-Z]{3}" },
+                { "id": "b", "name": "note", "type": "text" },
+                { "id": "c", "name": "views", "type": "number" }
+            ]
+        }))
+        .unwrap();
+        let apply = |body: Value, values: &mut Values, is_create: bool| {
+            let mut errors = Errors::new();
+            let changes = apply_body(
+                &c,
+                values,
+                body.as_object().unwrap(),
+                is_create,
+                &mut errors,
+            );
+            finalize(&c, values, is_create, &Utc::now(), &mut errors);
+            validate(&c, values, &changes, is_create, &mut errors);
+            assert!(errors.is_empty(), "{errors:?}");
+        };
+        let re = regex::Regex::new("^INV-(19|20)[0-9]{2}-[A-Z]{3}$").unwrap();
+
+        // generated on create when empty
+        let mut values = defaults(&c);
+        apply(json!({}), &mut values, true);
+        assert!(
+            re.is_match(values["number"].as_str().unwrap()),
+            "{values:?}"
+        );
+
+        // `:autogenerate` appends a generated value, on create and on update
+        let mut values = defaults(&c);
+        apply(json!({ "number:autogenerate": "x-" }), &mut values, true);
+        let number = values["number"].as_str().unwrap().to_string();
+        assert!(
+            number.starts_with("x-") && re.is_match(&number[2..]),
+            "{number}"
+        );
+        apply(json!({ "number:autogenerate": "y-" }), &mut values, false);
+        let again = values["number"].as_str().unwrap();
+        assert!(
+            again.starts_with("y-") && re.is_match(&again[2..]) && again != number,
+            "{again}"
+        );
+
+        // without a pattern it's the value as given; other field types ignore it
+        apply(
+            json!({ "note:autogenerate": "plain", "views:autogenerate": 5 }),
+            &mut values,
+            false,
+        );
+        assert_eq!(values["note"], "plain");
+        assert_eq!(values["views"], json!(0));
     }
 
     #[test]

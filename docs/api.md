@@ -73,6 +73,11 @@ so other tools can query it directly.
 **Field types:** `text`, `editor`, `number`, `bool`, `email`, `url`, `date`, `autodate`, `select`,
 `json`, `relation`, `file`, `geoPoint`, and `password` (auth collections).
 
+**Record bodies** set fields by name. `tags+` / `+tags` append / prepend to a multi-valued field
+and `tags-` removes from it; `views+` / `views-` add to / subtract from a number. A text field's
+`autogeneratePattern` (any regular expression, e.g. `INV-[0-9]{6}`) fills it on create when
+empty, and `number:autogenerate` sets it to the given value followed by a generated one.
+
 **Auth collections** add the `password`, `tokenKey`, `email`, `emailVisibility` and `verified`
 system fields, and auth options: `authRule`, `manageRule`, `passwordAuth`, `oauth2`,
 `otp`, `mfa`, `authAlert`, token durations, and email templates. Users sign up by creating a

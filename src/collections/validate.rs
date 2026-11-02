@@ -578,13 +578,8 @@ fn validate_options(
             if !o.pattern.is_empty() && regex::Regex::new(&o.pattern).is_err() {
                 errors.invalid(path("pattern"), "Invalid regular expression.");
             }
-            if !o.autogenerate_pattern.is_empty()
-                && !ids::is_supported_pattern(&o.autogenerate_pattern)
-            {
-                errors.invalid(
-                    path("autogeneratePattern"),
-                    "Only patterns like [a-z0-9]{15} (a character class and a length) are supported.",
-                );
+            if !o.autogenerate_pattern.is_empty() {
+                check_autogenerate(field, path, errors);
             }
         }
         FieldKind::Editor(o) => {
@@ -823,6 +818,38 @@ fn prepare_indexes(
     }
 }
 
+/// An `autogeneratePattern` must be a pattern slonbase can generate from, and (checked on ten
+/// samples, as PocketBase does) give values the field accepts.
+fn check_autogenerate(field: &Field, path: &dyn Fn(&str) -> String, errors: &mut Errors) {
+    let FieldKind::Text(o) = &field.kind else {
+        return;
+    };
+    if let Err(reason) = ids::check_pattern(&o.autogenerate_pattern) {
+        errors.add(
+            path("autogeneratePattern"),
+            "validation_invalid_autogenerate_pattern",
+            reason,
+        );
+        return;
+    }
+    for _ in 0..10 {
+        let value = ids::generate_from_pattern(&o.autogenerate_pattern).unwrap_or_default();
+        if value.is_empty() {
+            continue;
+        }
+        if crate::records::values::validate_value(field, &serde_json::Value::String(value.clone()))
+            .is_err()
+        {
+            errors.add(
+                path("autogeneratePattern"),
+                "validation_invalid_autogenerate_pattern_value",
+                format!("The provided autogenerate pattern could produce invalid field values, ex.: {value:?}"),
+            );
+            return;
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -895,6 +922,46 @@ mod tests {
             assert!(
                 p.contains(&expected.to_string()),
                 "missing {expected} in {p:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn autogenerate_patterns() {
+        let mut c = parse(json!({
+            "name": "invoices",
+            "fields": [
+                { "name": "number", "type": "text", "autogeneratePattern": "INV-[0-9]{6}" },
+                { "name": "bad", "type": "text", "autogeneratePattern": "(abc" },
+                { "name": "anchored", "type": "text", "autogeneratePattern": "^x$" },
+                { "name": "long", "type": "text", "max": 5, "autogeneratePattern": "[a-z]{8}" },
+                { "name": "format", "type": "text", "pattern": "^[0-9]+$", "autogeneratePattern": "[a-z]{3}" }
+            ]
+        }));
+        let errors = prepare(&mut c, None, &Registry::default());
+        let code = |path: &str| {
+            errors
+                .iter()
+                .find(|(p, _)| p.as_str() == path)
+                .map(|(_, issue)| issue.code)
+        };
+        assert_eq!(code("fields.1.autogeneratePattern"), None, "{errors:?}");
+        assert_eq!(
+            code("fields.2.autogeneratePattern"),
+            Some("validation_invalid_autogenerate_pattern")
+        );
+        assert_eq!(
+            code("fields.3.autogeneratePattern"),
+            Some("validation_invalid_autogenerate_pattern")
+        );
+        for path in [
+            "fields.4.autogeneratePattern",
+            "fields.5.autogeneratePattern",
+        ] {
+            assert_eq!(
+                code(path),
+                Some("validation_invalid_autogenerate_pattern_value"),
+                "{path}"
             );
         }
     }

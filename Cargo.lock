@@ -2080,6 +2080,7 @@ dependencies = [
  "mimalloc",
  "rand",
  "regex",
+ "regex-syntax",
  "reqwest",
  "ring",
  "rquickjs",

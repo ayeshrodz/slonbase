@@ -77,7 +77,7 @@ function TypeOptions({ field, set, collections, collectionId, errs = {} }) {
       return html`<div class="grid-2">
         ${n("min", "Min length")}${n("max", "Max length", "0 for no limit")}
         ${t("pattern", "Pattern", "A regular expression the value must match", { mono: true, placeholder: "^[a-z]+$" })}
-        ${t("autogeneratePattern", "Autogenerate", "Fills empty values, e.g. [a-z0-9]{8}", { mono: true })}
+        ${t("autogeneratePattern", "Autogenerate", "A regular expression new values are generated from when empty, e.g. INV-[0-9]{6}", { mono: true })}
       </div>`;
     case "editor":
       return html`<div class="grid-2">${n("maxSize", "Max size (bytes)", "0 for the default")}

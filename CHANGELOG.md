@@ -8,6 +8,16 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **Any regular expression as `autogeneratePattern`**, as in PocketBase: `INV-[0-9]{6}`,
+  `(draft|post)_[a-z0-9]{8}`, `\d{4}-\d{4}` and so on, where only `[charset]{n}` patterns
+  were accepted before, so collections from PocketBase that use them import as they are. A
+  pattern that can produce values the field refuses (too long, not matching its `pattern`) is
+  reported when the collection is saved.
+- **The `field:autogenerate` modifier** for text fields: the given value followed by one
+  generated from the field's pattern, on create and update.
+
 ## [1.4.0] - 2026-11-01
 
 **Every PocketBase sign-in provider but one.** Fifteen more OAuth2 providers, so slonbase now has
