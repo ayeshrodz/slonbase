@@ -95,9 +95,10 @@ function useSettings() {
 }
 
 export function applyAccent(color) {
-  // the default (and PocketBase's default, #1055c9, and 0.2's #4a5a72) keeps the theme's own accent,
+  // the default (and PocketBase's #1055c9, and earlier defaults #4a5a72 and #5062a6) keeps the
+  // theme's own accent,
   // which has a light and a dark variant
-  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || ["#1055c9", "#4a5a72", "#5062a6"].includes(color.toLowerCase())) {
+  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || ["#1055c9", "#4a5a72", "#5062a6", "#4f7a6c"].includes(color.toLowerCase())) {
     document.documentElement.style.removeProperty("--accent");
     return;
   }
@@ -109,7 +110,7 @@ export function applyAccent(color) {
 function General({ s }) {
   const d = s.draft;
   // muted tones that sit well on the neutral surfaces
-  const swatches = ["#5062a6", "#3b8481", "#5a8750", "#a57a30", "#b0644b", "#a5537a", "#7a5ea8", "#4b7ca3"];
+  const swatches = ["#4f7a6c", "#5f7593", "#7c8452", "#ad8542", "#b06a50", "#9d6582", "#7a6b9c", "#4d8287"];
   return html`<${Card} title="Application" subtitle="Name and address used in emails and links" icon="sparkle">
     <div class="grid-2">
       <${Field} label="Application name" error=${s.errors["meta.appName"]}><${Input} value=${d.meta.appName} onInput=${(v) => s.set("meta.appName", v)} /></${Field}>
@@ -132,7 +133,7 @@ function General({ s }) {
         <input type="color" value=${d.meta.accentColor} onInput=${(e) => {
           s.set("meta.accentColor", e.target.value);
           applyAccent(e.target.value);
-        }} style="width:36px;height:30px;border:0;background:none;cursor:pointer" aria-label="Custom color" />
+        }} class="swatch-custom" aria-label="Custom color" title="Any color" />
       </div>
     </${Field}>
     <${Switch} checked=${d.meta.hideControls} onChange=${(v) => s.set("meta.hideControls", v)} label="Hide schema controls (lock collection editing in the dashboard)" />

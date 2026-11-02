@@ -1,4 +1,4 @@
-// The dashboard: auth gate, shell (top navigation, command palette) and routes.
+// The dashboard: auth gate, shell (sidebar navigation, command palette) and routes.
 import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx, lazy } from "./lib/core.js";
 import { session, refreshAuth, api, PROJECT, listProjects, dashboardUrl } from "./lib/api.js";
 import { app, initTheme, setTheme, loadCollections } from "./lib/state.js";
@@ -8,7 +8,7 @@ import { initials } from "./lib/format.js";
 import { Login, PasswordResetRequest, PasswordResetConfirm } from "./pages/login.js";
 import { PublicAuth } from "./pages/public-auth.js";
 import { Overview } from "./pages/overview.js";
-import { DataWorkspace } from "./pages/data.js";
+import { DataWorkspace, CollectionTree } from "./pages/data.js";
 import { Settings, applyAccent } from "./pages/settings.js";
 // opened by few visits: loaded when first shown (see `lazy`)
 const Logs = lazy(() => import("./pages/logs.js"), "Logs");
@@ -46,10 +46,21 @@ const NAV = [
   { path: "/diagram", match: (p) => p.startsWith("/diagram"), icon: "relation", label: "Diagram" },
   { path: "/logs", match: (p) => p.startsWith("/logs"), icon: "logs", label: "Logs" },
   { path: "/sql", match: (p) => p.startsWith("/sql"), icon: "terminal", label: "SQL" },
+  { path: "/health", match: (p) => p.startsWith("/health"), icon: "pulse", label: "Health" },
   // projects are managed from the main installation
   !PROJECT && { path: "/projects", match: (p) => p.startsWith("/projects"), icon: "layers", label: "Projects" },
   { path: "/settings", match: (p) => p.startsWith("/settings"), icon: "settings", label: "Settings" },
 ].filter(Boolean);
+
+// the sidebar folded to its icons (desktop), kept per browser
+const COLLAPSED_KEY = "slonbase.sidebar.collapsed";
+function storedCollapsed() {
+  try {
+    return localStorage.getItem(COLLAPSED_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
 
 // Shows which installation this dashboard manages, and switches between the main one and its
 // projects (when this browser is signed in to the main installation).
@@ -79,35 +90,82 @@ function ProjectSwitcher() {
   />`;
 }
 
-function TopNav({ path }) {
-  const ref = useRef();
-  const [thumb, setThumb] = useState(null);
-  // a pill under the pointer that glides between the items
-  const [hover, setHover] = useState(null);
-  const active = NAV.findIndex((n) => n.match(path));
-  useLayoutEffect(() => {
-    const measure = () => {
-      const el = ref.current && ref.current.querySelector("a.on");
-      setThumb(el ? { left: el.offsetLeft, width: el.offsetWidth } : null);
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, [active]);
-  return html`<nav class="nav" ref=${ref} aria-label="Main" onPointerLeave=${() => setHover((h) => h && { ...h, on: false })}>
-    <span class=${cx("nav-hover", { on: hover && hover.on })} style=${hover ? { left: hover.left + "px", width: hover.width + "px" } : null}></span>
-    ${thumb && html`<span class="nav-thumb" style=${{ left: thumb.left + "px", width: thumb.width + "px" }}></span>`}
-    ${NAV.map(
-      (n, i) => html`<a
+function SideNav({ path, onNavigate }) {
+  return html`<nav class="side-nav" aria-label="Main">
+    ${NAV.map((n) => {
+      const on = n.match(path);
+      return html`<a
         href=${"#" + n.path}
-        class=${cx({ on: i === active })}
-        aria-current=${i === active ? "page" : undefined}
-        onPointerEnter=${(e) => setHover({ left: e.currentTarget.offsetLeft, width: e.currentTarget.offsetWidth, on: true })}
+        class=${cx("side-link", { on })}
+        aria-current=${on ? "page" : undefined}
+        data-tip=${n.label}
+        onClick=${onNavigate}
       >
-        <${Icon} name=${n.icon} size=${17} /><span>${n.label}</span>
-      </a>`
-    )}
+        <${Icon} name=${n.icon} size=${18} /><span class="side-label">${n.label}</span>
+      </a>`;
+    })}
   </nav>`;
+}
+
+function ThemeSwitch() {
+  const theme = useStore(app, (s) => s.theme);
+  const options = [
+    { value: "light", icon: "sun", label: "Light" },
+    { value: "dark", icon: "moon", label: "Dark" },
+    { value: "system", icon: "monitor", label: "System" },
+  ];
+  return html`<div class="theme-switch" role="radiogroup" aria-label="Theme">
+    ${options.map(
+      (o) => html`<button
+        role="radio"
+        aria-checked=${theme === o.value}
+        aria-label=${o.label + " theme"}
+        class=${cx({ on: theme === o.value })}
+        data-tip=${o.label}
+        onClick=${() => setTheme(o.value)}
+      ><${Icon} name=${o.icon} size=${15} /></button>`
+    )}
+  </div>`;
+}
+
+function Sidebar({ path, collapsed, onCollapse, open, onClose, onSearch }) {
+  const record = session.record || {};
+  const active = (match("/data/:collection?/:tab?/:record?", path) || {}).collection;
+  const mac = navigator.platform.includes("Mac");
+  return html`<aside class=${cx("sidebar", { open })} aria-label="Navigation">
+    <div class="side-top">
+      <a class="brand" href="#/" onClick=${onClose}><${Logo} size=${26} /><span class="brand-name side-label">slon<b>base</b></span></a>
+      <button class="icon-btn side-fold" aria-label=${collapsed ? "Expand the sidebar" : "Collapse the sidebar"} data-tip=${collapsed ? "Expand" : "Collapse"} onClick=${onCollapse}>
+        <${Icon} name="sidebar" size=${17} />
+      </button>
+    </div>
+    <div class="side-project"><${ProjectSwitcher} /></div>
+    <button class="side-search" onClick=${onSearch} aria-label="Search" data-tip="Search">
+      <${Icon} name="search" size=${16} /><span class="side-label grow">Search</span><span class="kbd side-label">${mac ? "⌘" : "Ctrl"} K</span>
+    </button>
+    <${SideNav} path=${path} onNavigate=${onClose} />
+    <div class="side-collections">
+      <${CollectionTree} active=${active} onNavigate=${onClose} />
+    </div>
+    <div class="side-foot">
+      <${ThemeSwitch} />
+      <${Menu}
+        align="left"
+        up=${true}
+        trigger=${(toggle) => html`<button class="side-user" onClick=${toggle} aria-label="Account">
+          <span class="avatar">${initials(record.email)}</span>
+          <span class="side-label grow ellipsis">${record.email || "Superuser"}</span>
+          <${Icon} name="chevronUp" size=${14} class="side-label" />
+        </button>`}
+        items=${[
+          { icon: "user", label: "Superusers", onClick: () => navigate("/data/_superusers") },
+          { icon: "settings", label: "Settings", onClick: () => navigate("/settings") },
+          "-",
+          { icon: "logout", label: "Sign out", danger: true, onClick: () => session.clear() },
+        ]}
+      />
+    </div>
+  </aside>`;
 }
 
 // ------------------------------------------------------------------ command palette
@@ -234,7 +292,15 @@ function Shell() {
   const { path } = useStore(route);
   const theme = useStore(app, (s) => s.theme);
   const [palette, setPalette] = useState(false);
-  const record = session.record || {};
+  const [collapsed, setCollapsed] = useState(storedCollapsed);
+  const [navOpen, setNavOpen] = useState(false);
+  const toggleCollapsed = () =>
+    setCollapsed((c) => {
+      try {
+        localStorage.setItem(COLLAPSED_KEY, c ? "0" : "1");
+      } catch (_) {}
+      return !c;
+    });
 
   useEffect(() => {
     loadCollections().catch(() => {});
@@ -275,37 +341,28 @@ function Shell() {
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;
   else page = html`<div class="page"><div class="empty"><h3>Page not found</h3><a href="#/">Back to the overview</a></div></div>`;
 
-  const isDark = document.documentElement.dataset.theme === "dark";
-  return html`<div class="shell">
-    <header class="topbar">
-      <a class="brand" href="#/"><${Logo} size=${26} /><span class="brand-name">slon<b>base</b></span></a>
-      <${ProjectSwitcher} />
-      <${TopNav} path=${path} />
-      <span class="spacer"></span>
-      <button class="search-trigger" onClick=${() => setPalette(true)} aria-label="Search">
-        <${Icon} name="search" size=${16} /><span>Jump to…</span><span class="kbd">${navigator.platform.includes("Mac") ? "⌘" : "Ctrl"} K</span>
-      </button>
-      <button
-        class="icon-btn tip theme-btn"
-        data-tip=${isDark ? "Light theme" : "Dark theme"}
-        aria-label="Toggle theme"
-        onClick=${() => setTheme(isDark ? "light" : "dark")}
-        key=${theme}
-      >
-        <${Icon} name=${isDark ? "sun" : "moon"} size=${18} />
-      </button>
-      <${Menu}
-        trigger=${(toggle) => html`<span class="avatar" onClick=${toggle} title=${record.email}>${initials(record.email)}</span>`}
-        items=${[
-          { icon: "user", label: record.email || "Superuser", onClick: () => navigate("/data/_superusers") },
-          { icon: "settings", label: "Settings", onClick: () => navigate("/settings") },
-          { icon: theme === "system" ? "check" : "sparkle", label: "Follow system theme", onClick: () => setTheme("system") },
-          "-",
-          { icon: "logout", label: "Sign out", danger: true, onClick: () => session.clear() },
-        ]}
-      />
-    </header>
-    <main key=${path.split("/")[1]} class="fade-in" style="flex:1;display:flex;flex-direction:column">${page}</main>
+  return html`<div class=${cx("app", { collapsed, "nav-open": navOpen })}>
+    <${Sidebar}
+      path=${path}
+      collapsed=${collapsed}
+      onCollapse=${toggleCollapsed}
+      open=${navOpen}
+      onClose=${() => setNavOpen(false)}
+      onSearch=${() => {
+        setNavOpen(false);
+        setPalette(true);
+      }}
+    />
+    ${navOpen && html`<div class="side-scrim" onClick=${() => setNavOpen(false)}></div>`}
+    <div class="app-main">
+      <header class="mobile-bar">
+        <button class="icon-btn" aria-label="Menu" onClick=${() => setNavOpen(true)}><${Icon} name="menu" size=${20} /></button>
+        <a class="brand" href="#/"><${Logo} size=${24} /><span class="brand-name">slon<b>base</b></span></a>
+        <span class="spacer"></span>
+        <button class="icon-btn" aria-label="Search" onClick=${() => setPalette(true)}><${Icon} name="search" size=${18} /></button>
+      </header>
+      <main key=${path.split("/")[1]} class="fade-in app-page">${page}</main>
+    </div>
     ${palette && html`<${Palette} onClose=${() => setPalette(false)} />`}
   </div>`;
 }

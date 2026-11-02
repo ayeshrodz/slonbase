@@ -8,6 +8,18 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **A redesigned dashboard.** One sidebar holds the sections, the collections (with a filter
+  once there are many), the theme switch (light, dark or the system's) and the account; it
+  folds to icons and becomes a drawer on small screens. The top bar and the separate
+  collections panel are gone. A warm, muted palette (paper and stone neutrals, a sage accent,
+  a charcoal dark theme) with soft shadows in place of borders; pill tabs; a calmer records
+  grid; records open in a drawer beside the list instead of a dialog over it. The overview
+  shows the day's traffic as a chart next to the greeting, the collections ranked by their
+  records, and a health checklist; the sign-in page has a panel about slonbase beside the
+  form. The default accent is now sage; an accent picked in the settings is kept.
+
 ## [1.6.0] - 2026-11-02
 
 **Fields and excerpts, as in PocketBase.** The `fields` parameter picks nested paths on every

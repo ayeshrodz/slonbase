@@ -5,7 +5,7 @@ The admin dashboard served at `/_/`. It's plain ES modules with no build step:
 `app/vendor` (licenses next to them), and `build.rs` embeds `app/` into the binary (text files
 gzipped). Edit the files and rebuild.
 
-- `app/main.js` — the shell: top navigation, command palette (⌘K / Ctrl K), routes
+- `app/main.js` — the shell: the sidebar (sections, collections, theme, account), command palette (⌘K / Ctrl K), routes
 - `app/lib/` — the API client, store and router, components, icons and formatting
 - `app/pages/` — one module per screen
 - `app/app.css` — design tokens (light and dark), components and motion

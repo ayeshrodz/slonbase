@@ -56,108 +56,156 @@ export function Overview() {
   const lastBackup = backups && backups.length ? backups.slice().sort((a, b) => (a.modified < b.modified ? 1 : -1))[0] : null;
   const name = (session.record && session.record.email || "").split("@")[0];
 
-  return html`<div class="page enter">
-    <div class="page-head">
-      <div class="grow">
-        <div class="eyebrow"><span class="dot live"></span> All systems running</div>
-        <h1>${greeting()}${name ? `, ${name}` : ""}</h1>
-      </div>
-      <${Button} icon="plus" variant="primary" onClick=${() => navigate("/data?new=1")}>New collection</${Button}>
-    </div>
+  const issues = status ? status.checks.filter((c) => c.status === "warn" || c.status === "error").length : null;
+  const largest = Math.max(1, ...user.map((c) => counts[c.id] || 0));
+  const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
-    <div class="grid-3 stagger" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:18px">
+  return html`<div class="page overview enter">
+    <section class="hero card">
+      <div class="hero-text">
+        <div class="eyebrow"><span class=${"dot " + (issues ? "warn" : "live")}></span> ${issues ? plural(issues, "thing") + " to look at" : "All systems running"} · ${today}</div>
+        <h1>${greeting()}${name ? `, ${name}` : ""}</h1>
+        <p class="muted">Your PostgreSQL backend at a glance: what's stored, what's asked of it and how it's doing.</p>
+        <div class="row wrap hero-actions">
+          <${Button} icon="plus" variant="primary" onClick=${() => navigate("/data?new=1")}>New collection</${Button}>
+          <${Button} icon="terminal" onClick=${() => navigate("/sql")}>SQL console</${Button}>
+          <${Button} icon="archive" variant="ghost" onClick=${() => navigate("/settings/backups")}>Backups</${Button}>
+        </div>
+      </div>
+      <div class="hero-chart">
+        <div class="row hero-chart-head">
+          <div>
+            <div class="small muted">Requests, last 24 hours</div>
+            <div class="hero-total">${stats === null ? html`<${Skeleton} width="80px" height=${30} />` : html`<${CountUp} value=${requests} />`}</div>
+          </div>
+          <span class="spacer"></span>
+          <a class="small" href="#/logs">Open logs <${Icon} name="arrowRight" size=${13} /></a>
+        </div>
+        ${stats === null ? html`<${Skeleton} height=${150} />` : html`<${AreaChart} hours=${hourly} max=${max} total=${requests} />`}
+      </div>
+    </section>
+
+    <div class="metrics stagger">
       ${[
         { label: "Collections", value: loaded ? user.length : undefined, icon: "data", to: "/data", color: "var(--tone-1)" },
         { label: "Records", value: Object.keys(counts).length || (loaded && !user.length) ? totalRecords : undefined, icon: "table", to: "/data", color: "var(--tone-2)" },
-        { label: "Requests (24h)", value: stats ? requests : undefined, icon: "chart", to: "/logs", color: "var(--tone-8)" },
-        { label: "Server errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent("data.status >= 500"), tone: errors ? "danger" : "" },
+        { label: "Server errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent("data.status >= 500"), color: errors ? "var(--danger)" : "var(--tone-3)" },
+        { label: "Database round trip", value: status ? status.database.latencyMs : undefined, suffix: " ms", icon: "server", to: "/health", color: "var(--tone-4)", raw: true },
       ].map(
-        (s, i) => html`<a class="card stat" href=${"#" + s.to} style=${{ "--i": i, color: "inherit", textDecoration: "none" }}>
-          <span class="stat-icon" style=${{ "--c": s.tone === "danger" ? "var(--danger)" : s.color || "var(--ok)" }}><${Icon} name=${s.icon} /></span>
-          <span class="small muted">${s.label}</span>
-          <span class="stat-value">${s.value === undefined ? html`<${Skeleton} width="60px" height=${28} />` : html`<${CountUp} value=${s.value} />`}</span>
+        (s, i) => html`<a class="card metric" href=${"#" + s.to} style=${{ "--i": i, "--c": s.color }}>
+          <span class="metric-icon"><${Icon} name=${s.icon} size=${17} /></span>
+          <span class="metric-label">${s.label}</span>
+          <span class="metric-value">${s.value === undefined ? html`<${Skeleton} width="60px" height=${26} />` : s.raw ? s.value + (s.suffix || "") : html`<${CountUp} value=${s.value} />`}</span>
         </a>`
       )}
     </div>
 
-    <div class="split-2-1" style="margin-bottom:28px">
-      <div class="card pad">
-        <div class="row" style="margin-bottom:6px">
-          <h3>Traffic</h3><span class="muted small">requests per hour, last 24 hours</span>
-          <span class="spacer"></span>
-          <a class="small" href="#/logs">Open logs <${Icon} name="arrowRight" size=${13} /></a>
+    <div class="overview-grid">
+      <section class="card">
+        <div class="card-head">
+          <h3 class="grow">Collections</h3>
+          <span class="muted small">${loaded ? plural(user.length, "collection") : ""}</span>
+          <a class="small" href="#/diagram">Diagram <${Icon} name="arrowRight" size=${13} /></a>
         </div>
-        ${stats === null
-          ? html`<${Skeleton} height=${140} />`
-          : html`<div class="bars" role="img" aria-label=${`${requests} requests in the last 24 hours`}>
-              ${hourly.map(
-                (h, i) => html`<div
-                  class=${"bar tip" + (h.total ? "" : " zero")}
-                  data-tip=${`${h.label}: ${h.total}`}
-                  style=${{ "--i": i, height: Math.max(3, (h.total / max) * 130) + "px" }}
-                ></div>`
-              )}
-            </div>
-            <div class="row tiny faint" style="margin-top:6px;justify-content:space-between">
-              <span>${hourly[0].label}</span><span>now</span>
+        ${!loaded
+          ? html`<div class="card-body stack">${[0, 1, 2].map(() => html`<${Skeleton} height=${34} />`)}</div>`
+          : user.length === 0
+          ? html`<div class="empty">
+              <div class="empty-art"><${Icon} name="data" size=${28} /></div>
+              <h3>No collections yet</h3>
+              <p class="small">Collections hold your records. Create one to define its fields and API rules.</p>
+              <${Button} variant="primary" icon="plus" onClick=${() => navigate("/data?new=1")}>Create a collection</${Button}>
+            </div>`
+          : html`<div class="coll-rows stagger">
+              ${user
+                .slice()
+                .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0))
+                .map(
+                  (c, i) => html`<a class="coll-row" href=${"#/data/" + enc(c.name)} style=${{ "--i": i }}>
+                    <${CollectionGlyph} collection=${c} size=${32} />
+                    <div class="coll-row-name">
+                      <div class="ellipsis">${c.name}</div>
+                      <div class="tiny muted">${c.type === "auth" ? "Auth" : c.type === "view" ? "View" : "Base"} · ${plural(c.fields.length, "field")}</div>
+                    </div>
+                    <div class="coll-row-bar" aria-hidden="true"><span style=${{ width: Math.max(2, ((counts[c.id] || 0) / largest) * 100) + "%" }}></span></div>
+                    <div class="coll-row-count">${counts[c.id] == null ? "…" : (counts[c.id] || 0).toLocaleString()}</div>
+                    <${Icon} name="chevronRight" size=${16} class="faint" />
+                  </a>`
+                )}
             </div>`}
-      </div>
-      <div class="card pad stack">
-        <div class="row"><h3>Health</h3><span class="spacer"></span><a class="small" href="#/health">Details <${Icon} name="arrowRight" size=${13} /></a></div>
-        <div class="stack tight small">
-          <div class="row"><span class="dot ok"></span> API and database <span class="spacer"></span><span class="muted">${status ? status.database.latencyMs + " ms" : "healthy"}</span></div>
-          ${status &&
-          (() => {
-            const issues = status.checks.filter((c) => c.status === "warn" || c.status === "error").length;
-            return html`<div class="row">
-              <span class=${"dot " + (issues ? "warn" : "ok")}></span> Checks
-              <span class="spacer"></span>
-              <a class="muted" href="#/health">${issues ? plural(issues, "thing") + " to look at" : "all good"}</a>
-            </div>`;
-          })()}
-          <div class="row">
-            <span class=${"dot " + (lastBackup ? "ok" : "warn")}></span> Last backup
-            <span class="spacer"></span>
-            <span class="muted">${backups === null ? "…" : lastBackup ? relativeTime(lastBackup.modified) : "never"}</span>
-          </div>
-          <div class="row">
-            <span class=${"dot " + (errors ? "danger" : "ok")}></span> Server errors today
-            <span class="spacer"></span><span class="muted">${errors ?? "…"}</span>
-          </div>
-        </div>
-        <span class="spacer"></span>
-        <div class="row wrap">
-          <${Button} size="sm" icon="archive" onClick=${() => navigate("/settings/backups")}>Backups</${Button}>
-          <${Button} size="sm" icon="mail" onClick=${() => navigate("/settings/mail")}>Mail</${Button}>
-        </div>
-      </div>
-    </div>
+      </section>
 
-    <div class="row" style="margin-bottom:12px">
-      <h2>Collections</h2>
-      <span class="muted small">${loaded ? plural(user.length, "collection") : ""}</span>
+      <section class="card">
+        <div class="card-head">
+          <h3 class="grow">Health</h3>
+          <a class="small" href="#/health">Details <${Icon} name="arrowRight" size=${13} /></a>
+        </div>
+        <div class="checklist">
+          <${Check} ok=${true} title="API and database" detail=${status ? status.database.latencyMs + " ms round trip" : "answering"} />
+          <${Check}
+            ok=${issues === 0}
+            title="Checks"
+            detail=${issues === null ? "…" : issues ? plural(issues, "thing") + " to look at" : "all good"}
+            href="#/health"
+          />
+          <${Check}
+            ok=${!!lastBackup}
+            title="Last backup"
+            detail=${backups === null ? "…" : lastBackup ? relativeTime(lastBackup.modified) : "none yet"}
+            href="#/settings/backups"
+          />
+          <${Check} ok=${!errors} danger=${!!errors} title="Server errors today" detail=${errors ?? "…"} href="#/logs" />
+        </div>
+      </section>
     </div>
-    ${!loaded
-      ? html`<div class="coll-cards">${[0, 1, 2, 3].map(() => html`<div class="card coll-card"><${Skeleton} height=${40} /></div>`)}</div>`
-      : user.length === 0
-      ? html`<div class="card"><div class="empty">
-          <div class="empty-art"><${Icon} name="data" size=${28} /></div>
-          <h3>No collections yet</h3>
-          <p class="small">Collections hold your records. Create one to define its fields and API rules.</p>
-          <${Button} variant="primary" icon="plus" onClick=${() => navigate("/data?new=1")}>Create a collection</${Button}>
-        </div></div>`
-      : html`<div class="coll-cards stagger">
-          ${user.map(
-            (c, i) => html`<a class="card coll-card" href=${"#/data/" + enc(c.name)} style=${{ "--i": i }}>
-              <${CollectionGlyph} collection=${c} size=${38} />
-              <div class="grow">
-                <div style="font-weight:600" class="ellipsis">${c.name}</div>
-                <div class="small muted">${c.type === "auth" ? "Auth" : c.type === "view" ? "View" : "Base"} · ${counts[c.id] == null ? "…" : plural(counts[c.id], "record")}</div>
-              </div>
-              <${Icon} name="chevronRight" class="faint" />
-            </a>`
-          )}
-        </div>`}
+  </div>`;
+}
+
+function Check({ ok, danger, title, detail, href }) {
+  const body = html`<span class=${"check-dot " + (ok ? "ok" : danger ? "danger" : "warn")}>
+      <${Icon} name=${ok ? "check" : "warning"} size=${13} />
+    </span>
+    <span class="grow">${title}</span>
+    <span class="muted small">${detail}</span>`;
+  return href ? html`<a class="check-row" href=${href}>${body}</a>` : html`<div class="check-row">${body}</div>`;
+}
+
+// Requests per hour as a smooth area, with the hour under the pointer.
+function AreaChart({ hours, max, total }) {
+  const [hover, setHover] = useState(null);
+  const W = 600;
+  const H = 150;
+  const step = W / (hours.length - 1);
+  const pts = hours.map((h, i) => [i * step, H - 6 - (h.total / max) * (H - 22)]);
+  // a Catmull-Rom curve through the points, as cubic Béziers
+  let line = `M${pts[0][0]},${pts[0][1]}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [p0, p1, p2, p3] = [pts[i - 1] || pts[i], pts[i], pts[i + 1], pts[i + 2] || pts[i + 1]];
+    const c1 = [p1[0] + (p2[0] - p0[0]) / 6, Math.min(H - 6, p1[1] + (p2[1] - p0[1]) / 6)];
+    const c2 = [p2[0] - (p3[0] - p1[0]) / 6, Math.min(H - 6, p2[1] - (p3[1] - p1[1]) / 6)];
+    line += ` C${c1[0]},${c1[1]} ${c2[0]},${c2[1]} ${p2[0]},${p2[1]}`;
+  }
+  const area = `${line} L${W},${H} L0,${H} Z`;
+  const h = hover === null ? null : hours[hover];
+  return html`<div class="area-chart" role="img" aria-label=${`${total} requests in the last 24 hours`} onPointerLeave=${() => setHover(null)}>
+    <svg viewBox=${`0 0 ${W} ${H}`} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="area-fill" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="var(--accent)" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="var(--accent)" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <path d=${area} fill="url(#area-fill)" />
+      <path d=${line} fill="none" stroke="var(--accent)" stroke-width="2" vector-effect="non-scaling-stroke" stroke-linejoin="round" />
+    </svg>
+    <div class="area-cols">
+      ${hours.map((_, i) => html`<span onPointerEnter=${() => setHover(i)} class=${hover === i ? "on" : ""}></span>`)}
+    </div>
+    ${h &&
+    html`<div class="area-tip" style=${{ left: `${(hover / (hours.length - 1)) * 100}%` }}>
+      <b>${h.total.toLocaleString()}</b> <span class="muted">at ${h.label}</span>
+    </div>`}
+    <div class="row tiny faint area-axis"><span>${hours[0].label}</span><span>${hours[12].label}</span><span>now</span></div>
   </div>`;
 }
 

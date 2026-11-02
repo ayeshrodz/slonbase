@@ -240,7 +240,7 @@ export function Modal({ onClose, size = "", children, dismissable = true, labell
   }, [dismissable]);
   return html`<${Portal}>
     <div
-      class=${cx("backdrop", { closing })}
+      class=${cx("backdrop", { closing, "at-side": size === "drawer" })}
       onMouseDown=${(e) => dismissable && e.target === e.currentTarget && close()}
     >
       <div class=${cx("sheet", size)} ref=${sheetRef} role="dialog" aria-modal="true" aria-labelledby=${labelledBy}>
@@ -262,14 +262,14 @@ export function SheetHead({ title, subtitle, icon, onClose, children }) {
   </div>`;
 }
 
-export function Menu({ trigger, items, align = "right" }) {
+export function Menu({ trigger, items, align = "right", up = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useClickOutside(ref, () => setOpen(false), open);
   return html`<span class="menu-anchor" ref=${ref}>
     ${trigger(() => setOpen(!open), open)}
     ${open &&
-    html`<div class="menu" style=${{ top: "calc(100% + 6px)", [align]: 0 }}>
+    html`<div class=${cx("menu", { up })} style=${{ [up ? "bottom" : "top"]: "calc(100% + 6px)", [align]: 0 }}>
       ${items.filter(Boolean).map((item) =>
         item === "-"
           ? html`<hr />`

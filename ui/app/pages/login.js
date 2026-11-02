@@ -10,6 +10,18 @@ export function AuthFrame({ children, title, subtitle }) {
   const ref = useRef();
   useAutofocus(ref);
   return html`<div class="auth-page" ref=${ref}>
+    <aside class="auth-art" aria-hidden="true">
+      <div class="auth-art-brand"><${Logo} size=${30} /><span class="brand-name">slon<b>base</b></span></div>
+      <div class="auth-art-copy">
+        <h2>Your whole backend, built on PostgreSQL.</h2>
+        <ul>
+          <li><${Icon} name="data" size=${16} /> Every collection is a real table you can query</li>
+          <li><${Icon} name="zap" size=${16} /> Realtime, auth, files and hooks in one binary</li>
+          <li><${Icon} name="layers" size=${16} /> Any number of instances on one database</li>
+        </ul>
+      </div>
+      <div class="auth-art-foot">The PocketBase API, on the database you already run.</div>
+    </aside>
     <div class="auth-form">
       <div class="auth-brand"><${Logo} size=${28} /><span class="brand-name">slon<b>base</b></span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
       <div class="stack loose">

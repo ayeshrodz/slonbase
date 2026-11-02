@@ -762,7 +762,25 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - Security: a view query runs with the role's privileges on every read, the same exposure as the
   SQL console, so creating or changing one requires `--sql-console`.
 
-### Dashboard redesign
+### Dashboard, 1.7
+
+- One sidebar replaces the top bar and the collections panel: the sections, the collections
+  grouped (base, auth, system; a filter past six), a three-way theme switch and the account
+  menu. It folds to icons (kept per browser, names in tooltips) and becomes a drawer below
+  920px, under a small bar with the menu, the wordmark and search.
+- Warm, muted tokens: paper and stone neutrals, a sage accent (`#4f7a6c`; the earlier defaults
+  and PocketBase's still mean "the theme's own"), earthy status colors, and a warm charcoal
+  dark theme. Surfaces are told apart by soft shadows and hairlines rather than borders.
+- Tabs are a segmented row of pills with a raised active one; the records grid has no outer
+  border, a translucent sticky header and taller rows; the record editor is a drawer on the
+  right (`Modal size="drawer"`), so the list stays in view.
+- The overview leads with a hero: the greeting, the day's state and actions, beside the
+  requests of the last 24 hours as a smooth area chart (a Catmull-Rom curve through the hours,
+  hover for each hour). Below: four metric tiles, the collections ranked by their records with
+  a bar for their share, and a health checklist.
+- The sign-in page is split: a sage panel with what slonbase is, beside the form.
+
+### Dashboard redesign (0.x)
 
 - Its own design: a top navigation bar with an underline indicator, a collections panel,
   collection pages with tabs (records, schema, rules, sign-in, indexes, API docs, settings) that

@@ -158,7 +158,7 @@ export function RecordEditor({ collection: c, recordId, onClose, onSaved, onDele
 
   const dirty = isNew || Object.keys(files).length > 0 || (password && changePassword) || (original && JSON.stringify(record) !== JSON.stringify(original));
 
-  return html`<${Modal} size="wide" onClose=${onClose}>
+  return html`<${Modal} size="drawer" onClose=${onClose}>
     ${(close) => html`
       <${SheetHead}
         title=${isNew ? `New ${c.name} record` : record ? recordLabel(record, c) : "Loading…"}

@@ -16,7 +16,8 @@ function clone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
-function CollectionsPanel({ active, onNew }) {
+// The collections, grouped, in the sidebar (main.js): a filter, and a way to add one.
+export function CollectionTree({ active, onNavigate }) {
   const collections = useStore(app, (s) => s.collections);
   const locked = useStore(app, (s) => s.hideControls);
   const [query, setQuery] = useState("");
@@ -28,37 +29,50 @@ function CollectionsPanel({ active, onNew }) {
     { id: "auth", title: "Auth", items: visible.filter((c) => !c.system && c.type === "auth") },
     { id: "system", title: "System", items: visible.filter((c) => c.system) },
   ];
-  return html`<aside class="collections-panel" aria-label="Collections">
-    <div class="filter-box" style="flex:none;height:36px">
-      <${Icon} name="search" size=${15} />
-      <input placeholder="Find a collection" value=${query} onInput=${(e) => setQuery(e.target.value)} style="font-family:var(--font)" />
+  return html`<div class="tree" aria-label="Collections">
+    <div class="tree-head side-label">
+      <span class="section-title">Collections</span>
+      <span class="spacer"></span>
+      ${!locked &&
+      html`<a class="icon-btn sm" href="#/data?new=1" aria-label="New collection" data-tip="New collection" onClick=${onNavigate}>
+        <${Icon} name="plus" size=${15} />
+      </a>`}
     </div>
+    ${collections.length > 6 &&
+    html`<label class="tree-filter side-label">
+      <${Icon} name="search" size=${14} />
+      <input placeholder="Filter" value=${query} onInput=${(e) => setQuery(e.target.value)} aria-label="Filter collections" />
+    </label>`}
     ${groups.map(
       (g) =>
         (g.items.length > 0 || (g.id === "base" && !q)) &&
-        html`<div>
-          <div
-            class=${cx("group-title section-title", { closed: closed[g.id] && !q })}
+        html`<div class="tree-group">
+          ${g.id !== "base" &&
+          html`<button
+            class=${cx("tree-group-title side-label", { closed: closed[g.id] && !q })}
             onClick=${() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
           >
-            <${Icon} name="chevronDown" size=${13} /> ${g.title}<span class="spacer"></span><span>${g.items.length}</span>
-          </div>
-          ${(!closed[g.id] || q) &&
-          html`<div class="stack stagger" style="gap:2px">
+            <${Icon} name="chevronDown" size=${12} /> ${g.title}<span class="spacer"></span><span class="tree-count">${g.items.length}</span>
+          </button>`}
+          ${(!closed[g.id] || q || g.id === "base") &&
+          html`<div class="tree-items">
             ${g.items.map(
-              (c, i) => html`<a href=${"#/data/" + enc(c.name)} class=${cx("coll-item", { on: c.name === active })} style=${{ "--i": i }}>
+              (c) => html`<a
+                href=${"#/data/" + enc(c.name)}
+                class=${cx("coll-item", { on: c.name === active })}
+                aria-current=${c.name === active ? "page" : undefined}
+                data-tip=${c.name}
+                onClick=${onNavigate}
+              >
                 <${CollectionGlyph} collection=${c} />
-                <span class="grow ellipsis">${c.name}</span>
+                <span class="grow ellipsis side-label">${c.name}</span>
               </a>`
             )}
-            ${g.id === "base" && g.items.length === 0 && html`<div class="small faint" style="padding:6px 10px">No collections yet.</div>`}
+            ${g.id === "base" && g.items.length === 0 && html`<div class="small faint side-label" style="padding:4px 10px">No collections yet.</div>`}
           </div>`}
         </div>`
     )}
-    <span class="spacer"></span>
-    <a class="btn ghost sm block" href="#/diagram"><${Icon} name="relation" size=${15} /> See the diagram</a>
-    ${!locked && html`<${Button} icon="plus" class="block" onClick=${onNew}>New collection</${Button}>`}
-  </aside>`;
+  </div>`;
 }
 
 function NewCollection({ onClose }) {
@@ -334,7 +348,6 @@ export function DataWorkspace({ collection: name, tab, record }) {
   }, [name, loaded]);
 
   return html`<div class="workspace">
-    <${CollectionsPanel} active=${collection && collection.name} onNew=${() => setCreating(true)} />
     <section class="workspace-main">
       ${collection
         ? html`<${CollectionView} key=${collection.id} collection=${collection} tab=${tab || "records"} recordId=${record} />`
