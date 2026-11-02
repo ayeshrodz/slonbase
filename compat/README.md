@@ -19,3 +19,18 @@ POCKETBASE_BIN=/path/to/pocketbase ./run.sh pocketbase
 `run.sh` starts the server on a fresh data store (port `COMPAT_PORT`, default 8099), creates the
 superuser and runs `node --test`; the server log is printed when a test fails. Each test file
 creates its own collections with unique names.
+
+## Differential runs
+
+`diff/run.sh` starts PocketBase and slonbase side by side on fresh data stores, seeds both the
+same way (fixed record ids), sends them the same requests and compares their answers as JSON;
+values that differ by nature (times, tokens, generated ids) are compared by type. It also
+compares the `:excerpt` modifier on random HTML documents (`FUZZ`, default 1000; `FUZZ_SEED`
+picks them). CI runs it on every push.
+
+```sh
+POCKETBASE_BIN=/path/to/pocketbase \
+DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/diff?sslmode=disable' \
+compat/diff/run.sh            # add --only <name> to run some requests, -v to list them all
+```
+
