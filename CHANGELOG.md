@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-02
+
+**Fields and excerpts, as in PocketBase.** The `fields` parameter picks nested paths on every
+JSON answer and makes plain-text excerpts of HTML, matching PocketBase's output; JavaScript
+`record.set()` takes PocketBase's modifiers.
+
 ### Added
 
 - **The `fields` parameter, as in PocketBase**: nested paths (`expand.author.name`,
@@ -829,7 +835,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ayeshrodz/slonbase/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ayeshrodz/slonbase/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/ayeshrodz/slonbase/compare/v1.3.1...v1.3.2
