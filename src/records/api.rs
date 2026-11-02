@@ -17,9 +17,7 @@ use axum::response::{IntoResponse, Response};
 use deadpool_postgres::{GenericClient, Transaction};
 use serde_json::{Map, Value, json};
 
-use super::access::{
-    email_visible_sql, manage_rule_sql, output_record, output_select, pick_fields, rule_sql,
-};
+use super::access::{email_visible_sql, manage_rule_sql, output_record, output_select, rule_sql};
 use super::expand;
 use super::files::{self, RecordBody};
 use super::store::{ALIAS, all_fields, row_values, select_list, visible_fields};
@@ -352,20 +350,30 @@ pub async fn list(
     }
     enrich(&core, &e.request, &c, &mut e.records).await?;
     expand_records(&core, &e.auth, &e.request, &c, &mut e.records, &query).await?;
-    let items: Vec<Value> = e
-        .records
-        .into_iter()
-        .map(|item| pick_fields(item, query.get("fields")))
-        .collect();
-
-    Ok(Json(ListPage {
+    // `fields` here rather than in `picker::layer`, which would parse the answer again
+    let mut items = Value::Array(e.records);
+    let picked = match fields_param(&query)? {
+        Some(fields) => {
+            items = fields.pick_items_off_thread(items).await;
+            true
+        }
+        None => false,
+    };
+    let Value::Array(items) = items else {
+        unreachable!()
+    };
+    let mut response = Json(ListPage {
         page: e.page,
         per_page: e.per_page,
         total_items: e.total_items,
         total_pages: e.total_pages,
         items,
     })
-    .into_response())
+    .into_response();
+    if picked {
+        response.extensions_mut().insert(crate::picker::Picked);
+    }
+    Ok(response)
 }
 
 /// A page of a records list.
@@ -1328,7 +1336,8 @@ async fn record_response(
         query,
     )
     .await?;
-    Ok(Json(pick_fields(record, query.get("fields"))).into_response())
+    // (`fields` is applied by `picker::layer`)
+    Ok(Json(record).into_response())
 }
 
 /// `POST /api/collections/{collection}/records`
@@ -1892,4 +1901,16 @@ pub async fn truncate(
         }
     }
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// The request's parsed `fields` parameter; a 400 like PocketBase's when it can't be parsed.
+fn fields_param(
+    query: &HashMap<String, String>,
+) -> Result<Option<crate::picker::Fields>, ApiError> {
+    match query.get("fields").filter(|f| !f.is_empty()) {
+        None => Ok(None),
+        Some(raw) => crate::picker::Fields::parse(raw).map(Some).map_err(|_| {
+            ApiError::bad_request("Something went wrong while processing your request.")
+        }),
+    }
 }

@@ -8,6 +8,41 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-02
+
+**Fields and excerpts, as in PocketBase.** The `fields` parameter picks nested paths on every
+JSON answer and makes plain-text excerpts of HTML, matching PocketBase's output; JavaScript
+`record.set()` takes PocketBase's modifiers.
+
+### Added
+
+- **The `fields` parameter, as in PocketBase**: nested paths (`expand.author.name`,
+  `meta.tags.label`), `*` for every key at a level (`*,expand.author.id`), and the
+  `:excerpt(max, withEllipsis?)` modifier for plain-text excerpts of HTML
+  (`fields=id,title,body:excerpt(200,true)`), on every successful JSON answer (auth, settings,
+  collections, batch requests and custom routes too, where only records' top-level keys were
+  picked before) and on realtime records. Excerpts match PocketBase's: compared on 5,300
+  random HTML documents, and checked in CI against PocketBase's own excerpts of a corpus.
+  HTML nested more than 512 elements deep can't be excerpted, as in PocketBase (whose parser
+  stops there): the answer is then sent unpicked, and a hostile document costs a bounded
+  amount of work.
+- **Modifiers in JavaScript `record.set()`**, as in PocketBase: `tags+`, `+tags`, `tags-`,
+  `views+`, `views-` and `code:autogenerate`, so `record.get()` sees the result; and
+  `set("expand", ...)` / `get("expand")`.
+- `$security.randomStringByRegex(pattern)` in JavaScript.
+
+### Changed
+
+- A `fields` parameter that can't be parsed (`body:excerpt(0)`, `id,(title`) gets a 400, as in
+  PocketBase, where slonbase ignored it. A request that changes something gets it before the
+  change is made (PocketBase makes the change, then answers 400).
+
+### Fixed
+
+- Expanding a relation gives every record an `expand` object, empty when nothing was found,
+  and a multiple relation with nothing found no key, as PocketBase answers (`expand` was left
+  out, and such relations were `[]`).
+
 ## [1.5.0] - 2026-11-02
 
 **Autogenerate patterns, as in PocketBase.** A text field's `autogeneratePattern` takes any
@@ -800,7 +835,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...HEAD
+[1.6.0]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ayeshrodz/slonbase/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ayeshrodz/slonbase/compare/v1.3.2...v1.4.0
 [1.3.2]: https://github.com/ayeshrodz/slonbase/compare/v1.3.1...v1.3.2

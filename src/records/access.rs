@@ -1,7 +1,5 @@
 //! Access checks shared by the records API and realtime: API rules, the manage rule,
-//! email visibility and the `fields` parameter.
-
-use std::collections::HashSet;
+//! email visibility (the `fields` parameter is in [`crate::picker`]).
 
 use serde_json::Value;
 
@@ -39,29 +37,6 @@ pub fn rule_sql(
                 .map(Some)
                 .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored rule: {e}")))
         }
-    }
-}
-
-/// Applies the `fields` query parameter (`id,title`; `*` keeps everything).
-pub fn pick_fields(record: Value, fields: Option<&String>) -> Value {
-    let Some(raw) = fields.map(|f| f.trim()).filter(|f| !f.is_empty()) else {
-        return record;
-    };
-    let wanted: HashSet<&str> = raw.split(',').map(str::trim).collect();
-    if wanted.contains("*") {
-        return record;
-    }
-    // "expand" or "expand.<anything>" keeps the expanded records
-    let keep_expand = wanted
-        .iter()
-        .any(|w| *w == "expand" || w.starts_with("expand."));
-    match record {
-        Value::Object(map) => Value::Object(
-            map.into_iter()
-                .filter(|(k, _)| wanted.contains(k.as_str()) || (k == "expand" && keep_expand))
-                .collect(),
-        ),
-        other => other,
     }
 }
 

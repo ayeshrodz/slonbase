@@ -880,3 +880,59 @@ async fn keeps_events_in_order() {
     drop(stream);
     tdb.drop_db().await;
 }
+
+#[tokio::test]
+async fn fields_with_nested_paths_and_excerpts() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "posts", "listRule": "", "viewRule": "",
+            "fields": [
+                { "name": "title", "type": "text" },
+                { "name": "body", "type": "editor" },
+                { "name": "meta", "type": "json" },
+            ],
+        })),
+    )
+    .await;
+    let mut stream = Stream::open(&app).await;
+    let topic = topic_with_options(
+        "posts/*",
+        json!({ "query": { "fields": "id,body:excerpt(9,true),meta.a" } }),
+    );
+    subscribe(&app, None, &stream.client_id, &[&topic]).await;
+    // a `fields` that can't be parsed sends the record whole, as PocketBase
+    let mut whole = Stream::open(&app).await;
+    let bad = topic_with_options(
+        "posts/*",
+        json!({ "query": { "fields": "body:excerpt(0)" } }),
+    );
+    subscribe(&app, None, &whole.client_id, &[&bad]).await;
+
+    let created = as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections/posts/records",
+        Some(
+            json!({ "title": "T", "body": "<p>Hello <b>realtime</b> world</p>",
+                     "meta": { "a": 1, "b": 2 } }),
+        ),
+    )
+    .await;
+    let (_, data) = stream.expect().await;
+    assert_eq!(
+        data["record"],
+        json!({ "id": created["id"], "body": "Hello rea...", "meta": { "a": 1 } })
+    );
+    let (_, data) = whole.expect().await;
+    assert_eq!(data["record"]["title"], "T");
+    assert_eq!(data["record"]["body"], "<p>Hello <b>realtime</b> world</p>");
+}

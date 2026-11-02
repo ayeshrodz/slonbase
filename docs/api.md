@@ -150,6 +150,16 @@ parameterized SQL, so PostgreSQL's planner and your indexes do the work.
 (`expand=author.org,editors`) and back-relations (`expand=comments_via_post`), up to 6 levels,
 and checks each record against its collection's view rule.
 
+**Fields** picks what a JSON answer holds, as in PocketBase: any successful one (records,
+auth, settings, collections, batch, routes), and realtime records.
+
+- `fields=id,title` keeps those keys; in lists, of each item (the page envelope stays).
+- Paths go into objects and lists of objects: `expand.author.name`, `meta.tags.label`.
+- `*` keeps every key at its level: `*,expand.author.id`.
+- `:excerpt(max, withEllipsis?)` turns HTML into a plain-text excerpt of about `max`
+  characters, e.g. `fields=id,title,body:excerpt(200,true)`; other values are left as they are.
+- A `fields` that can't be parsed (`body:excerpt(0)`, unbalanced parentheses) gets a 400.
+
 ## Files
 
 Files are uploaded with `multipart/form-data` on create and update:

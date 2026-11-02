@@ -227,6 +227,8 @@ fn app_router(app: Arc<App>) -> Router {
             app.clone(),
             crate::hooks::request_middleware,
         ))
+        // the `fields` parameter, on every JSON answer (routerUse ones included)
+        .layer(axum::middleware::from_fn(crate::picker::layer))
         // inner layers run last: the guard runs inside the logger, so rejections are logged
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),

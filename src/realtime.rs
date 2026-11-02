@@ -38,7 +38,7 @@ use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::filter::{Params, RequestInfo, Scope, quote_ident, to_sql};
 use crate::hooks::{self, DataEvent};
-use crate::records::access::{email_visible_sql, pick_fields, rule_sql};
+use crate::records::access::{email_visible_sql, rule_sql};
 use crate::records::store::{ALIAS, record_json, visible_fields};
 use crate::records::values::{self, Values};
 use crate::settings::Settings;
@@ -1069,7 +1069,14 @@ async fn render(
             record
         }
     };
-    let record = pick_fields(record, target.topic.query.get("fields"));
+    // `fields` as in the API; one that can't be parsed sends the record as is, as PocketBase
+    let mut record = record;
+    if let Some(raw) = target.topic.query.get("fields").filter(|f| !f.is_empty()) {
+        match crate::picker::Fields::parse(raw) {
+            Ok(fields) => fields.pick_record(&mut record),
+            Err(err) => tracing::debug!(error = %err, "realtime fields can't be parsed"),
+        }
+    }
     Message {
         event: target.topic.raw.clone(),
         data: json!({ "action": action.as_str(), "record": record }).to_string(),

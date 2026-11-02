@@ -1,6 +1,6 @@
 [package]
 name = "slonbase"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 rust-version = "1.87"
 description = "Your whole backend, built on PostgreSQL: collections, a REST and realtime API, auth, files, hooks and an admin dashboard in one binary"
@@ -56,6 +56,7 @@ tempfile = "3.27.0"
 rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
 mimalloc = { version = "0.1", default-features = false }
+html5ever = { version = "0.40.1", default-features = false }
 
 [features]
 default = ["js"]

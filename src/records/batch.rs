@@ -101,9 +101,14 @@ fn parse(
         .cloned()
         .ok_or_else(|| ApiError::new(StatusCode::NOT_FOUND, "Missing collection context."))?;
 
-    let query = form_urlencoded::parse(query_string.as_bytes())
+    let query: HashMap<String, String> = form_urlencoded::parse(query_string.as_bytes())
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
         .collect();
+    // checked now rather than after the transaction ran (PocketBase would roll it back)
+    if let Some(raw) = query.get("fields").filter(|f| !f.is_empty()) {
+        crate::picker::Fields::parse(raw)
+            .map_err(|_| invalid("Something went wrong while processing your request."))?;
+    }
     let mut headers = base_headers.clone();
     if let Some(Value::Object(own)) = raw.get("headers") {
         for (name, value) in own {
@@ -327,6 +332,14 @@ async fn run_batch(
                 &query,
             )
             .await?;
+            let mut body = body;
+            if let Some(Ok(fields)) = query
+                .get("fields")
+                .filter(|f| !f.is_empty())
+                .map(|raw| crate::picker::Fields::parse(raw))
+            {
+                fields.pick_response(&mut body);
+            }
             results.push(json!({ "status": 200, "body": body }));
         }
     }

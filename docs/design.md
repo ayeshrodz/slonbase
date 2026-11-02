@@ -451,7 +451,53 @@ over the related tables, never JOINs, so they can't duplicate rows or skew count
 - It works on list, view, create and update responses, up to 6 levels and 5,000 related records
   per path.
 - Unknown or forbidden paths are skipped silently, as in PocketBase.
-- `fields=...,expand` keeps the expanded records.
+- `fields=...,expand` keeps the expanded records, and `expand.author.name` picks in them.
+- Once a path's relation field resolves, every record gets an `expand` object, empty if
+  nothing was found, and a multiple relation with nothing found gets no key, as PocketBase
+  answers (slonbase left `expand` out and gave `[]` before 1.6).
+
+**The `fields` parameter** (`picker.rs`) is a port of PocketBase's `tools/picker`, checked
+against PocketBase itself (see below):
+- It's a middleware on every successful JSON answer, as PocketBase applies it in `e.JSON()`;
+  lists pick their items in place and mark the answer, which saves parsing it again. Batch
+  requests apply their own URL's `fields` to their bodies, and realtime to each record (one that
+  can't be parsed sends the record whole, as PocketBase).
+- PocketBase's tokenizer, `fields` parsing (a name keeps the spaces before its `:`), its
+  argument reading (spf13/cast's `ToInt`: `0x10`, `0b11`, `010` octal, `1_0`, `12.7` is 12;
+  `strconv.ParseBool` for the ellipsis) and its picking rules are reproduced, the quirks too:
+  a field naming the key itself wins over deeper paths, a path into a non-object keeps the
+  value, and `*` fills in the keys no field names.
+- Fields are kept sorted, so the fields matching a key are a range: a crafted `fields` with
+  thousands of entries over a 1,000-record page costs ~19 ms, where scanning them all for each
+  key took ~160 ms.
+- A `fields` that can't be parsed is a 400, as PocketBase answers, but a request that changes
+  something gets it before it runs: PocketBase makes the change, then answers 400. Batch
+  requests' own `fields` are checked when the batch is read, before its transaction.
+
+**Excerpts** (`excerpt.rs`) port PocketBase's `excerpt` modifier: the HTML is parsed with
+html5ever (an HTML5 parser, as Go's `x/net/html`) into a small arena DOM, and the text is
+gathered with the same rules: excluded elements (`script`, `style`, `svg`, `img`, form
+controls, `template`, ...), a space around every non-inline element, runs of `[\t\n\f\r ]`
+collapsed, the early stop past `max+2` bytes (so multi-byte text gets shorter excerpts, as in
+PocketBase), the cut at `max` characters and the `...`. Go's int overflow for a huge `max`
+(nothing is gathered) is reproduced too.
+- Nesting is bounded as in Go's `x/net/html`, which refuses a document once its stack of open
+  elements passes 512: an element deeper than 512 (`html`, `body` and 510 `div`s are fine,
+  511 aren't) fails the excerpt, and the answer is then sent unpicked, all of it, as
+  PocketBase does. The parser is fed 16 KiB at a time and stops at once: HTML5 tree
+  construction takes time quadratic in the nesting, and a stored 400,000-deep document would
+  otherwise hold a CPU for minutes on every request for its excerpt.
+- The text is gathered with an explicit stack rather than recursion, and excerpts are made on
+  a blocking thread, off the async workers.
+
+The excerpts were compared with PocketBase 0.40.5's on a corpus of editor output and corner
+cases plus 5,300 random documents (tags of every kind, misnested and unclosed, entities,
+comments, Unicode, odd whitespace) at 8 settings each: 42,400 excerpts, all the same but one
+document's. There, `<template>` before any body content then a `<frameset>` inside the body,
+Go's parser drops the text: it resets `frameset-ok` when it implies the `<body>`, which the
+HTML spec doesn't (`x/net/html` v0.39 `afterHeadIM`); html5ever follows the spec and keeps
+it. `compat/tests/excerpts.json` holds PocketBase's excerpts of the corpus and 300 of the
+documents, and the compatibility suite checks slonbase against them in CI.
 
 A sweep runs relation-path operands against every operator and value kind in PostgreSQL to check
 the generated SQL is always accepted.

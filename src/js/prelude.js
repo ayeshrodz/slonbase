@@ -126,6 +126,48 @@
     return v === undefined ? undefined : JSON.parse(JSON.stringify(v));
   }
 
+  // PocketBase's list.ToUniqueStringSlice: a list (or a JSON list in a string, or one string)
+  // of non-empty strings, without duplicates
+  function uniqueStrings(v) {
+    let list = [];
+    if (Array.isArray(v)) {
+      list = v.map((x) => (x === null || x === undefined ? "" : String(x)));
+    } else if (typeof v === "string" && v !== "") {
+      list = [v];
+      if (v.includes("[")) {
+        try {
+          const parsed = JSON.parse(v);
+          if (Array.isArray(parsed) && parsed.every((x) => typeof x === "string")) list = parsed;
+        } catch (_) {}
+      }
+    }
+    return list.filter((x, i) => x !== "" && list.indexOf(x) === i);
+  }
+  // a file field's names and uploads ({_upload, name, ...}), as a list
+  function fileList(v) {
+    const list = Array.isArray(v) ? v : v === null || v === undefined || v === "" ? [] : [v];
+    return list.filter((x) => x !== null && x !== undefined && x !== "");
+  }
+  function fileName(x) {
+    return typeof x === "string" ? x : (x && x.name) || "";
+  }
+  // spf13/cast's ToFloat64 and ToString, as PocketBase's setters use them
+  function goFloat(v) {
+    if (typeof v === "number") return Number.isFinite(v) ? v : 0;
+    if (typeof v === "boolean") return v ? 1 : 0;
+    // (Go's ParseFloat: no surrounding spaces, no hex without an exponent; else 0)
+    if (typeof v === "string" && /^[+-]?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/.test(v)) {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : 0;
+    }
+    return 0;
+  }
+  function goString(v) {
+    if (v === null || v === undefined) return "";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v);
+  }
+
   class Record {
     // `collection` is a collection from $app.findCollectionByNameOrId() (or its name)
     constructor(collection, data) {
@@ -171,11 +213,81 @@
       this._original = null;
     }
     get(key) {
+      // (as in PocketBase, for backward compatibility)
+      if (key === "expand") return this.expand();
       const v = this._data[key];
       return v === undefined ? null : v;
     }
+    // as PocketBase's Record.set: `expand` sets the expand, modifiers (`tags+`, `+tags`,
+    // `tags-`, `views+`, `views-`, `code:autogenerate`) change their field, and other keys are
+    // stored as given
     set(key, value) {
-      this._data[key] = value;
+      if (key === "expand") {
+        this._expand = value && typeof value === "object" ? clone(value) : {};
+        return;
+      }
+      const setter = this._modifier(String(key));
+      if (setter) setter(value);
+      else this._data[key] = value;
+    }
+    _modifier(key) {
+      if (!(key.startsWith("+") || key.endsWith("+") || key.endsWith("-") || key.endsWith(":autogenerate"))) {
+        return null;
+      }
+      let c = null;
+      try {
+        c = this.collection();
+      } catch (_) {
+        return null;
+      }
+      for (const f of (c && c.fields) || []) {
+        const name = f.name;
+        const current = () => this._data[name];
+        const put = (v) => (this._data[name] = v);
+        switch (f.type) {
+          case "select":
+          case "relation": {
+            const one = (f.maxSelect || 0) <= 1;
+            const norm = (list) => (one ? (list.length ? list[list.length - 1] : "") : list);
+            if (key === "+" + name) return (v) => put(norm(uniqueStrings([...uniqueStrings(v), ...uniqueStrings(current())])));
+            if (key === name + "+") return (v) => put(norm(uniqueStrings([...uniqueStrings(current()), ...uniqueStrings(v)])));
+            if (key === name + "-") {
+              return (v) => {
+                const remove = uniqueStrings(v);
+                put(norm(uniqueStrings(current()).filter((x) => !remove.includes(x))));
+              };
+            }
+            break;
+          }
+          case "file": {
+            const one = (f.maxSelect || 0) <= 1;
+            const norm = (list) => (one ? (list.length ? list[list.length - 1] : "") : list);
+            if (key === "+" + name) return (v) => put(norm([...fileList(v), ...fileList(current())]));
+            if (key === name + "+") return (v) => put(norm([...fileList(current()), ...fileList(v)]));
+            if (key === name + "-") {
+              return (v) => {
+                const remove = fileList(v).map(fileName);
+                put(norm(fileList(current()).filter((x) => !remove.includes(fileName(x)))));
+              };
+            }
+            break;
+          }
+          case "number":
+            if (key === name + "+") return (v) => put(goFloat(current()) + goFloat(v));
+            if (key === name + "-") return (v) => put(goFloat(current()) - goFloat(v));
+            break;
+          case "text":
+            if (key === name + ":autogenerate") {
+              return (v) => {
+                let text = goString(v);
+                if (f.autogeneratePattern) text += call("randomStringByRegex", f.autogeneratePattern);
+                put(text);
+              };
+            }
+            break;
+        }
+      }
+      return null;
     }
     load(data) {
       for (const key of Object.keys(data || {})) {
@@ -953,6 +1065,7 @@
 
   const $security = {
     randomString: (n) => call("randomString", n || 0, ""),
+    randomStringByRegex: (pattern) => call("randomStringByRegex", String(pattern)),
     randomStringWithAlphabet: (n, alphabet) => call("randomString", n || 0, alphabet || ""),
     pseudorandomString: (n) => call("randomString", n || 0, ""),
     sha256: (text) => call("hash", "sha256", String(text)),
