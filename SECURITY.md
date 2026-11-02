@@ -8,7 +8,8 @@ to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 1.4.x | ✅ |
+| 1.5.x | ✅ |
+| 1.4.x | ✅ until three months after 1.5.0 (February 2, 2027) |
 | 1.3.x | ✅ until three months after 1.4.0 (February 1, 2027) |
 | 1.2.x | ✅ until three months after 1.3.0 (February 1, 2027) |
 | 1.1.x | ✅ until three months after 1.2.0 (January 31, 2027) |
