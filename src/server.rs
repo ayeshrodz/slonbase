@@ -279,8 +279,9 @@ const COMPRESS_BELOW: usize = 8 << 20;
 /// level 2, cost lists a fifth of their throughput on the benchmark; brotli several times
 /// more CPU per answer.)
 ///
-/// Never compressed: answers on the paths above, any answer whose JSON has a `"token"` key (a
-/// custom route's sign-in, say), answers that ask not to be transformed
+/// Never compressed: answers on the paths above, any answer whose JSON has a key that names a
+/// secret (`"token"`, `"accessToken"`, `"secret"`, `"password"`...: a custom route's sign-in,
+/// say), answers that ask not to be transformed
 /// (`Cache-Control: no-transform`), and anything but JSON (files are served as stored).
 async fn compress_json(
     axum::extract::State(enabled): axum::extract::State<bool>,
@@ -324,7 +325,7 @@ async fn compress_json(
             return (StatusCode::INTERNAL_SERVER_ERROR, "").into_response();
         }
     };
-    if !wants_gzip || memchr::memmem::find(&bytes, b"\"token\"").is_some() {
+    if !wants_gzip || has_secret_key(&bytes) {
         return Response::from_parts(parts, axum::body::Body::from(bytes));
     }
     let gzipped = gzip(&bytes);
@@ -334,6 +335,31 @@ async fn compress_json(
         axum::http::HeaderValue::from_static("gzip"),
     );
     Response::from_parts(parts, axum::body::Body::from(gzipped))
+}
+
+/// JSON keys whose values are secrets, as a custom route may name them (`"token"` in
+/// PocketBase's own answers).
+const SECRET_KEYS: &[&[u8]] = &[
+    b"\"token\":",
+    b"\"accessToken\":",
+    b"\"access_token\":",
+    b"\"refreshToken\":",
+    b"\"refresh_token\":",
+    b"\"idToken\":",
+    b"\"id_token\":",
+    b"\"secret\":",
+    b"\"clientSecret\":",
+    b"\"client_secret\":",
+    b"\"password\":",
+    b"\"apiKey\":",
+    b"\"api_key\":",
+];
+
+/// Whether a JSON answer has a key from [`SECRET_KEYS`] (as serde writes JSON, without spaces).
+fn has_secret_key(json: &[u8]) -> bool {
+    SECRET_KEYS
+        .iter()
+        .any(|key| memchr::memmem::find(json, key).is_some())
 }
 
 /// Whether `Accept-Encoding` takes gzip (`gzip`, `x-gzip` or `*`, without `q=0`).
@@ -609,6 +635,25 @@ mod tests {
             }
         }
         assert!(gzip(&data).len() * 2 < data.len());
+    }
+
+    #[test]
+    fn secret_keys() {
+        for json in [
+            r#"{"token":"x"}"#,
+            r#"{"data":{"access_token":"x"}}"#,
+            r#"[{"refreshToken":"x"}]"#,
+            r#"{"clientSecret":""}"#,
+        ] {
+            assert!(has_secret_key(json.as_bytes()), "{json}");
+        }
+        for json in [
+            r#"{"type":"password","name":"token"}"#,
+            r#"{"authToken":{"duration":604800}}"#,
+            r#"{"title":"a \"token\" in text"}"#,
+        ] {
+            assert!(!has_secret_key(json.as_bytes()), "{json}");
+        }
     }
 
     #[test]

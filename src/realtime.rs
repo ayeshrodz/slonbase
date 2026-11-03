@@ -220,6 +220,14 @@ pub fn written(core: &Core) {
 }
 
 impl Hub {
+    /// A transaction committed that may have written records without saying so (SQL run in
+    /// it): the reader here looks now, and the other instances are told (both coalesce, and the
+    /// totals go stale only if events turn up).
+    pub(crate) fn maybe_written(&self) {
+        self.poll.notify_one();
+        self.announce.notify_one();
+    }
+
     fn register(&self, id: &str) -> mpsc::Receiver<Message> {
         let (sender, receiver) = mpsc::channel(CLIENT_BUFFER);
         self.clients.lock().expect("hub lock").insert(
@@ -1166,22 +1174,36 @@ async fn deliver_events(core: &Arc<Core>, ids: &[i64]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// How often new events are looked for without being told (writes made where nothing
-/// announces them, such as raw SQL on slonbase's connections).
+/// How often new events are looked for without being told, after events or a wake (writes are
+/// announced: by this instance's own commits, the other instances' notices and the triggers of
+/// other programs' connections; the timer covers a notice that was lost).
 const POLL_EVERY: Duration = Duration::from_millis(500);
+/// And how often at most while nothing comes: the interval doubles up to this.
+const POLL_IDLE: Duration = Duration::from_secs(5);
 /// Writes announced to the other instances at most this often (one notice for all of them).
 const ANNOUNCE_EVERY: Duration = Duration::from_millis(5);
 
-/// The events committed after the snapshot `since` (visible now, not then) and the current
-/// snapshot: every event once, in commit order, whatever order their ids were given in.
+/// The events committed since `since` (a snapshot), and the snapshot after them.
+///
+/// An event wasn't visible in `since` when its transaction was in progress then
+/// (`pg_snapshot_xip`) or started after (`xid >= pg_snapshot_xmax`): two index lookups, so a
+/// transaction left open for minutes (which holds back the snapshot's `xmin`) doesn't make each
+/// read scan every event committed since. (Event ids don't follow transaction ids: a
+/// transaction can take its event's id before its own id, so ids can't stand in for them.) The
+/// next snapshot is taken by the same statement, so nothing committed in between is missed or
+/// read twice.
 async fn events_since(core: &Core, since: &str) -> anyhow::Result<(String, Vec<i64>)> {
     let client = core.pool.get().await.map_err(db::describe_pool_error)?;
     let row = client
         .query_one(
             "SELECT pg_current_snapshot()::text, coalesce((
-                 SELECT array_agg(e.id ORDER BY e.id) FROM _slonbase.events e
-                 WHERE e.xid >= pg_snapshot_xmin($1::text::pg_snapshot)
-                   AND NOT pg_visible_in_snapshot(e.xid, $1::text::pg_snapshot)
+                 SELECT array_agg(n.id ORDER BY n.id) FROM (
+                     SELECT e.id FROM _slonbase.events e
+                     WHERE e.xid >= pg_snapshot_xmax($1::text::pg_snapshot)
+                     UNION
+                     SELECT e.id FROM _slonbase.events e
+                     WHERE e.xid = ANY(ARRAY(SELECT pg_snapshot_xip($1::text::pg_snapshot)))
+                 ) n
              ), '{}')",
             &[&since],
         )
@@ -1189,10 +1211,13 @@ async fn events_since(core: &Core, since: &str) -> anyhow::Result<(String, Vec<i
     Ok((row.get(0), row.get(1)))
 }
 
-/// Reads new events whenever woken (or every [`POLL_EVERY`]) and hands them to `delivery`.
+/// Reads new events whenever woken, and otherwise every [`POLL_EVERY`], backing off to
+/// [`POLL_IDLE`] while nothing comes (this instance's writes and the other instances' notices
+/// wake it at once; the timer only covers a lost notification). Hands them to `delivery`.
 fn spawn_poller(core: Weak<Core>, delivery: mpsc::Sender<i64>) {
     tokio::spawn(async move {
         let mut since: Option<String> = None;
+        let mut every = POLL_EVERY;
         loop {
             let Some(core) = core.upgrade() else { return };
             let wake = core.realtime.poll.clone();
@@ -1202,9 +1227,12 @@ fn spawn_poller(core: Weak<Core>, delivery: mpsc::Sender<i64>) {
                 Some(since) => events_since(&core, since).await,
             };
             match result {
-                Ok((snapshot, ids)) => {
-                    since = Some(snapshot);
-                    if !ids.is_empty() {
+                Ok((next, ids)) => {
+                    since = Some(next);
+                    if ids.is_empty() {
+                        every = (every * 2).min(POLL_IDLE);
+                    } else {
+                        every = POLL_EVERY;
                         // (written elsewhere, perhaps without a notice: totals are stale)
                         core.counts.changed();
                         for id in ids {
@@ -1213,11 +1241,14 @@ fn spawn_poller(core: Weak<Core>, delivery: mpsc::Sender<i64>) {
                     }
                 }
                 Err(err) => {
+                    every = POLL_EVERY;
                     tracing::debug!(error = %format!("{err:#}"), "failed to read new events")
                 }
             }
             drop(core);
-            let _ = tokio::time::timeout(POLL_EVERY, wake.notified()).await;
+            if tokio::time::timeout(every, wake.notified()).await.is_ok() {
+                every = POLL_EVERY;
+            }
         }
     });
 }

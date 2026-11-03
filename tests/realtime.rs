@@ -961,3 +961,70 @@ async fn fields_with_nested_paths_and_excerpts() {
     assert_eq!(data["record"]["title"], "T");
     assert_eq!(data["record"]["body"], "<p>Hello <b>realtime</b> world</p>");
 }
+
+/// A transaction that wrote, stayed open while later writes were delivered and then committed
+/// (so its event's id is below ids already read) is delivered once, when it commits.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn delivers_late_commits_once() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "notes", "listRule": "", "viewRule": "", "createRule": "",
+            "fields": [{ "name": "title", "type": "text" }],
+        })),
+    )
+    .await;
+    let mut stream = Stream::open(&app).await;
+    subscribe(&app, None, &stream.client_id, &["notes/*"]).await;
+
+    let (mut slow, conn) = tokio_postgres::connect(&tdb.url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    let tx = slow.transaction().await.unwrap();
+    tx.batch_execute("INSERT INTO slonbase.notes (id, title) VALUES ('latecommit0001', 'late')")
+        .await
+        .unwrap();
+
+    for title in ["one", "two"] {
+        request(
+            &app,
+            "POST",
+            "/api/collections/notes/records",
+            &[],
+            Some(json!({ "title": title })),
+        )
+        .await;
+        let (_, data) = stream.expect().await;
+        assert_eq!(data["record"]["title"], title);
+    }
+    stream.expect_none().await;
+
+    tx.commit().await.unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["record"]["title"], "late");
+    stream.expect_none().await;
+
+    // and later writes still arrive (the cursor moved past all of them)
+    request(
+        &app,
+        "POST",
+        "/api/collections/notes/records",
+        &[],
+        Some(json!({ "title": "three" })),
+    )
+    .await;
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["record"]["title"], "three");
+    stream.expect_none().await;
+    drop(slow);
+    drop(app);
+    tdb.drop_db().await;
+}

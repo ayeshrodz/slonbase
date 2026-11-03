@@ -139,3 +139,49 @@ async fn dry_run_view_needs_the_sql_console() {
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{res}");
 }
+
+/// Whatever a previewed query leaves on its connection (an advisory lock here, which a
+/// rollback doesn't release) goes away with it: the connection isn't reused.
+#[tokio::test]
+async fn dry_run_view_leaves_no_session_state() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let auth = format!("Bearer {token}");
+    for query in [
+        "SELECT 'x' AS id, pg_advisory_lock(4242) AS locked",
+        // and when the query fails after taking it
+        "SELECT 'x' AS id, pg_advisory_lock(4243)::text::int AS locked",
+    ] {
+        request(
+            &app,
+            "POST",
+            "/api/collections/meta/dry-run-view",
+            &[("authorization", auth.as_str())],
+            Some(json!({ "query": query })),
+        )
+        .await;
+    }
+    let client = tdb.pool().get().await.unwrap();
+    let mut held = -1;
+    for _ in 0..50 {
+        held = client
+            .query_one(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid IN (4242, 4243) \
+                 AND database = (SELECT oid FROM pg_database WHERE datname = current_database())",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get::<_, i64>(0);
+        if held == 0 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(held, 0, "advisory locks outlived the preview");
+    drop(client);
+    tdb.drop_db().await;
+}

@@ -539,6 +539,9 @@ impl FileEffects {
                         tracing::warn!(error = %format!("{err:#}"), "failed to delete record files");
                     }
                 }
+                // SQL run in the transaction may have written records too (`$app.db()` in a
+                // hook): they're read and announced at once, not on the reader's timer
+                core.realtime.maybe_written();
                 Hooks::committed(core, self.changes);
                 // writes that failed in a transaction that went on (an error caught in a
                 // migration)

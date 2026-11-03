@@ -368,16 +368,24 @@ queue at commit for any transaction that notified, so every write committed one 
 pgbench measured 352 inserts per second with the trigger and its NOTIFY against 7,108 with the
 trigger alone (32 clients, the same machine). 1.7 takes the notification out of the write:
 - Each instance's poller remembers a snapshot (`pg_current_snapshot()`) and reads the events
-  of transactions that weren't visible in it, `xid >= pg_snapshot_xmin(prev) AND NOT
-  pg_visible_in_snapshot(xid, prev)`, in the same statement that takes the next snapshot. A
-  transaction that commits late (with a smaller id than events already read) is still read
-  once, and no event is read twice, whatever the commit order.
+  of transactions that weren't visible in it, in the same statement that takes the next
+  snapshot: those in progress then (`xid = ANY(pg_snapshot_xip(prev))`) and those that started
+  after (`xid >= pg_snapshot_xmax(prev)`), two index lookups. A transaction that commits late
+  (with a smaller id than events already read) is still read once, and no event is read
+  twice, whatever the commit order. (1.7 asked for `xid >= xmin AND NOT visible`, which is
+  the same set, but scanned every event committed since the oldest open transaction began:
+  a transaction left open for minutes made each read go through minutes of events. Event ids
+  can't stand in for transaction ids, either: a soak test showed transactions taking their
+  event's id before their own.)
 - A write through the API wakes the local poller at once. Other instances hear of it through
   one coalesced `changed` notification, sent outside the write transaction, at most every 5 ms,
   and only while there are other live instances.
 - The pool's connections set `slonbase.notify = off`, which the trigger reads; other programs
-  (psql, a worker) don't, so their writes still notify, and every poller also runs every
-  500 ms as a fallback.
+  (psql, a worker) don't, so their writes still notify. A commit through slonbase that may
+  have run SQL writes (a hook's `$app.db()` in a transaction) wakes the poller and the
+  announcer too. As a fallback for a lost notification, each poller also reads every 500 ms
+  after activity, backing off to every 5 s while idle (1.8; before, every 500 ms always:
+  about 170,000 queries a day per idle instance).
 
 **Forwarded subscriptions.** A `POST /api/realtime` for a client whose stream is on another
 instance is stored in `_slonbase.realtime_forwards` and announced (`forward:{id}:{instance}:{client}`).

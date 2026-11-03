@@ -7,9 +7,64 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [What 1.7 added (1.8.0)](#what-17-added-180): view previews, response compression and the
+  outbox reader.
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## What 1.7 added (1.8.0)
+
+A review, in November 2026, of the three things 1.7 added that handle untrusted input or
+shared state: view previews (`POST /api/collections/meta/dry-run-view`, which runs SQL a
+superuser types), gzip compression of JSON answers (whose safety against BREACH depends on
+which answers it leaves alone), and the outbox reader that replaced per-write notifications.
+It found three problems, which are fixed.
+
+### 1. A previewed query could leave locks on a pooled connection (low)
+
+Previews run in a read-only transaction that's rolled back, which undoes everything a
+transaction can undo; but a session-level advisory lock (`SELECT pg_advisory_lock(1)`)
+outlives the rollback, and the connection went back to the pool holding it. The dashboard
+previews a view as it's typed, so a half-written query could leave locks behind for other
+requests to wait on. Only a superuser can preview, and only with the SQL console enabled, so
+this was no escalation, but a preview shouldn't change anything. The connection is now closed
+after every preview, whatever the query did (`dry_run_view_leaves_no_session_state`).
+
+### 2. A custom route's tokens could be compressed (low)
+
+The answers left uncompressed were those on PocketBase's sign-in, refresh, impersonation,
+file token, setup and Apple paths, and any answer with a `"token"` key. A JavaScript route
+that signs users in and names its token otherwise (`accessToken`, `refresh_token`) would have
+been gzipped, and so exposed to BREACH if a page reflects attacker text next to it. Answers
+with any of a list of secret keys (`token`, `accessToken`, `access_token`, `refreshToken`,
+`refresh_token`, `idToken`, `id_token`, `secret`, `clientSecret`, `client_secret`,
+`password`, `apiKey`, `api_key`) are now left alone; the check matches keys, not values, so
+a field of type `password` doesn't turn it off.
+
+### 3. A transaction left open made every outbox read slower (low)
+
+The reader asked for events with `xid >= pg_snapshot_xmin(prev)` not visible in its last
+snapshot. A transaction left open (a forgotten `BEGIN` in psql, an idle worker) holds the
+snapshot's `xmin` back, so each read scanned every event committed since: measured, 17 ms
+per read after 100,000 events, growing with the writes, and reads run on every write. Anyone
+who could connect to the database could cause it, by accident. The reader now looks up only
+the transactions in progress at its last snapshot and the ones that started after it, two
+index lookups (0.7–3 ms in the same test); `delivers_late_commits_once` covers a late
+commit, and the soak test covers ordering under load.
+
+### Checked and sound
+
+- Previews can't write: `nextval()`, `INSERT` in a CTE and functions that write fail in the
+  read-only transaction; `set_config()` is undone by the rollback; `statement_timeout` is set
+  for the transaction before the query runs, and a query that changes it only affects
+  statements after itself (there are none).
+- Request logs keep `token`, `code` and `state` out of logged URLs, so the log list doesn't
+  put a secret next to attacker-chosen text (user agents, referers) in a compressed answer.
+- Settings and collections send masked secrets (empty SMTP password and S3 secrets, no OAuth2
+  client secrets).
+- The `changed` notification carries nothing: any role that can `NOTIFY` on the database can
+  only make instances read the outbox early.
 
 ## The platform (1.1.0)
 

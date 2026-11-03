@@ -94,7 +94,9 @@ the SQL console to be enabled (`--sql-console`). Existing views keep working wit
 Before saving a view, `POST /api/collections/meta/dry-run-view` with `{"query": "SELECT ..."}`
 returns the fields slonbase would make of it and its first rows, `{"fields": [...], "sample":
 [...]}`, which is what the dashboard's view editor shows as you type. The query runs read-only
-(it can't change data, even through a function) with a 15-second limit, and a query that can't
+(it can't change data, even through a function, unless the database has an extension that
+connects elsewhere, like `dblink`) on a connection that's closed afterwards, with a
+15-second limit, and a query that can't
 make a view (PostgreSQL refuses it, or its rows have empty or repeated ids) gets a 400 with
 the reason.
 

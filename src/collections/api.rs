@@ -852,34 +852,42 @@ pub async fn dry_run_view(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    let tx = client
-        .build_transaction()
-        .read_only(true)
-        .start()
+    // The query may leave session state behind that a rollback doesn't undo (an advisory lock
+    // taken by `pg_advisory_lock()`, say), and previews run as the query is typed: the
+    // connection is closed afterwards instead of going back to the pool.
+    let ran = async {
+        let tx = client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
+        tx.batch_execute(&format!(
+            "{}; SET LOCAL statement_timeout = '15s'",
+            super::view::SEARCH_PATH
+        ))
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    tx.batch_execute(&format!(
-        "{}; SET LOCAL statement_timeout = '15s'",
-        super::view::SEARCH_PATH
-    ))
-    .await
-    .map_err(|e| ApiError::internal(e.into()))?;
-    let fields = super::view::infer_fields(&tx, &query, &[])
-        .await
-        .map_err(|message| {
-            ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
-        })?;
-    let rows = tx
-        .query(&super::view::sample(&query, &fields, 10), &[])
-        .await
-        .map_err(|e| {
-            let message = e
-                .as_db_error()
-                .map(|db| db.message().to_string())
-                .unwrap_or_else(|| e.to_string());
-            ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
-        })?;
-    drop(tx);
+        let fields = super::view::infer_fields(&tx, &query, &[])
+            .await
+            .map_err(|message| {
+                ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
+            })?;
+        let rows = tx
+            .query(&super::view::sample(&query, &fields, 10), &[])
+            .await
+            .map_err(|e| {
+                let message = e
+                    .as_db_error()
+                    .map(|db| db.message().to_string())
+                    .unwrap_or_else(|| e.to_string());
+                ApiError::bad_request(format!("Invalid view query. Raw error: \n{message}"))
+            })?;
+        Ok::<_, ApiError>((fields, rows))
+    }
+    .await;
+    let _ = deadpool_postgres::Object::take(client);
+    let (fields, rows) = ran?;
     let temp = parse(Map::from_iter([
         (
             "id".to_string(),
