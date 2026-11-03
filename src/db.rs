@@ -42,7 +42,14 @@ fn parse_url(url: &str, cfg: &DatabaseConfig) -> Result<tokio_postgres::Config> 
 /// Builds a connection pool. Connections are opened lazily,
 /// so call [`check_server`] to verify the database is reachable.
 pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
-    let pg = parse_url(url, cfg)?;
+    let mut pg = parse_url(url, cfg)?;
+    // the realtime triggers don't NOTIFY for slonbase's own writes: it announces them after
+    // they commit (see `realtime::written`), so writes don't queue on PostgreSQL's notify lock
+    let options = match pg.get_options() {
+        Some(own) if !own.is_empty() => format!("{own} -c slonbase.notify=off"),
+        _ => "-c slonbase.notify=off".to_string(),
+    };
+    pg.options(&options);
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let manager = Manager::from_config(
         pg,

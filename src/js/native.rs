@@ -691,6 +691,9 @@ async fn db_query(
     // row changes reach the realtime triggers, a TRUNCATE doesn't
     if result.is_ok() && sql.to_ascii_lowercase().contains("truncate") {
         core.data_changed_everywhere(&client).await;
+    } else if result.is_ok() {
+        // the poller picks up what the triggers recorded
+        crate::realtime::written(core);
     }
     if client.batch_execute("RESET search_path").await.is_err() {
         // not back to the pool with this search path

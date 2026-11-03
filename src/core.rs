@@ -255,7 +255,7 @@ impl Core {
         &self,
         client: &impl deadpool_postgres::GenericClient,
     ) {
-        self.counts.changed();
+        crate::realtime::written(self);
         if let Err(err) = crate::realtime::notify(client, "changed").await {
             tracing::debug!(error = %err, "failed to tell the other instances about a data change");
         }

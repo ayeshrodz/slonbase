@@ -626,6 +626,31 @@ async fn delivers_changes_made_outside_the_api() {
         (Some("delete"), Some("sqlnote0000001"))
     );
 
+    // from another program's connection (which, unlike slonbase's pool, notifies)
+    let (other, conn) = tokio_postgres::connect(&tdb.url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    let notify: Option<String> = client
+        .query_one("SELECT current_setting('slonbase.notify', true)", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(notify.as_deref(), Some("off"), "the pool doesn't notify");
+    other
+        .batch_execute("INSERT INTO slonbase.notes (id, title) VALUES ('sqlnote0000009', 'psql')")
+        .await
+        .unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["record"]["title"], "psql");
+    other
+        .batch_execute("DELETE FROM slonbase.notes WHERE id = 'sqlnote0000009'")
+        .await
+        .unwrap();
+    let (_, data) = stream.expect().await;
+    assert_eq!(data["action"], "delete");
+    drop(other);
+
     // a rolled-back change, and a session that turned them off, send nothing
     client
         .batch_execute(

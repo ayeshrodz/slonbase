@@ -12,7 +12,7 @@
 //! topics) or `viewRule` (for `collection/{id}` topics), evaluated in one SQL query per
 //! event against the event's record values (which also works for deleted records).
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -190,6 +190,10 @@ pub struct Hub {
     others: std::sync::atomic::AtomicUsize,
     /// Whether this instance told the others it started (so they count it right away).
     announced: std::sync::atomic::AtomicBool,
+    /// Wakes the poller reading new events (a write here, or a notice from elsewhere).
+    poll: Arc<tokio::sync::Notify>,
+    /// Wakes the task telling the other instances that this one wrote.
+    announce: Arc<tokio::sync::Notify>,
 }
 
 impl Default for Hub {
@@ -200,8 +204,19 @@ impl Default for Hub {
             forwards: Mutex::default(),
             others: Default::default(),
             announced: Default::default(),
+            poll: Default::default(),
+            announce: Default::default(),
         }
     }
+}
+
+/// Something was written through this instance's connections (which don't NOTIFY from the
+/// triggers): totals are stale, new events are to be read here, and the other instances are
+/// told, once for all the writes of the next few milliseconds.
+pub fn written(core: &Core) {
+    core.counts.changed();
+    core.realtime.poll.notify_one();
+    core.realtime.announce.notify_one();
 }
 
 impl Hub {
@@ -1086,29 +1101,6 @@ async fn render(
 // ---------------------------------------------------------------------------
 // the listener
 
-/// Remembers recently delivered event ids, so catch-up after a reconnect doesn't
-/// deliver events twice.
-#[derive(Default)]
-struct Seen {
-    order: VecDeque<i64>,
-    set: HashSet<i64>,
-}
-
-impl Seen {
-    fn insert(&mut self, id: i64) -> bool {
-        if !self.set.insert(id) {
-            return false;
-        }
-        self.order.push_back(id);
-        if self.order.len() > 10_000 {
-            if let Some(old) = self.order.pop_front() {
-                self.set.remove(&old);
-            }
-        }
-        true
-    }
-}
-
 /// Events read per query by the delivery task.
 const EVENT_BATCH: usize = 500;
 /// Events whose subscribers are checked and rendered at once (each takes a pooled connection
@@ -1174,11 +1166,91 @@ async fn deliver_events(core: &Arc<Core>, ids: &[i64]) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Hands a new event to the delivery task (once: catch-up may announce it again).
-async fn queue_event(delivery: &mpsc::Sender<i64>, seen: &mut Seen, id: i64) {
-    if seen.insert(id) {
-        let _ = delivery.send(id).await;
-    }
+/// How often new events are looked for without being told (writes made where nothing
+/// announces them, such as raw SQL on slonbase's connections).
+const POLL_EVERY: Duration = Duration::from_millis(500);
+/// Writes announced to the other instances at most this often (one notice for all of them).
+const ANNOUNCE_EVERY: Duration = Duration::from_millis(5);
+
+/// The events committed after the snapshot `since` (visible now, not then) and the current
+/// snapshot: every event once, in commit order, whatever order their ids were given in.
+async fn events_since(core: &Core, since: &str) -> anyhow::Result<(String, Vec<i64>)> {
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let row = client
+        .query_one(
+            "SELECT pg_current_snapshot()::text, coalesce((
+                 SELECT array_agg(e.id ORDER BY e.id) FROM _slonbase.events e
+                 WHERE e.xid >= pg_snapshot_xmin($1::text::pg_snapshot)
+                   AND NOT pg_visible_in_snapshot(e.xid, $1::text::pg_snapshot)
+             ), '{}')",
+            &[&since],
+        )
+        .await?;
+    Ok((row.get(0), row.get(1)))
+}
+
+/// Reads new events whenever woken (or every [`POLL_EVERY`]) and hands them to `delivery`.
+fn spawn_poller(core: Weak<Core>, delivery: mpsc::Sender<i64>) {
+    tokio::spawn(async move {
+        let mut since: Option<String> = None;
+        loop {
+            let Some(core) = core.upgrade() else { return };
+            let wake = core.realtime.poll.clone();
+            let result = match &since {
+                // from now on: what happened before is older than any subscription
+                None => current_snapshot(&core).await.map(|s| (s, Vec::new())),
+                Some(since) => events_since(&core, since).await,
+            };
+            match result {
+                Ok((snapshot, ids)) => {
+                    since = Some(snapshot);
+                    if !ids.is_empty() {
+                        // (written elsewhere, perhaps without a notice: totals are stale)
+                        core.counts.changed();
+                        for id in ids {
+                            let _ = delivery.send(id).await;
+                        }
+                    }
+                }
+                Err(err) => {
+                    tracing::debug!(error = %format!("{err:#}"), "failed to read new events")
+                }
+            }
+            drop(core);
+            let _ = tokio::time::timeout(POLL_EVERY, wake.notified()).await;
+        }
+    });
+}
+
+async fn current_snapshot(core: &Core) -> anyhow::Result<String> {
+    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    Ok(client
+        .query_one("SELECT pg_current_snapshot()::text", &[])
+        .await?
+        .get(0))
+}
+
+/// Tells the other instances (if there are any) that this one wrote, at most once per
+/// [`ANNOUNCE_EVERY`]: they read the new events then.
+fn spawn_announcer(core: Weak<Core>) {
+    tokio::spawn(async move {
+        loop {
+            let Some(wake) = core.upgrade().map(|c| c.realtime.announce.clone()) else {
+                return;
+            };
+            wake.notified().await;
+            let Some(core) = core.upgrade() else { return };
+            if core.realtime.other_instances() > 0 {
+                if let Ok(client) = core.pool.get().await {
+                    if let Err(err) = notify(&client, "changed").await {
+                        tracing::debug!(error = %err, "failed to announce a write");
+                    }
+                }
+            }
+            drop(core);
+            tokio::time::sleep(ANNOUNCE_EVERY).await;
+        }
+    });
 }
 
 async fn reload_collections(core: &Core) {
@@ -1261,8 +1333,9 @@ async fn heartbeat(core: &Core) {
 pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let weak = Arc::downgrade(core);
     let delivery = spawn_delivery(weak.clone());
+    spawn_poller(weak.clone(), delivery);
+    spawn_announcer(weak.clone());
     tokio::spawn(async move {
-        let mut seen = Seen::default();
         let mut delay = Duration::from_secs(1);
         let mut disconnected_at: Option<chrono::DateTime<chrono::Utc>> = None;
 
@@ -1282,30 +1355,12 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             delay = Duration::from_secs(1);
 
             // catch up on what happened while disconnected
-            if let (Some(since), Some(core)) = (disconnected_at.take(), weak.upgrade()) {
+            if let (Some(_), Some(core)) = (disconnected_at.take(), weak.upgrade()) {
                 tracing::info!("realtime listener reconnected, catching up");
                 reload_collections(&core).await;
                 reload_settings(&core).await;
-                let missed = async {
-                    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
-                    let rows = client
-                        .query(
-                            "SELECT id FROM _slonbase.events WHERE created >= $1::text::timestamptz - interval '5 seconds' ORDER BY id",
-                            &[&since.to_rfc3339()],
-                        )
-                        .await?;
-                    anyhow::Ok(rows.iter().map(|r| r.get::<_, i64>(0)).collect::<Vec<_>>())
-                };
-                match missed.await {
-                    Ok(ids) => {
-                        for id in ids {
-                            queue_event(&delivery, &mut seen, id).await;
-                        }
-                    }
-                    Err(err) => {
-                        tracing::error!(error = %format!("{err:#}"), "failed to catch up on events")
-                    }
-                }
+                // (missed events: the poller reads them by snapshot, whatever happened)
+                core.realtime.poll.notify_one();
             }
 
             let mut prune = tokio::time::interval(Duration::from_secs(60));
@@ -1317,8 +1372,10 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                         let Some(notification) = notification else { break };
                         let Some(core) = weak.upgrade() else { return };
                         let payload = notification.payload();
+                        // something was written (`event:` from instances before 1.7): read it
                         if payload.starts_with("event:") || payload == "changed" {
                             core.counts.changed();
+                            core.realtime.poll.notify_one();
                         }
                         if payload == "collections" {
                             reload_collections(&core).await;
@@ -1350,8 +1407,6 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                     let _ = waiting.send(held == "1");
                                 }
                             }
-                        } else if let Some(id) = payload.strip_prefix("event:").and_then(|s| s.parse().ok()) {
-                            queue_event(&delivery, &mut seen, id).await;
                         }
                     }
                     _ = schedule.tick() => {
@@ -1423,17 +1478,5 @@ mod tests {
         for bad in ["", "/x", "posts/", "posts/a/b", "posts?options=notjson"] {
             assert!(Topic::parse(bad).is_none(), "{bad}");
         }
-    }
-
-    #[test]
-    fn seen_ids() {
-        let mut seen = Seen::default();
-        assert!(seen.insert(1));
-        assert!(!seen.insert(1));
-        for i in 2..20_000 {
-            seen.insert(i);
-        }
-        assert!(seen.set.len() <= 10_000);
-        assert!(seen.insert(1), "old ids are forgotten");
     }
 }
