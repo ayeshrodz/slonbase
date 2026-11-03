@@ -94,6 +94,10 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
 
+    /// Don't gzip JSON answers (saves their CPU where bandwidth costs nothing).
+    #[arg(long, global = true, env = "SLONBASE_NO_COMPRESSION")]
+    no_compression: bool,
+
     /// Directory with JavaScript hooks (`*.pb.js`) [default: slonbase_hooks].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_DIR")]
     hooks_dir: Option<PathBuf>,
@@ -309,6 +313,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         backups_encryption_key: cli.backups_encryption_key,
         encryption_key: cli.encryption_key,
         sql_console: cli.sql_console.then_some(true),
+        compression: cli.no_compression.then_some(false),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,

@@ -1,4 +1,4 @@
-//! JSON answers are compressed for clients that take gzip or brotli, except small ones and
+//! JSON answers are gzipped for clients that take it, except small ones and
 //! those carrying tokens or secrets (BREACH). Needs PostgreSQL.
 
 mod common;
@@ -57,6 +57,8 @@ async fn compressed_json_answers() {
 
     let (_, headers, gz) = get("gzip", "/api/collections/notes/records?perPage=40").await;
     assert_eq!(headers["content-encoding"], "gzip");
+    assert_eq!(headers["content-length"], gz.len().to_string());
+    assert_eq!(headers["vary"], "accept-encoding");
     assert!(
         gz.len() * 4 < plain.len(),
         "{} vs {}",
@@ -69,13 +71,16 @@ async fn compressed_json_answers() {
         .unwrap();
     assert_eq!(serde_json::from_slice::<Value>(&out).unwrap(), expected);
 
-    let (_, headers, br) = get(
+    // gzip only: brotli isn't offered, whatever the client prefers
+    let (_, headers, gz) = get(
         "br;q=1, gzip;q=0.5",
         "/api/collections/notes/records?perPage=40",
     )
     .await;
-    assert_eq!(headers["content-encoding"], "br");
-    assert!(br.len() * 4 < plain.len());
+    assert_eq!(headers["content-encoding"], "gzip");
+    assert!(gz.len() * 4 < plain.len());
+    let (_, headers, _) = get("br", "/api/collections/notes/records?perPage=40").await;
+    assert!(headers.get("content-encoding").is_none());
 
     // small answers aren't worth it
     let (_, headers, _) = get("gzip", "/api/collections/notes/records?perPage=1").await;
@@ -111,4 +116,54 @@ async fn compressed_json_answers() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert!(headers.get("content-encoding").is_none());
+
+    // nor any JSON with a "token" key, wherever it comes from (a record's field here; a custom
+    // route's sign-in in practice)
+    let (status, _) = request(
+        &app,
+        "POST",
+        "/api/collections",
+        &admin,
+        Some(json!({ "name": "keys", "listRule": "", "fields": [{ "name": "token", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    for i in 0..40 {
+        request(
+            &app,
+            "POST",
+            "/api/collections/keys/records",
+            &admin,
+            Some(json!({ "token": format!("secret-{i:04}-abcdefghijklmnopqrstuvwxyz") })),
+        )
+        .await;
+    }
+    let (_, headers, body) = get("gzip", "/api/collections/keys/records?perPage=40").await;
+    assert!(body.len() > 1024);
+    assert!(headers.get("content-encoding").is_none());
+    serde_json::from_slice::<Value>(&body).unwrap();
+}
+
+#[tokio::test]
+async fn compression_can_be_turned_off() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.compression = Some(false)).await;
+    let (_, headers, body) = raw_request(
+        &app,
+        "GET",
+        "/api/collections",
+        &[
+            ("accept-encoding", "gzip"),
+            ("authorization", token.as_str()),
+        ],
+        Vec::new(),
+    )
+    .await;
+    assert!(body.len() > 1024, "{}", body.len());
+    assert!(headers.get("content-encoding").is_none());
+    serde_json::from_slice::<Value>(&body).unwrap();
+    tdb.drop_db().await;
 }

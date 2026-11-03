@@ -22,11 +22,13 @@ bcrypt = "0.19.3"
 bytes = "1.12.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
+crc32fast = "1.5.2"
 deadpool-postgres = "0.14.2"
-flate2 = "1.1.10"
+flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.34", default-features = false, features = ["std", "sink"] }
 hex = "0.4.3"
+memchr = "2.8.3"
 hmac = "0.13.0"
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 infer = "0.22.0"
@@ -48,7 +50,7 @@ tokio-postgres = { version = "0.7.18", features = ["with-chrono-0_4", "with-serd
 tokio-postgres-rustls = "0.14.0"
 toml = "1.1.8"
 tower = { version = "0.5.3", features = ["util"] }
-tower-http = { version = "0.7.1", features = ["trace", "compression-br", "compression-gzip"] }
+tower-http = { version = "0.7.1", features = ["trace"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 webpki-roots = "1.0.9"
