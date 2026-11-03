@@ -744,9 +744,9 @@ fn reported(err: &ApiError) -> bool {
 
 /// Creates a record in `tx` and returns it as the caller sees it; a failure is reported to
 /// the after-error hooks.
-pub(crate) async fn create_in(
+pub(crate) async fn create_in<C: TextQuery + GenericClient>(
     ctx: &WriteContext<'_>,
-    tx: &Transaction<'_>,
+    tx: &C,
     c: &Collection,
     body: Map<String, Value>,
     uploads: Vec<files::Upload>,
@@ -843,9 +843,9 @@ fn failed_change(
 }
 
 /// Creates a record in `tx` and returns it as the caller sees it.
-async fn create_checked(
+async fn create_checked<C: TextQuery + GenericClient>(
     ctx: &WriteContext<'_>,
-    tx: &Transaction<'_>,
+    tx: &C,
     c: &Collection,
     mut body: Map<String, Value>,
     uploads: Vec<files::Upload>,
@@ -900,9 +900,9 @@ async fn create_checked(
 
 /// The write of a create: inserts the record, checks the create rule against it and queues
 /// its realtime event.
-async fn insert_record(
+async fn insert_record<C: TextQuery>(
     ctx: &WriteContext<'_>,
-    tx: &Transaction<'_>,
+    tx: &C,
     c: &Collection,
     values: &Values,
     failed: &str,
@@ -1402,6 +1402,12 @@ pub(crate) async fn create_request(
             let mut effects = FileEffects::default();
             let outcome = async {
                 let mut client = pooled(ctx.core).await?;
+                if creates_without_transaction(ctx.core, &e.collection, &e.auth) {
+                    // one statement (after any reads): BEGIN and COMMIT would only add round
+                    // trips
+                    return create_in(&ctx, &client, &e.collection, body, uploads, &mut effects)
+                        .await;
+                }
                 let tx = transaction(&mut client).await?;
                 let record =
                     create_in(&ctx, &tx, &e.collection, body, uploads, &mut effects).await?;
@@ -1414,6 +1420,19 @@ pub(crate) async fn create_request(
             Ok(e)
         })
         .await
+}
+
+/// Whether a create writes with one statement and nothing after it that could undo it, so
+/// it can run outside a transaction (autocommit is the same as BEGIN, the statement, COMMIT,
+/// minus two round trips). Its reads before the INSERT (relation checks) see the same
+/// committed data either way. Not when an execute hook runs around the INSERT (it can fail
+/// after it) or the create rule is checked against the inserted record (a failed check rolls
+/// the INSERT back).
+fn creates_without_transaction(core: &Core, c: &Collection, auth: &RequestAuth) -> bool {
+    let rule_checked = !auth.is_superuser()
+        && c.rule(RuleAction::Create)
+            .is_some_and(|r| !r.trim().is_empty());
+    !rule_checked && !core.hooks.on_record_create_execute.has_handlers(Some(c))
 }
 
 /// `PATCH /api/collections/{collection}/records/{id}`
