@@ -206,7 +206,7 @@ crate that depends on slonbase and runs its command line from your own `main`:
 
 ```toml
 [dependencies]
-slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v1.7.0" }
+slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v1.8.0" }
 axum = "0.8"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
@@ -252,5 +252,8 @@ sets `e.response`). `hooks.on_ready` runs when the app is ready. Cron jobs run o
 and show up in the dashboard. Hooks, routes and cron jobs can read and write records with
 `core.find_record_by_id`, `find_records_by_filter`, `find_first_record_by_filter`,
 `count_records`, `save_record` and `delete_record` (no API rules; filters take `{:name}`
-placeholders).
+placeholders). Changes made with these reach realtime subscribers at once. SQL run on `core.pool`
+directly reaches them too, through the tables' triggers, but within about 5 seconds unless you
+call `slonbase::realtime::written(&core)` after committing (slonbase's connections don't send
+a notification per write).
 

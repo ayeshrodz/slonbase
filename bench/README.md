@@ -6,47 +6,47 @@ the same data on either server with the official SDK (100 authors, 10,000 posts 
 
 ## Results
 
-slonbase 1.7.0 and 1.6.0 (static musl release binaries; 1.6.0 as published), PostgreSQL 16
+slonbase 1.8.0 and 1.7.0 (static musl release binaries; 1.7.0 as published), PostgreSQL 16
 with default settings, and PocketBase 0.40.5 (the official release binary, default settings),
 on a 4-CPU cloud VM (Intel Xeon @ 2.80GHz, 15 GB): the server (and PostgreSQL) pinned to 3
 CPUs, the load generator to the fourth. Each scenario runs 3 times for 10 s after a 2 s
-warm-up; the table shows the medians, and ± is half the spread between the runs. (This VM was
-slower than the one 1.3 was measured on: compare within a table, not across them.)
+warm-up; the table shows the medians, and ± is half the spread between the runs. (Compare
+within a table: the VM's speed varies from day to day.)
 
-| Scenario | Clients | slonbase 1.7 req/s | slonbase 1.6 req/s | 1.7 / 1.6 | slonbase 1.7, async commit | PocketBase req/s | slonbase / PocketBase | async / PocketBase | p50 ms (slonbase / PB) | p99 ms (slonbase / PB) |
+| Scenario | Clients | slonbase 1.8 req/s | slonbase 1.7 req/s | 1.8 / 1.7 | slonbase 1.8, async commit | PocketBase req/s | slonbase / PocketBase | async / PocketBase | p50 ms (slonbase / PB) | p99 ms (slonbase / PB) |
 |---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|
-| health | 32 | 15,563 ±4% | 16,840 ±3% | 0.92× | 16,402 ±4% | 19,665 ±2% | 0.79× | 0.83× | 1.90 / 1.20 | 5.40 / 9.40 |
-| view one record | 32 | 10,128 ±8% | 10,736 ±2% | 0.94× | 10,487 ±4% | 8,299 ±5% | 1.22× | 1.26× | 3.00 / 2.20 | 7.30 / 30.8 |
-| view one record (1 client) | 1 | 1,938 ±5% | 2,106 ±13% | 0.92× | 2,205 ±10% | 2,059 ±4% | 0.94× | 1.07× | 0.50 / 0.40 | 1.10 / 1.80 |
-| list 30 | 32 | 4,871 ±3% | 5,590 ±3% | 0.87× | 4,979 ±4% | 1,030 ±1% | 4.73× | 4.83× | 6.20 / 25.7 | 13.4 / 108.1 |
-| list 30, sorted | 32 | 4,240 ±3% | 4,979 ±3% | 0.85× | 4,389 ±6% | 997 ±2% | 4.25× | 4.40× | 7.20 / 27.1 | 15.2 / 113.3 |
-| list 30, filtered | 32 | 4,304 ±1% | 4,988 ±5% | 0.86× | 4,475 ±9% | 71.9 ±2% | 59.84× | 62.22× | 7.10 / 441.5 | 15.5 / 684.6 |
-| list 30, expand author | 32 | 2,254 ±1% | 2,632 ±6% | 0.86× | 2,275 ±9% | 733 ±2% | 3.08× | 3.10× | 14.1 / 35.0 | 22.1 / 154.0 |
-| list 30, signed in | 32 | 3,705 ±1% | 4,000 ±6% | 0.93× | 3,678 ±4% | 977 ±5% | 3.79× | 3.77× | 8.50 / 28.1 | 15.0 / 102.0 |
-| create record | 32 | 3,121 ±1% | 1,899 ±5% | **1.64×** | 4,012 ±2% | 2,708 ±6% | 1.15× | 1.48× | 9.70 / 7.00 | 19.4 / 60.5 |
-| sign in (bcrypt) | 8 | 39.7 ±0% | 40.2 ±1% | 0.99× | 40.1 ±1% | 36.1 ±7% | 1.10× | 1.11× | 198.3 / 217.0 | 367.9 / 353.7 |
+| health | 32 | 14,561 ±1% | 12,684 ±10% | 1.15× | 15,190 ±7% | 18,663 ±4% | 0.78× | 0.81× | 2.00 / 1.20 | 5.80 / 8.80 |
+| view one record | 32 | 9,671 ±2% | 9,216 ±6% | 1.05× | 9,850 ±3% | 7,969 ±1% | 1.21× | 1.24× | 3.10 / 2.20 | 7.90 / 33.2 |
+| view one record (1 client) | 1 | 1,773 ±7% | 1,648 ±7% | 1.08× | 1,904 ±8% | 1,958 ±4% | 0.91× | 0.97× | 0.50 / 0.40 | 1.10 / 2.10 |
+| list 30 | 32 | 4,444 ±3% | 4,481 ±4% | 0.99× | 4,434 ±4% | 1,007 ±4% | 4.41× | 4.40× | 6.90 / 26.9 | 14.7 / 110.4 |
+| list 30, sorted | 32 | 3,987 ±1% | 4,079 ±8% | 0.98× | 3,979 ±5% | 957 ±1% | 4.17× | 4.16× | 7.70 / 28.5 | 16.5 / 121.6 |
+| list 30, filtered | 32 | 3,900 ±4% | 3,779 ±3% | 1.03× | 3,864 ±6% | 70.1 ±8% | 55.63× | 55.12× | 7.90 / 457.6 | 16.4 / 747.1 |
+| list 30, expand author | 32 | 2,028 ±5% | 1,968 ±4% | 1.03× | 2,058 ±1% | 723 ±6% | 2.81× | 2.85× | 15.5 / 35.8 | 25.6 / 156.8 |
+| list 30, signed in | 32 | 3,438 ±2% | 3,280 ±6% | 1.05× | 3,588 ±7% | 919 ±3% | 3.74× | 3.90× | 9.10 / 29.3 | 16.6 / 105.4 |
+| create record | 32 | 3,831 ±5% | 2,929 ±5% | **1.31×** | 4,811 ±4% | 2,795 ±4% | 1.37× | 1.72× | 8.00 / 6.90 | 15.5 / 62.3 |
+| sign in (bcrypt) | 8 | 39.1 ±2% | 39.2 ±2% | 1.00× | 38.6 ±2% | 36.2 ±6% | 1.08× | 1.07× | 205.6 / 217.5 | 360.2 / 338.5 |
 
 "async commit" is slonbase with PostgreSQL's `synchronous_commit = off` (see below).
 
 ## Reading the numbers
 
-- **Writes:** 1.7 creates records 1.64 times as fast as 1.6, and now faster than PocketBase
-  with PostgreSQL's safe defaults too (1.15×; 1.48× with asynchronous commits). See
-  [what changed in 1.7](#what-changed-in-17).
-- **Lists, filters, expand:** slonbase answers 3.1 to 4.7 times as many requests per second as
-  PocketBase (60 times for the filtered list), at about a seventh of its p99 latency (13 to
-  22 ms against 102 to 154 ms). Filtered lists are where the difference is largest: PostgreSQL
+- **Writes:** 1.8 creates records 1.31 times as fast as 1.7 here (1.18 times in alternating
+  runs of the two against the same database, the steadier measure), 1.37 times as fast as
+  PocketBase with PostgreSQL's safe defaults, and 1.72 times with asynchronous commits. See
+  [what changed in 1.8](#what-changed-in-18).
+- **Lists, filters, expand:** slonbase answers 2.8 to 4.4 times as many requests per second as
+  PocketBase (56 times for the filtered list), at about a seventh of its p99 latency (15 to
+  26 ms against 105 to 157 ms). Filtered lists are where the difference is largest: PostgreSQL
   uses the index on `views` and plans the combined condition, while PocketBase's query takes
-  about 0.4 s per request under this load.
-- **1.7 against 1.6 on lists** (0.85–0.93×): hey accepts gzip, and 1.7 gzips JSON (a page of
-  30 is 2.2 KB instead of 14.5 KB). On this machine the server and PostgreSQL share 3 CPUs, so
-  the compression shows; with `--no-compression`, or a client that doesn't take gzip, lists
-  are as fast as in 1.6 (alternating runs of each: within 3%). Outside a loopback benchmark,
-  six times fewer bytes on the wire usually save more time than the 25 µs they cost.
-- **Single records:** slonbase is ahead with many clients (1.22×), and about even with one.
+  about 0.45 s per request under this load.
+- **Everything but creates** is within the run-to-run spread of 1.7 (health's 1.15× too:
+  1.7's runs spread ±10%).
+- **Compression:** hey accepts gzip, so lists are measured compressed (2.2 KB instead of
+  14.5 KB a page); on this loopback setup that costs them about 8% against `--no-compression`
+  ([what changed in 1.7](#what-changed-in-17)).
+- **Single records:** slonbase is ahead with many clients (1.21×), and about even with one.
 - **Health:** PocketBase answers its health check faster: slonbase's runs a query, so it
-  reports a database that's down. (1.7 against 1.6 here, 0.92×, is noise: alternating runs of
-  the two were within 2.5%.)
+  reports a database that's down.
 - **Durability:** with PostgreSQL's defaults, every commit waits for the WAL to reach the disk
   (`synchronous_commit = on`). PocketBase's SQLite runs in WAL mode with `synchronous =
   NORMAL`, which doesn't wait for each commit, so a power loss can drop its last transactions
@@ -58,6 +58,13 @@ slower than the one 1.3 was measured on: compare within a table, not across them
   loopback networking. A production setup with PostgreSQL on its own machine adds a network round
   trip to every slonbase query but gives the database its own CPUs, memory and disks, which
   PocketBase's embedded SQLite can't use; and several slonbase instances can share one database.
+
+## What changed in 1.8
+
+**Creates in one round trip.** A create sent BEGIN, its INSERT and COMMIT. When nothing can
+undo the INSERT once it ran (no execute hook around it, no create rule checked against the new
+record), it now runs on its own, which PostgreSQL commits the same way. pgbench on the same
+machine, 32 clients: 16,911 BEGIN/INSERT/COMMIT transactions per second, 28,406 single INSERTs.
 
 ## What changed in 1.7
 

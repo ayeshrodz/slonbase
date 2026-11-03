@@ -37,6 +37,16 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 1.8
+
+- 🔒 **A security review of what 1.7 added**, with three fixes: view previews leave nothing
+  behind on pooled connections, more token-carrying answers stay uncompressed, and a
+  transaction left open can't slow realtime down ([details](docs/security-review.md#what-17-added-180)).
+- ✍️ **Creates in one round trip**: 1.31 times as fast as 1.7, and 1.37 times PocketBase's
+  with PostgreSQL's safe defaults ([benchmarks](bench/README.md)).
+- 🌙 **Cheaper when idle**: each instance checks the outbox every 5 s instead of every 500 ms
+  while nothing happens.
+
 ## New in 1.7
 
 The biggest release since 1.0 ([changelog](CHANGELOG.md)):
@@ -246,19 +256,19 @@ The guides are also on the documentation site, with search:
 Compared with PocketBase, on the same machine, the same data and the same HTTP workloads, with
 default settings ([method and full results](bench/README.md)):
 
-| Scenario | slonbase 1.7 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
+| Scenario | slonbase 1.8 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
-| View one record | 10,128 | 8,299 | 7.3 / 30.8 |
-| List 30 records | 4,871 | 1,030 | 13.4 / 108.1 |
-| List 30, filtered | 4,304 | 72 | 15.5 / 684.6 |
-| List 30, expand a relation | 2,254 | 733 | 22.1 / 154.0 |
-| Create a record | 3,121 (4,012 with async commit) | 2,708 | 19.4 / 60.5 |
+| View one record | 9,671 | 7,969 | 7.9 / 33.2 |
+| List 30 records | 4,444 | 1,007 | 14.7 / 110.4 |
+| List 30, filtered | 3,900 | 70 | 16.4 / 747.1 |
+| List 30, expand a relation | 2,028 | 723 | 25.6 / 156.8 |
+| Create a record | 3,831 (4,811 with async commit) | 2,795 | 15.5 / 62.3 |
 
-1.7 creates records 1.64 times as fast as 1.6, so writes are now ahead of PocketBase with
-PostgreSQL's default durability too, and further ahead when PostgreSQL makes the same
-trade-off as SQLite's default (`synchronous_commit = off`; see
-[why](docs/deployment.md#postgresql)). Lists are gzipped since 1.7, a sixth of the bytes,
-which this loopback benchmark counts as CPU only ([what changed](bench/README.md#what-changed-in-17)).
+1.8 creates records in one round trip, 1.31 times as fast as 1.7, so writes are ahead of
+PocketBase with PostgreSQL's default durability, and further ahead when PostgreSQL makes the
+same trade-off as SQLite's default (`synchronous_commit = off`; see
+[why](docs/deployment.md#postgresql)). Lists are gzipped (since 1.7), a sixth of the bytes,
+which this loopback benchmark counts as CPU only ([what changed](bench/README.md#what-changed-in-18)).
 
 ## Contributing
 

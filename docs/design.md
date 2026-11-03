@@ -1043,6 +1043,12 @@ under load (`/proc` ticks per process), instruction profiles of the server (call
   with the NOTIFY, 7,108 without it). The outbox is now read from snapshots (see "Reading the
   outbox" under realtime), so writes commit in parallel again; one coalesced notification
   tells the other instances, if there are any.
+- **Creates in one round trip, 1.8.** A create through the API sent BEGIN, its INSERT and
+  COMMIT (pgbench on the same machine: 16,911 transactions/s that way, 28,406 single
+  INSERTs). When nothing can undo the INSERT once it ran (no execute hook around it, no create
+  rule checked against the inserted record), it runs without a transaction, which is the
+  same thing in one round trip (`creates_without_transaction`). Updates keep theirs: they lock
+  the current row to apply modifiers (`views+`). Deletes can cascade.
 - **Compression, 1.7** (`server::compress_json`). JSON answers are built in memory, so the
   whole body is gzipped in one pass (level 1, zlib-rs, a compressor kept per thread and reset)
   and sent with its `Content-Length`: a 30-record page goes from 14.5 KB to 2.2 KB for about
@@ -1223,3 +1229,16 @@ project's, in one transaction each.
     presigned S3 downloads, Bitbucket, Twitch, Spotify, Patreon, Kakao and X sign-in, and the
     auth email throttle shared by the instances. **1.3** (done): the settings and the signing
     secret encrypted at rest, and lists 5 to 8 times faster (see [performance](#performance)).
+11. **1.4–1.6** (done): fifteen more OAuth2 providers (every PocketBase preset but VK), any
+    regular expression as an autogenerate pattern, and PocketBase's `fields` picker with
+    nested paths and HTML excerpts, compared against PocketBase's own output.
+12. **1.7** (done): a redesigned dashboard; writes that commit in parallel (the outbox read by
+    snapshot instead of a NOTIFY per write); gzip for JSON answers; previews of view
+    collections; a differential runner against PocketBase in CI.
+13. **1.8** (done): a security review of what 1.7 added (see the
+    [security reviews](security-review.md#what-17-added-180)), creates in one round trip, and
+    an outbox reader that costs less when idle and isn't slowed by long transactions.
+14. **Next:** health checks and per-request overhead (where PocketBase is still ahead), the VK
+    provider, view previews that copy the source fields as PocketBase does, the differential
+    runner over auth flows, batch requests, files and realtime, and screenshot and
+    accessibility checks for the dashboard in CI.

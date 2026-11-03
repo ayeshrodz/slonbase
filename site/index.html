@@ -365,7 +365,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.7.0</b><span id="pill-title">A new dashboard, and writes that commit in parallel</span><span class="arrow">→</span>
+      <b id="pill-version">v1.8.0</b><span id="pill-title">Safer 1.7, and faster creates</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -399,7 +399,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="stats reveal">
     <div class="stat"><b>Any source</b><span>of change reaches realtime subscribers: the API, SQL, or another program</span></div>
     <div class="stat"><b>N servers</b><span>on one database, behind any load balancer, no sticky sessions</span></div>
-    <div class="stat"><b>4.7×</b><span>the lists per second of PocketBase in our benchmarks, at an eighth of its p99 latency</span></div>
+    <div class="stat"><b>4.4×</b><span>the lists per second of PocketBase in our benchmarks, at an eighth of its p99 latency</span></div>
     <div class="stat"><b>8 MB</b><span>one static binary, the dashboard built in</span></div>
   </div>
 </div>
@@ -568,37 +568,37 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <p class="sub">Built in Rust with tokio and axum. Filters compile to parameterized SQL, and PostgreSQL's planner uses your indexes. The same seeded data and workloads, on the same machine, through the same HTTP API.</p>
     <div class="bars">
       <div class="bar-row reveal">
-        <div class="label">Filtered list<small>4,304 vs 72 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.7%"></div></div>
-        <div class="x">60×</div>
+        <div class="label">Filtered list<small>3,900 vs 70 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.8%"></div></div>
+        <div class="x">56×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List 30 records<small>4,871 vs 1,030 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:21%"></div></div>
-        <div class="x">4.7×</div>
+        <div class="label">List 30 records<small>4,444 vs 1,007 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:23%"></div></div>
+        <div class="x">4.4×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List with expand<small>2,254 vs 733 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:33%"></div></div>
-        <div class="x">3.1×</div>
+        <div class="label">List with expand<small>2,028 vs 723 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:36%"></div></div>
+        <div class="x">2.8×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">View one record<small>10,128 vs 8,299 req/s</small></div>
+        <div class="label">View one record<small>9,671 vs 7,969 req/s</small></div>
         <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:82%"></div></div>
         <div class="x">1.2×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Create a record<small>3,121 vs 2,708 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:87%"></div></div>
-        <div class="x">1.15×</div>
+        <div class="label">Create a record<small>3,831 vs 2,795 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:73%"></div></div>
+        <div class="x">1.37×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Lower p99 latency<small>lists: 13.4 vs 108.1 ms</small></div>
-        <div class="track"><div class="us" style="width:12%"></div><div class="them" style="width:100%"></div></div>
-        <div class="x">8.1×</div>
+        <div class="label">Lower p99 latency<small>lists: 14.7 vs 110.4 ms</small></div>
+        <div class="track"><div class="us" style="width:13%"></div><div class="them" style="width:100%"></div></div>
+        <div class="x">7.5×</div>
       </div>
     </div>
-    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>slonbase 1.7, 32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
+    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>slonbase 1.8, 32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
   </div>
 </section>
 
@@ -710,17 +710,17 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.7.0</div>
+        <div class="ver" id="rel-version">v1.8.0</div>
         <div class="date" id="rel-date">November 3, 2026</div>
-        <p id="rel-summary">The dashboard is redesigned from the sidebar up, in a warm, muted palette for light and dark. Writes no longer queue behind each other for realtime, so creating records is 1.64 times as fast as in 1.6; JSON answers are compressed (never the ones carrying tokens); view queries are previewed as you type; and every push is compared with PocketBase itself.</p>
+        <p id="rel-summary">A security review of what 1.7 added, with three fixes; records created in one round trip, 1.31 times as fast as in 1.7 and 1.37 times PocketBase's with PostgreSQL's safe defaults; and a realtime outbox reader that costs less when idle. Since 1.7: the redesigned dashboard, gzip for JSON, live view previews and a differential runner against PocketBase.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>A redesigned dashboard</li>
-        <li>Writes that commit in parallel</li>
-        <li>gzip for JSON answers, never for tokens</li>
-        <li>Live previews of view collections</li>
-        <li>A differential runner against PocketBase in CI</li>
+        <li>Security review of 1.7's additions</li>
+        <li>Creates in one round trip</li>
+        <li>Cheaper realtime while idle</li>
+        <li>The redesigned dashboard (1.7.0)</li>
+        <li>Writes that commit in parallel (1.7.0)</li>
       </ul>
     </div>
   </div>
@@ -755,8 +755,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.7.0/slonbase-1.7.0-linux-amd64.tar.gz
-tar xzf slonbase-1.7.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.8.0/slonbase-1.8.0-linux-amd64.tar.gz
+tar xzf slonbase-1.8.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'

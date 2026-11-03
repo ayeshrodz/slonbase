@@ -8,6 +8,41 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-11-03
+
+**Safer 1.7, and faster creates.** A security review of what 1.7 added, with three fixes;
+records are created in one round trip (1.31 times as fast as in 1.7 on the benchmark); and the
+realtime outbox reader is cheaper when idle and unaffected by long transactions.
+
+### Security
+
+From a review of what 1.7 added ([details](docs/security-review.md#what-17-added-180)):
+
+- **View previews close their connection afterwards.** A previewed query that took a
+  session-level advisory lock (`pg_advisory_lock()`) left it held on a pooled connection after
+  the read-only transaction rolled back. Only superusers can preview, with the SQL console
+  enabled.
+- **More answers left uncompressed.** Besides `"token"`, any JSON answer with a key such as
+  `accessToken`, `refresh_token`, `idToken`, `secret`, `clientSecret`, `password` or `apiKey` is
+  never gzipped, so a custom route that signs users in is safe from BREACH whatever it calls its
+  token.
+- **A transaction left open no longer slows realtime.** The outbox reader scanned every event
+  committed since the oldest open transaction began, on every read; it now looks up only the
+  transactions it hasn't seen finish (two index lookups), whatever is left open.
+
+### Changed
+
+- **Creates in one round trip.** A create without an execute hook around it and without a
+  create rule checked against the new record runs without BEGIN and COMMIT, which add two
+  round trips and nothing else: 3,831 creates per second against 2,929 for 1.7.0 on the
+  [benchmark](bench/README.md) (1.18 times in alternating runs on the same database), and 1.37
+  times PocketBase's (1.72 times with asynchronous commits). Updates and deletes keep their
+  transaction.
+- **Realtime costs less when idle.** Each instance reads the outbox every 500 ms after
+  activity, backing off to every 5 s while nothing happens (it was every 500 ms always); writes
+  and notices still wake it at once. A commit that may have run SQL writes (a hook's
+  `$app.db()` in a transaction) wakes it and the other instances too.
+
 ## [1.7.0] - 2026-11-03
 
 **A new dashboard, and writes that commit in parallel.** The dashboard is redesigned from the
@@ -885,7 +920,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ayeshrodz/slonbase/compare/v1.4.0...v1.5.0
