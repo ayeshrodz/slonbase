@@ -307,6 +307,11 @@ const cards = SECTIONS.map(
     .map((p) => `<a class="card" href="${p}/"><b>${escape(SHORT[p])}</b><span>${escape(BLURB[p])}</span>${ICON.arrow}</a>`)
     .join("")}</div></section>`
 ).join("");
+// the latest release's lead line, from the changelog
+const latest = /^## \[(\d+\.\d+\.\d+)\][^\n]*\n+\*\*([^*]+)\*\*/m.exec(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"));
+const whatsNew = latest
+  ? `<a class="whats-new" href="changelog/"><b>New in ${escape(latest[1])}</b><span>${escape(latest[2].replace(/\.$/, ""))}</span>${ICON.arrow}</a>`
+  : "";
 const home = `<div class="home">
   <div class="eyebrow">Documentation · v${escape(version)}</div>
   <h1>Build on slonbase</h1>
@@ -315,6 +320,7 @@ const home = `<div class="home">
     <a class="btn primary" href="installation/">Install slonbase ${ICON.arrow}</a>
     <a class="btn" href="api/">Read the API</a>
   </div>
+  ${whatsNew}
   ${cards}
 </div>`;
 fs.writeFileSync(path.join(out, "index.html"), page({ slug: "", title: "Documentation", description: "The slonbase documentation.", content: home, prefix: "", toc: null }));

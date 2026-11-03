@@ -28,6 +28,7 @@ file, and then the defaults.
 | `--backups-encryption-key` | `SLONBASE_BACKUPS_ENCRYPTION_KEY` | `backups.encryption_key` | none (not encrypted) |
 | `--encryption-key` | `SLONBASE_ENCRYPTION_KEY` | `server.encryption_key` | none (settings not encrypted) |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
+| `--no-compression` | `SLONBASE_NO_COMPRESSION` | `server.compression` | on ([gzip for JSON](api.md#compression)) |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
@@ -47,6 +48,7 @@ A config file with every option:
 [server]
 bind = "127.0.0.1:8090"
 sql_console = false
+# compression = false   # don't gzip JSON answers (saves their CPU where bandwidth is free)
 # metrics_bind = "127.0.0.1:9090"   # Prometheus metrics at /metrics (not authenticated)
 # http_ca_file = "/etc/slonbase/private-ca.pem"   # extra CAs for S3 and OAuth2 providers
 # encryption_key = "..."   # encrypts the settings in the database; prefer SLONBASE_ENCRYPTION_KEY

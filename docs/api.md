@@ -41,6 +41,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `PUT /api/collections/import` | Create, update (and with `deleteMissing`, delete) collections in one transaction |
 | `DELETE /api/collections/{collection}/truncate` | Delete every record of a collection |
 | `GET /api/collections/meta/scaffolds`, `meta/oauth2-providers` | Defaults and providers for the dashboard |
+| `POST /api/collections/meta/dry-run-view` | A view query's fields and first rows, without saving it (`{"query"}`, needs the SQL console) |
 | `POST /api/sql` | The SQL console (when enabled) |
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
 | `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
@@ -76,7 +77,7 @@ so other tools can query it directly.
 **Record bodies** set fields by name. `tags+` / `+tags` append / prepend to a multi-valued field
 and `tags-` removes from it; `views+` / `views-` add to / subtract from a number. A text field's
 `autogeneratePattern` (any regular expression, e.g. `INV-[0-9]{6}`) fills it on create when
-empty, and `number:autogenerate` sets it to the given value followed by a generated one.
+empty, and `code:autogenerate` sets it to the given value followed by a generated one.
 
 **Auth collections** add the `password`, `tokenKey`, `email`, `emailVisibility` and `verified`
 system fields, and auth options: `authRule`, `manageRule`, `passwordAuth`, `oauth2`,
@@ -89,6 +90,13 @@ after their collection. A view's fields come from the query's columns, and list/
 filters, sorting and expand work as usual. The query runs with the database role's privileges,
 and a `SELECT` can call any function the role may use, so creating or changing a view requires
 the SQL console to be enabled (`--sql-console`). Existing views keep working without it.
+
+Before saving a view, `POST /api/collections/meta/dry-run-view` with `{"query": "SELECT ..."}`
+returns the fields slonbase would make of it and its first rows, `{"fields": [...], "sample":
+[...]}`, which is what the dashboard's view editor shows as you type. The query runs read-only
+(it can't change data, even through a function) with a 15-second limit, and a query that can't
+make a view (PostgreSQL refuses it, or its rows have empty or repeated ids) gets a 400 with
+the reason.
 
 **System collections:** superusers are records of the `_superusers` auth collection, and linked
 OAuth2 accounts are records of `_externalAuths`, so both are managed with the
@@ -159,6 +167,20 @@ auth, settings, collections, batch, routes), and realtime records.
 - `:excerpt(max, withEllipsis?)` turns HTML into a plain-text excerpt of about `max`
   characters, e.g. `fields=id,title,body:excerpt(200,true)`; other values are left as they are.
 - A `fields` that can't be parsed (`body:excerpt(0)`, unbalanced parentheses) gets a 400.
+
+## Compression
+
+JSON answers over 1 KB are gzipped when the client accepts it (`Accept-Encoding`; browsers
+and the SDKs do), so a page of 30 records is about a sixth of its size on the wire. Answers
+that carry a token or a secret are never compressed, so an attacker who can inject text into a
+page can't learn them from the compressed length (BREACH): sign-ins, token refreshes,
+impersonation, file tokens, setup, Apple client secrets, and any JSON answer with a `"token"`
+key, so a custom route that signs users in is covered too. Neither are files, which are served
+as stored, nor answers marked `Cache-Control: no-transform`.
+
+Compressing a page of records takes about 25 µs of CPU. Where bandwidth costs nothing (the
+clients on the same network, say), `--no-compression` (or `compression = false` in the
+`[server]` config) turns it off.
 
 ## Files
 

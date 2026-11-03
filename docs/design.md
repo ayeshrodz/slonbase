@@ -354,14 +354,30 @@ covers the providers that speak OpenID Connect.
 - The subscribe request's auth becomes the client's auth. A guest client may become
   authenticated, but switching to another user is rejected (403).
 
-**Outbox.** Every record create, update and delete through the API also inserts a row into
-`_slonbase.events` and calls `pg_notify('slonbase', 'event:<id>')` in the same transaction.
+**Outbox.** Every record create, update and delete inserts a row into `_slonbase.events` in
+the same transaction, stamped with the writing transaction's id (`xid xid8`, migration 15).
 - Rolled-back changes are never announced.
-- Notifications arrive in commit order.
 - Every change of a collection table is announced, whatever makes it (see "Changes outside the
   records API" below); cascading deletes and the reference updates they cause too.
 - Secret fields are stripped from stored events.
 - Events are pruned after five minutes.
+
+**Reading the outbox (1.7).** Before 1.7 each event's transaction also called
+`pg_notify('slonbase', 'event:<id>')`. PostgreSQL takes one global lock on its notification
+queue at commit for any transaction that notified, so every write committed one at a time:
+pgbench measured 352 inserts per second with the trigger and its NOTIFY against 7,108 with the
+trigger alone (32 clients, the same machine). 1.7 takes the notification out of the write:
+- Each instance's poller remembers a snapshot (`pg_current_snapshot()`) and reads the events
+  of transactions that weren't visible in it, `xid >= pg_snapshot_xmin(prev) AND NOT
+  pg_visible_in_snapshot(xid, prev)`, in the same statement that takes the next snapshot. A
+  transaction that commits late (with a smaller id than events already read) is still read
+  once, and no event is read twice, whatever the commit order.
+- A write through the API wakes the local poller at once. Other instances hear of it through
+  one coalesced `changed` notification, sent outside the write transaction, at most every 5 ms,
+  and only while there are other live instances.
+- The pool's connections set `slonbase.notify = off`, which the trigger reads; other programs
+  (psql, a worker) don't, so their writes still notify, and every poller also runs every
+  500 ms as a fallback.
 
 **Forwarded subscriptions.** A `POST /api/realtime` for a client whose stream is on another
 instance is stored in `_slonbase.realtime_forwards` and announced (`forward:{id}:{instance}:{client}`).
@@ -383,22 +399,19 @@ what was sent last otherwise (an OTP request answers with the code already sent)
 requests are rare, so there's no in-memory path while alone; memory is only the fallback when
 the database can't be reached.
 
-**Listener.** Every instance holds one dedicated connection that runs `LISTEN slonbase`. For an
-event it loads the outbox row and delivers it to its own subscribers, so changes made through
-any instance reach every subscriber. The same channel carries `collections` and `settings`
-notifications (sent when those change), so all instances reload them. This replaces the
-stale-registry limitation of phase 1.
+**Listener.** Every instance holds one dedicated connection that runs `LISTEN slonbase`. The
+channel carries `changed` (new events: read them), `collections` and `settings` notifications
+(sent when those change, so all instances reload them) and the forwarding messages above.
 
-**Delivery.** The listener hands event ids to a delivery task, which reads them in batches (up to
+**Delivery.** The poller hands event ids to a delivery task, which reads them in batches (up to
 500, one query) and checks the subscribers' rules and renders the messages for up to 8 events at
 once, then sends them in event order, so each client still sees a record's create before its
 update. (Delivering one event at a time, as before, fell behind under sustained writes; the soak
 test found it.)
 
-If the connection drops, the listener reconnects with backoff, reloads collections and
-settings, and replays outbox rows created since it disconnected. Recently delivered ids are
-remembered, so nothing is delivered twice. A test kills the listener's backend mid-stream to
-check this.
+If the listener's connection drops, it reconnects with backoff, reloads collections and
+settings, and wakes the poller, whose snapshot still covers what happened meanwhile (within the
+five minutes events are kept). A test kills the listener's backend mid-stream to check this.
 
 **Access checks.** Each subscriber is checked against:
 - the `listRule` (collection topics) or `viewRule` (record topics)
@@ -415,7 +428,8 @@ events) fills up is disconnected.
 `expand` in a subscription's options is applied to each event with the subscriber's auth and
 rules for the related records (the same expansion as the records API).
 
-**Changes outside the records API.** The outbox row and its NOTIFY are written by an
+**Changes outside the records API.** The outbox row (and, for connections other than slonbase's own, a `changed` notification) is
+written by an
 `AFTER INSERT OR UPDATE OR DELETE ... FOR EACH ROW` trigger on every collection table
 (`_slonbase.record_change`, system migration 10), not by the API, so auth flows that write
 columns directly, SQL from hooks, migrations and the SQL console, and other programs produce
@@ -989,8 +1003,8 @@ under load (`/proc` ticks per process), instruction profiles of the server (call
   against 0.3 ms for the page itself), so totals are kept between requests: keyed by the exact
   count SQL and parameters (the rule's, so the caller's id), valid while the data generation
   they were counted at is current, and at most 5 s. The generation moves on every change any
-  instance or program makes (the realtime triggers' `event:` notifications), at once on this
-  instance's own commits (`Hooks::committed`), on collection changes, restores and imports,
+  instance or program makes (new outbox events read by the poller, and other instances'
+  `changed` notifications), at once on this instance's own commits (`Hooks::committed`), on collection changes, restores and imports,
   and with a `changed` notification after SQL the triggers don't see (the SQL console, and
   `TRUNCATE` from hooks). It's read before counting, so a write committed during the count
   leaves the entry stale, not wrong. Not cached: view collections (their query may read any
@@ -1014,6 +1028,25 @@ under load (`/proc` ticks per process), instruction profiles of the server (call
   account changes); record pages over 80 rows draw the rows in view and 15 on each side, with
   spacer rows for the rest (`useRowWindow`); deletes and saves show in the table before the
   server answers, and a refused delete puts the rows back.
+
+- **Writes, 1.7.** A create through the API ran as fast as pgbench's insert with the
+  realtime trigger, and that was the limit: the trigger's `pg_notify` made commits take
+  PostgreSQL's notification-queue lock one at a time (pgbench, 32 clients: 352 inserts/s
+  with the NOTIFY, 7,108 without it). The outbox is now read from snapshots (see "Reading the
+  outbox" under realtime), so writes commit in parallel again; one coalesced notification
+  tells the other instances, if there are any.
+- **Compression, 1.7** (`server::compress_json`). JSON answers are built in memory, so the
+  whole body is gzipped in one pass (level 1, zlib-rs, a compressor kept per thread and reset)
+  and sent with its `Content-Length`: a 30-record page goes from 14.5 KB to 2.2 KB for about
+  25 µs. The first version used tower-http's streaming `CompressionLayer` (miniz, level 4,
+  brotli or gzip) and cost lists 22% of their throughput on the benchmark; this one costs
+  about 8%. Measured on that page: miniz at level 4, 218 µs; zlib-rs at level 2, 48 µs
+  (1.7 KB); Rust's brotli 64 µs at quality 1 (1.8 KB) and 180 µs at quality 4 (1.5 KB), so
+  brotli isn't offered. Never compressed, against BREACH (a page that reflects attacker text
+  next to a secret leaks it through the compressed length): answers on the sign-in,
+  refresh, impersonation, file token, setup and Apple client secret paths, and any JSON
+  answer containing `"token"` (one scan of the bytes), which covers custom routes that sign
+  users in. Files and `no-transform` answers are left alone.
 
 ### Tried and left out
 
@@ -1087,7 +1120,8 @@ project's, in one transaction each.
   with cleanup, and protected files with file tokens.
 - Realtime tests read real SSE streams. They cover rules and filters, hidden fields, rolled-back
   writes, single-record topics, auth subscriptions, delivery across two instances (events,
-  collections and settings), and catching up after the listener connection is killed.
+  collections and settings), writes made outside the API (psql) and outside slonbase's
+  pool, and catching up after the listener connection is killed.
 - Batch tests cover creates, updates, upserts and deletes in one batch (with expand), all-or-nothing
   failures with the failing request's error, rules with the batch's auth, multipart files (and their
   cleanup on failure), and limits.
@@ -1123,6 +1157,14 @@ project's, in one transaction each.
   against the PocketBase release (checksum-verified), so an expectation only stays if PocketBase
   meets it too. Known, deliberate differences are left out of the shared assertions: emails are
   unique regardless of case in slonbase (PocketBase compares them as written).
+- Differential runs (`compat/diff/run.sh`, 1.7): PocketBase and slonbase started side by side
+  on fresh stores, seeded the same way, then sent the same requests (records, lists, filters,
+  expand, `fields` and excerpts, auth, errors, view dry runs); the answers are compared as JSON
+  after hiding what can't match (ids, dates, tokens), and any other difference fails CI. Each
+  run also sends 1,000 randomly generated HTML documents through both servers' `:excerpt`.
+  Where slonbase answers differently on purpose (a dry-run view's field ids, inferred from
+  PostgreSQL's types instead of cloned from the source fields), a case compares the answers'
+  shape instead.
 - PocketBase import (`compat/import/run.sh`): seeds a real PocketBase through the SDK (most field
   types, relations, an auth collection, files, an OAuth2 link, two views), snapshots it through
   its API, imports its backup zip into a fresh slonbase and checks the snapshot through

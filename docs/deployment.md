@@ -22,6 +22,11 @@ Two things matter for the proxy:
   keep-alive. slonbase sends `X-Accel-Buffering: no`, which nginx honors.
 - **Uploads:** raise the proxy's body size limit to your largest file field.
 
+slonbase compresses its JSON answers itself (gzip, never the ones that carry tokens;
+see [compression](api.md#compression)), so leave compression off for `/api/` at the
+proxy, or at least don't compress responses slonbase sent uncompressed: a proxy that gzips
+sign-in answers undoes that protection.
+
 **Caddy** handles both by default:
 
 ```
@@ -84,7 +89,7 @@ keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts
 uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
 root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:1.6.0`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:1.7.0`) rather than `latest` in production.
 
 ## PostgreSQL
 
@@ -101,7 +106,7 @@ root, as the [platform setups](platforms.md) do. Its health check
   own CA.
 - **Durability vs. write latency:** with PostgreSQL's default `synchronous_commit = on`, every
   write waits for the WAL to reach the disk. `ALTER DATABASE slonbase SET synchronous_commit = off`
-  makes writes about twice as fast (see the [benchmarks](../bench/README.md)). A crash can then lose
+  makes single writes faster still (see the [benchmarks](../bench/README.md)). A crash can then lose
   the last fraction of a second of commits, but never corrupts data. (Embedded SQLite backends
   make the same trade-off by default.)
 - **Your data is ordinary tables** in the `slonbase` schema, so you can query them, replicate
@@ -127,6 +132,12 @@ SDKs set its subscriptions with a separate `POST /api/realtime`. When that reque
 another instance, it's forwarded through PostgreSQL to the one holding the stream, which checks
 the request's auth and answers. So a plain round-robin load balancer works. (Affinity, like
 nginx `ip_hash`, still saves that hop.)
+
+**Upgrade every instance together.** Since 1.7, instances learn of new realtime events by
+reading the outbox from a snapshot, and no longer by a notification sent with each write;
+instances older than 1.7 wait for those notifications, so they'd miss events written through a
+1.7 instance. Stop the old instances, start the new ones (the first runs the migration), as for
+any upgrade with a migration.
 
 **Rate limits are shared.** While an instance is alone, it counts requests in memory. When
 others share the database, the counters move to an unlogged PostgreSQL table, so a client gets

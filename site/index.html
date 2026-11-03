@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>slonbase: your whole backend, built on PostgreSQL</title>
 <meta name="description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, with your data in real PostgreSQL tables.">
-<meta name="theme-color" content="#1b1b1e">
+<meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
 <link rel="preload" href="assets/fonts/ubuntu-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
@@ -21,41 +22,41 @@
 @font-face { font-family: "Ubuntu Sans Mono Variable"; font-style: normal; font-display: swap; font-weight: 400 700; src: url("assets/fonts/ubuntu-sans-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "Ubuntu Sans Mono Variable"; font-style: normal; font-display: swap; font-weight: 400 700; src: url("assets/fonts/ubuntu-sans-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 :root {
-  --bg: #fbfbfa;
-  --bg-soft: #f3f3f0;
-  --surface: #ffffff;
-  --ink: #1b1b1e;
-  --ink-2: #3a3a40;
-  --muted: #6b6b72;
-  --line: #e6e6e1;
-  --accent: #4a5a72;
+  --bg: #f5f3ee;
+  --bg-soft: #ece9e2;
+  --surface: #fffefc;
+  --ink: #1f1d19;
+  --ink-2: #3b3833;
+  --muted: #77726a;
+  --line: #e6e2d9;
+  --accent: #4f7a6c;
   --accent-ink: #ffffff;
-  --accent-soft: #e8ecf2;
-  --pg: #336791;
-  --good: #2f7d55;
-  --code-bg: #17171a;
-  --code-ink: #e9e9e4;
-  --shadow: 0 1px 2px rgba(20, 20, 30, .06), 0 12px 32px -12px rgba(20, 20, 30, .18);
+  --accent-soft: #e4ebe6;
+  --pg: #5f7593;
+  --good: #4f8a68;
+  --code-bg: #1b1b19;
+  --code-ink: #edebe6;
+  --shadow: 0 1px 2px rgba(60, 48, 28, .05), 0 12px 32px -14px rgba(60, 48, 28, .22);
   --radius: 14px;
   --font: "Ubuntu Sans Variable", "Ubuntu Sans", "Ubuntu", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --mono: "Ubuntu Sans Mono Variable", "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #111113;
-  --bg-soft: #18181b;
-  --surface: #1b1b1e;
-  --ink: #f2f2ef;
-  --ink-2: #d4d4d0;
-  --muted: #9a9aa2;
-  --line: #2a2a30;
-  --accent: #a9b8d2;
-  --accent-ink: #111113;
-  --accent-soft: #232a36;
-  --pg: #7fa8d0;
-  --good: #6cc495;
-  --code-bg: #0c0c0e;
-  --code-ink: #e9e9e4;
+  --bg: #141413;
+  --bg-soft: #1a1a18;
+  --surface: #1b1b19;
+  --ink: #edebe6;
+  --ink-2: #d0cdc5;
+  --muted: #8f8b82;
+  --line: #2a2926;
+  --accent: #8db3a5;
+  --accent-ink: #141413;
+  --accent-soft: #222b27;
+  --pg: #94a8c4;
+  --good: #7db694;
+  --code-bg: #0f0f0e;
+  --code-ink: #edebe6;
   --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 16px 40px -16px rgba(0, 0, 0, .6);
   color-scheme: dark;
 }
@@ -135,13 +136,13 @@ h1 .pg { color: var(--pg); }
 }
 .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; border-bottom: 1px solid #ffffff12; }
 .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #ffffff22; }
-.term-bar span { margin-left: 8px; font-size: 12.5px; color: #9a9aa2; }
+.term-bar span { margin-left: 8px; font-size: 12.5px; color: #8f8b82; }
 .term-bar .copy { margin-left: auto; }
 .term pre { margin: 0; padding: 18px 20px 20px; font-size: 13.5px; line-height: 1.75; overflow-x: auto; }
-.term .c { color: #7d7d86; }
-.term .p { color: #8fa6c8; user-select: none; }
+.term .c { color: #77726a; }
+.term .p { color: #8db3a5; user-select: none; }
 .copy {
-  border: 1px solid #ffffff22; background: transparent; color: #c9c9c4; border-radius: 7px;
+  border: 1px solid #ffffff22; background: transparent; color: #d0cdc5; border-radius: 7px;
   font: 12px/1 inherit; padding: 6px 9px; cursor: pointer;
 }
 .copy:hover { border-color: #ffffff55; color: #fff; }
@@ -205,13 +206,13 @@ h2 { font-size: clamp(30px, 4.2vw, 46px); line-height: 1.08; letter-spacing: -.0
 }
 .tabs { display: flex; gap: 2px; padding: 8px 8px 0; border-bottom: 1px solid #ffffff12; overflow-x: auto; }
 .tabs button {
-  border: 0; background: transparent; color: #9a9aa2; font: inherit; font-size: 13.5px; padding: 9px 13px 11px;
+  border: 0; background: transparent; color: #8f8b82; font: inherit; font-size: 13.5px; padding: 9px 13px 11px;
   cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap;
 }
-.tabs button[aria-selected="true"] { color: #fff; border-bottom-color: #a9b8d2; }
+.tabs button[aria-selected="true"] { color: #fff; border-bottom-color: #8db3a5; }
 .code pre { margin: 0; padding: 20px 22px; font-size: 13.5px; line-height: 1.7; overflow-x: auto; }
 .code [role="tabpanel"][hidden] { display: none; }
-.k { color: #c49bd8; } .s { color: #a5c98a; } .f { color: #8fb6e8; } .n { color: #e6b07a; } .cm { color: #7d7d86; }
+.k { color: #cc95ad; } .s { color: #b0b884; } .f { color: #94a8c4; } .n { color: #d4b071; } .cm { color: #77726a; }
 
 /* bench */
 .bars { margin-top: 48px; display: grid; gap: 22px; }
@@ -288,12 +289,12 @@ td.them { color: var(--muted); }
 /* story + footer */
 .story {
   display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; padding: 36px;
-  border-radius: 18px; color: #f2f2ef;
-  background: radial-gradient(420px 220px at 90% 0%, #33679155, transparent 70%), #1b1b1e;
+  border-radius: 18px; color: #edebe6;
+  background: radial-gradient(420px 220px at 90% 0%, #4f7a6c55, transparent 70%), #1b1b19;
 }
 .story h3 { margin: 0; font-size: 26px; letter-spacing: -.02em; }
-.story p { margin: 8px 0 0; color: #b8b8b2; max-width: 620px; }
-.story .btn.primary { background: #f2f2ef; color: #1b1b1e; }
+.story p { margin: 8px 0 0; color: #b6b2a9; max-width: 620px; }
+.story .btn.primary { background: #edebe6; color: #1b1b19; }
 @media (max-width: 700px) { .story { grid-template-columns: 1fr; padding: 26px; } }
 footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96px; color: var(--muted); font-size: 14.5px; }
 .foot { display: grid; grid-template-columns: 1.4fr repeat(3, 1fr); gap: 32px; }
@@ -303,6 +304,25 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 .foot a:hover { color: var(--ink); }
 .foot .brand { color: var(--ink); margin-bottom: 12px; }
 .fineprint { margin-top: 40px; font-size: 13px; }
+
+/* new in this release */
+.bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; margin-top: 56px; }
+.bento .card { position: relative; overflow: hidden; display: flex; flex-direction: column; }
+.bento .wide { grid-column: span 4; }
+.bento .half { grid-column: span 3; }
+.bento .third { grid-column: span 2; }
+.bento .tall { grid-row: span 2; }
+.bento .card .tag { display: inline-block; align-self: flex-start; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); border-radius: 999px; padding: 2px 10px; margin-bottom: 12px; }
+.bento .big { font-size: 44px; font-weight: 760; letter-spacing: -.03em; line-height: 1; margin: 6px 0 4px; color: var(--ink); }
+.bento .big small { font-size: 16px; font-weight: 500; color: var(--muted); letter-spacing: 0; margin-left: 6px; }
+.bento .peek { margin: 22px -26px -26px; border-top: 1px solid var(--line); background: var(--bg-soft); }
+.bento .peek img { width: 100%; }
+.bento pre.mini { margin: 16px 0 0; padding: 14px 16px; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; font-size: 12.5px; line-height: 1.6; overflow-x: auto; }
+.bento .meter { display: grid; gap: 8px; margin-top: 16px; }
+.bento .meter div { display: grid; grid-template-columns: 72px 1fr auto; gap: 10px; align-items: center; font-size: 13px; color: var(--muted); }
+.bento .meter i { display: block; height: 8px; border-radius: 99px; background: var(--line); }
+.bento .meter i.us { background: linear-gradient(90deg, var(--accent), var(--pg)); }
+@media (max-width: 900px) { .bento { grid-template-columns: 1fr 1fr; } .bento .wide, .bento .half, .bento .third { grid-column: span 2; } .bento .tall { grid-row: auto; } }
 
 /* reveal */
 .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s ease; }
@@ -325,6 +345,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="wrap">
     <a class="brand" href="#"><img src="assets/logo.svg" alt=""><span class="word">slon<span>base</span></span></a>
     <nav>
+      <a class="hide-sm" href="#new">New in 1.7</a>
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#performance">Performance</a>
       <a class="hide-sm" href="#scale">Scale out</a>
@@ -344,7 +365,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.6.0</b><span id="pill-title">Fields and excerpts, as in PocketBase</span><span class="arrow">→</span>
+      <b id="pill-version">v1.7.0</b><span id="pill-title">A new dashboard, and writes that commit in parallel</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -378,10 +399,57 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="stats reveal">
     <div class="stat"><b>Any source</b><span>of change reaches realtime subscribers: the API, SQL, or another program</span></div>
     <div class="stat"><b>N servers</b><span>on one database, behind any load balancer, no sticky sessions</span></div>
-    <div class="stat"><b>5×</b><span>the lists per second of PocketBase in our benchmarks, at a tenth of its p99 latency</span></div>
+    <div class="stat"><b>4.7×</b><span>the lists per second of PocketBase in our benchmarks, at an eighth of its p99 latency</span></div>
     <div class="stat"><b>8 MB</b><span>one static binary, the dashboard built in</span></div>
   </div>
 </div>
+
+<section id="new" class="alt">
+  <div class="wrap">
+    <div class="center">
+      <div class="eyebrow">New in 1.7</div>
+      <h2>A new dashboard.<br>Faster everywhere else.</h2>
+      <p class="sub">The biggest release since 1.0: a redesigned dashboard, writes that no longer queue behind each other, compressed answers, live previews for view collections, and every release checked against PocketBase itself.</p>
+    </div>
+    <div class="bento">
+      <div class="card wide tall reveal">
+        <span class="tag">Dashboard</span>
+        <h3>Redesigned from the sidebar up</h3>
+        <p>One sidebar for sections, collections, theme and account. A warm, muted palette in light and dark, pill tabs, a calmer records grid, records edited in a drawer beside the list, and an overview with the day's traffic.</p>
+        <div class="peek"><img id="new-shot" src="assets/screenshots/overview-light.png" alt="The redesigned slonbase dashboard overview" width="2880" height="1800" loading="lazy"></div>
+      </div>
+      <div class="card third reveal">
+        <span class="tag">Writes</span>
+        <h3>Commits no longer wait in line</h3>
+        <div class="big">1.64×<small>creates/s vs 1.6</small></div>
+        <p>Realtime no longer sends a notification inside every write, which made PostgreSQL commit them one at a time.</p>
+      </div>
+      <div class="card third reveal">
+        <span class="tag">Network</span>
+        <h3>Compressed answers</h3>
+        <div class="big">6.6×<small>smaller lists</small></div>
+        <p>gzip for JSON over 1 KB. A 30-record page drops from 14.5 KB to 2.2 KB, for about 25 µs of CPU. Anything carrying a token stays uncompressed, so BREACH can't guess it.</p>
+      </div>
+      <div class="card half reveal">
+        <span class="tag">View collections</span>
+        <h3>See a view before you save it</h3>
+        <p>The view editor shows the fields and the first rows of your query as you type, through <code>POST /api/collections/meta/dry-run-view</code>, run read-only and time-limited.</p>
+<pre class="mini">SELECT p.id, p.title, count(c.id) AS comments
+FROM posts p LEFT JOIN comments c ON c.post = p.id
+GROUP BY p.id  <span class="cm">-- fields: id · title · comments (number)</span></pre>
+      </div>
+      <div class="card half reveal">
+        <span class="tag">Compatibility</span>
+        <h3>Checked against PocketBase, every push</h3>
+        <p>A differential runner starts PocketBase and slonbase side by side, sends both the same requests, plus a thousand fuzzed HTML documents for excerpts, and fails CI on any difference in the answers.</p>
+        <div class="meter">
+          <div>requests<i class="us"></i><b>identical</b></div>
+          <div>excerpts<i class="us"></i><b>1,000 fuzzed</b></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 <section id="features">
   <div class="wrap">
@@ -500,32 +568,37 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <p class="sub">Built in Rust with tokio and axum. Filters compile to parameterized SQL, and PostgreSQL's planner uses your indexes. The same seeded data and workloads, on the same machine, through the same HTTP API.</p>
     <div class="bars">
       <div class="bar-row reveal">
-        <div class="label">Filtered list<small>5,965 vs 83 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.4%"></div></div>
-        <div class="x">72×</div>
+        <div class="label">Filtered list<small>4,304 vs 72 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.7%"></div></div>
+        <div class="x">60×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List 30 records<small>6,863 vs 1,307 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:19%"></div></div>
-        <div class="x">5.3×</div>
+        <div class="label">List 30 records<small>4,871 vs 1,030 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:21%"></div></div>
+        <div class="x">4.7×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List with expand<small>3,079 vs 931 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:30%"></div></div>
-        <div class="x">3.3×</div>
+        <div class="label">List with expand<small>2,254 vs 733 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:33%"></div></div>
+        <div class="x">3.1×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">View one record<small>13,677 vs 10,083 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:74%"></div></div>
-        <div class="x">1.4×</div>
+        <div class="label">View one record<small>10,128 vs 8,299 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:82%"></div></div>
+        <div class="x">1.2×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Lower p99 latency<small>lists: 9.3 vs 81.6 ms</small></div>
-        <div class="track"><div class="us" style="width:11%"></div><div class="them" style="width:100%"></div></div>
-        <div class="x">8.8×</div>
+        <div class="label">Create a record<small>3,121 vs 2,708 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:87%"></div></div>
+        <div class="x">1.15×</div>
+      </div>
+      <div class="bar-row reveal">
+        <div class="label">Lower p99 latency<small>lists: 13.4 vs 108.1 ms</small></div>
+        <div class="track"><div class="us" style="width:12%"></div><div class="them" style="width:100%"></div></div>
+        <div class="x">8.1×</div>
       </div>
     </div>
-    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
+    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>slonbase 1.7, 32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
   </div>
 </section>
 
@@ -539,11 +612,13 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <div class="shots">
       <div class="shot-tabs" role="tablist" aria-label="Dashboard screenshots">
         <button role="tab" aria-selected="true" data-shot="records">Records</button>
+        <button role="tab" aria-selected="false" data-shot="editor">Record editor</button>
         <button role="tab" aria-selected="false" data-shot="schema">Schema</button>
         <button role="tab" aria-selected="false" data-shot="rules">API rules</button>
         <button role="tab" aria-selected="false" data-shot="logs">Logs</button>
         <button role="tab" aria-selected="false" data-shot="overview">Overview</button>
         <button role="tab" aria-selected="false" data-shot="api">API preview</button>
+        <button role="tab" aria-selected="false" data-shot="diagram">Diagram</button>
       </div>
       <div class="frame">
         <div class="frame-bar"><i></i><i></i><i></i><span>localhost:8090/_/</span></div>
@@ -635,16 +710,17 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.6.0</div>
-        <div class="date" id="rel-date">November 2, 2026</div>
-        <p id="rel-summary">The fields parameter picks nested paths (expand.author.name) on every JSON answer and makes plain-text excerpts of HTML (body:excerpt(200,true)), checked against PocketBase's own output; JavaScript record.set() takes tags+, views- and the other modifiers. Since 1.5: any regular expression as an autogenerate pattern.</p>
+        <div class="ver" id="rel-version">v1.7.0</div>
+        <div class="date" id="rel-date">November 3, 2026</div>
+        <p id="rel-summary">The dashboard is redesigned from the sidebar up, in a warm, muted palette for light and dark. Writes no longer queue behind each other for realtime, so creating records is 1.64 times as fast as in 1.6; JSON answers are compressed (never the ones carrying tokens); view queries are previewed as you type; and every push is compared with PocketBase itself.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>Nested fields and HTML excerpts</li>
-        <li>record.set() modifiers in hooks</li>
-        <li>Any regex as an autogenerate pattern (1.5.0)</li>
-        <li>15 more OAuth2 providers (1.4.0)</li>
+        <li>A redesigned dashboard</li>
+        <li>Writes that commit in parallel</li>
+        <li>gzip for JSON answers, never for tokens</li>
+        <li>Live previews of view collections</li>
+        <li>A differential runner against PocketBase in CI</li>
       </ul>
     </div>
   </div>
@@ -679,8 +755,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.6.0/slonbase-1.6.0-linux-amd64.tar.gz
-tar xzf slonbase-1.6.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.7.0/slonbase-1.7.0-linux-amd64.tar.gz
+tar xzf slonbase-1.7.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
@@ -758,6 +834,8 @@ slonbase serve</pre>
     current = name;
     shot.src = "assets/screenshots/" + name + "-" + (root.dataset.theme === "dark" ? "dark" : "light") + ".png";
     shot.alt = "The slonbase dashboard: " + name;
+    var hero = document.getElementById("new-shot");
+    if (hero) hero.src = "assets/screenshots/overview-" + (root.dataset.theme === "dark" ? "dark" : "light") + ".png";
   }
   document.querySelectorAll("[data-shot]").forEach(function (b) {
     b.addEventListener("click", function () {

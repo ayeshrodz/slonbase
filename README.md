@@ -13,11 +13,11 @@
 
 <p align="center">
   <a href="https://github.com/ayeshrodz/slonbase/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ayeshrodz/slonbase/actions/workflows/ci.yml/badge.svg"></a>
-  <a href="https://github.com/ayeshrodz/slonbase/releases"><img alt="Release" src="https://img.shields.io/github/v/release/ayeshrodz/slonbase?display_name=tag&sort=semver&color=4a5a72"></a>
-  <a href="https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-slonbase-4a5a72?logo=docker&logoColor=white"></a>
+  <a href="https://github.com/ayeshrodz/slonbase/releases"><img alt="Release" src="https://img.shields.io/github/v/release/ayeshrodz/slonbase?display_name=tag&sort=semver&color=4f7a6c"></a>
+  <a href="https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-slonbase-4f7a6c?logo=docker&logoColor=white"></a>
   <img alt="PostgreSQL 14+" src="https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-1.87%2B-b7410e?logo=rust&logoColor=white">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4a5a72"></a>
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4f7a6c"></a>
 </p>
 
 <p align="center">
@@ -36,6 +36,23 @@
 <p align="center">
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
+
+## New in 1.7
+
+The biggest release since 1.0 ([changelog](CHANGELOG.md)):
+
+- 🎨 **A redesigned dashboard.** One sidebar for sections, collections, theme and account; a
+  warm, muted palette in light and dark; records edited in a drawer beside the list; an overview
+  with the day's traffic and a health checklist.
+- ✍️ **Writes that don't wait in line.** Realtime no longer sends a notification inside every
+  write transaction, which made PostgreSQL commit them one at a time: creating records is
+  1.6 times as fast as in 1.6 ([benchmarks](bench/README.md)).
+- 🗜️ **Compressed answers.** gzip for JSON, a sixth of the bytes for a page of records, and
+  never for answers that carry a token.
+- 👀 **Live previews for view collections.** The fields and first rows of a view's query as
+  you type it, before you save it.
+- 🧪 **Checked against PocketBase on every push.** A differential runner sends PocketBase and
+  slonbase the same requests and fails CI on any difference.
 
 ## Why slonbase
 
@@ -67,9 +84,10 @@ already trust.
 <td width="50%" valign="top">
 
 **Data**
-- Base, auth and view collections, with 14 field types
+- Base, auth and view collections, with 14 field types; live previews of views
 - A filter language for queries and access rules: relation paths, `@request.*`, `@collection.*`
-- `expand`, back-relations, `fields`, sorting and paging
+- `expand`, back-relations, sorting and paging
+- `fields` with nested paths and plain-text `:excerpt`s of HTML, as in PocketBase
 - Batch requests in one transaction
 - Indexes, including unique and partial ones
 
@@ -89,6 +107,7 @@ already trust.
 **Operations**
 - An admin dashboard with live grids, a schema editor and diagram, logs and an SQL console
 - Request logs, rate limits, superuser IP restrictions, Prometheus metrics
+- gzip compression of JSON that never touches tokens
 - Backups (on a schedule, to S3) and one-click restores
 - JavaScript hooks, cron jobs, a query builder, and a Rust library API
 - Migrations in JavaScript, each in a transaction, with automigrate
@@ -113,7 +132,8 @@ can bring an existing app along:
 - `slonbase import-pocketbase` brings over collections, records, files and settings, with users'
   password hashes, so nobody has to reset a password.
 
-A test suite written with the official SDK runs against both servers in CI to keep it that way
+A test suite written with the official SDK runs against both servers in CI to keep it that way,
+and a differential runner sends both the same requests and compares the answers
 ([compat/](compat/)). The [migration guide](docs/migrating-from-pocketbase.md) lists the
 differences.
 
@@ -176,14 +196,16 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/records-dark.png"><img alt="A collection's records in a live grid" src="docs/assets/screenshots/records-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png"><img alt="Overview" src="docs/assets/screenshots/overview-light.png"></picture> |
 | **Schema** | **Logs** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/schema-dark.png"><img alt="Schema editor" src="docs/assets/screenshots/schema-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png"><img alt="Logs" src="docs/assets/screenshots/logs-light.png"></picture> |
-| **API rules** | **API preview** |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/api-dark.png"><img alt="API preview" src="docs/assets/screenshots/api-light.png"></picture> |
+| **Record editor** | **API rules** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/editor-dark.png"><img alt="A record open in the drawer beside the grid" src="docs/assets/screenshots/editor-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> |
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/diagram-dark.png"><img alt="The schema diagram: every collection with its fields, and its relations" src="docs/assets/screenshots/diagram-light.png"></picture>
 <p align="center"><sub>The schema diagram, drawn from the collections: hover one to follow its relations.</sub></p>
 
-The dashboard follows your system's light or dark theme, works on phones, and ⌘K / Ctrl K jumps
-anywhere. It only uses the public API, so anything it does, you can script too.
+Redesigned in 1.7: the sidebar holds the sections and your collections, records open in a
+drawer beside the grid, and the palette is warm and muted in light and dark (or follows your
+system). It works on phones, ⌘K / Ctrl K jumps anywhere, and it only uses the public API, so
+anything it does, you can script too.
 
 ## Documentation
 
@@ -224,18 +246,19 @@ The guides are also on the documentation site, with search:
 Compared with PocketBase, on the same machine, the same data and the same HTTP workloads, with
 default settings ([method and full results](bench/README.md)):
 
-| Scenario | slonbase req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
+| Scenario | slonbase 1.7 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
-| View one record | 13,677 | 10,083 | 5.9 / 27.4 |
-| List 30 records | 6,863 | 1,307 | 9.3 / 81.6 |
-| List 30, filtered | 5,965 | 83 | 10.6 / 533.8 |
-| List 30, expand a relation | 3,079 | 931 | 17.2 / 113.7 |
-| Create a record | 2,204 (4,520 with async commit) | 3,622 | 24.6 / 51.1 |
+| View one record | 10,128 | 8,299 | 7.3 / 30.8 |
+| List 30 records | 4,871 | 1,030 | 13.4 / 108.1 |
+| List 30, filtered | 4,304 | 72 | 15.5 / 684.6 |
+| List 30, expand a relation | 2,254 | 733 | 22.1 / 154.0 |
+| Create a record | 3,121 (4,012 with async commit) | 2,708 | 19.4 / 60.5 |
 
-Writes are slower with PostgreSQL's default durability, and faster when PostgreSQL makes the
-same trade-off as SQLite's default (`synchronous_commit = off`; see
-[why](docs/deployment.md#postgresql)). 1.3 made lists 5 to 8 times faster than 1.2 (see
-[what changed](bench/README.md#what-changed-in-13)).
+1.7 creates records 1.64 times as fast as 1.6, so writes are now ahead of PocketBase with
+PostgreSQL's default durability too, and further ahead when PostgreSQL makes the same
+trade-off as SQLite's default (`synchronous_commit = off`; see
+[why](docs/deployment.md#postgresql)). Lists are gzipped since 1.7, a sixth of the bytes,
+which this loopback benchmark counts as CPU only ([what changed](bench/README.md#what-changed-in-17)).
 
 ## Contributing
 

@@ -8,6 +8,29 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-03
+
+**A new dashboard, and writes that commit in parallel.** The dashboard is redesigned from the
+sidebar up; creating records is 1.64 times as fast as in 1.6; JSON answers are compressed;
+view queries are previewed before they're saved; and every push is compared with PocketBase.
+
+### Added
+
+- **Previews of view collections.** `POST /api/collections/meta/dry-run-view` returns the
+  fields and first rows a view's query would give, without saving it; the dashboard's view
+  editor shows them as you type. It needs the SQL console (like saving a view), runs the query
+  read-only with a 15-second limit, and refuses queries that can't make a view (PostgreSQL's
+  error, or empty or repeated ids) with the reason.
+- **Compressed JSON answers**: gzip, for answers over 1 KB, when the client accepts it. A page
+  of 30 records goes from 14.5 KB to 2.2 KB for about 25 µs of CPU. Answers carrying a token or
+  a secret are never compressed, so they can't be guessed from the compressed length (BREACH):
+  sign-ins, refreshes, impersonation, file tokens, setup, Apple client secrets, and any JSON
+  answer with a `"token"` key (a custom route's sign-in, say). `--no-compression` (or
+  `server.compression = false`) turns it off.
+- **A differential runner** (`compat/diff/run.sh`), run in CI on every push: PocketBase 0.40.5
+  and slonbase side by side, the same seed and requests, the answers compared as JSON, plus
+  1,000 fuzzed HTML documents through both servers' `:excerpt`.
+
 ### Changed
 
 - **A redesigned dashboard.** One sidebar holds the sections, the collections (with a filter
@@ -19,6 +42,21 @@ changes, listed in its **Upgrading** section.
   shows the day's traffic as a chart next to the greeting, the collections ranked by their
   records, and a health checklist; the sign-in page has a panel about slonbase beside the
   form. The default accent is now sage; an accent picked in the settings is kept.
+- **Writes commit in parallel.** Realtime events used to be announced with a `pg_notify` in
+  every write transaction, and PostgreSQL commits notifying transactions one at a time. Each
+  instance now reads new events from the outbox by transaction snapshot (migration 15 adds
+  each event's transaction id), woken at once by its own writes; other instances get one
+  coalesced notification, sent outside the writes, and every instance also checks every
+  500 ms. Creating records is 1.64 times as fast as in 1.6 ([benchmarks](bench/README.md)).
+  Writes from other programs still reach realtime subscribers, as before.
+
+### Upgrading
+
+- **Several instances on one database: upgrade them all together** (stop the old ones, then
+  start the new). Instances before 1.7 wait for the per-write notifications that 1.7 no longer
+  sends, so they would miss realtime events written through a 1.7 instance.
+- A reverse proxy that compresses responses itself should leave slonbase's uncompressed
+  answers alone (see [deployment](docs/deployment.md#reverse-proxy)).
 
 ## [1.6.0] - 2026-11-02
 
@@ -847,7 +885,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ayeshrodz/slonbase/compare/v1.4.0...v1.5.0
 [1.4.0]: https://github.com/ayeshrodz/slonbase/compare/v1.3.2...v1.4.0
