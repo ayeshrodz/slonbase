@@ -4,3 +4,6 @@
 /slonbase.toml
 /slonbase_data
 .env
+/ui/test/node_modules
+/ui/test/out
+/ui/test/.run

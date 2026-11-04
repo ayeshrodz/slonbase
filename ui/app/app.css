@@ -60,8 +60,11 @@
   --ink: #1f1d19;
   --ink-2: #3b3833;
   --ink-3: #5d5951;
-  --muted: #77726a;
-  --faint: #a7a197;
+  --muted: #66615b;
+  --faint: #6f695e;
+  /* coloured text (chips, statuses, links) is mixed this much with the ink, so it reads at
+     4.5:1 or more on its own tint and on every surface (WCAG AA) */
+  --text-mix: 41%;
   --line: #e6e2d9;
   --line-2: #d8d3c8;
   --hover: rgba(70, 58, 36, 0.05);
@@ -154,8 +157,9 @@
   --ink: #edebe6;
   --ink-2: #d0cdc5;
   --ink-3: #a6a299;
-  --muted: #8f8b82;
-  --faint: #615e57;
+  --muted: #a19d94;
+  --faint: #8f8b82;
+  --text-mix: 0%;
   --line: #2a2926;
   --line-2: #37352f;
   --hover: rgba(240, 230, 210, 0.05);
@@ -223,7 +227,7 @@ body::before {
   min-height: 100%;
 }
 a {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
   text-decoration: none;
 }
 a:hover {
@@ -597,7 +601,7 @@ table,
   --btn-bg: transparent;
   --btn-line: transparent;
   box-shadow: none;
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 .btn.danger-ghost:hover {
   background: var(--danger-soft);
@@ -702,7 +706,7 @@ table,
 }
 .field .error {
   font-size: var(--text-xs);
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
   animation: fade var(--t-med) ease;
 }
 
@@ -901,7 +905,7 @@ select.input {
 .chip.tone {
   border-color: color-mix(in srgb, var(--c), transparent 74%);
   background: color-mix(in srgb, var(--c), transparent 90%);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
 }
 .chip.accent {
   --c: var(--accent);
@@ -1054,20 +1058,20 @@ select.input {
   font-size: var(--text-sm);
 }
 .callout > .icon {
-  color: var(--info);
+  color: color-mix(in srgb, var(--info), var(--ink) var(--text-mix));
   margin-top: 1px;
 }
 .callout.warn > .icon {
-  color: var(--warn);
+  color: color-mix(in srgb, var(--warn), var(--ink) var(--text-mix));
 }
 .callout.danger {
   border-color: color-mix(in srgb, var(--danger), transparent 70%);
 }
 .callout.danger > .icon {
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 .callout.ok > .icon {
-  color: var(--ok);
+  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
 }
 
 .skeleton {
@@ -1247,7 +1251,7 @@ select.input {
   box-shadow: var(--shadow-1);
 }
 .side-link.on .icon {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
 }
 
 /* collections: the rest of the height, scrolling on its own */
@@ -1355,7 +1359,7 @@ select.input {
   font-size: var(--text-2xs);
   font-weight: var(--w-bold);
   --c: var(--ink-3);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
   background: color-mix(in srgb, var(--c), transparent 86%);
   flex: none;
   text-transform: uppercase;
@@ -1657,7 +1661,7 @@ select.input {
   color: var(--ink);
 }
 .tabs .on > .icon {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
 }
 .tabs .tab-ink {
   position: absolute;
@@ -1906,7 +1910,7 @@ table.grid .col-actions {
   color: var(--ink);
 }
 .pager .pages button.on {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 70%);
   background: var(--accent-soft);
 }
@@ -2082,11 +2086,11 @@ table.grid .col-actions {
   text-decoration: none;
 }
 .menu .danger {
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 .menu .danger:hover {
   background: var(--danger-soft);
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 .menu hr {
   border: 0;
@@ -2189,13 +2193,13 @@ table.grid .col-actions {
   flex: none;
 }
 .toast.ok .toast-icon {
-  color: var(--ok);
+  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
 }
 .toast.error .toast-icon {
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 .toast.info .toast-icon {
-  color: var(--info);
+  color: color-mix(in srgb, var(--info), var(--ink) var(--text-mix));
 }
 .toast button {
   border: 1px solid var(--line-2);
@@ -2383,7 +2387,7 @@ table.grid .col-actions {
   place-items: center;
   border-radius: var(--r-md);
   --c: var(--accent);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
   background: color-mix(in srgb, var(--c), transparent 89%);
 }
 
@@ -2647,7 +2651,7 @@ a.check-row:hover {
   place-items: center;
   flex: none;
   --c: var(--ok);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
   background: color-mix(in srgb, var(--c), transparent 86%);
 }
 .check-dot.warn {
@@ -2700,7 +2704,7 @@ a.check-row:hover {
   --c: var(--accent);
   background: color-mix(in srgb, var(--c), transparent 90%);
   border: 1px solid color-mix(in srgb, var(--c), transparent 80%);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
   flex: none;
 }
 .field-name-input {
@@ -2809,7 +2813,7 @@ a.check-row:hover {
   --c: var(--ink-3);
   border: 1px solid color-mix(in srgb, var(--c), transparent 74%);
   background: color-mix(in srgb, var(--c), transparent 90%);
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
 }
 .method.GET {
   --c: var(--info);
@@ -2935,16 +2939,16 @@ pre.code {
 }
 
 .status-2 {
-  color: var(--ok);
+  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
 }
 .status-3 {
-  color: var(--info);
+  color: color-mix(in srgb, var(--info), var(--ink) var(--text-mix));
 }
 .status-4 {
-  color: var(--warn);
+  color: color-mix(in srgb, var(--warn), var(--ink) var(--text-mix));
 }
 .status-5 {
-  color: var(--danger);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 
 .settings-layout {
@@ -2982,7 +2986,7 @@ pre.code {
   box-shadow: 0 0 0 1px var(--line), var(--shadow-1);
 }
 .settings-nav a.on .icon {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
 }
 @media (max-width: 860px) {
   .settings-layout {
@@ -3287,7 +3291,7 @@ a.btn:hover {
   border-radius: var(--r-pill);
   display: grid;
   place-items: center;
-  color: var(--c);
+  color: color-mix(in srgb, var(--c), var(--ink) var(--text-mix));
   background: color-mix(in srgb, var(--c), transparent 86%);
 }
 .check-item.compact .check-icon {
@@ -3912,7 +3916,7 @@ a.btn:hover {
   inset: 0;
   border-radius: 50%;
   background: currentColor;
-  color: var(--ok);
+  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
   animation: ripple 2.2s var(--ease-out) infinite;
 }
 

@@ -181,6 +181,46 @@ jobs:
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/diff/run.sh
 
+  # the dashboard: accessibility (axe, WCAG 2 AA) and screenshots against the baselines
+  dashboard:
+    name: dashboard (accessibility and screenshots)
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - name: Install the checks and Chromium
+        working-directory: ui/test
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - run: ui/test/run.sh
+      - name: Upload the screenshots that differ
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: dashboard-screenshots
+          path: ui/test/out/
+          if-no-files-found: ignore
+
   # PocketBase data (seeded through its API, then its backup) imported into slonbase
   import:
     name: PocketBase import

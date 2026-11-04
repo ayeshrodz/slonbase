@@ -373,7 +373,7 @@ export function Records({ collection: c, recordId }) {
       <span>${plural(total, "record")}</span>
       <span class="spacer"></span>
       <span>Per page</span>
-      <select class="input" style="width:auto;min-height:30px;padding:4px 30px 4px 10px" value=${perPage} onChange=${(e) => {
+      <select class="input" aria-label="Records per page" style="width:auto;min-height:30px;padding:4px 30px 4px 10px" value=${perPage} onChange=${(e) => {
         setPerPage(Number(e.target.value));
         setPage(1);
       }}>
