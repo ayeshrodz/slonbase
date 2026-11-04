@@ -223,7 +223,8 @@ async function seedServer(url) {
 function viewShape(json) {
   if (!json || !Array.isArray(json.fields)) return json;
   return {
-    fields: json.fields.map((f) => ({ name: f.name, type: f.type })),
+    // everything but the ids (random on both sides) and other collections' ids
+    fields: json.fields.map(({ id, ...f }) => ("collectionId" in f ? { ...f, collectionId: typeof f.collectionId } : f)),
     sample: (json.sample || []).map((r) => ({ ...r, collectionName: typeof r.collectionName, collectionId: typeof r.collectionId })),
   };
 }
@@ -306,6 +307,8 @@ function cases() {
   const dry = (query) => ["POST", "/api/collections/meta/dry-run-view", { query }, true, viewShape];
   out.push(["dry-run view", ...dry("SELECT id, title, views, published, meta FROM posts ORDER BY id")]);
   out.push(["dry-run view joined", ...dry("SELECT p.id, p.title, a.name AS author_name FROM posts p JOIN authors a ON a.id = p.author ORDER BY p.id")]);
+  // columns taken from collection fields are copies of them (a collection's id, a relation)
+  out.push(["dry-run view copied fields", ...dry("SELECT p.id, p.title AS headline, p.tags, p.author, p.views, a.id AS writer, a.bio FROM posts p JOIN authors a ON a.id = p.author ORDER BY p.id")]);
   out.push(["dry-run view fields picked", "POST", "/api/collections/meta/dry-run-view?fields=sample.id,fields.name", { query: "SELECT id, title FROM posts ORDER BY id" }]);
   out.push(["dry-run view no id", ...dry("SELECT title FROM posts")]);
   out.push(["dry-run view duplicate ids", ...dry("SELECT author AS id FROM posts")]);

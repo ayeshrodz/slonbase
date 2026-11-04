@@ -420,3 +420,192 @@ async fn views_need_the_sql_console() {
     drop(app);
     tdb.drop_db().await;
 }
+
+/// A view's columns taken from collection fields are copies of those fields (as in
+/// PocketBase): selects keep their values, relations their collection; a collection's `id`
+/// under another name is a relation to it; a password hash is hidden; expressions get a field
+/// for their type.
+#[tokio::test]
+async fn view_fields_copy_their_sources() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let admin = Some(token.as_str());
+    let (status, users) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "writers", "type": "auth", "listRule": "", "viewRule": "",
+            "fields": [{ "name": "nick", "type": "text", "max": 20 }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{users}");
+    let (status, posts) = call(&app, admin, "POST", "/api/collections", Some(json!({
+        "name": "articles", "listRule": "", "viewRule": "",
+        "fields": [
+            { "name": "title", "type": "text", "required": true, "max": 80 },
+            { "name": "status", "type": "select", "values": ["draft", "live"], "maxSelect": 1 },
+            { "name": "author", "type": "relation", "collectionId": users["id"], "maxSelect": 1 },
+            { "name": "cover", "type": "file", "maxSelect": 1, "maxSize": 1000 },
+            { "name": "secret", "type": "text", "hidden": true },
+        ],
+    }))).await;
+    assert_eq!(status, StatusCode::OK, "{posts}");
+    let (status, view) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "feed", "type": "view", "listRule": "", "viewRule": "",
+            "viewQuery": "WITH live AS (SELECT * FROM articles WHERE status = 'live') \
+                          SELECT a.id, a.title AS headline, a.status, a.author, a.cover, a.secret, \
+                          w.id AS writer, w.email, w.password, \
+                          count(*) OVER () AS total, a.title || '!' AS shout, 1.5 AS ratio \
+                          FROM live a LEFT JOIN writers w ON w.id = a.author",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let field = |name: &str| {
+        view["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|f| f["name"] == name)
+            .cloned()
+            .unwrap_or_else(|| panic!("no field {name}: {view}"))
+    };
+    assert_eq!(field("id")["type"], "text");
+    assert_eq!(field("id")["primaryKey"], true);
+    assert_eq!(field("headline")["type"], "text");
+    assert_eq!(field("headline")["max"], 80, "options are copied too");
+    assert_eq!(field("status")["type"], "select");
+    assert_eq!(field("status")["values"], json!(["draft", "live"]));
+    assert_eq!(field("author")["type"], "relation");
+    assert_eq!(field("author")["collectionId"], users["id"]);
+    assert_eq!(field("cover")["type"], "file");
+    assert_eq!(field("secret")["hidden"], true);
+    assert_eq!(field("writer")["type"], "relation");
+    assert_eq!(field("writer")["collectionId"], users["id"]);
+    assert_eq!(field("writer")["maxSelect"], 1);
+    assert_eq!(field("email")["type"], "email");
+    assert_eq!(field("password")["type"], "text");
+    assert_eq!(
+        field("password")["hidden"],
+        true,
+        "a password hash is never shown"
+    );
+    assert_eq!(field("total")["type"], "number");
+    assert_eq!(field("total")["onlyInt"], true);
+    assert_eq!(field("shout")["type"], "text");
+    assert_eq!(field("ratio")["type"], "number");
+    assert_eq!(field("ratio")["onlyInt"], false);
+
+    // the copies work as their sources do: expand follows the relations
+    let (_, writer) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections/writers/records",
+        Some(json!({
+            "email": "w@example.com", "password": "password-123", "passwordConfirm": "password-123",
+            "nick": "w",
+        })),
+    )
+    .await;
+    let (status, res) = call(
+        &app,
+        admin,
+        "POST",
+        "/api/collections/articles/records",
+        Some(json!({
+            "title": "Hello", "status": "live", "author": writer["id"], "secret": "s",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, list) = call(
+        &app,
+        None,
+        "GET",
+        "/api/collections/feed/records?expand=author,writer",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    let item = &list["items"][0];
+    assert_eq!(item["headline"], "Hello");
+    assert_eq!(item["expand"]["author"]["nick"], "w", "{item}");
+    assert_eq!(item["expand"]["writer"]["id"], writer["id"]);
+    assert!(
+        item.get("password").is_none() && item.get("secret").is_none(),
+        "{item}"
+    );
+    let (_, list) = call(&app, admin, "GET", "/api/collections/feed/records", None).await;
+    assert!(
+        list["items"][0]["password"]
+            .as_str()
+            .is_some_and(|p| p.starts_with("$2"))
+    );
+
+    // a view record's files are served from its source record
+    let auth = format!("Bearer {token}");
+    let (content_type, body) = multipart(
+        &[("title", "With a cover"), ("status", "live")],
+        &[("cover", "notes.txt", b"the cover's bytes")],
+    );
+    let (status, _, created) = raw_request(
+        &app,
+        "POST",
+        "/api/collections/articles/records",
+        &[
+            ("authorization", auth.as_str()),
+            ("content-type", content_type.as_str()),
+        ],
+        body,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "{}",
+        String::from_utf8_lossy(&created)
+    );
+    let created: Value = serde_json::from_slice(&created).unwrap();
+    let cover = created["cover"].as_str().unwrap().to_string();
+    let id = created["id"].as_str().unwrap();
+    let (status, _, bytes) = raw_request(
+        &app,
+        "GET",
+        &format!("/api/files/feed/{id}/{cover}"),
+        &[],
+        Vec::new(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"the cover's bytes");
+    // not under another view record, nor a name the view record doesn't hold
+    let (_, other) = call(
+        &app,
+        None,
+        "GET",
+        "/api/collections/feed/records?filter=headline%3D%22Hello%22",
+        None,
+    )
+    .await;
+    let other_id = other["items"][0]["id"].as_str().unwrap();
+    for uri in [
+        format!("/api/files/feed/{other_id}/{cover}"),
+        format!("/api/files/feed/{id}/other_{cover}"),
+    ] {
+        let (status, _, _) = raw_request(&app, "GET", &uri, &[], Vec::new()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{uri}");
+    }
+    tdb.drop_db().await;
+}

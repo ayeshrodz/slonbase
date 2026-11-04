@@ -621,6 +621,73 @@ fn make_thumb(data: &[u8], size: ThumbSize) -> anyhow::Result<Vec<u8>> {
 // ---------------------------------------------------------------------------
 // serving
 
+/// The collection and record that store `filename` of view record `record_id`, as
+/// PocketBase finds them: the view's file field is a copy of a collection's file field, and
+/// the file is in that collection's record with the view record's id, or else in the one whose
+/// field holds that file name. (The view record, its rule and the file name in its field are
+/// checked by the caller.)
+async fn view_file_owner(
+    core: &Core,
+    client: &mut deadpool_postgres::Client,
+    view: &Collection,
+    field: &str,
+    record_id: &str,
+    filename: &str,
+) -> Result<Option<(String, String)>, ApiError> {
+    let generation = core.registry_generation();
+    let key = (view.id.clone(), field.to_string());
+    let cached = core
+        .view_file_sources
+        .lock()
+        .expect("view files lock")
+        .get(&key)
+        .filter(|(at, _)| *at == generation)
+        .map(|(_, source)| source.clone());
+    let source = match cached {
+        Some(source) => source,
+        None => {
+            let source = crate::collections::view::field_source(client, view, field)
+                .await
+                .map_err(|e| ApiError::internal(anyhow::anyhow!(e)))?;
+            let mut cache = core.view_file_sources.lock().expect("view files lock");
+            if cache.len() > 1024 {
+                cache.clear();
+            }
+            cache.insert(key, (generation, source.clone()));
+            source
+        }
+    };
+    let Some((collection_id, column)) = source else {
+        return Ok(None);
+    };
+    let registry = core.registry();
+    let Some(source) = registry.by_id(&collection_id) else {
+        return Ok(None);
+    };
+    let Some(source_field) = source
+        .fields
+        .iter()
+        .find(|f| f.name == column && matches!(f.kind, FieldKind::File(_)))
+    else {
+        return Ok(None);
+    };
+    let holds = match source_field.storage() {
+        crate::collections::model::Storage::Multi => {
+            format!("{ALIAS}.{} ? $1", crate::filter::quote_ident(&column))
+        }
+        _ => format!("{ALIAS}.{} = $1", crate::filter::quote_ident(&column)),
+    };
+    let sql = format!(
+        "SELECT {ALIAS}.\"id\" FROM {} {ALIAS} WHERE {holds} ORDER BY ({ALIAS}.\"id\" = $2) DESC LIMIT 1",
+        table_ref(&source.name)
+    );
+    let row = client
+        .query_opt(&sql, &[&filename, &record_id])
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    Ok(row.map(|r| (source.id.clone(), r.get(0))))
+}
+
 /// `GET /api/files/{collection}/{recordId}/{filename}` with optional `thumb`, `token`
 /// and `download` query parameters.
 pub async fn serve(
@@ -639,7 +706,7 @@ pub async fn serve(
     if !valid_name(&filename) {
         return Err(ApiError::not_found());
     }
-    let client = core
+    let mut client = core
         .pool
         .get()
         .await
@@ -689,9 +756,17 @@ pub async fn serve(
             return Err(ApiError::not_found());
         }
     }
+    // a view record's files are its source record's
+    let (owner_collection, owner_record) = if c.is_view() {
+        view_file_owner(&core, &mut client, &c, &field.name, &record_id, &filename)
+            .await?
+            .ok_or_else(ApiError::not_found)?
+    } else {
+        (c.id.clone(), record_id.clone())
+    };
     drop(client);
 
-    let original_key = file_key(&c.id, &record_id, &filename);
+    let original_key = file_key(&owner_collection, &owner_record, &filename);
     let mut served_key = original_key.clone();
     let mut served_name = filename.clone();
     let mut thumb_error = Value::Null;
@@ -699,8 +774,15 @@ pub async fn serve(
     if let Some(thumb) = query.get("thumb").filter(|t| !t.is_empty()) {
         let allowed = matches!(&field.kind, FieldKind::File(o) if thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
         if let (true, Some(size)) = (allowed, ThumbSize::parse(thumb)) {
-            if let Some(key) =
-                ensure_thumb(&core, &c.id, &record_id, &filename, thumb, size).await?
+            if let Some(key) = ensure_thumb(
+                &core,
+                &owner_collection,
+                &owner_record,
+                &filename,
+                thumb,
+                size,
+            )
+            .await?
             {
                 served_key = key;
                 served_name = format!("{thumb}_{filename}");

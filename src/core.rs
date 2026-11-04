@@ -32,6 +32,12 @@ pub struct Core {
     pub(crate) counts: crate::count_cache::CountCache,
     /// The last database probe of the health check (see `server::health`).
     pub(crate) health: crate::server::HealthProbe,
+    /// Where view collections' file fields come from: (view id, field) to the collection and
+    /// column, at a registry generation (see `files::view_file_owner`).
+    #[allow(clippy::type_complexity)]
+    pub(crate) view_file_sources: std::sync::Mutex<
+        std::collections::HashMap<(String, String), (u64, Option<(String, String)>)>,
+    >,
     /// Encrypts the settings and the signing secret in the database (`server.encryption_key`).
     secrets_key: Option<Arc<crate::secrets::SecretsKey>>,
     /// Encrypts new backups (`backups.encryption_key`).
@@ -174,6 +180,7 @@ impl Core {
             secrets_key,
             counts: Default::default(),
             health: Default::default(),
+            view_file_sources: Default::default(),
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,
