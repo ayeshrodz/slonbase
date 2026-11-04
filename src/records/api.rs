@@ -888,9 +888,8 @@ async fn create_checked<C: TextQuery + GenericClient>(
     let file_plan = files::apply(c, &mut values, &Values::new(), &body, uploads, &mut errors);
     values::validate(c, &values, &changes, true, &mut errors);
     check_password_confirm(c, &body, &mut errors);
-    if errors.is_empty() {
-        check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
-    }
+    // reported with the other errors, as PocketBase does
+    check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
@@ -1062,8 +1061,10 @@ async fn update_checked(
         if let Some(new_email) = body.get(FIELD_EMAIL).and_then(Value::as_str) {
             email_changed = !new_email.eq_ignore_ascii_case(&current_email);
             if email_changed && !can_manage {
-                errors.invalid(
+                // (PocketBase's code)
+                errors.add(
                     FIELD_EMAIL,
+                    "validation_values_mismatch",
                     "The email can only be changed with an email change request.",
                 );
             }
@@ -1103,9 +1104,8 @@ async fn update_checked(
     let file_plan = files::apply(c, &mut values, &original, &body, uploads, &mut errors);
     values::validate(c, &values, &changes, false, &mut errors);
     check_password_confirm(c, &body, &mut errors);
-    if errors.is_empty() {
-        check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
-    }
+    // reported with the other errors, as PocketBase does
+    check_relations(tx, ctx.registry, c, &values, &mut errors).await?;
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
@@ -1794,6 +1794,9 @@ async fn check_relations(
         let FieldKind::Relation(options) = &field.kind else {
             continue;
         };
+        if errors.contains(&field.name) {
+            continue;
+        }
         let ids = values::as_strings(values.get(&field.name).unwrap_or(&Value::Null));
         if ids.is_empty() {
             continue;

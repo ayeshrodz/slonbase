@@ -116,7 +116,19 @@ export const HTML = [
 const IDS = {
   author1: "author000000001",
   author2: "author000000002",
+  member1: "member000000001",
+  member2: "member000000002",
 };
+const MEMBER_PASSWORD = "member-password-1";
+
+// a member's token on a server (after seeding)
+async function memberLogin(url) {
+  const r = await call(url, null, "POST", "/api/collections/members/auth-with-password", {
+    identity: "m1@example.com", password: MEMBER_PASSWORD,
+  });
+  if (r.status !== 200) throw new Error(`${url} member login: ${JSON.stringify(r.json)}`);
+  return r.json.token;
+}
 const postId = (i) => "post" + String(i).padStart(11, "0");
 
 async function seedFuzz(url) {
@@ -196,6 +208,23 @@ async function seedServer(url) {
     ],
   });
   if (r.status !== 200) throw new Error(`${url} posts: ${JSON.stringify(r.json)}`);
+  r = await call(url, token, "POST", "/api/collections", {
+    name: "members",
+    type: "auth",
+    createRule: "",
+    listRule: "id = @request.auth.id",
+    viewRule: "id = @request.auth.id",
+    updateRule: "id = @request.auth.id",
+    fields: [{ name: "name", type: "text", max: 40 }],
+  });
+  if (r.status !== 200) throw new Error(`${url} members: ${JSON.stringify(r.json)}`);
+  for (const [i, id] of [IDS.member1, IDS.member2].entries()) {
+    r = await call(url, token, "POST", "/api/collections/members/records", {
+      id, email: `m${i + 1}@example.com`, password: MEMBER_PASSWORD, passwordConfirm: MEMBER_PASSWORD,
+      name: `Member ${i + 1}`, emailVisibility: i === 0,
+    });
+    if (r.status !== 200) throw new Error(`${url} member: ${JSON.stringify(r.json)}`);
+  }
   for (const [i, id] of [IDS.author1, IDS.author2].entries()) {
     r = await call(url, token, "POST", "/api/collections/authors/records", {
       id,
@@ -316,8 +345,69 @@ function cases() {
   out.push(["dry-run view blank", ...dry("")]);
   out.push(["dry-run view bad sql", ...dry("SELECT id FROM nope")]);
   out.push(["dry-run view guest", "POST", "/api/collections/meta/dry-run-view", { query: "SELECT id FROM posts" }, false]);
+  // auth flows: sign-up, sign-in, refresh, rules, emails
+  const pw = MEMBER_PASSWORD;
+  out.push(["sign up", "POST", "/api/collections/members/records",
+    { id: "member000000009", email: "new@example.com", password: pw, passwordConfirm: pw, name: "New" }, false]);
+  out.push(["sign up mismatch", "POST", "/api/collections/members/records",
+    { email: "x@example.com", password: pw, passwordConfirm: pw + "x" }, false]);
+  out.push(["sign up short password", "POST", "/api/collections/members/records",
+    { email: "y@example.com", password: "short", passwordConfirm: "short" }, false]);
+  out.push(["sign up taken email", "POST", "/api/collections/members/records",
+    { email: "m2@example.com", password: pw, passwordConfirm: pw }, false]);
+  out.push(["sign up bad email", "POST", "/api/collections/members/records",
+    { email: "not-an-email", password: pw, passwordConfirm: pw }, false]);
+  out.push(["sign up too long name", "POST", "/api/collections/members/records",
+    { email: "z@example.com", password: pw, passwordConfirm: pw, name: "n".repeat(41) }, false]);
+  out.push(["sign in", "POST", "/api/collections/members/auth-with-password", { identity: "m1@example.com", password: pw }, false]);
+  out.push(["sign in wrong password", "POST", "/api/collections/members/auth-with-password", { identity: "m1@example.com", password: "wrong" }, false]);
+  out.push(["sign in unknown", "POST", "/api/collections/members/auth-with-password", { identity: "nobody@example.com", password: pw }, false]);
+  out.push(["sign in blank", "POST", "/api/collections/members/auth-with-password", {}, false]);
+  out.push(["auth methods", "GET", "/api/collections/members/auth-methods", undefined, false]);
+  out.push(["auth refresh", "POST", "/api/collections/members/auth-refresh", undefined, "member"]);
+  out.push(["auth refresh guest", "POST", "/api/collections/members/auth-refresh", undefined, false]);
+  out.push(["members as a member", "GET", "/api/collections/members/records?sort=id", undefined, "member"]);
+  out.push(["members as a guest", "GET", "/api/collections/members/records?sort=id", undefined, false]);
+  out.push(["members as a superuser", "GET", "/api/collections/members/records?sort=id"]);
+  out.push(["other member", "GET", `/api/collections/members/records/${IDS.member2}`, undefined, "member"]);
+  out.push(["own member", "GET", `/api/collections/members/records/${IDS.member1}`, undefined, "member"]);
+  out.push(["update other member", "PATCH", `/api/collections/members/records/${IDS.member2}`, { name: "x" }, "member"]);
+  out.push(["update own member", "PATCH", `/api/collections/members/records/${IDS.member1}`, { name: "Renamed" }, "member"]);
+  out.push(["change email without the password", "PATCH", `/api/collections/members/records/${IDS.member1}`, { email: "other@example.com" }, "member"]);
+  out.push(["change password without the old one", "PATCH", `/api/collections/members/records/${IDS.member1}`, { password: pw + "2", passwordConfirm: pw + "2" }, "member"]);
+  out.push(["password reset request", "POST", "/api/collections/members/request-password-reset", { email: "nobody@example.com" }, false]);
+  out.push(["password reset bad token", "POST", "/api/collections/members/confirm-password-reset", { token: "x", password: pw, passwordConfirm: pw }, false]);
+  out.push(["verification request", "POST", "/api/collections/members/request-verification", { email: "nobody@example.com" }, false]);
+  // batch requests: all or nothing
+  out.push(["batch create update delete", "POST", "/api/batch", { requests: [
+    { method: "POST", url: "/api/collections/posts/records", body: { id: "batchpost000001", title: "b1", views: 1 } },
+    { method: "PATCH", url: "/api/collections/posts/records/batchpost000001", body: { "views+": 2, "tags+": ["c"] } },
+    { method: "PUT", url: "/api/collections/posts/records", body: { id: "batchpost000002", title: "upserted" } },
+    { method: "DELETE", url: `/api/collections/posts/records/${postId(9)}` },
+  ] }]);
+  out.push(["batch one fails", "POST", "/api/batch", { requests: [
+    { method: "POST", url: "/api/collections/posts/records", body: { id: "batchpost000003", title: "kept?" } },
+    { method: "PATCH", url: "/api/collections/posts/records/missing000000000", body: { title: "x" } },
+  ] }]);
+  out.push(["batch rolled back", "GET", "/api/collections/posts/records/batchpost000003"]);
+  out.push(["batch bad request", "POST", "/api/batch", { requests: [{ method: "GET", url: "/api/collections/posts/records" }] }]);
+  out.push(["batch empty", "POST", "/api/batch", { requests: [] }]);
+  // (a number field given "x": PocketBase stores 0, slonbase refuses it; see the migration guide)
+  out.push(["validation codes", "POST", "/api/collections/posts/records", { title: 5, tags: ["nope"], author: "missing000000000" }]);
   out.push(["collections list fields", "GET", "/api/collections?fields=name&sort=name&filter=" + encodeURIComponent("name~'posts'")]);
   return out;
+}
+
+// an error's comparable part: which fields failed, with which codes (batch errors nest them)
+function errorShape(json) {
+  const codes = (d) => {
+    if (!d || typeof d !== "object") return d === undefined ? null : typeof d;
+    if (typeof d.code === "string") return d.code;
+    const o = {};
+    for (const k of Object.keys(d).sort()) if (k !== "message") o[k] = codes(d[k]);
+    return o;
+  };
+  return json && typeof json === "object" ? { data: codes(json.data) } : typeof json;
 }
 
 // values that differ between the two servers by nature
@@ -349,17 +439,20 @@ async function main() {
     console.log(`fuzz: ${fuzzCount} documents`);
   }
   const tokens = [await login(pbURL), await login(sbURL)];
+  const memberTokens = [await memberLogin(pbURL), await memberLogin(sbURL)];
   let failed = 0;
   let passed = 0;
   for (const [name, method, path, body, auth = true, shape = (j) => j] of cases()) {
     if (only && !name.includes(only)) continue;
+    const token = (i) => (auth === "member" ? memberTokens[i] : auth ? tokens[i] : null);
     const [a, b] = await Promise.all(
-      [pbURL, sbURL].map((u, i) => call(u, auth ? tokens[i] : null, method, path, body))
+      [pbURL, sbURL].map((u, i) => call(u, token(i), method, path, body))
     );
     const statusOk = a.status === b.status;
-    // error bodies differ in wording; compare their status only
-    const ja = a.status < 300 ? JSON.stringify(normalize(shape(a.json))) : "";
-    const jb = b.status < 300 ? JSON.stringify(normalize(shape(b.json))) : "";
+    // error messages differ in wording: errors are compared by their fields' codes
+    const compared = (r) => (r.status < 300 ? normalize(shape(r.json)) : errorShape(r.json));
+    const ja = JSON.stringify(compared(a));
+    const jb = JSON.stringify(compared(b));
     if (statusOk && ja === jb) {
       passed++;
       if (verbose) console.log("ok  ", name);

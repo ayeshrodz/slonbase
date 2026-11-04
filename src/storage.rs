@@ -293,12 +293,14 @@ pub struct Local {
 
 impl Local {
     fn path(&self, key: &str) -> PathBuf {
-        let mut path = self.root.clone();
-        path.extend(key.split('/'));
+        // (the key is checked: the root, configured, may well contain `..`)
         debug_assert!(
-            path.components()
+            std::path::Path::new(key)
+                .components()
                 .all(|c| !matches!(c, Component::ParentDir))
         );
+        let mut path = self.root.clone();
+        path.extend(key.split('/'));
         path
     }
 

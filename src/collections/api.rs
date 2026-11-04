@@ -822,14 +822,6 @@ pub async fn dry_run_view(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let invalid = |message: String| {
-        let mut errors = crate::validation::Errors::new();
-        errors.invalid("query", message);
-        ApiError::invalid_data(
-            "An error occurred while validating the submitted data.",
-            &errors,
-        )
-    };
     if query.trim().is_empty() {
         let mut errors = crate::validation::Errors::new();
         errors.add("query", "validation_required", "Cannot be blank.");
@@ -839,7 +831,10 @@ pub async fn dry_run_view(
         ));
     }
     if let Err(message) = super::view::check_query(&query) {
-        return Err(invalid(message));
+        // as PocketBase answers a query its database refuses
+        return Err(ApiError::bad_request(format!(
+            "Invalid view query. Raw error: \n{message}"
+        )));
     }
     if !core.sql_console {
         return Err(ApiError::forbidden(

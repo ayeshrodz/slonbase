@@ -456,9 +456,18 @@ pub async fn auth_with_password(
     let core = app.core()?;
     let identity = body_str(&body, "identity").trim().to_string();
     let password = body_str(&body, "password").to_string();
-    let failed = || ApiError::bad_request("Failed to authenticate.");
     if identity.is_empty() || password.is_empty() {
-        return Err(failed());
+        // which ones are missing, as PocketBase answers
+        let mut errors = Errors::new();
+        for (name, value) in [("identity", &identity), ("password", &password)] {
+            if value.is_empty() {
+                errors.add(name, "validation_required", "Cannot be blank.");
+            }
+        }
+        return Err(ApiError::invalid_data(
+            "An error occurred while validating the submitted data.",
+            &errors,
+        ));
     }
 
     let c = auth_collection(&core, &collection)?;
@@ -613,6 +622,18 @@ pub async fn auth_methods(
         vec![]
     };
     let duration = |enabled: bool, duration: i64| if enabled { duration } else { 0 };
+    // the pre-0.23 SDKs read these, and PocketBase still sends them
+    let identity = |field: &str| {
+        o.password_auth.enabled && o.password_auth.identity_fields.iter().any(|f| f == field)
+    };
+    let legacy_providers: Vec<Value> = providers
+        .iter()
+        .cloned()
+        .map(|mut p| {
+            p["logo"] = json!("");
+            p
+        })
+        .collect();
     Ok(Json(json!({
         "password": {
             "enabled": o.password_auth.enabled,
@@ -621,6 +642,9 @@ pub async fn auth_methods(
         "oauth2": { "enabled": o.oauth2.enabled, "providers": providers },
         "mfa": { "enabled": o.mfa.enabled, "duration": duration(o.mfa.enabled, o.mfa.duration) },
         "otp": { "enabled": o.otp.enabled, "duration": duration(o.otp.enabled, o.otp.duration) },
+        "authProviders": legacy_providers,
+        "usernamePassword": identity("username"),
+        "emailPassword": identity("email"),
     })))
 }
 
@@ -715,6 +739,30 @@ fn blank(key: &str) -> ApiError {
     )
 }
 
+/// The validation code for a confirm request's token that didn't check out (as PocketBase's).
+fn token_code(token: &str) -> &'static str {
+    if token.is_empty() {
+        "validation_required"
+    } else {
+        "validation_invalid_token"
+    }
+}
+
+/// The answer to a confirm request whose token didn't check out.
+fn invalid_token(token: &str) -> ApiError {
+    let mut errors = Errors::new();
+    let message = if token.is_empty() {
+        "Cannot be blank."
+    } else {
+        "Invalid or expired token."
+    };
+    errors.add("token", token_code(token), message);
+    ApiError::invalid_data(
+        "An error occurred while validating the submitted data.",
+        &errors,
+    )
+}
+
 /// `POST /api/collections/{collection}/confirm-verification`
 pub async fn confirm_verification(
     State(app): State<Arc<App>>,
@@ -724,7 +772,7 @@ pub async fn confirm_verification(
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
-    let invalid = || ApiError::bad_request("Invalid or expired verification token.");
+    let invalid = || invalid_token(body_str(&body, "token"));
 
     let (record, claims) =
         verify_record_token(&core, body_str(&body, "token"), TokenType::Verification)
@@ -835,7 +883,11 @@ pub async fn confirm_password_reset(
                     .is_some_and(|e| e.eq_ignore_ascii_case(r.email()))
             });
     if token_result.is_none() {
-        errors.invalid("token", "Invalid or expired password reset token.");
+        errors.add(
+            "token",
+            token_code(body_str(&body, "token")),
+            "Invalid or expired token.",
+        );
     }
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(
@@ -965,7 +1017,11 @@ pub async fn confirm_email_change(
                 .is_some_and(|e| e.eq_ignore_ascii_case(r.email()))
         });
     let Some((record, claims)) = token_result else {
-        errors.invalid("token", "Invalid or expired email change token.");
+        errors.add(
+            "token",
+            token_code(body_str(&body, "token")),
+            "Invalid or expired token.",
+        );
         return Err(ApiError::invalid_data(
             "Failed to confirm the email change.",
             &errors,
