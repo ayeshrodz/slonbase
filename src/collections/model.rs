@@ -227,7 +227,7 @@ pub struct OAuth2Provider {
     /// A preset (`apple`, `google`, `github`, `gitlab`, `discord`, `microsoft`, `facebook`,
     /// `bitbucket`, `twitch`, `spotify`, `patreon`, `kakao`, `twitter`, `box`, `gitea`, `gitee`,
     /// `instagram2`, `lark`, `linear`, `livechat`, `mailcow`, `monday`, `notion`,
-    /// `planningcenter`, `strava`, `trakt`, `wakatime`, `yandex`) or `oidc`, `oidc2`, `oidc3`
+    /// `planningcenter`, `strava`, `trakt`, `vk`, `wakatime`, `yandex`) or `oidc`, `oidc2`, `oidc3`
     /// for any OpenID Connect provider. `mailcow` needs its URLs set, like `oidc`.
     pub name: String,
     pub client_id: String,

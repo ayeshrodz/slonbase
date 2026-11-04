@@ -569,6 +569,11 @@ async fn token(
         "{signed}.{}",
         b64(SIGNING_KEY.sign(signed.as_bytes()).as_ref())
     );
+    // VK sends the address with the token
+    let token_email = provider.users.lock().unwrap()[user]
+        .get("_token_email")
+        .cloned()
+        .unwrap_or(Value::Null);
     (
         StatusCode::OK,
         Json(json!({
@@ -577,6 +582,7 @@ async fn token(
             "token_type": "Bearer",
             "expires_in": 3600,
             "id_token": id_token,
+            "email": token_email,
         })),
     )
 }
@@ -1405,6 +1411,43 @@ async fn graphql_providers() {
     );
     let (status, res) = oauth2(&env, None, "off", json!({ "provider": "linear" })).await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    env.finish().await;
+}
+
+/// VK: the user from `users.get`, the address from the token answer, and no PKCE.
+#[tokio::test]
+async fn sign_in_with_vk() {
+    let Some(env) = Env::new().await else {
+        return;
+    };
+    let (provider, url) = Provider::start().await;
+    users_collection(
+        &env,
+        json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "vk", "clientId": "client-1", "clientSecret": "s3cret",
+                "authURL": format!("{url}/authorize"), "tokenURL": format!("{url}/token"),
+                "userInfoURL": format!("{url}/userinfo"),
+            }],
+            "mappedFields": { "name": "name" },
+        } }),
+    )
+    .await;
+    provider.set_user(
+        "vik",
+        json!({ "response": [{ "id": 4242, "first_name": "Vik", "last_name": "Tor",
+                               "screen_name": "viktor" }],
+                "_token_email": "vik@vk.test" }),
+    );
+    let (status, res) = oauth2(&env, None, "vik", json!({ "provider": "vk" })).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["meta"]["id"], "4242");
+    assert_eq!(res["meta"]["username"], "viktor");
+    assert_eq!(res["record"]["email"], "vik@vk.test", "{res}");
+    assert_eq!(res["record"]["name"], "Vik Tor");
+    let request = provider.requests.lock().unwrap().last().unwrap().clone();
+    assert!(!request.contains_key("code_verifier"), "{request:?}");
     env.finish().await;
 }
 

@@ -61,6 +61,7 @@ enum Kind {
     Trakt,
     Wakatime,
     Yandex,
+    Vk,
     Oidc,
 }
 
@@ -73,8 +74,8 @@ impl Kind {
 
     /// Whether PKCE is on unless the provider's `pkce` says otherwise.
     fn pkce(self) -> bool {
-        // Linear's token endpoint rejects it
-        self != Kind::Linear
+        // Linear's and VK's token endpoints reject it
+        !matches!(self, Kind::Linear | Kind::Vk)
     }
 
     /// Whether the provider has no default URLs (OpenID Connect, self-hosted mailcow).
@@ -355,6 +356,15 @@ const PRESETS: &[Preset] = &[
         scopes: &["login:email", "login:avatar", "login:info"],
     },
     Preset {
+        name: "vk",
+        kind: Kind::Vk,
+        display_name: "ВКонтакте",
+        auth_url: "https://oauth.vk.com/authorize",
+        token_url: "https://oauth.vk.com/access_token",
+        user_info_url: "https://api.vk.com/method/users.get?fields=photo_max,screen_name&v=5.131",
+        scopes: &["email"],
+    },
+    Preset {
         name: "oidc",
         kind: Kind::Oidc,
         display_name: "OIDC",
@@ -551,6 +561,7 @@ impl Provider {
                 .and_then(Value::as_str)
                 .unwrap_or_default()
                 .to_string(),
+            email: data.get("email").map(text).unwrap_or_default(),
             access_token: access_token.to_string(),
             refresh_token: data
                 .get("refresh_token")
@@ -648,6 +659,10 @@ impl Provider {
             bail!("the {} account isn't active", self.display_name);
         }
         let mut user = extract(self.kind, &raw);
+        if self.kind == Kind::Vk {
+            // VK sends the (confirmed) address with the token, not with the user
+            user.email = token.email.trim().to_string();
+        }
         if self.kind == Kind::Bitbucket {
             // the emails are separate: use the confirmed primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
@@ -938,6 +953,8 @@ impl Jwt {
 pub struct Token {
     /// The OpenID Connect `id_token`, if the provider sent one.
     pub id_token: String,
+    /// The address some providers send with the token (VK) instead of with the user.
+    pub email: String,
     pub access_token: String,
     pub refresh_token: String,
     pub expiry: String,
@@ -1231,6 +1248,16 @@ fn extract(kind: Kind, raw: &Value) -> AuthUser {
             if is_true(&data["is_email_confirmed"]) {
                 user.email = text(&data["email"]);
             }
+        }
+        Kind::Vk => {
+            // `{"response": [{"id": 1, "first_name", "last_name", "screen_name", "photo_max"}]}`
+            let u = &raw["response"][0];
+            user.id = text(&u["id"]);
+            user.name = format!("{} {}", text(&u["first_name"]), text(&u["last_name"]))
+                .trim()
+                .to_string();
+            user.username = text(&u["screen_name"]);
+            user.avatar_url = text(&u["photo_max"]);
         }
         Kind::Yandex => {
             // Yandex's addresses are its own
@@ -1747,6 +1774,33 @@ mod tests {
 
     #[test]
     fn extracts_the_parity_presets() {
+        let user = extract(
+            Kind::Vk,
+            &json!({ "response": [{
+                "id": 210700286, "first_name": "Lindsey", "last_name": "Stirling",
+                "screen_name": "lindseystirling", "photo_max": "https://sun.userapi.com/x.jpg",
+            }] }),
+        );
+        assert_eq!(
+            (
+                user.id.as_str(),
+                user.name.as_str(),
+                user.username.as_str(),
+                user.avatar_url.as_str(),
+                user.email.as_str()
+            ),
+            (
+                "210700286",
+                "Lindsey Stirling",
+                "lindseystirling",
+                "https://sun.userapi.com/x.jpg",
+                ""
+            ),
+            "the email comes with the token"
+        );
+        assert!(extract(Kind::Vk, &json!({ "response": [] })).id.is_empty());
+        assert!(!Kind::Vk.pkce(), "VK rejects PKCE parameters");
+
         let user = extract(
             Kind::Box,
             &json!({ "id": "b1", "name": "Bo", "login": "b@x.com", "status": "active" }),
