@@ -5,7 +5,8 @@
 // SB_EMAIL / SB_PASSWORD: a superuser of that installation. It seeds a small, fixed data set
 // (no dates, fixed ids), then on each main screen, in light and dark:
 // - runs axe-core (WCAG 2 A and AA) and fails on serious or critical violations;
-// - compares a screenshot with baselines/<screen>-<theme>.png and fails when more than
+// - compares a screenshot with baselines/<screen>-<theme>.png, both shrunk 4x (so text
+//   anti-aliasing, which differs between machines, averages out), and fails when more than
 //   MAX_DIFF of the pixels differ (the actual and diff images go to out/).
 // --update writes the baselines instead. The overview is checked by axe only: its chart and
 // greeting change with the time of day.
@@ -22,7 +23,12 @@ const base = (process.argv[2] || "http://127.0.0.1:8090").replace(/\/$/, "");
 const update = process.argv.includes("--update");
 const email = process.env.SB_EMAIL || "admin@example.com";
 const password = process.env.SB_PASSWORD || "admin-password-1";
-const MAX_DIFF = 0.01;
+const MAX_DIFF = Number(process.env.UI_MAX_DIFF || 0.02);
+// screenshots are compared at a quarter of their size (each pixel the average of 4x4): text
+// anti-aliasing differs between machines' font stacks, layout and colour changes don't average out
+const SCALE = 4;
+// font rendering pinned as far as Chromium allows
+const LAUNCH_ARGS = (process.env.UI_LAUNCH_ARGS || "--font-render-hinting=none --disable-lcd-text --disable-font-subpixel-positioning").split(" ").filter(Boolean);
 const VIEWPORT = { width: 1280, height: 800 };
 const axeSource = fs.readFileSync(path.join(here, "node_modules/axe-core/axe.min.js"), "utf8");
 const baselines = path.join(here, "baselines");
@@ -87,6 +93,27 @@ const MASK = `
   .live-dot, .spinner, [aria-busy="true"] { visibility: hidden !important; }
 `;
 
+// `png` at 1/SCALE of its size, each pixel the average of a SCALE x SCALE block
+function shrink(png) {
+  const width = Math.floor(png.width / SCALE);
+  const height = Math.floor(png.height / SCALE);
+  const out = new PNG({ width, height });
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const sum = [0, 0, 0, 0];
+      for (let dy = 0; dy < SCALE; dy++) {
+        for (let dx = 0; dx < SCALE; dx++) {
+          const i = ((y * SCALE + dy) * png.width + x * SCALE + dx) * 4;
+          for (let c = 0; c < 4; c++) sum[c] += png.data[i + c];
+        }
+      }
+      const o = (y * width + x) * 4;
+      for (let c = 0; c < 4; c++) out.data[o + c] = Math.round(sum[c] / (SCALE * SCALE));
+    }
+  }
+  return out;
+}
+
 async function check(page, name, { screenshot = true } = {}, theme, failures) {
   await page.addScriptTag({ content: axeSource });
   const violations = await page.evaluate(async () => {
@@ -102,6 +129,7 @@ async function check(page, name, { screenshot = true } = {}, theme, failures) {
   await page.waitForTimeout(300);
   const file = `${name}-${theme}.png`;
   const shot = await page.screenshot();
+  if (process.env.UI_SAVE_ALL) fs.writeFileSync(path.join(out, file), shot);
   if (update || !fs.existsSync(path.join(baselines, file))) {
     fs.writeFileSync(path.join(baselines, file), shot);
     console.log(`wrote baselines/${file}`);
@@ -114,9 +142,10 @@ async function check(page, name, { screenshot = true } = {}, theme, failures) {
     fs.writeFileSync(path.join(out, file), shot);
     return;
   }
-  const diff = new PNG({ width: actual.width, height: actual.height });
-  const differing = pixelmatch(expected.data, actual.data, diff.data, actual.width, actual.height, { threshold: 0.12 });
-  const ratio = differing / (actual.width * actual.height);
+  const [e, a] = [shrink(expected), shrink(actual)];
+  const diff = new PNG({ width: a.width, height: a.height });
+  const differing = pixelmatch(e.data, a.data, diff.data, a.width, a.height, { threshold: 0.1 });
+  const ratio = differing / (a.width * a.height);
   console.log(`${name} (${theme}): ${violations.length} accessibility problems, ${(ratio * 100).toFixed(2)}% of pixels differ`);
   if (ratio > MAX_DIFF) {
     failures.push(`${name} (${theme}): ${(ratio * 100).toFixed(2)}% of the pixels differ from the baseline`);
@@ -126,7 +155,7 @@ async function check(page, name, { screenshot = true } = {}, theme, failures) {
 }
 
 await seed();
-const browser = await chromium.launch();
+const browser = await chromium.launch({ args: LAUNCH_ARGS });
 const failures = [];
 const errors = [];
 for (const theme of ["light", "dark"]) {

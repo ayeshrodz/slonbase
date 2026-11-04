@@ -7,8 +7,9 @@ settings), in light and dark:
 - **Accessibility:** [axe-core](https://github.com/dequelabs/axe-core) with the WCAG 2 A and AA
   rules. A serious or critical violation (text contrast below 4.5:1, a control without a label,
   ...) fails the check.
-- **Screenshots:** each screen is compared with `baselines/<screen>-<theme>.png`; more than 1% of
-  the pixels differing fails it, and the screenshot and a diff image go to `out/` (CI uploads
+- **Screenshots:** each screen is compared with `baselines/<screen>-<theme>.png`, both shrunk
+  4x so text anti-aliasing (which differs between machines' fonts) averages out; more than 2% of
+  the pixels differing (`UI_MAX_DIFF`) fails it, and the screenshot and a diff image go to `out/` (CI uploads
   them). Moving parts (animations, the live dot) are hidden; the overview is checked by axe only.
 
 ```sh
