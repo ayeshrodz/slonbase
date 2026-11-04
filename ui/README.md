@@ -11,3 +11,8 @@ gzipped). Edit the files and rebuild.
 - `app/app.css` — design tokens (light and dark), components and motion
 
 It talks to the server only through the public API, the same one the SDKs use.
+
+`test/` checks the dashboard in CI: on a fresh install with a fixed data set it runs axe-core
+(WCAG 2 A and AA) on the main screens in both themes and compares their screenshots with
+`test/baselines/`. After an intended visual change, regenerate them with
+`DATABASE_URL=... test/run.sh --update` (see [test/README.md](test/README.md)).

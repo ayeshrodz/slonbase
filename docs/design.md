@@ -1238,7 +1238,10 @@ project's, in one transaction each.
 13. **1.8** (done): a security review of what 1.7 added (see the
     [security reviews](security-review.md#what-17-added-180)), creates in one round trip, and
     an outbox reader that costs less when idle and isn't slowed by long transactions.
-14. **Next:** health checks and per-request overhead (where PocketBase is still ahead), the VK
-    provider, view previews that copy the source fields as PocketBase does, the differential
-    runner over auth flows, batch requests, files and realtime, and screenshot and
-    accessibility checks for the dashboard in CI.
+14. **1.9** (done): a health check that shares its database probe for a second and cheaper
+    single-record reads; view fields copied from their source collections (and view records'
+    files served), as PocketBase does; the VK provider, the last PocketBase preset; the
+    differential runner over auth flows, batch requests and error codes; and accessibility and
+    screenshot checks of the dashboard in CI.
+15. **Next:** the differential runner over file uploads and realtime events, and the remaining
+    per-request overhead on lists.

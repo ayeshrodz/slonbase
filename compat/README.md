@@ -24,7 +24,10 @@ creates its own collections with unique names.
 
 `diff/run.sh` starts PocketBase and slonbase side by side on fresh data stores, seeds both the
 same way (fixed record ids), sends them the same requests and compares their answers as JSON;
-values that differ by nature (times, tokens, generated ids) are compared by type. It also
+values that differ by nature (times, tokens, generated ids) are compared by type, and error
+answers by their fields' validation codes. The requests cover reads, filters, expand, fields,
+writes, view previews, sign-up, sign-in, confirm tokens, rules for signed-in users and batches
+(126 of them). It also
 compares the `:excerpt` modifier on random HTML documents (`FUZZ`, default 1000; `FUZZ_SEED`
 picks them). CI runs it on every push.
 

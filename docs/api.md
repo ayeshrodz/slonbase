@@ -87,7 +87,14 @@ record with `password` and `passwordConfirm`, or through OAuth2.
 **View collections** are read-only records from a SQL query, e.g.
 `SELECT author AS id, count(*) AS posts FROM posts GROUP BY author`. Collections are tables named
 after their collection. A view's fields come from the query's columns, and list/view rules,
-filters, sorting and expand work as usual. The query runs with the database role's privileges,
+filters, sorting and expand work as usual. A column taken from a collection is a copy of that
+field (a select keeps its values, a relation its collection, a file field its options), found
+through PostgreSQL's own record of where each column comes from, so joins, subqueries and CTEs
+work too; a collection's `id` under another name is a relation to it. Other columns get a field
+for their type (`count(*)` is a whole number). Options you set on a view's fields (presentable,
+hidden, help) are kept when its query changes; a hidden source field stays hidden, and an auth
+collection's password hash is hidden text. A view record's files are served from the record
+they came from, after the view's own rule is checked. The query runs with the database role's privileges,
 and a `SELECT` can call any function the role may use, so creating or changing a view requires
 the SQL console to be enabled (`--sql-console`). Existing views keep working without it.
 

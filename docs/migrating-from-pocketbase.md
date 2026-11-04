@@ -94,5 +94,13 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | Rate limits | Per process, off on new installations | Per instance, on for new installations (an import keeps PocketBase's setting) |
 | Dashboard | PocketBase's | slonbase's own, with the same features |
 
+A few answers differ on purpose:
+
+- **A number field given something that isn't a number** (`"x"`): PocketBase stores 0, slonbase
+  refuses it with a validation error on that field.
+- **Computed view columns** (`count(*)`, `a + b`, `CASE ...`) get a field of their PostgreSQL
+  type (number, text, bool, date) where PocketBase often gives a JSON field. Columns taken
+  straight from a collection are copies of its fields in both.
+
 Error messages and validation codes follow PocketBase (e.g. `validation_required`,
 `validation_min_text_constraint`), so form errors in your UI keep working.

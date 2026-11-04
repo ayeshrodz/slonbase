@@ -8,6 +8,64 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-04
+
+**Closer to PocketBase, and checked against it.** View fields are copies of their source
+fields, as PocketBase makes them; VK completes PocketBase's sign-in presets; seven answers that
+differed from PocketBase's now match; health checks and single-record reads cost less; and the
+dashboard passes an accessibility check, kept in CI with screenshot comparisons.
+
+### Added
+
+- **View fields copied from their sources.** A view column taken from a collection is a copy of
+  that field: a select keeps its values, a relation its collection, a file field its options,
+  and a collection's `id` under another name is a relation to it. Where each column comes from
+  is PostgreSQL's own column origin, so joins, subqueries and CTEs work without parsing the
+  query. Computed columns still get a field of their type (`count(*)` is now a whole number).
+  Options set on the view's fields are kept, a hidden source stays hidden, and an auth
+  collection's password hash is hidden text.
+- **Files of view records.** A view record's file is served from the record it came from (the
+  one with the same id, or else the one whose field holds that file name), after the view's
+  rule and its own field are checked.
+- **Sign in with VK**, the last of PocketBase's OAuth2 presets: every one is now there.
+- **Dashboard checks in CI.** On a fresh install with a fixed data set, axe-core (WCAG 2 A and
+  AA) runs on the sign-in page, overview, records, record editor, schema, rules and settings
+  in both themes, and their screenshots are compared with committed baselines
+  ([ui/test](ui/test/README.md)).
+
+### Changed
+
+- **Cheaper health checks.** The database probe is shared for a second: requests in that
+  second (or while a probe runs) get its outcome instead of each running a query. An outage
+  still shows within a second. 1.41 times the requests per second of 1.8 in alternating runs
+  on the same database.
+- **Cheaper single-record reads.** A record with nothing to change it on the way out (no view or
+  enrich hooks, no `expand`) is written straight from its row, as lists are, and the column
+  list is built in one buffer: about 136,600 instructions instead of 172,000, 1.13 times the
+  requests per second with 32 clients and 1.09 times with one.
+- **Readable text everywhere in the dashboard.** Muted and small print, chips, statuses and links
+  now reach a 4.5:1 contrast in light and dark mode (some were at 2.5 to 4.4:1), while fills,
+  dots and charts keep their colours; the page-size select has a label.
+
+### Fixed
+
+Found by the [differential runner](compat/README.md#differential-runs), which now also covers sign-up, sign-in,
+confirm tokens, rules for signed-in users, batches and error codes; now as PocketBase answers:
+
+- A sign-in without identity or password names the missing fields (`validation_required`)
+  instead of a bare 400.
+- `auth-methods` also sends `authProviders`, `usernamePassword` and `emailPassword`, which
+  older SDKs read.
+- An invalid verification, password reset or email change token gets
+  `validation_invalid_token` on `token`.
+- Changing an email directly without manage rights gets `validation_values_mismatch`.
+- A missing related record is reported together with the other field errors, not only once
+  everything else is valid.
+- Previewing a view whose query isn't a SELECT is a plain 400, as for queries the database
+  refuses.
+- A debug-only assertion in local storage panicked when the storage path itself contained `..`
+  (release builds weren't affected).
+
 ## [1.8.0] - 2026-11-03
 
 **Safer 1.7, and faster creates.** A security review of what 1.7 added, with three fixes;
@@ -920,7 +978,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ayeshrodz/slonbase/compare/v1.5.0...v1.6.0
