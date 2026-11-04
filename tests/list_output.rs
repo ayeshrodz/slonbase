@@ -1,6 +1,6 @@
-//! Lists written straight from the rows (nothing changes them on the way out) are the same,
-//! byte for byte, as lists built record by record (`fields=*` takes that path). Needs
-//! PostgreSQL.
+//! Lists and single records written straight from the rows (nothing changes them on the way
+//! out) are the same, byte for byte, as those built record by record (`fields=*` and an empty
+//! `expand` take that path). Needs PostgreSQL.
 
 mod common;
 
@@ -148,6 +148,39 @@ async fn both_list_paths_write_the_same_bytes() {
             }
         );
     }
+    // single records too: written from the row, or built (an empty `expand` takes that path)
+    for (collection, caller) in [
+        ("things", None),
+        ("things", Some(token.clone())),
+        ("people", None),
+        ("people", Some(person.clone())),
+        ("people", Some(token.clone())),
+    ] {
+        let list: Value = serde_json::from_slice(
+            &bytes(
+                format!("/api/collections/{collection}/records?perPage=50"),
+                caller.clone(),
+            )
+            .await,
+        )
+        .unwrap();
+        let items = list["items"].as_array().unwrap();
+        assert!(!items.is_empty());
+        for item in items {
+            let uri = format!(
+                "/api/collections/{collection}/records/{}",
+                item["id"].as_str().unwrap()
+            );
+            let fast = bytes(uri.clone(), caller.clone()).await;
+            let built = bytes(format!("{uri}?expand="), caller.clone()).await;
+            assert_eq!(
+                String::from_utf8_lossy(&fast),
+                String::from_utf8_lossy(&built),
+                "{uri}"
+            );
+        }
+    }
+
     // and the hidden emails are hidden, with the other fields in their order
     let list: Value = serde_json::from_slice(
         &bytes("/api/collections/people/records?sort=nick".into(), None).await,

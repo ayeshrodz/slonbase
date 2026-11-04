@@ -30,6 +30,8 @@ pub struct Core {
     pub backups_dir: PathBuf,
     /// List totals kept between requests (see [`crate::count_cache`]).
     pub(crate) counts: crate::count_cache::CountCache,
+    /// The last database probe of the health check (see `server::health`).
+    pub(crate) health: crate::server::HealthProbe,
     /// Encrypts the settings and the signing secret in the database (`server.encryption_key`).
     secrets_key: Option<Arc<crate::secrets::SecretsKey>>,
     /// Encrypts new backups (`backups.encryption_key`).
@@ -171,6 +173,7 @@ impl Core {
             backup_key: config.backups.encryption_key.clone(),
             secrets_key,
             counts: Default::default(),
+            health: Default::default(),
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             local_storage,

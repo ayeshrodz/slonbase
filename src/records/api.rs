@@ -426,6 +426,20 @@ pub async fn view(
         .ok_or_else(ApiError::not_found)?;
 
     drop(client);
+    // nothing changes the record on the way out: written straight from the row, as lists are
+    // (`fields` is applied to the answer by `picker::layer` either way)
+    if !core.hooks.on_record_view_request.has_handlers(Some(&c))
+        && !core.hooks.on_record_enrich.has_handlers(Some(&c))
+        && !query.contains_key("expand")
+    {
+        return Ok(Json(super::access::RecordRow::new(
+            &c,
+            &fields,
+            &row,
+            &email_visible,
+        ))
+        .into_response());
+    }
     let record = output_record(&c, &fields, &row, &email_visible);
     let e = RecordRequestEvent {
         core: core.clone(),

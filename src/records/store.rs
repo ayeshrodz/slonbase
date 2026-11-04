@@ -8,7 +8,6 @@ use super::values::{self, Values};
 use crate::collections::model::{Collection, Field, Storage};
 use crate::collections::schema::table_ref;
 use crate::datetime;
-use crate::filter::quote_ident;
 
 /// SQL alias of the collection table in record queries.
 pub const ALIAS: &str = "t";
@@ -36,19 +35,40 @@ pub fn all_fields(c: &Collection) -> Vec<&Field> {
     c.fields.iter().collect()
 }
 
+/// `r."title" AS "title", to_char(r."created" ...) AS "created", ...`: built in one buffer, as
+/// it's built for every record read (formatting each piece was an eighth of a single-record
+/// read's instructions).
 pub fn select_list(fields: &[&Field]) -> String {
-    fields
-        .iter()
-        .map(|f| {
-            let column = format!("{ALIAS}.{}", quote_ident(&f.name));
-            let expr = match f.storage() {
-                Storage::Date => datetime::sql_format(&column),
-                _ => column,
-            };
-            format!("{expr} AS {}", quote_ident(&f.name))
-        })
-        .collect::<Vec<_>>()
-        .join(", ")
+    let mut out = String::with_capacity(fields.len() * 40);
+    for (i, f) in fields.iter().enumerate() {
+        if i > 0 {
+            out.push_str(", ");
+        }
+        let date = matches!(f.storage(), Storage::Date);
+        if date {
+            out.push_str(datetime::SQL_FORMAT_PREFIX);
+        }
+        out.push_str(ALIAS);
+        out.push('.');
+        push_ident(&mut out, &f.name);
+        if date {
+            out.push_str(datetime::SQL_FORMAT_SUFFIX);
+        }
+        out.push_str(" AS ");
+        push_ident(&mut out, &f.name);
+    }
+    out
+}
+
+/// Appends `name` quoted as an identifier, as [`quote_ident`] does.
+fn push_ident(out: &mut String, name: &str) {
+    out.push('"');
+    if name.contains('"') {
+        out.push_str(&name.replace('"', "\"\""));
+    } else {
+        out.push_str(name);
+    }
+    out.push('"');
 }
 
 /// The normalized value of field `f`, column `i` of a row selected with [`select_list`].
@@ -107,4 +127,44 @@ pub async fn find_by_id(
     id: &str,
 ) -> Result<Option<Values>, tokio_postgres::Error> {
     find_by(client, c, &format!("{ALIAS}.\"id\" = $1::text"), id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filter::quote_ident;
+
+    #[test]
+    fn select_list_matches_the_formatted_one() {
+        use crate::collections::model::Collection;
+        let c: Collection = serde_json::from_value(serde_json::json!({
+            "id": "c1", "name": "posts", "type": "base",
+            "fields": [
+                { "name": "id", "type": "text", "primaryKey": true },
+                { "name": "title", "type": "text" },
+                { "name": "we\"ird", "type": "number" },
+                { "name": "due", "type": "date" },
+                { "name": "created", "type": "autodate", "onCreate": true },
+                { "name": "tags", "type": "select", "values": ["a"], "maxSelect": 2 },
+                { "name": "meta", "type": "json" },
+            ],
+        }))
+        .unwrap();
+        let fields: Vec<&Field> = c.fields.iter().collect();
+        let formatted = fields
+            .iter()
+            .map(|f| {
+                let column = format!("{ALIAS}.{}", quote_ident(&f.name));
+                let expr = match f.storage() {
+                    Storage::Date => datetime::sql_format(&column),
+                    _ => column,
+                };
+                format!("{expr} AS {}", quote_ident(&f.name))
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert_eq!(select_list(&fields), formatted);
+        assert!(formatted.contains("\"we\"\"ird\"") && formatted.contains("to_char("));
+        assert_eq!(select_list(&[]), "");
+    }
 }

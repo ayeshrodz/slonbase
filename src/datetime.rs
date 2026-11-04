@@ -3,8 +3,12 @@
 use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 
 /// The SQL expression that formats a `timestamptz` like PocketBase (NULL stays NULL).
+/// What [`sql_format`] puts around the expression (for callers building SQL in place).
+pub const SQL_FORMAT_PREFIX: &str = "to_char(";
+pub const SQL_FORMAT_SUFFIX: &str = " AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS\"Z\"')";
+
 pub fn sql_format(expr: &str) -> String {
-    format!("to_char({expr} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS\"Z\"')")
+    format!("{SQL_FORMAT_PREFIX}{expr}{SQL_FORMAT_SUFFIX}")
 }
 
 pub fn format(dt: &DateTime<Utc>) -> String {

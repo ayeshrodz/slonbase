@@ -443,6 +443,63 @@ async fn security_headers(
     response
 }
 
+/// What the health check's database probe found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Health {
+    Up,
+    Down,
+    TimedOut,
+}
+
+/// How long a probe's result answers health checks: a load balancer polling many times a
+/// second costs one query a second, and an outage shows within a second.
+const HEALTH_FRESH: Duration = Duration::from_secs(1);
+
+/// The health check's database probe, shared by the requests of the next [`HEALTH_FRESH`];
+/// requests that arrive while a probe runs wait for it rather than starting their own. Only
+/// the outcome is kept (the error is logged, never answered).
+#[derive(Default)]
+pub(crate) struct HealthProbe {
+    last: std::sync::Mutex<Option<(std::time::Instant, Health)>>,
+    probing: tokio::sync::Mutex<()>,
+}
+
+impl HealthProbe {
+    fn fresh(&self) -> Option<Health> {
+        let last = *self.last.lock().expect("health lock");
+        last.filter(|(at, _)| at.elapsed() < HEALTH_FRESH)
+            .map(|(_, health)| health)
+    }
+
+    pub(crate) async fn check(&self, pool: &deadpool_postgres::Pool) -> Health {
+        if let Some(health) = self.fresh() {
+            return health;
+        }
+        let _probing = self.probing.lock().await;
+        if let Some(health) = self.fresh() {
+            return health;
+        }
+        let probe = async {
+            let client = pool.get().await.map_err(|e| e.to_string())?;
+            client
+                .simple_query("SELECT 1")
+                .await
+                .map_err(|e| e.to_string())?;
+            Ok::<_, String>(())
+        };
+        let health = match tokio::time::timeout(HEALTH_DB_TIMEOUT, probe).await {
+            Ok(Ok(())) => Health::Up,
+            Ok(Err(err)) => {
+                tracing::warn!(error = %err, "health check: the database is unavailable");
+                Health::Down
+            }
+            Err(_) => Health::TimedOut,
+        };
+        *self.last.lock().expect("health lock") = Some((std::time::Instant::now(), health));
+        health
+    }
+}
+
 async fn health(
     State(app): State<Arc<App>>,
     auth: crate::auth::RequestAuth,
@@ -467,14 +524,6 @@ async fn health(
         }))
         .into_response(),
         Mode::Ready { core } => {
-            let check = async {
-                let client = core.pool.get().await.map_err(|e| e.to_string())?;
-                client
-                    .simple_query("SELECT 1")
-                    .await
-                    .map_err(|e| e.to_string())?;
-                Ok::<_, String>(())
-            };
             // for superusers, what the dashboard shows (like PocketBase)
             let mut data = serde_json::Map::new();
             if auth.is_superuser() {
@@ -498,18 +547,15 @@ async fn health(
                 );
                 data.insert("possibleProxyHeader".into(), proxy_header.into());
             }
-            match tokio::time::timeout(HEALTH_DB_TIMEOUT, check).await {
-                Ok(Ok(())) => Json(json!({
+            match core.health.check(&core.pool).await {
+                Health::Up => Json(json!({
                     "code": 200,
                     "message": "API is healthy.",
                     "data": data,
                 }))
                 .into_response(),
-                Ok(Err(err)) => {
-                    tracing::warn!(error = %err, "health check: the database is unavailable");
-                    unhealthy("Database unavailable.".into())
-                }
-                Err(_) => unhealthy("Database unavailable: timed out".into()),
+                Health::Down => unhealthy("Database unavailable.".into()),
+                Health::TimedOut => unhealthy("Database unavailable: timed out".into()),
             }
         }
     }
@@ -635,6 +681,28 @@ mod tests {
             }
         }
         assert!(gzip(&data).len() * 2 < data.len());
+    }
+
+    #[tokio::test]
+    async fn health_probe_is_shared_for_a_second() {
+        // nothing listens on port 1: every probe fails at once
+        let pool = crate::db::connect(
+            "postgres://u:p@127.0.0.1:1/db?connect_timeout=1",
+            &Default::default(),
+        )
+        .unwrap();
+        let probe = HealthProbe::default();
+        assert_eq!(probe.check(&pool).await, Health::Down);
+        let stamped = probe.last.lock().unwrap().unwrap().0;
+        assert_eq!(probe.check(&pool).await, Health::Down);
+        assert_eq!(
+            probe.last.lock().unwrap().unwrap().0,
+            stamped,
+            "answered from the last probe"
+        );
+        // and after a second, probed again
+        *probe.last.lock().unwrap() = Some((stamped - HEALTH_FRESH, Health::Up));
+        assert_eq!(probe.check(&pool).await, Health::Down);
     }
 
     #[test]
