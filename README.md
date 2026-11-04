@@ -37,6 +37,19 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 1.9
+
+- 🧬 **View fields copied from their sources**, as PocketBase makes them: selects keep their
+  values, relations their collection, files their options, through joins, subqueries and CTEs;
+  and a view record's files are served from the record they came from.
+- 🔑 **Sign in with VK**, the last of PocketBase's OAuth2 presets.
+- 🔁 **Six answers now as PocketBase's**, found by the differential runner, which now also
+  compares sign-up, sign-in, confirm tokens, batches and error codes.
+- ⚡ **Health checks ahead of PocketBase** (1.43 times as many as 1.8) and cheaper
+  single-record reads ([benchmarks](bench/README.md)).
+- ♿ **A dashboard that passes axe's WCAG 2 AA checks** in light and dark, kept that way in CI
+  with screenshot comparisons.
+
 ## New in 1.8
 
 - 🔒 **A security review of what 1.7 added**, with three fixes: view previews leave nothing
@@ -256,19 +269,22 @@ The guides are also on the documentation site, with search:
 Compared with PocketBase, on the same machine, the same data and the same HTTP workloads, with
 default settings ([method and full results](bench/README.md)):
 
-| Scenario | slonbase 1.8 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
+| Scenario | slonbase 1.9 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
 |---|--:|--:|--:|
-| View one record | 9,671 | 7,969 | 7.9 / 33.2 |
-| List 30 records | 4,444 | 1,007 | 14.7 / 110.4 |
-| List 30, filtered | 3,900 | 70 | 16.4 / 747.1 |
-| List 30, expand a relation | 2,028 | 723 | 25.6 / 156.8 |
-| Create a record | 3,831 (4,811 with async commit) | 2,795 | 15.5 / 62.3 |
+| Health check | 34,782 | 30,569 | 2.8 / 5.8 |
+| View one record | 15,375 | 13,311 | 5.3 / 22.0 |
+| List 30 records | 6,604 | 1,678 | 9.7 / 69.5 |
+| List 30, filtered | 6,192 | 74 | 9.9 / 652.6 |
+| List 30, expand a relation | 3,240 | 1,123 | 16.0 / 101.9 |
+| Create a record | 5,304 (6,973 with async commit) | 4,277 | 12.0 / 41.6 |
 
-1.8 creates records in one round trip, 1.31 times as fast as 1.7, so writes are ahead of
-PocketBase with PostgreSQL's default durability, and further ahead when PostgreSQL makes the
-same trade-off as SQLite's default (`synchronous_commit = off`; see
-[why](docs/deployment.md#postgresql)). Lists are gzipped (since 1.7), a sixth of the bytes,
-which this loopback benchmark counts as CPU only ([what changed](bench/README.md#what-changed-in-18)).
+1.9 shares its health check's database probe for a second, which puts it ahead of PocketBase
+there too, and writes single records straight from their row (1.13 times as fast as 1.8 with
+32 clients, in alternating runs). Writes are ahead of PocketBase with PostgreSQL's default
+durability, and further ahead when PostgreSQL makes the same trade-off as SQLite's default
+(`synchronous_commit = off`; see [why](docs/deployment.md#postgresql)). Lists are gzipped, a
+sixth of the bytes, which this loopback benchmark counts as CPU only
+([what changed](bench/README.md#what-changed-in-19)).
 
 ## Contributing
 

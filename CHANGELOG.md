@@ -11,7 +11,7 @@ changes, listed in its **Upgrading** section.
 ## [1.9.0] - 2026-11-04
 
 **Closer to PocketBase, and checked against it.** View fields are copies of their source
-fields, as PocketBase makes them; VK completes PocketBase's sign-in presets; seven answers that
+fields, as PocketBase makes them; VK completes PocketBase's sign-in presets; six answers that
 differed from PocketBase's now match; health checks and single-record reads cost less; and the
 dashboard passes an accessibility check, kept in CI with screenshot comparisons.
 
@@ -37,12 +37,12 @@ dashboard passes an accessibility check, kept in CI with screenshot comparisons.
 
 - **Cheaper health checks.** The database probe is shared for a second: requests in that
   second (or while a probe runs) get its outcome instead of each running a query. An outage
-  still shows within a second. 1.41 times the requests per second of 1.8 in alternating runs
-  on the same database.
+  still shows within a second. 1.43 times the requests per second of 1.8 on the
+  [benchmark](bench/README.md) (1.47 in alternating runs), now 1.14 times PocketBase's.
 - **Cheaper single-record reads.** A record with nothing to change it on the way out (no view or
   enrich hooks, no `expand`) is written straight from its row, as lists are, and the column
   list is built in one buffer: about 136,600 instructions instead of 172,000, 1.13 times the
-  requests per second with 32 clients and 1.09 times with one.
+  requests per second with 32 clients in alternating runs, and 1.08 times with one.
 - **Readable text everywhere in the dashboard.** Muted and small print, chips, statuses and links
   now reach a 4.5:1 contrast in light and dark mode (some were at 2.5 to 4.4:1), while fills,
   dots and charts keep their colours; the page-size select has a label.

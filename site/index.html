@@ -568,37 +568,37 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <p class="sub">Built in Rust with tokio and axum. Filters compile to parameterized SQL, and PostgreSQL's planner uses your indexes. The same seeded data and workloads, on the same machine, through the same HTTP API.</p>
     <div class="bars">
       <div class="bar-row reveal">
-        <div class="label">Filtered list<small>3,900 vs 70 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.8%"></div></div>
-        <div class="x">56×</div>
+        <div class="label">Filtered list<small>6,192 vs 74 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:1.2%"></div></div>
+        <div class="x">84×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List 30 records<small>4,444 vs 1,007 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:23%"></div></div>
-        <div class="x">4.4×</div>
+        <div class="label">List 30 records<small>6,604 vs 1,678 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:25%"></div></div>
+        <div class="x">3.9×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">List with expand<small>2,028 vs 723 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:36%"></div></div>
-        <div class="x">2.8×</div>
+        <div class="label">List with expand<small>3,240 vs 1,123 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:35%"></div></div>
+        <div class="x">2.9×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">View one record<small>9,671 vs 7,969 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:82%"></div></div>
-        <div class="x">1.2×</div>
+        <div class="label">View one record<small>15,375 vs 13,311 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:87%"></div></div>
+        <div class="x">1.16×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Create a record<small>3,831 vs 2,795 req/s</small></div>
-        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:73%"></div></div>
-        <div class="x">1.37×</div>
+        <div class="label">Create a record<small>5,304 vs 4,277 req/s</small></div>
+        <div class="track"><div class="us" style="width:100%"></div><div class="them" style="width:81%"></div></div>
+        <div class="x">1.24×</div>
       </div>
       <div class="bar-row reveal">
-        <div class="label">Lower p99 latency<small>lists: 14.7 vs 110.4 ms</small></div>
-        <div class="track"><div class="us" style="width:13%"></div><div class="them" style="width:100%"></div></div>
-        <div class="x">7.5×</div>
+        <div class="label">Lower p99 latency<small>lists: 9.7 vs 69.5 ms</small></div>
+        <div class="track"><div class="us" style="width:14%"></div><div class="them" style="width:100%"></div></div>
+        <div class="x">7.2×</div>
       </div>
     </div>
-    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>slonbase 1.8, 32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
+    <div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase</span><span><i style="background:var(--line)"></i>PocketBase 0.40.5</span><span>slonbase 1.9, 32 clients, medians of 3 runs. <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">Full results and method</a>, including where PocketBase is faster.</span></div>
   </div>
 </section>
 
@@ -712,7 +712,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       <div class="rel-head reveal">
         <div class="ver" id="rel-version">v1.9.0</div>
         <div class="date" id="rel-date">November 4, 2026</div>
-        <p id="rel-summary">View fields copied from their source collections, as PocketBase makes them, and view records' files served; VK, the last of PocketBase's sign-in presets; seven answers that differed from PocketBase's now match; cheaper health checks and single-record reads; and a dashboard that passes an accessibility check, kept in CI with screenshot comparisons.</p>
+        <p id="rel-summary">View fields copied from their source collections, as PocketBase makes them, and view records' files served; VK, the last of PocketBase's sign-in presets; six answers that differed from PocketBase's now match; cheaper health checks and single-record reads; and a dashboard that passes an accessibility check, kept in CI with screenshot comparisons.</p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
@@ -721,7 +721,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
         <li>Sign in with VK</li>
         <li>Cheaper health checks and record reads</li>
         <li>Accessible dashboard, checked in CI</li>
-        <li>Seven answers now as PocketBase's</li>
+        <li>Six answers now as PocketBase's</li>
       </ul>
     </div>
   </div>

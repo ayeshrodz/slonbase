@@ -164,7 +164,9 @@ the settings on every instance, and signs everyone out, since the signing key is
 
 - `GET /api/health` answers `200` when the server is ready (with `"setupRequired": true` while
   it waits for the setup wizard), and `503` while it starts or while the database is
-  unreachable. `slonbase health` checks the local server
+  unreachable (the database check is shared for a second, so an outage shows within one, and
+  a load balancer probing often costs at most a query a second). `slonbase health` checks the
+  local server
   and is meant for container health checks.
 - Errors and warnings go to stderr (the journal or `docker logs`), and are also stored in the
   request logs (dashboard → Logs, level ≥ 4).
