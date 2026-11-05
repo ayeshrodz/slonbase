@@ -78,7 +78,12 @@ pub async fn status(
     let logs = client
         .query_one(
             "SELECT count(*) FILTER (WHERE data->>'type' = 'request'),
-                    count(*) FILTER (WHERE level >= 8),
+                    -- errors that need looking at: a request that failed on the server (5xx), or an
+                    -- error outside requests (hooks, crons, mail). A 401 or 403 is logged at the
+                    -- error level too (PocketBase's format), but it's the client's, not the server's.
+                    count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
+                                                          OR CASE WHEN data->>'status' ~ '^[0-9]+$'
+                                                               THEN (data->>'status')::int >= 500 END)),
                     count(*) FILTER (WHERE level >= 4 AND level < 8)
              FROM _slonbase.logs WHERE created > now() - interval '24 hours'",
             &[],
@@ -274,8 +279,9 @@ pub async fn status(
             "errors",
             "warn",
             "Errors in the last 24 hours",
-            format!("{errors} logged errors."),
-            &format!("#/logs?filter={}", "level%20%3E%3D%208"),
+            format!("{errors} logged errors: server errors (5xx) or errors in hooks, crons or mail."),
+            // level >= 8 && (data.type != 'request' || data.status >= 500)
+            "#/logs?filter=level%20%3E%3D%208%20%26%26%20(data.type%20!%3D%20'request'%20%7C%7C%20data.status%20%3E%3D%20500)",
         ));
     }
 

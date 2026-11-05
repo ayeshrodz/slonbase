@@ -8,6 +8,13 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Fixed
+
+- **The Health page's errors check no longer counts refused requests.** A 401 from an expired
+  session or a 403 from the disabled SQL console is logged at the error level (as PocketBase
+  logs it), but isn't something to fix; the check now counts server errors (5xx) and errors
+  outside requests (hooks, crons, mail), and its link opens just those in the logs.
+
 ## [1.10.0] - 2026-11-05
 
 **A dashboard that looks like the developer tool it is.** New type (IBM Plex Sans and
