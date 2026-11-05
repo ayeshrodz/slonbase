@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-05
+
+**A dashboard that looks like the developer tool it is.** New type (IBM Plex Sans and
+JetBrains Mono, with condensed capitals for titles), a status bar, the API URL on the
+overview, neutral GitHub-like colours, flat buttons and far less motion.
+
 ### Changed
 
 - **The dashboard, redesigned as a developer tool.**
@@ -30,6 +36,8 @@ changes, listed in its **Upgrading** section.
     still fade in briefly, and a changed row still flashes.
   - Still no serious or critical axe (WCAG 2 AA) violation on any checked screen, in either
     theme.
+  - The documentation site and the project page use the same fonts, and the README's
+    screenshots show the new dashboard.
 
 ## [1.9.0] - 2026-11-04
 
@@ -1001,7 +1009,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ayeshrodz/slonbase/compare/v1.6.0...v1.7.0

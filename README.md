@@ -37,6 +37,15 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 1.10
+
+- 🛠️ **A dashboard that looks like a developer tool**: IBM Plex Sans for the interface,
+  condensed capitals for titles, JetBrains Mono for ids, labels, figures and code.
+- 📟 **A status bar** with the connection, PostgreSQL version and round trip, API base and
+  version, and the API URL ready to copy on the overview.
+- 🌗 **Neutral, GitHub-like colours** in light and dark, flat buttons, and only the motion that
+  tells you something changed.
+
 ## New in 1.9
 
 - 🧬 **View fields copied from their sources**, as PocketBase makes them: selects keep their
@@ -59,23 +68,6 @@
   with PostgreSQL's safe defaults ([benchmarks](bench/README.md)).
 - 🌙 **Cheaper when idle**: each instance checks the outbox every 5 s instead of every 500 ms
   while nothing happens.
-
-## New in 1.7
-
-The biggest release since 1.0 ([changelog](CHANGELOG.md)):
-
-- 🎨 **A redesigned dashboard.** One sidebar for sections, collections, theme and account; a
-  warm, muted palette in light and dark; records edited in a drawer beside the list; an overview
-  with the day's traffic and a health checklist.
-- ✍️ **Writes that don't wait in line.** Realtime no longer sends a notification inside every
-  write transaction, which made PostgreSQL commit them one at a time: creating records is
-  1.6 times as fast as in 1.6 ([benchmarks](bench/README.md)).
-- 🗜️ **Compressed answers.** gzip for JSON, a sixth of the bytes for a page of records, and
-  never for answers that carry a token.
-- 👀 **Live previews for view collections.** The fields and first rows of a view's query as
-  you type it, before you save it.
-- 🧪 **Checked against PocketBase on every push.** A differential runner sends PocketBase and
-  slonbase the same requests and fails CI on any difference.
 
 ## Why slonbase
 
@@ -225,9 +217,9 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/diagram-dark.png"><img alt="The schema diagram: every collection with its fields, and its relations" src="docs/assets/screenshots/diagram-light.png"></picture>
 <p align="center"><sub>The schema diagram, drawn from the collections: hover one to follow its relations.</sub></p>
 
-Redesigned in 1.7: the sidebar holds the sections and your collections, records open in a
-drawer beside the grid, and the palette is warm and muted in light and dark (or follows your
-system). It works on phones, ⌘K / Ctrl K jumps anywhere, and it only uses the public API, so
+The sidebar holds the sections and your collections, records open in a drawer beside the
+grid, and a status bar shows the connection, database and API base; light and dark follow
+GitHub's neutral palette (or your system). It works on phones, ⌘K / Ctrl K jumps anywhere, and it only uses the public API, so
 anything it does, you can script too.
 
 ## Documentation

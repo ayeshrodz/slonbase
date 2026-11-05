@@ -1243,5 +1243,7 @@ project's, in one transaction each.
     files served), as PocketBase does; the VK provider, the last PocketBase preset; the
     differential runner over auth flows, batch requests and error codes; and accessibility and
     screenshot checks of the dashboard in CI.
-15. **Next:** the differential runner over file uploads and realtime events, and the remaining
+15. **1.10** (done): the dashboard redesigned as a developer tool: IBM Plex Sans and JetBrains
+    Mono, a status bar, neutral GitHub-like colours, flat buttons and far less motion.
+16. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

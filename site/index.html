@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#f5f3ee" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#141413" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
-<link rel="preload" href="assets/fonts/ubuntu-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="assets/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
 <meta property="og:title" content="slonbase: your whole backend, built on PostgreSQL">
 <meta property="og:description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, on PostgreSQL.">
@@ -16,11 +16,11 @@
 <meta property="og:url" content="https://ayeshrodz.github.io/slonbase/">
 <meta name="twitter:card" content="summary_large_image">
 <style>
-/* Ubuntu Sans and Ubuntu Sans Mono (Ubuntu Font Licence), as in the dashboard and the docs */
-@font-face { font-family: "Ubuntu Sans Variable"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/ubuntu-sans-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-@font-face { font-family: "Ubuntu Sans Variable"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/ubuntu-sans-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
-@font-face { font-family: "Ubuntu Sans Mono Variable"; font-style: normal; font-display: swap; font-weight: 400 700; src: url("assets/fonts/ubuntu-sans-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
-@font-face { font-family: "Ubuntu Sans Mono Variable"; font-style: normal; font-display: swap; font-weight: 400 700; src: url("assets/fonts/ubuntu-sans-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+/* IBM Plex Sans and JetBrains Mono (SIL Open Font License), as in the dashboard and the docs */
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-display: swap; font-weight: 100 700; font-stretch: 75% 100%; src: url("assets/fonts/ibm-plex-sans-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "IBM Plex Sans"; font-style: normal; font-display: swap; font-weight: 100 700; font-stretch: 75% 100%; src: url("assets/fonts/ibm-plex-sans-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/jetbrains-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/jetbrains-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 :root {
   --bg: #f5f3ee;
   --bg-soft: #ece9e2;
@@ -38,8 +38,8 @@
   --code-ink: #edebe6;
   --shadow: 0 1px 2px rgba(60, 48, 28, .05), 0 12px 32px -14px rgba(60, 48, 28, .22);
   --radius: 14px;
-  --font: "Ubuntu Sans Variable", "Ubuntu Sans", "Ubuntu", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --mono: "Ubuntu Sans Mono Variable", "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -365,7 +365,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.9.0</b><span id="pill-title">Closer to PocketBase, and checked against it</span><span class="arrow">→</span>
+      <b id="pill-version">v1.10.0</b><span id="pill-title">A dashboard that looks like the developer tool it is</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -710,18 +710,18 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.9.0</div>
-        <div class="date" id="rel-date">November 4, 2026</div>
-        <p id="rel-summary">View fields copied from their source collections, as PocketBase makes them, and view records' files served; VK, the last of PocketBase's sign-in presets; six answers that differed from PocketBase's now match; cheaper health checks and single-record reads; and a dashboard that passes an accessibility check, kept in CI with screenshot comparisons.</p>
+        <div class="ver" id="rel-version">v1.10.0</div>
+        <div class="date" id="rel-date">November 5, 2026</div>
+        <p id="rel-summary">The dashboard redesigned as a developer tool: IBM Plex Sans and JetBrains Mono with condensed capitals for titles, a status bar with the connection, database and API base, the API URL on the overview, neutral GitHub-like colours, flat buttons and far less motion. Since 1.9: view fields copied from their sources, VK sign-in, cheaper health checks and reads.</p></p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>View fields copied from their sources</li>
-        <li>Files of view records</li>
-        <li>Sign in with VK</li>
-        <li>Cheaper health checks and record reads</li>
-        <li>Accessible dashboard, checked in CI</li>
-        <li>Six answers now as PocketBase's</li>
+        <li>IBM Plex Sans and JetBrains Mono</li>
+        <li>A status bar, as in an editor</li>
+        <li>The API URL on the overview</li>
+        <li>Neutral, GitHub-like light and dark</li>
+        <li>Flat buttons, far less motion</li>
+        <li>View fields copied from sources (1.9.0)</li>
       </ul>
     </div>
   </div>
@@ -756,8 +756,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.9.0/slonbase-1.9.0-linux-amd64.tar.gz
-tar xzf slonbase-1.9.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.10.0/slonbase-1.10.0-linux-amd64.tar.gz
+tar xzf slonbase-1.10.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
