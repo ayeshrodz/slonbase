@@ -94,6 +94,11 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE")]
     sql_console: bool,
 
+    /// Let the SQL console change data (INSERT, UPDATE, DELETE, DDL, scripts); without it, the
+    /// console only runs reads, one statement at a time, in read-only transactions.
+    #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE_WRITES")]
+    sql_console_writes: bool,
+
     /// Don't gzip JSON answers (saves their CPU where bandwidth costs nothing).
     #[arg(long, global = true, env = "SLONBASE_NO_COMPRESSION")]
     no_compression: bool,
@@ -313,6 +318,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         backups_encryption_key: cli.backups_encryption_key,
         encryption_key: cli.encryption_key,
         sql_console: cli.sql_console.then_some(true),
+        sql_console_writes: cli.sql_console_writes.then_some(true),
         compression: cli.no_compression.then_some(false),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,

@@ -128,6 +128,10 @@ pub struct ServerConfig {
     /// Enables the dashboard's SQL console, which runs any SQL a superuser enters with the
     /// database role's privileges (off by default, see the README).
     pub sql_console: bool,
+    /// Lets the SQL console change data (INSERT, UPDATE, DELETE, DDL, scripts). Off by default:
+    /// the console then runs one read statement at a time, in a read-only transaction.
+    #[serde(skip_serializing_if = "is_false")]
+    pub sql_console_writes: bool,
     /// Gzips JSON answers for clients that take it (on by default; answers carrying tokens
     /// never are). Turn it off when bandwidth costs nothing, to save its CPU.
     #[serde(skip_serializing_if = "is_true")]
@@ -150,11 +154,16 @@ fn is_true(value: &bool) -> bool {
     *value
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
             bind: DEFAULT_BIND.to_string(),
             sql_console: false,
+            sql_console_writes: false,
             compression: true,
             metrics_bind: None,
             http_ca_file: None,
@@ -208,6 +217,7 @@ pub struct Overrides {
     pub backups_encryption_key: Option<String>,
     pub encryption_key: Option<String>,
     pub sql_console: Option<bool>,
+    pub sql_console_writes: Option<bool>,
     pub compression: Option<bool>,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
@@ -282,6 +292,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(enabled) = overrides.sql_console {
         effective.server.sql_console = enabled;
+    }
+    if let Some(enabled) = overrides.sql_console_writes {
+        effective.server.sql_console_writes = enabled;
     }
     if let Some(enabled) = overrides.compression {
         effective.server.compression = enabled;

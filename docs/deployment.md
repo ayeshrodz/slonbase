@@ -198,8 +198,10 @@ the settings on every instance, and signs everyone out, since the signing key is
   `_superusers` collection.
 - Leave the **SQL console** off unless you need it. It runs any SQL with the database role's
   privileges, and a PostgreSQL superuser role can read server files or run programs
-  (`COPY ... PROGRAM`). When it's on, read-only statements run in read-only transactions, and
-  every statement has a 3 minute timeout. Creating or changing view collections also requires
+  (`COPY ... PROGRAM`). When it's on, it only reads (one statement at a time, in a read-only
+  transaction, at most 5,000 rows, a 30 second timeout) unless you also start slonbase with
+  `--sql-console-writes`; leave that off in production, or give slonbase a role that isn't a
+  PostgreSQL superuser. Creating or changing view collections also requires
   it, because their queries run with the role's privileges.
 - Review API rules: `null` allows superusers only, and `""` allows anyone.
 - Keep rate limits on (new installations start with them on), and turn them on for

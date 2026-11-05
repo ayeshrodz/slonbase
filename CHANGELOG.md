@@ -8,8 +8,33 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **The SQL console only reads unless it's told it may write.** With `--sql-console` alone it
+  now runs one read statement at a time (`SELECT`, `WITH`, `SHOW`, `EXPLAIN`, `VALUES`,
+  `TABLE`) in a read-only transaction; `--sql-console-writes` (`SLONBASE_SQL_CONSOLE_WRITES=true`,
+  `server.sql_console_writes`) lets it change data, as before. If you used the console to
+  write, add that setting. Before, a read could end its read-only transaction and write after
+  it (`SELECT 1; COMMIT; DELETE ...`), since several statements ran as one.
+- **Console queries have limits:** rows are read through a cursor (1,000 by default, at most
+  5,000 and 16 MB), statements stop after 30 seconds (it was 3 minutes) and after 5 seconds
+  waiting for a lock, queries are at most 20,000 characters, two run at a time per instance,
+  and each runs on a connection of its own that is closed afterwards. A query asking for a
+  large table used to be read whole into memory before being cut to 1,000 rows.
+
+### Added
+
+- **A proper SQL console.** A table browser with each collection's columns (click to insert,
+  or query a table in one click), an editor with line numbers, highlighting, Tab and
+  Ctrl+/ (comment), the rows to fetch, and results below it: row numbers, column types, NULLs,
+  a cell viewer, and errors that point at their line and column. Results export as Excel
+  (`.xlsx`), CSV, TSV or JSON, or copy as CSV or JSON. `GET /api/sql` says whether the console
+  may write, and its limits.
+
 ### Fixed
 
+- **Collections by their names in the SQL console.** `SELECT * FROM clients` works: the console
+  searches the `slonbase` schema, where collections' tables are, before `public`.
 - **The Health page's errors check no longer counts refused requests.** A 401 from an expired
   session or a 403 from the disabled SQL console is logged at the error level (as PocketBase
   logs it), but isn't something to fix; the check now counts server errors (5xx) and errors

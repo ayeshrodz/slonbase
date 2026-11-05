@@ -51,6 +51,8 @@ pub struct Core {
     pub logs: crate::logs::Logger,
     /// Whether the dashboard's SQL console may run queries.
     pub sql_console: bool,
+    /// The SQL console may change data (`--sql-console-writes`); otherwise it only reads.
+    pub sql_console_writes: bool,
     /// The storage directory used unless S3 is enabled in the settings.
     local_storage: PathBuf,
     storage: RwLock<Arc<Storage>>,
@@ -183,6 +185,7 @@ impl Core {
             view_file_sources: Default::default(),
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
+            sql_console_writes: config.server.sql_console_writes,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),

@@ -42,7 +42,8 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `DELETE /api/collections/{collection}/truncate` | Delete every record of a collection |
 | `GET /api/collections/meta/scaffolds`, `meta/oauth2-providers` | Defaults and providers for the dashboard |
 | `POST /api/collections/meta/dry-run-view` | A view query's fields and first rows, without saving it (`{"query"}`, needs the SQL console) |
-| `POST /api/sql` | The SQL console (when enabled) |
+| `GET /api/sql` | Whether the SQL console is on, whether it may write, and its limits |
+| `POST /api/sql` | The SQL console (when enabled): `{"query", "maxRows"?}` |
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
 | `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
 | `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (the automatic backup) |

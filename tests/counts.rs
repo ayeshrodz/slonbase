@@ -54,8 +54,11 @@ async fn cached_totals_stay_exact() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
-    let (app, admin, _dir) =
-        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let (app, admin, _dir) = ready_app_configured(&tdb, Default::default(), |o| {
+        o.sql_console = Some(true);
+        o.sql_console_writes = Some(true);
+    })
+    .await;
     let admin = Some(admin.as_str());
 
     let (_, users_collection) = call(

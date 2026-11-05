@@ -286,13 +286,24 @@ async fn sql_console_when_enabled() {
     std::fs::write(&config, "[server]\nsql_console = true\n").unwrap();
     let app = new_app(&config, Some(tdb.url.clone()));
     app.bootstrap().await.unwrap();
+    let sql = |query: &str| json!({ "query": query });
 
+    // the dashboard asks what the console may do
+    let (status, res) = admin(&app, &token, "GET", "/api/sql", None).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["enabled"], true);
+    assert_eq!(res["writes"], false);
+    assert_eq!(res["maxRows"], 5000);
+
+    // collections by their names, as in the dashboard (the slonbase schema is searched first)
     let (status, res) = admin(
         &app,
         &token,
         "POST",
         "/api/sql",
-        Some(json!({ "query": "SELECT email, 41 + 1 AS answer, NULL AS nothing FROM slonbase.\"_superusers\"" })),
+        Some(sql(
+            "SELECT email, 41 + 1 AS answer, NULL AS nothing FROM _superusers;",
+        )),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
@@ -300,67 +311,177 @@ async fn sql_console_when_enabled() {
     assert_eq!(res["columns"][1]["type"], "int4");
     assert_eq!(res["rows"][0], json!([ADMIN_EMAIL, "42", null]));
     assert_eq!(res["affectedRows"], 0);
+    assert_eq!(res["readOnly"], true);
+    assert_eq!(res["truncated"], false);
 
-    // reads run read-only
+    // rows stop at maxRows, read through a cursor
     let (status, res) = admin(
         &app,
         &token,
         "POST",
         "/api/sql",
-        Some(json!({ "query": "WITH x AS (DELETE FROM _slonbase.params RETURNING 1) SELECT count(*) FROM x" })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
-    assert!(
-        res["message"].as_str().unwrap().contains("read-only"),
-        "{res}"
-    );
-
-    // writes commit
-    let (status, res) = admin(
-        &app,
-        &token,
-        "POST",
-        "/api/sql",
-        Some(json!({ "query": "CREATE TABLE public.console_test (n int); INSERT INTO public.console_test VALUES (1), (2)" })),
+        Some(json!({ "query": "SELECT n FROM generate_series(1, 100000) n", "maxRows": 10 })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
-    assert_eq!(res["affectedRows"], 2);
+    assert_eq!(res["rows"].as_array().unwrap().len(), 10);
+    assert_eq!(res["truncated"], true);
     let (_, res) = admin(
         &app,
         &token,
         "POST",
         "/api/sql",
-        Some(json!({ "query": "SELECT sum(n) FROM public.console_test" })),
+        Some(json!({ "query": "SELECT 1", "maxRows": 1_000_000 })),
     )
     .await;
-    assert_eq!(res["rows"][0][0], "3");
-
+    assert_eq!(res["maxRows"], 5000);
     let (status, res) = admin(
         &app,
         &token,
         "POST",
         "/api/sql",
-        Some(json!({ "query": "SELEC nope" })),
+        Some(sql("SHOW search_path")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // read-only by default: writes, scripts and anything but a read are refused
+    for query in [
+        "INSERT INTO _superusers (id) VALUES ('x')",
+        "TRUNCATE _superusers",
+        "SET search_path = public",
+        "COMMIT",
+    ] {
+        let (status, res) = admin(&app, &token, "POST", "/api/sql", Some(sql(query))).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{query}: {res}");
+        assert!(
+            res["message"]
+                .as_str()
+                .unwrap()
+                .contains("--sql-console-writes"),
+            "{res}"
+        );
+    }
+    // a read can't end its transaction and write after it
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("SELECT 1; COMMIT; DELETE FROM _superusers")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{res}");
+    assert!(
+        res["message"].as_str().unwrap().contains("one statement"),
+        "{res}"
+    );
+    // nor write from inside a read
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql(
+            "WITH x AS (DELETE FROM _slonbase.params RETURNING 1) SELECT count(*) FROM x",
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{res}");
+    assert!(
+        res["message"].as_str().unwrap().contains("read-only"),
+        "{res}"
+    );
+    let (_, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("SELECT count(*) FROM _superusers")),
+    )
+    .await;
+    assert_eq!(res["rows"][0][0], "1");
+
+    // errors say where
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("SELECT *\nFROM nope")),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(
-        res["message"]
-            .as_str()
-            .unwrap()
-            .starts_with("Failed to execute query.")
-    );
-    let (status, _) = request(
+    let message = res["message"].as_str().unwrap();
+    assert!(message.starts_with("Failed to execute query."), "{message}");
+    assert!(message.contains("line 2, column 6"), "{message}");
+    assert_eq!(res["data"]["line"], 2);
+    let (status, _) = request(&app, "POST", "/api/sql", &[], Some(sql("SELECT 1"))).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    drop(app);
+
+    // with writes: statements and scripts commit, and nothing a script sets outlives it
+    let (_dir3, config) = temp_config();
+    std::fs::write(
+        &config,
+        "[server]\nsql_console = true\nsql_console_writes = true\n",
+    )
+    .unwrap();
+    let app = new_app(&config, Some(tdb.url.clone()));
+    app.bootstrap().await.unwrap();
+    let (_, res) = admin(&app, &token, "GET", "/api/sql", None).await;
+    assert_eq!(res["writes"], true);
+    let (status, res) = admin(
         &app,
+        &token,
         "POST",
         "/api/sql",
-        &[],
-        Some(json!({ "query": "SELECT 1" })),
+        Some(sql("CREATE TABLE public.console_test (n int); INSERT INTO public.console_test VALUES (1), (2)")),
     )
     .await;
-    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["affectedRows"], 2);
+    assert_eq!(res["readOnly"], false);
+    let (_, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("SELECT sum(n) FROM public.console_test")),
+    )
+    .await;
+    assert_eq!(res["rows"][0][0], "3");
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("WITH d AS (DELETE FROM public.console_test WHERE n = 1 RETURNING n) SELECT count(*) FROM d")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["rows"][0][0], "1");
+    assert_eq!(res["readOnly"], false);
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(sql("SET search_path = public")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    for _ in 0..4 {
+        let (status, res) = admin(
+            &app,
+            &token,
+            "GET",
+            "/api/collections/_superusers/records",
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
 
     drop((first, app));
     tdb.drop_db().await;

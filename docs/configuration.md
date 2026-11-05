@@ -28,6 +28,7 @@ file, and then the defaults.
 | `--backups-encryption-key` | `SLONBASE_BACKUPS_ENCRYPTION_KEY` | `backups.encryption_key` | none (not encrypted) |
 | `--encryption-key` | `SLONBASE_ENCRYPTION_KEY` | `server.encryption_key` | none (settings not encrypted) |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
+| `--sql-console-writes` | `SLONBASE_SQL_CONSOLE_WRITES` | `server.sql_console_writes` | off (the console only reads) |
 | `--no-compression` | `SLONBASE_NO_COMPRESSION` | `server.compression` | on ([gzip for JSON](api.md#compression)) |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
@@ -48,6 +49,7 @@ A config file with every option:
 [server]
 bind = "127.0.0.1:8090"
 sql_console = false
+# sql_console_writes = false   # let the SQL console change data (INSERT, UPDATE, DELETE, DDL)
 # compression = false   # don't gzip JSON answers (saves their CPU where bandwidth is free)
 # metrics_bind = "127.0.0.1:9090"   # Prometheus metrics at /metrics (not authenticated)
 # http_ca_file = "/etc/slonbase/private-ca.pem"   # extra CAs for S3 and OAuth2 providers
@@ -97,8 +99,23 @@ support `LISTEN`, so slonbase needs a direct or session-mode connection.
 per-module filters such as `info,slonbase=debug` also work). Requests are logged to the
 database too; see [logs](#logs).
 
-**SQL console** (`--sql-console`): see [security](deployment.md#security-checklist) before you
-turn it on.
+**SQL console** (`--sql-console`): the dashboard's SQL page, for superusers. See
+[security](deployment.md#security-checklist) before you turn it on.
+
+- **Read-only by default.** It runs one statement at a time, and only reads: `SELECT`, `WITH`,
+  `SHOW`, `EXPLAIN`, `VALUES` and `TABLE`, in a `READ ONLY` transaction. PostgreSQL itself
+  refuses anything that would write, including a `WITH ... DELETE` or a function that writes.
+- **Writes** (`--sql-console-writes`, `SLONBASE_SQL_CONSOLE_WRITES=true`) let it run any
+  statement or script (`INSERT`, `UPDATE`, `DELETE`, DDL), in one transaction that commits. Turn
+  it on where you need it, not everywhere.
+- **Limits:** rows come through a cursor, 1,000 by default and at most 5,000 a query (16 MB of
+  values); statements stop after 30 seconds, or 5 seconds waiting for a lock; queries are at most
+  20,000 characters; two run at a time per instance. Each query gets a connection of its own,
+  closed afterwards, so nothing it sets outlives it.
+- Collections are tables in the `slonbase` schema, which the console searches first:
+  `SELECT * FROM tasks` works as written.
+- Results can be exported from the dashboard as Excel (`.xlsx`), CSV, TSV or JSON: the rows the
+  query returned, built in the browser.
 
 ### Encrypting the settings
 
