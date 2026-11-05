@@ -1,9 +1,9 @@
 // The overview: counts, recent traffic and the collections at a glance.
 import { html, useState, useEffect, useStore, navigate } from "../lib/core.js";
-import { api, qs, enc, session } from "../lib/api.js";
+import { api, qs, enc, session, BASE } from "../lib/api.js";
 import { app } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
-import { Button, CollectionGlyph, CountUp, Skeleton } from "../lib/ui.js";
+import { Button, CollectionGlyph, CopyButton, CountUp, Skeleton } from "../lib/ui.js";
 import { parseDate, plural, relativeTime } from "../lib/format.js";
 
 function greeting() {
@@ -58,14 +58,16 @@ export function Overview() {
 
   const issues = status ? status.checks.filter((c) => c.status === "warn" || c.status === "error").length : null;
   const largest = Math.max(1, ...user.map((c) => counts[c.id] || 0));
+  const apiUrl = location.origin + BASE + "/api/";
   const today = new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
   return html`<div class="page overview enter">
     <section class="hero card">
       <div class="hero-text">
         <div class="eyebrow"><span class=${"dot " + (issues ? "warn" : "live")}></span> ${issues ? plural(issues, "thing") + " to look at" : "All systems running"} · ${today}</div>
-        <h1>${greeting()}${name ? `, ${name}` : ""}</h1>
-        <p class="muted">Your PostgreSQL backend at a glance: what's stored, what's asked of it and how it's doing.</p>
+        <h1>Overview</h1>
+        <p class="muted">${greeting()}${name ? `, ${name}` : ""}. Point the SDK or any HTTP client at:</p>
+        <div class="endpoint"><span class="endpoint-method">REST</span><span class="endpoint-url">${apiUrl}</span><${CopyButton} text=${apiUrl} label="Copy the API URL" /></div>
         <div class="row wrap hero-actions">
           <${Button} icon="plus" variant="primary" onClick=${() => navigate("/data?new=1")}>New collection</${Button}>
           <${Button} icon="terminal" onClick=${() => navigate("/sql")}>SQL console</${Button}>

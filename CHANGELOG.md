@@ -10,18 +10,24 @@ changes, listed in its **Upgrading** section.
 
 ### Changed
 
-- **A new look for the dashboard's type, buttons and dark theme.**
-  - Three typefaces, each with one job: Instrument Serif for page titles, the sign-in headline,
-    figures and empty states; Geist for the interface (text, menus, buttons, fields); Geist Mono
-    for small-capital labels over sections, columns and figures, and for ids and code. They
-    replace Ubuntu Sans and are shipped with the dashboard (152 KB in all).
+- **The dashboard, redesigned as a developer tool.**
+  - Type in the manner of IBM's and JetBrains' tools: IBM Plex Sans for the interface, and in
+    its condensed width, semibold and in capitals, for titles; JetBrains Mono for small-capital
+    labels over sections, columns and figures, and for ids, collection names, numbers and code.
+    They replace Ubuntu Sans and ship with the dashboard (168 KB). The wordmark stays
+    lowercase.
+  - A status bar along the bottom, as in an editor: whether the server answers, the PostgreSQL
+    version and round trip, the API base and the version, refreshed every 30 seconds. The
+    overview shows the API URL to point clients at, with a copy button, and the sign-in page
+    shows the PocketBase SDK at work.
+  - Neutral, GitHub-like colours: white and `#f6f8fa` in light, `#0d1117` ink, hairline
+    borders and GitHub's status colours in dark; tighter corners, no decorative glow. The
+    current item in the sidebar and tabs has a hairline and an accent marker.
   - Buttons are flat and exact: a hairline, a colour change on hover and a darker press, a
     2px focus outline; nothing lifts, scales or shines.
   - Far less motion: no page or title entrances, staggered lists, springy icons, pointer
     spotlight on cards, counting numbers or growing bars. Menus, dialogs, drawers and toasts
     still fade in briefly, and a changed row still flashes.
-  - The dark theme is cool ink in GitHub's manner (`#0d1117` canvas, hairline borders,
-    GitHub's status colours) instead of warm charcoal.
   - Still no serious or critical axe (WCAG 2 AA) violation on any checked screen, in either
     theme.
 

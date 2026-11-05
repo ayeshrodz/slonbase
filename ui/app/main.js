@@ -1,6 +1,6 @@
 // The dashboard: auth gate, shell (sidebar navigation, command palette) and routes.
 import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx, lazy } from "./lib/core.js";
-import { session, refreshAuth, api, PROJECT, listProjects, dashboardUrl } from "./lib/api.js";
+import { session, refreshAuth, api, PROJECT, BASE, listProjects, dashboardUrl } from "./lib/api.js";
 import { app, initTheme, setTheme, loadCollections } from "./lib/state.js";
 import { Icon, Logo } from "./lib/icons.js";
 import { Toasts, Menu, CollectionGlyph, useAutofocus } from "./lib/ui.js";
@@ -269,6 +269,40 @@ function score(text, q) {
 
 // ------------------------------------------------------------------ shell
 
+// The status bar along the bottom, as in an editor: whether the server answers, the database
+// and its round trip, the API base to point clients at, and the version. Refreshed every 30 s.
+function StatusBar() {
+  const [status, setStatus] = useState(null);
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const load = () =>
+      api
+        .get("/api/system/status")
+        .then((st) => live && (setStatus(st), setDown(false)))
+        .catch(() => live && setDown(true));
+    load();
+    const timer = setInterval(load, 30_000);
+    return () => {
+      live = false;
+      clearInterval(timer);
+    };
+  }, []);
+  const apiBase = location.host + BASE + "/api";
+  const db = status && status.database;
+  const pg = db && db.version ? db.version.split(" ")[0] : null;
+  return html`<footer class="statusbar" role="status">
+    <span class=${cx("sb-item", down ? "bad" : status ? "ok" : "")}><span class="sb-dot"></span>${down ? "unreachable" : status ? "connected" : "connecting"}</span>
+    ${pg && html`<span class="sb-sep"></span><span class="sb-item sb-wide">PostgreSQL ${pg}</span>`}
+    ${db && html`<span class="sb-sep"></span><span class="sb-item">db ${db.latencyMs} ms</span>`}
+    <span class="spacer"></span>
+    ${PROJECT && html`<span class="sb-item">project ${PROJECT}</span><span class="sb-sep"></span>`}
+    <a class="sb-item sb-wide" href=${location.protocol + "//" + apiBase + "/"} target="_blank" rel="noopener">${apiBase}</a>
+    <span class="sb-sep sb-wide"></span>
+    <span class="sb-item">${status ? "v" + status.version : "slonbase"}</span>
+  </footer>`;
+}
+
 function Shell() {
   const { path } = useStore(route);
   const theme = useStore(app, (s) => s.theme);
@@ -343,6 +377,7 @@ function Shell() {
         <button class="icon-btn" aria-label="Search" onClick=${() => setPalette(true)}><${Icon} name="search" size=${18} /></button>
       </header>
       <main key=${path.split("/")[1]} class="fade-in app-page">${page}</main>
+      <${StatusBar} />
     </div>
     ${palette && html`<${Palette} onClose=${() => setPalette(false)} />`}
   </div>`;

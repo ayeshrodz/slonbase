@@ -6,6 +6,25 @@ import { Button, Field, Input, Callout, toast, useAutofocus } from "../lib/ui.js
 
 const SU = "/api/collections/_superusers";
 
+// the sign-in page's code panel: the PocketBase SDK, unchanged, against slonbase (one entry a line,
+// since templates fold newlines in markup)
+const kw = (t) => html`<span class="c-kw">${t}</span>`;
+const str = (t) => html`<span class="c-str">${t}</span>`;
+const fn = (t) => html`<span class="c-fn">${t}</span>`;
+const CODE = [
+  html`<span class="c-cm">// the PocketBase SDK, unchanged</span>`,
+  html`${kw("import")} PocketBase ${kw("from")} ${str('"pocketbase"')};`,
+  "",
+  html`${kw("const")} pb = ${kw("new")} ${fn("PocketBase")}(${str('"https://api.example.com"')});`,
+  "",
+  html`${kw("const")} tasks = ${kw("await")} pb.${fn("collection")}(${str('"tasks"')})`,
+  html`  .${fn("getList")}(1, 30, { filter: ${str('"done = false"')} });`,
+  "",
+  html`pb.${fn("collection")}(${str('"tasks"')}).${fn("subscribe")}(${str('"*"')}, (e) => {`,
+  html`  console.${fn("log")}(e.action, e.record.id);`,
+  "});",
+];
+
 export function AuthFrame({ children, title, subtitle }) {
   const ref = useRef();
   useAutofocus(ref);
@@ -14,13 +33,12 @@ export function AuthFrame({ children, title, subtitle }) {
       <div class="auth-art-brand"><${Logo} size=${30} /><span class="brand-name">slon<b>base</b></span></div>
       <div class="auth-art-copy">
         <h2>Your whole backend, built on PostgreSQL.</h2>
-        <ul>
-          <li><${Icon} name="data" size=${16} /> Every collection is a real table you can query</li>
-          <li><${Icon} name="zap" size=${16} /> Realtime, auth, files and hooks in one binary</li>
-          <li><${Icon} name="layers" size=${16} /> Any number of instances on one database</li>
-        </ul>
+        <div class="code-window">
+          <div class="code-window-bar"><i></i><i></i><i></i><span>app.js</span></div>
+          <pre>${CODE.map((line, i) => html`${i ? "\n" : ""}${line}`)}</pre>
+        </div>
       </div>
-      <div class="auth-art-foot">The PocketBase API, on the database you already run.</div>
+      <div class="auth-art-foot mono"><span class="c-prompt">$</span> slonbase serve · PostgreSQL 14+ · one binary</div>
     </aside>
     <div class="auth-form">
       <div class="auth-brand"><${Logo} size=${28} /><span class="brand-name">slon<b>base</b></span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
