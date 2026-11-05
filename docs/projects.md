@@ -7,8 +7,10 @@ installation, with its own:
 - superusers and users;
 - settings, files, backups, logs and hooks.
 
-All of them run on the same PostgreSQL server and in the same slonbase process, so you don't run
-(and update) one server per app.
+All of them run in the same slonbase process, so you don't run (and update) one server per app.
+Their databases are created on the main installation's PostgreSQL server, or [connected](#databases-on-other-servers)
+from any other PostgreSQL server. The main installation's **command center** shows and controls
+them all.
 
 > [!NOTE]
 > Projects are new in 0.2.
@@ -87,9 +89,38 @@ a random password, kept in the main database, and dropped with the project. This
 ALTER ROLE slonbase CREATEDB CREATEROLE;
 ```
 
+## Databases on other servers
+
+Instead of creating a database on the main installation's server, a project can **connect an
+existing database**, on any PostgreSQL 14+ server, by URL:
+
+```sh
+SLONBASE_PROJECT_DATABASE_URL='postgres://shop:secret@db2.internal:5432/shop?sslmode=require' \
+  slonbase project create shop --email owner@example.com --connect "$SLONBASE_PROJECT_DATABASE_URL"
+```
+
+or **Connect a database** in the dashboard's new-project dialog, or `"databaseUrl"` in the API.
+
+- slonbase connects, adds its tables to the database (as on any new installation) and creates the
+  first superuser. A database that **already holds a slonbase installation** keeps its data,
+  superusers and settings: this is how you bring an installation in, or move a project to
+  another server (restore a backup there, then connect it).
+- The URL's role is the project's role (no **own role**), and needs the same rights as the main
+  installation's role on its database. The URL's TLS settings (`sslmode`) and the main
+  installation's `--database-ca-file` apply.
+- slonbase refuses the main installation's own database, a database another project already uses,
+  and a server it can't reach.
+- The URL, with its password, is stored in the main database, **encrypted** when the settings
+  [encryption key](configuration.md#encrypting-the-settings) is set (and re-encrypted by
+  `slonbase rekey`). It's never sent back by the API; the dashboard shows the server and
+  database only.
+- **Deleting** the project stops it and removes it from the list, but leaves the database as it
+  is, since slonbase didn't create it.
+- Every instance of the main installation must be able to reach the other server.
+
 ## Requirements
 
-The database role in the main installation's connection must be allowed to create databases:
+To create databases on the main installation's server, its database role must be allowed to:
 
 ```sql
 ALTER ROLE slonbase CREATEDB;
@@ -97,12 +128,34 @@ ALTER ROLE slonbase CREATEDB;
 
 Without it, creating a project fails with an explanation.
 
-## Dashboard
+## The command center
 
-The main installation's dashboard has a **Projects** page, where you can:
-- create a project, with its first superuser;
-- see each project's status, database and SDK URL;
-- open a project's dashboard;
+The main installation's **Projects** page is a command center for every installation it hosts,
+the main one included, updated every 5 seconds (it pauses while the tab is hidden, or with
+**Live**):
+
+- **Fleet totals:** installations running, requests in the last 24 hours and per minute now,
+  server errors, the slowest p95 latency, data size and records, realtime clients.
+- **Requests per minute** over the last hour, one line per installation (click a name to hide
+  it), and how traffic, storage and records divide between them.
+- **A card per installation** (or a sortable table): status, server and database, a sparkline
+  of the last hour, requests, errors, p95, records, connections in use, the database's size and
+  round trip, and its configuration at a glance (mail, files, backups, rate limits,
+  encryption). Filter by name, by those that need attention, or by those on other servers.
+- **A drawer per installation:** its charts (per minute for the last hour, per hour for the
+  last day) and numbers; its **settings**, which a superuser of the main installation can change
+  (application name and URL, sender, SMTP, backup schedule and how many to keep, log retention,
+  rate limits, locking collection editing); its connection, API and SDK URLs; and **restart**,
+  **host names** and **delete**.
+
+Settings changed here are validated and saved as the project's own `PATCH /api/settings` would
+save them, and every instance picks them up; the project's `onSettingsUpdateRequest` hooks
+don't run, since the request isn't the project's. Everything else (OAuth2 providers, S3,
+collections, the project's superusers) is in the project's own dashboard. Projects have no
+command center of their own: only the main installation sees and controls them all.
+
+From the Projects page you also:
+- create a project, with its first superuser, on this server or by connecting a database;
 - delete a project. You type its name to confirm, and a backup is made first unless you switch
   it off.
 
@@ -119,6 +172,7 @@ SLONBASE_SUPERUSER_PASSWORD='...' slonbase project create blog --email owner@exa
 slonbase project delete blog                # asks for the name again; --confirm blog skips the question
 slonbase project delete blog --no-backup    # without the backup first
 slonbase project create shop --email owner@example.com --own-role
+slonbase project create crm --email owner@example.com --connect 'postgres://crm:secret@db2:5432/crm'   # or SLONBASE_PROJECT_DATABASE_URL
 slonbase project hosts shop shop.example.com www.shop.example.com   # --clear removes them
 slonbase project hosts shop                 # lists them
 ```
@@ -141,11 +195,15 @@ All endpoints need a superuser of the main installation.
 
 | Endpoint | |
 |---|---|
-| `GET /api/projects` | The projects: `name`, `database`, `path`, `status`, `created` |
+| `GET /api/projects` | The projects: `name`, `database`, `path`, `status`, `created`, `external`, `server` |
+| `GET /api/projects/overview` | Every installation (the main one first) with its status, database, pool, records, traffic (`requests`, `errors`, `avgMs`, `p95Ms`, `perMinute` for the last 60 minutes, `perHour` for the last 24 hours) and a configuration summary |
 | `GET /api/projects/{name}` | One project |
-| `POST /api/projects` | Create a project: `{"name", "superuserEmail", "superuserPassword", "ownRole"}` |
+| `POST /api/projects` | Create a project: `{"name", "superuserEmail", "superuserPassword", "ownRole"}`, or connect a database with `"databaseUrl"` |
 | `PATCH /api/projects/{name}` | Set its host names: `{"hosts": [...]}` |
-| `DELETE /api/projects/{name}?confirm={name}` | Delete a project (`&backup=false` skips the backup); answers `{"backup", "files"}` |
+| `GET /api/projects/{name}/settings` | A project's settings (passwords and secrets left out) |
+| `PATCH /api/projects/{name}/settings` | Change a project's settings, as its own `PATCH /api/settings` |
+| `POST /api/projects/{name}/restart` | Restart a project (its hooks are loaded again, its connections opened afresh) |
+| `DELETE /api/projects/{name}?confirm={name}` | Delete a project (`&backup=false` skips the backup); answers `{"backup", "files", "databaseKept"}` |
 
 ```sh
 curl -X POST localhost:8090/api/projects -H "Authorization: $TOKEN" -H 'content-type: application/json' \

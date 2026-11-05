@@ -365,7 +365,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <div class="hero">
   <div class="wrap">
     <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-      <b id="pill-version">v1.10.0</b><span id="pill-title">A dashboard that looks like the developer tool it is</span><span class="arrow">→</span>
+      <b id="pill-version">v1.11.0</b><span id="pill-title">A command center for every project</span><span class="arrow">→</span>
     </a>
     <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
     <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
@@ -710,18 +710,18 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <h2>The latest release.</h2>
     <div class="release">
       <div class="rel-head reveal">
-        <div class="ver" id="rel-version">v1.10.0</div>
+        <div class="ver" id="rel-version">v1.11.0</div>
         <div class="date" id="rel-date">November 5, 2026</div>
-        <p id="rel-summary">The dashboard redesigned as a developer tool: IBM Plex Sans and JetBrains Mono with condensed capitals for titles, a status bar with the connection, database and API base, the API URL on the overview, neutral GitHub-like colours, flat buttons and far less motion. Since 1.9: view fields copied from their sources, VK sign-in, cheaper health checks and reads.</p></p>
+        <p id="rel-summary">The main installation's Projects page becomes a command center: every installation live, side by side, with its traffic, errors, latency, data and configuration, and control over each project's settings. Projects can connect a database on any PostgreSQL server. The SQL console only reads unless allowed to write, with limits, a table browser and exports to Excel, CSV and JSON.</p></p>
         <a class="btn secondary" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list reveal" id="rel-items">
-        <li>IBM Plex Sans and JetBrains Mono</li>
-        <li>A status bar, as in an editor</li>
-        <li>The API URL on the overview</li>
-        <li>Neutral, GitHub-like light and dark</li>
-        <li>Flat buttons, far less motion</li>
-        <li>View fields copied from sources (1.9.0)</li>
+        <li>A command center for every project</li>
+        <li>Projects on other PostgreSQL servers</li>
+        <li>Project settings from the main installation</li>
+        <li>A read-only SQL console by default</li>
+        <li>SQL results to Excel, CSV and JSON</li>
+        <li>The developer-tool dashboard (1.10.0)</li>
       </ul>
     </div>
   </div>
@@ -756,8 +756,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.10.0/slonbase-1.10.0-linux-amd64.tar.gz
-tar xzf slonbase-1.10.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v1.11.0/slonbase-1.11.0-linux-amd64.tar.gz
+tar xzf slonbase-1.11.0-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'

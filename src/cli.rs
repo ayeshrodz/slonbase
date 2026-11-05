@@ -186,8 +186,18 @@ enum ProjectAction {
         #[arg(long, env = "SLONBASE_SUPERUSER_PASSWORD", hide_env_values = true)]
         password: String,
         /// Give the project a PostgreSQL role of its own, owning its database (needs CREATEROLE).
-        #[arg(long)]
+        #[arg(long, conflicts_with = "connect")]
         own_role: bool,
+        /// Connect an existing database (on any PostgreSQL server) instead of creating one on
+        /// the main server, e.g. postgres://user:password@db2.internal:5432/shop. Deleting the
+        /// project later leaves that database as it is.
+        #[arg(
+            long = "connect",
+            value_name = "URL",
+            env = "SLONBASE_PROJECT_DATABASE_URL",
+            hide_env_values = true
+        )]
+        connect: Option<String>,
     },
     /// Show or set the host names a project is served on, besides /p/{name}/.
     Hosts {
@@ -464,10 +474,10 @@ async fn offline_core_with_config(
     let Some(name) = project else {
         return Ok((main, loaded.effective));
     };
-    let (database, role) = crate::projects::database_of(&main, name)
+    let db = crate::projects::database_of(&main, name)
         .await?
         .ok_or_else(|| anyhow::anyhow!("there's no project named {name:?}"))?;
-    let project = crate::projects::project_config(&loaded, name, &database, role);
+    let project = crate::projects::project_config(&loaded, name, &db.database, db.role, db.url);
     Ok((core_for(&project.effective).await?, project.effective))
 }
 
@@ -578,27 +588,45 @@ async fn rekey_command(loaded: &config::Loaded, to: Option<String>) -> Result<()
     })?;
     let pool = db::connect(&url, &loaded.effective.database)?;
     let mut client = pool.get().await.map_err(db::describe_pool_error)?;
-    rekey(&mut client, from.as_ref(), to.as_ref()).await?;
+    // the projects' secrets are read before the main database is re-sealed under the new key
+    let has_url = client
+        .query_opt(
+            "SELECT 1 FROM information_schema.columns
+             WHERE table_schema = '_slonbase' AND table_name = 'projects' AND column_name = 'url'",
+            &[],
+        )
+        .await?
+        .is_some();
     let projects = client
         .query(
-            "SELECT name, database, role, role_password FROM _slonbase.projects ORDER BY name",
+            &format!(
+                "SELECT name, database, role, role_password, {} FROM _slonbase.projects ORDER BY name",
+                if has_url { "url" } else { "NULL::text" }
+            ),
             &[],
         )
         .await?;
+    let open = |stored: Option<String>, what: &str| {
+        stored
+            .map(|s| crate::secrets::open_text(&s, from.as_ref(), what))
+            .transpose()
+    };
+    let mut targets = Vec::new();
     for row in &projects {
         let name: String = row.get(0);
         let role = match (
             row.get::<_, Option<String>>(2),
-            row.get::<_, Option<String>>(3),
+            open(row.get(3), "project role passwords")?,
         ) {
-            (Some(role), Some(password)) => Some((
-                role,
-                crate::secrets::open_text(&password, from.as_ref(), "project role passwords")?,
-            )),
+            (Some(role), Some(password)) => Some((role, password)),
             _ => None,
         };
-        let project =
-            crate::projects::project_config(loaded, &name, &row.get::<_, String>(1), role);
+        let url = open(row.get(4), "project database URLs")?;
+        targets.push((name, row.get::<_, String>(1), role, url));
+    }
+    rekey(&mut client, from.as_ref(), to.as_ref()).await?;
+    for (name, database, role, url) in targets {
+        let project = crate::projects::project_config(loaded, &name, &database, role, url);
         let url = project
             .effective
             .database
@@ -682,10 +710,11 @@ async fn project_command(loaded: config::Loaded, action: ProjectAction) -> Resul
             email,
             password,
             own_role,
+            connect,
         } => {
             let project = app
                 .projects()
-                .create(&name, &email, &password, own_role)
+                .create(&name, &email, &password, own_role, connect.as_deref())
                 .await
                 .map_err(fail)?;
             println!(

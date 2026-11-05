@@ -217,21 +217,27 @@ pub async fn seal_plain_rows(client: &impl GenericClient, key: &SecretsKey) -> R
         .await?
         .is_some_and(|r| r.get::<_, bool>(0));
     if projects {
-        for row in client
-            .query(
-                "SELECT name, role_password FROM _slonbase.projects
-                 WHERE role_password IS NOT NULL AND role_password <> '' AND role_password NOT LIKE 'sealed:%'",
-                &[],
-            )
-            .await?
-        {
-            let (name, plain): (String, String) = (row.get(0), row.get(1));
-            sealed += client
-                .execute(
-                    "UPDATE _slonbase.projects SET role_password = $2 WHERE name = $1 AND role_password = $3",
-                    &[&name, &seal_text(&plain, Some(key)), &plain],
+        for column in project_secret_columns(client).await? {
+            for row in client
+                .query(
+                    &format!(
+                        "SELECT name, {column} FROM _slonbase.projects
+                         WHERE {column} IS NOT NULL AND {column} <> '' AND {column} NOT LIKE 'sealed:%'"
+                    ),
+                    &[],
                 )
-                .await? as usize;
+                .await?
+            {
+                let (name, plain): (String, String) = (row.get(0), row.get(1));
+                sealed += client
+                    .execute(
+                        &format!(
+                            "UPDATE _slonbase.projects SET {column} = $2 WHERE name = $1 AND {column} = $3"
+                        ),
+                        &[&name, &seal_text(&plain, Some(key)), &plain],
+                    )
+                    .await? as usize;
+            }
         }
     }
     Ok(sealed)
@@ -312,21 +318,25 @@ pub async fn rekey(
         .await?
         .is_some_and(|r| r.get::<_, bool>(0));
     if projects {
-        for row in tx
-            .query(
-                "SELECT name, role_password FROM _slonbase.projects WHERE role_password IS NOT NULL FOR UPDATE",
-                &[],
-            )
-            .await?
-        {
-            let (name, stored): (String, String) = (row.get(0), row.get(1));
-            let plain = open_text(&stored, from, "project role passwords")?;
-            changed += tx
-                .execute(
-                    "UPDATE _slonbase.projects SET role_password = $2 WHERE name = $1",
-                    &[&name, &seal_text(&plain, to)],
+        for column in project_secret_columns(&tx).await? {
+            for row in tx
+                .query(
+                    &format!(
+                        "SELECT name, {column} FROM _slonbase.projects WHERE {column} IS NOT NULL FOR UPDATE"
+                    ),
+                    &[],
                 )
-                .await? as usize;
+                .await?
+            {
+                let (name, stored): (String, String) = (row.get(0), row.get(1));
+                let plain = open_text(&stored, from, "project secrets")?;
+                changed += tx
+                    .execute(
+                        &format!("UPDATE _slonbase.projects SET {column} = $2 WHERE name = $1"),
+                        &[&name, &seal_text(&plain, to)],
+                    )
+                    .await? as usize;
+            }
         }
     }
     tx.commit().await?;
@@ -339,6 +349,24 @@ pub fn param_name(param: &str) -> &'static str {
         "auth_secret" => "token signing secret",
         _ => "settings",
     }
+}
+
+/// The sealed columns of `_slonbase.projects`: role passwords, and connected databases' URLs
+/// (from migration 16 on).
+async fn project_secret_columns(client: &impl GenericClient) -> Result<Vec<&'static str>> {
+    let has_url = client
+        .query_opt(
+            "SELECT 1 FROM information_schema.columns
+             WHERE table_schema = '_slonbase' AND table_name = 'projects' AND column_name = 'url'",
+            &[],
+        )
+        .await?
+        .is_some();
+    Ok(if has_url {
+        vec!["role_password", "url"]
+    } else {
+        vec!["role_password"]
+    })
 }
 
 #[cfg(test)]

@@ -1245,5 +1245,8 @@ project's, in one transaction each.
     screenshot checks of the dashboard in CI.
 15. **1.10** (done): the dashboard redesigned as a developer tool: IBM Plex Sans and JetBrains
     Mono, a status bar, neutral GitHub-like colours, flat buttons and far less motion.
-16. **Next:** the differential runner over file uploads and realtime events, and the remaining
+16. **1.11** (done): a command center for every project in the main installation, projects
+    on other PostgreSQL servers, and an SQL console that only reads unless allowed to write, with
+    limits, a schema browser and exports.
+17. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

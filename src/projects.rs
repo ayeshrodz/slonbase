@@ -1,6 +1,6 @@
 //! Projects: further installations hosted by the main one, each in its own PostgreSQL
-//! database on the same server, with its own collections, superusers, settings, files and
-//! hooks. A project is served under `/p/{name}/` by an [`App`] of its own, so everything
+//! database (one slonbase creates on the same server, or an existing one anywhere, connected by
+//! URL), with its own collections, superusers, settings, files and hooks. A project is served under `/p/{name}/` by an [`App`] of its own, so everything
 //! that works for the main installation works for a project unchanged.
 //!
 //! The list of projects lives in the main database (`_slonbase.projects`); changes are
@@ -42,6 +42,8 @@ pub struct Project {
     pub created: String,
     /// The project's own PostgreSQL role, with its password.
     role: Option<(String, String)>,
+    /// The connection URL of a database slonbase didn't create (perhaps on another server).
+    url: Option<String>,
     pub app: Arc<App>,
     router: axum::Router,
 }
@@ -56,6 +58,11 @@ impl Project {
         }
     }
 
+    /// The project as the command center lists it (see [`crate::fleet`]).
+    pub(crate) fn overview_json(&self) -> Value {
+        self.to_json()
+    }
+
     fn to_json(&self) -> Value {
         let (status, detail) = self.status();
         json!({
@@ -65,6 +72,8 @@ impl Project {
             "created": self.created,
             "path": format!("{PATH_PREFIX}{}/", self.name),
             "role": self.role.as_ref().map(|(role, _)| role.clone()),
+            "external": self.url.is_some(),
+            "server": self.url.as_deref().map(server_of),
             "status": status,
             "statusDetail": detail.unwrap_or_default(),
         })
@@ -89,10 +98,10 @@ struct Row {
     hosts: Vec<String>,
     created: String,
     role: Option<(String, String)>,
+    url: Option<String>,
 }
 
 impl Project {
-    #[cfg(feature = "js")]
     fn row(&self) -> Row {
         Row {
             name: self.name.clone(),
@@ -100,8 +109,24 @@ impl Project {
             hosts: self.hosts.clone(),
             created: self.created.clone(),
             role: self.role.clone(),
+            url: self.url.clone(),
         }
     }
+}
+
+/// Where a connection URL points, without its password: `host:port`, or the socket directory.
+pub fn server_of(url: &str) -> String {
+    let Ok(config) = url.parse::<tokio_postgres::Config>() else {
+        return "?".into();
+    };
+    let host = match config.get_hosts().first() {
+        Some(tokio_postgres::config::Host::Tcp(host)) => host.clone(),
+        #[cfg(unix)]
+        Some(tokio_postgres::config::Host::Unix(path)) => path.display().to_string(),
+        None => "localhost".into(),
+    };
+    let port = config.get_ports().first().copied().unwrap_or(5432);
+    format!("{host}:{port}")
 }
 
 /// How a request reached a project (set on the requests a project serves).
@@ -225,7 +250,7 @@ impl Projects {
         for row in rows {
             let existing = self.get(&row.name);
             match existing {
-                Some(project) if project.database == row.database => {
+                Some(project) if project.database == row.database && project.url == row.url => {
                     if project.hosts != row.hosts {
                         let updated = Project {
                             name: project.name.clone(),
@@ -233,6 +258,7 @@ impl Projects {
                             hosts: row.hosts,
                             created: project.created.clone(),
                             role: project.role.clone(),
+                            url: project.url.clone(),
                             app: project.app.clone(),
                             router: project.router.clone(),
                         };
@@ -254,10 +280,9 @@ impl Projects {
         Ok(())
     }
 
-    /// Restarts a project on this instance (its hooks changed): the new app takes over once
-    /// it's ready, and requests in flight finish on the old one.
-    #[cfg(feature = "js")]
-    async fn restart(&self, name: &str) -> anyhow::Result<()> {
+    /// Restarts a project on this instance (its hooks changed, or a superuser asked): the new
+    /// app takes over once it's ready, and requests in flight finish on the old one.
+    pub async fn restart(&self, name: &str) -> anyhow::Result<()> {
         let _guard = self.lock.lock().await;
         let root = self
             .root
@@ -282,7 +307,7 @@ impl Projects {
             // realtime clients reconnect, to the new app
             core.realtime.disconnect_all();
         }
-        tracing::info!(project = %name, "restarted project (its hooks changed)");
+        tracing::info!(project = %name, "restarted project");
         Ok(())
     }
 
@@ -321,10 +346,34 @@ impl Projects {
         email: &str,
         password: &str,
         own_role: bool,
+        database_url: Option<&str>,
     ) -> Result<Arc<Project>, ApiError> {
         let mut errors = FieldErrors::new();
         if let Err(message) = validate_name(name) {
             errors.insert("name", message.to_string());
+        }
+        let database_url = database_url.map(str::trim).filter(|u| !u.is_empty());
+        if let Some(url) = database_url {
+            match url.parse::<tokio_postgres::Config>() {
+                Ok(config) if config.get_dbname().is_none_or(str::is_empty) => {
+                    errors.insert("databaseUrl", "Name the database in the URL.".to_string());
+                }
+                Ok(_) => {}
+                Err(_) => {
+                    errors.insert(
+                        "databaseUrl",
+                        "Must be a PostgreSQL URL, e.g. postgres://user:password@host:5432/database."
+                            .to_string(),
+                    );
+                }
+            }
+            if own_role {
+                errors.insert(
+                    "ownRole",
+                    "A connected database uses the URL's role; it can't get a role of its own."
+                        .to_string(),
+                );
+            }
         }
         for (field, message) in crate::superusers::validate(email, password) {
             let field = match field {
@@ -355,6 +404,11 @@ impl Projects {
             .map_err(|e| ApiError::internal(e.into()))?;
         if taken.is_some() {
             return Err(name_error("A project with this name already exists."));
+        }
+        if let Some(url) = database_url {
+            return self
+                .connect(&root, &core, &client, name, email, password, url)
+                .await;
         }
         let main_database: String = client
             .query_one("SELECT current_database()", &[])
@@ -459,6 +513,7 @@ impl Projects {
                 hosts: Vec::new(),
                 created: String::new(),
                 role: role.clone(),
+                url: None,
             };
             let project = start(&root, row).await?;
             let pool = crate::db::connect(
@@ -563,7 +618,7 @@ impl Projects {
             .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
         let row = client
             .query_opt(
-                "SELECT database, role, role_password FROM _slonbase.projects WHERE name = $1",
+                "SELECT database, role, role_password, url FROM _slonbase.projects WHERE name = $1",
                 &[&name],
             )
             .await
@@ -571,6 +626,7 @@ impl Projects {
             .ok_or_else(ApiError::not_found)?;
         let database: String = row.get(0);
         let role = role_of(&core, row.get(1), row.get(2)).map_err(ApiError::internal)?;
+        let url = url_of(&core, row.get(3)).map_err(ApiError::internal)?;
         let stamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
 
         // the backup comes first: no backup, no delete
@@ -587,6 +643,7 @@ impl Projects {
                         hosts: Vec::new(),
                         created: String::new(),
                         role: role.clone(),
+                        url: url.clone(),
                     };
                     let project = start(&root, row).await.map_err(ApiError::internal)?;
                     project.app.bootstrap().await.map_err(ApiError::internal)?;
@@ -618,17 +675,22 @@ impl Projects {
         let _ = client
             .execute("SELECT pg_notify($1, $2)", &[&CHANNEL, &name])
             .await;
-        client
-            .batch_execute(&format!(
-                "DROP DATABASE IF EXISTS {} WITH (FORCE)",
-                quote_ident(&database)
-            ))
-            .await
-            .map_err(|e| {
-                ApiError::internal(
-                    anyhow::anyhow!(e).context("failed to drop the project's database"),
-                )
-            })?;
+        // a connected database wasn't slonbase's to create, so it isn't slonbase's to drop
+        if url.is_none() {
+            client
+                .batch_execute(&format!(
+                    "DROP DATABASE IF EXISTS {} WITH (FORCE)",
+                    quote_ident(&database)
+                ))
+                .await
+                .map_err(|e| {
+                    ApiError::internal(
+                        anyhow::anyhow!(e).context("failed to drop the project's database"),
+                    )
+                })?;
+        } else {
+            tracing::info!(project = %name, %database, "kept the connected database of a deleted project");
+        }
         if let Some((role, _)) = &role {
             if let Err(err) = client
                 .batch_execute(&format!("DROP ROLE IF EXISTS {}", quote_ident(role)))
@@ -663,11 +725,157 @@ impl Projects {
         Ok(Deleted {
             backup,
             files: kept.map(|dir| dir.display().to_string()),
+            database_kept: url
+                .as_deref()
+                .map(|url| format!("{database} on {}", server_of(url))),
         })
     }
 }
 
 impl Projects {
+    /// Creates a project on an existing database (`url`, perhaps on another server): checks it
+    /// isn't the main installation's or another project's, prepares it (slonbase's tables, and
+    /// the first superuser unless it already has some) and starts the project. A database
+    /// that already holds a slonbase installation keeps its data, superusers and settings.
+    /// Called from [`Self::create`], with the lock held.
+    #[allow(clippy::too_many_arguments)]
+    async fn connect(
+        &self,
+        root: &Arc<App>,
+        core: &Arc<Core>,
+        main: &deadpool_postgres::Object,
+        name: &str,
+        email: &str,
+        password: &str,
+        url: &str,
+    ) -> Result<Arc<Project>, ApiError> {
+        let url_error = |message: String| {
+            let mut errors = FieldErrors::new();
+            errors.insert("databaseUrl", message);
+            ApiError::validation(errors)
+        };
+        let mut db_config = root.config().effective.database.clone();
+        db_config.url = Some(url.to_string());
+        db_config.dbname = None;
+        db_config.user = None;
+        db_config.max_connections = 2;
+        let pool = crate::db::connect(url, &db_config)
+            .map_err(|e| url_error(format!("Can't use this URL: {e:#}")))?;
+        let client = tokio::time::timeout(Duration::from_secs(15), pool.get())
+            .await
+            .map_err(|_| url_error("The server didn't answer within 15 seconds.".into()))?
+            .map_err(|e| {
+                url_error(format!(
+                    "Couldn't connect: {}",
+                    crate::db::describe_pool_error(e)
+                ))
+            })?;
+        // the same server answers with the same start time and port
+        let identity =
+            "SELECT current_database(), pg_postmaster_start_time()::text, current_setting('port')";
+        let target = client
+            .query_one(identity, &[])
+            .await
+            .map_err(|e| url_error(format!("Couldn't query the database: {e}")))?;
+        let here = main
+            .query_one(identity, &[])
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
+        let database: String = target.get(0);
+        let same_server = target.get::<_, String>(1) == here.get::<_, String>(1)
+            && target.get::<_, String>(2) == here.get::<_, String>(2);
+        if same_server {
+            if database == here.get::<_, String>(0) {
+                return Err(url_error(
+                    "This is the main installation's own database.".into(),
+                ));
+            }
+            let owner = main
+                .query_opt(
+                    "SELECT name FROM _slonbase.projects WHERE url IS NULL AND database = $1",
+                    &[&database],
+                )
+                .await
+                .map_err(|e| ApiError::internal(e.into()))?;
+            if let Some(owner) = owner {
+                return Err(url_error(format!(
+                    "This database belongs to the project {}.",
+                    owner.get::<_, String>(0)
+                )));
+            }
+        }
+        let server = server_of(url);
+        if let Some(other) = self.list().into_iter().find(|p| {
+            p.url.as_deref().is_some_and(|u| server_of(u) == server) && p.database == database
+        }) {
+            return Err(url_error(format!(
+                "The project {} already uses this database.",
+                other.name
+            )));
+        }
+        drop(client);
+
+        let row = Row {
+            name: name.to_string(),
+            database: database.clone(),
+            hosts: Vec::new(),
+            created: String::new(),
+            role: None,
+            url: Some(url.to_string()),
+        };
+        let connected = async {
+            let project = start(root, row).await?;
+            let key = crate::secrets::from_config(&project.app.config().effective)?;
+            crate::app::prepare(&pool, key.as_ref()).await?;
+            let first = crate::superusers::create_first(&pool, email, password).await?;
+            pool.close();
+            project.app.bootstrap().await?;
+            let project_core = project.app.core().map_err(|e| anyhow::anyhow!(e.message))?;
+            if matches!(first, crate::superusers::CreateFirst::Created) {
+                // a new installation: email links and the dashboard's title point at the project
+                let app_url = format!(
+                    "{}{PATH_PREFIX}{name}",
+                    core.settings().meta.app_url.trim_end_matches('/')
+                );
+                let patch = json!({ "meta": { "appName": name, "appURL": app_url } });
+                crate::settings::apply_patch(
+                    &project_core,
+                    patch.as_object().cloned().unwrap_or_default(),
+                )
+                .await
+                .map_err(|e| anyhow::anyhow!(e.message))?;
+            } else {
+                tracing::info!(project = %name, "the connected database already has a slonbase installation; kept its superusers and settings");
+            }
+            let created: String = main
+                .query_one(
+                    "INSERT INTO _slonbase.projects (name, database, url)
+                     VALUES ($1, $2, $3)
+                     RETURNING to_char(created AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS\"Z\"')",
+                    &[
+                        &name,
+                        &database,
+                        &crate::secrets::seal_text(url, core.secrets_key()),
+                    ],
+                )
+                .await?
+                .get(0);
+            main.execute("SELECT pg_notify($1, $2)", &[&CHANNEL, &name])
+                .await?;
+            anyhow::Ok(Project { created, ..project })
+        };
+        match connected.await {
+            Ok(project) => {
+                tracing::info!(project = %name, %database, %server, "connected project");
+                Ok(self.insert(project))
+            }
+            // the database isn't slonbase's: whatever was applied to it stays
+            Err(err) => Err(ApiError::internal(
+                err.context("failed to connect the project"),
+            )),
+        }
+    }
+
     /// Sets the host names a project is served on (besides `/p/{name}/`).
     pub async fn set_hosts(&self, name: &str, hosts: &[String]) -> Result<Arc<Project>, ApiError> {
         let mut clean: Vec<String> = Vec::new();
@@ -764,6 +972,8 @@ pub struct Deleted {
     pub backup: Option<String>,
     /// Where the project's files were moved.
     pub files: Option<String>,
+    /// A connected database, which deleting the project leaves as it is.
+    pub database_kept: Option<String>,
 }
 
 async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
@@ -776,7 +986,7 @@ async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
         .query(
             "SELECT name, database, hosts,
                     to_char(created AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS\"Z\"'),
-                    role, role_password
+                    role, role_password, url
              FROM _slonbase.projects ORDER BY name",
             &[],
         )
@@ -789,6 +999,7 @@ async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
                 hosts: r.get(2),
                 created: r.get(3),
                 role: role_of(core, r.get(4), r.get(5))?,
+                url: url_of(core, r.get(6))?,
             })
         })
         .collect()
@@ -809,10 +1020,22 @@ fn role_of(
     })
 }
 
+/// A connected database's URL, decrypted (see [`crate::secrets`]).
+fn url_of(core: &Core, url: Option<String>) -> anyhow::Result<Option<String>> {
+    url.map(|url| crate::secrets::open_text(&url, core.secrets_key(), "project database URLs"))
+        .transpose()
+}
+
 /// Builds a project's app (not started yet): the main configuration, with the project's
 /// database and its own directories under `projects.path`.
 async fn start(root: &App, row: Row) -> anyhow::Result<Project> {
-    let config = project_config(&root.config(), &row.name, &row.database, row.role.clone());
+    let config = project_config(
+        &root.config(),
+        &row.name,
+        &row.database,
+        row.role.clone(),
+        row.url.clone(),
+    );
 
     #[allow(unused_mut)]
     let mut extensions = crate::Extensions::default();
@@ -843,6 +1066,7 @@ async fn start(root: &App, row: Row) -> anyhow::Result<Project> {
         hosts: row.hosts,
         created: row.created,
         role: row.role,
+        url: row.url,
         app,
         router,
     })
@@ -882,18 +1106,25 @@ fn watch_hooks(root: &App, name: &str, app: &Arc<App>, dir: std::path::PathBuf) 
     });
 }
 
-/// The configuration of a project: the main one, with the project's database and its own
-/// directories under `projects.path`.
+/// The configuration of a project: the main one, with the project's database (on the main
+/// server, or a connected one's URL) and its own directories under `projects.path`.
 pub fn project_config(
     main: &Loaded,
     name: &str,
     database: &str,
     role: Option<(String, String)>,
+    url: Option<String>,
 ) -> Loaded {
     let dir = main.effective.projects.path.join(name);
     let mut effective = main.effective.clone();
-    effective.database.dbname = Some(database.to_string());
-    effective.database.user = role;
+    if let Some(url) = url {
+        effective.database.url = Some(url);
+        effective.database.dbname = None;
+        effective.database.user = None;
+    } else {
+        effective.database.dbname = Some(database.to_string());
+        effective.database.user = role;
+    }
     effective.database.max_connections = main.effective.projects.max_connections;
     effective.storage.path = dir.join("storage");
     effective.backups.path = dir.join("backups");
@@ -908,12 +1139,18 @@ pub fn project_config(
     }
 }
 
-/// The database of the project with this name, and its own role if it has one, from the
-/// main installation's list.
-pub async fn database_of(
-    core: &Core,
-    name: &str,
-) -> anyhow::Result<Option<(String, Option<(String, String)>)>> {
+/// Where a project's data is, from the main installation's list.
+pub struct ProjectDatabase {
+    pub database: String,
+    /// The project's own role, with its password.
+    pub role: Option<(String, String)>,
+    /// A connected database's URL.
+    pub url: Option<String>,
+}
+
+/// The database of the project with this name, its own role if it has one, and the URL of a
+/// connected database, from the main installation's list.
+pub async fn database_of(core: &Core, name: &str) -> anyhow::Result<Option<ProjectDatabase>> {
     let client = core
         .pool
         .get()
@@ -921,14 +1158,18 @@ pub async fn database_of(
         .map_err(crate::db::describe_pool_error)?;
     let Some(r) = client
         .query_opt(
-            "SELECT database, role, role_password FROM _slonbase.projects WHERE name = $1",
+            "SELECT database, role, role_password, url FROM _slonbase.projects WHERE name = $1",
             &[&name],
         )
         .await?
     else {
         return Ok(None);
     };
-    Ok(Some((r.get(0), role_of(core, r.get(1), r.get(2))?)))
+    Ok(Some(ProjectDatabase {
+        database: r.get(0),
+        role: role_of(core, r.get(1), r.get(2))?,
+        url: url_of(core, r.get(3))?,
+    }))
 }
 
 /// Project names: lowercase letters, digits and dashes, starting with a letter.
@@ -1098,6 +1339,9 @@ pub(crate) struct CreateRequest {
     superuser_password: String,
     #[serde(default)]
     own_role: bool,
+    /// An existing database to connect, instead of creating one on the main server.
+    #[serde(default)]
+    database_url: Option<String>,
 }
 
 /// `POST /api/projects`
@@ -1114,6 +1358,7 @@ pub(crate) async fn create(
             &req.superuser_email,
             &req.superuser_password,
             req.own_role,
+            req.database_url.as_deref(),
         )
         .await?;
     Ok(Json(project.to_json()))
@@ -1167,7 +1412,7 @@ pub(crate) async fn delete(
     }
     let deleted = app.projects.delete(&name, query.backup).await?;
     Ok(Json(
-        json!({ "backup": deleted.backup, "files": deleted.files }),
+        json!({ "backup": deleted.backup, "files": deleted.files, "databaseKept": deleted.database_kept }),
     ))
 }
 

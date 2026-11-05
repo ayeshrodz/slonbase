@@ -8,6 +8,13 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-05
+
+**A command center for every project, and an SQL console you can trust.** The main
+installation's Projects page shows and controls every installation it hosts, live; projects can
+connect a database on any PostgreSQL server; and the SQL console only reads unless allowed to
+write, with limits, a schema browser and exports.
+
 ### Security
 
 - **The SQL console only reads unless it's told it may write.** With `--sql-console` alone it
@@ -24,6 +31,23 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **A command center for projects.** The main installation's Projects page shows every
+  installation it hosts, the main one included, updated every 5 seconds: fleet totals (running,
+  requests, server errors, the slowest p95, data, records, realtime clients), requests per
+  minute over the last hour with a line per installation, how traffic, storage and records
+  divide between them, and a card (or a sortable table row) per installation with its
+  sparkline, numbers, connections, database size and round trip, and configuration at a glance.
+  A drawer per installation has its charts, its settings (application, sender, SMTP, backup
+  schedule, log retention, rate limits), its connection, and restart, host names and delete.
+  Projects have no such page: only the main installation sees and controls them all.
+  `GET /api/projects/overview`, `GET/PATCH /api/projects/{name}/settings` and
+  `POST /api/projects/{name}/restart` are the API behind it.
+- **Projects on other PostgreSQL servers.** A project can connect an existing database by URL
+  (`"databaseUrl"` in `POST /api/projects`, `slonbase project create --connect`, or **Connect a
+  database** in the dashboard) instead of creating one on the main server. A database that
+  already holds a slonbase installation keeps its data and superusers. The URL is stored
+  encrypted with the settings key and never sent back; deleting the project leaves the
+  database as it is. ([details](docs/projects.md#databases-on-other-servers))
 - **A proper SQL console.** A table browser with each collection's columns (click to insert,
   or query a table in one click), an editor with line numbers, highlighting, Tab and
   Ctrl+/ (comment), the rows to fetch, and results below it: row numbers, column types, NULLs,
@@ -33,6 +57,9 @@ changes, listed in its **Upgrading** section.
 
 ### Fixed
 
+- **`slonbase rekey` with projects that have their own role.** It re-sealed the main database
+  first and then read the projects' role passwords with the old key, so changing the key failed
+  for those projects; it now reads them first.
 - **Collections by their names in the SQL console.** `SELECT * FROM clients` works: the console
   searches the `slonbase` schema, where collections' tables are, before `public`.
 - **The Health page's errors check no longer counts refused requests.** A 401 from an expired
@@ -1041,7 +1068,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...v1.9.0
 [1.8.0]: https://github.com/ayeshrodz/slonbase/compare/v1.7.0...v1.8.0

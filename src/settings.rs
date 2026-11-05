@@ -330,7 +330,7 @@ impl Settings {
     }
 
     /// The representation returned by the API (passwords and secrets are never sent back).
-    fn public_json(&self) -> Value {
+    pub(crate) fn public_json(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("settings serialize");
         value["smtp"]["password"] = Value::String(String::new());
         value["s3"]["secret"] = Value::String(String::new());

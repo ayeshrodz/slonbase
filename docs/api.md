@@ -53,6 +53,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET /api/health` | Health check |
 | `GET /api/system/status` | The installation's status and checks, for the dashboard's Health page (superusers) |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{name}` | Projects (superusers of the main installation; see [projects](projects.md)) |
+| `GET /api/projects/overview`, `GET/PATCH /api/projects/{name}/settings`, `POST /api/projects/{name}/restart` | The command center: every installation's numbers, a project's settings, a restart (see [projects](projects.md#the-command-center)) |
 
 Send the token as `Authorization: Bearer <token>` (or just the token).
 

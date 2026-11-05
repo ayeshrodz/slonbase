@@ -36,6 +36,7 @@ pub mod error;
 pub mod excerpt;
 pub mod extract;
 pub mod filter;
+pub mod fleet;
 pub mod guard;
 pub mod hooks;
 pub mod http;

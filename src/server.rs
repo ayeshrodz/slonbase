@@ -54,6 +54,12 @@ fn project_api(app: &App) -> Router<Arc<App>> {
     use crate::projects;
     Router::new()
         .route("/api/projects", get(projects::list).post(projects::create))
+        .route("/api/projects/overview", get(crate::fleet::overview))
+        .route(
+            "/api/projects/{name}/settings",
+            get(crate::fleet::settings).patch(crate::fleet::update_settings),
+        )
+        .route("/api/projects/{name}/restart", post(crate::fleet::restart))
         .route(
             "/api/projects/{name}",
             get(projects::view)

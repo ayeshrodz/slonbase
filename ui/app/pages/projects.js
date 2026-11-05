@@ -1,143 +1,34 @@
 // Projects: further installations hosted by this one, each in its own database. Only the main
-// installation's dashboard shows this page.
-import { html, useState, useEffect } from "../lib/core.js";
+// installation's dashboard shows this page: its command center (command-center.js), and the
+// dialogs to create, rename the hosts of and delete projects.
+import { html, useState } from "../lib/core.js";
+import { CommandCenter } from "./command-center.js";
 import { app } from "../lib/state.js";
 import { api, enc, dashboardUrl } from "../lib/api.js";
 import { Icon } from "../lib/icons.js";
-import { Button, IconButton, Field, Input, TextArea, Switch, Modal, SheetHead, Empty, Callout, CopyButton, Skeleton, Menu, toast, tone } from "../lib/ui.js";
-import { formatDate, relativeTime } from "../lib/format.js";
+import { Button, Field, Input, TextArea, Switch, Modal, SheetHead, Callout, CopyButton, Segmented, toast } from "../lib/ui.js";
 
 const NAME_PATTERN = /^[a-z][a-z0-9-]{0,30}[a-z0-9]$/;
 
-const STATUS = {
-  ready: ["Ready", "ok"],
-  starting: ["Starting", "warn"],
-  setup: ["Needs setup", "warn"],
-};
-
 export function Projects() {
-  const [items, setItems] = useState(null);
   const [creating, setCreating] = useState(false);
   const [deleting, setDeleting] = useState(null);
   const [editingHosts, setEditingHosts] = useState(null);
-  const [tick, setTick] = useState(0);
-
-  useEffect(() => {
-    api
-      .get("/api/projects")
-      .then((res) => {
-        setItems(res.items);
-        app.set({ projects: res.items });
-      })
-      .catch((err) => {
-        toast.error(err);
-        setItems([]);
-      });
-  }, [tick]);
-  // a starting project becomes ready on its own: check again shortly
-  useEffect(() => {
-    if (!items || !items.some((p) => p.status === "starting")) return;
-    const timer = setTimeout(() => setTick((t) => t + 1), 3000);
-    return () => clearTimeout(timer);
-  }, [items]);
-  const reload = () => setTick((t) => t + 1);
-
-  return html`<div class="page enter">
-    <div class="page-head">
-      <div class="grow">
-        <div class="eyebrow"><${Icon} name="layers" size=${14} /> Installation</div>
-        <h1>Projects</h1>
-      </div>
-      <${IconButton} icon="refresh" label="Refresh" onClick=${reload} />
-      <${Button} variant="primary" icon="plus" onClick=${() => setCreating(true)}>New project</${Button}>
-    </div>
-    <p class="muted" style="margin:-8px 0 20px;max-width:760px">
-      Each project is a separate installation with its own collections, superusers, settings, files
-      and hooks, kept in a PostgreSQL database of its own on this server. It's served under <code>/p/name/</code>,
-      with its own dashboard.
-    </p>
-    ${items === null
-      ? html`<div class="project-grid">${[0, 1, 2].map(() => html`<div class="card pad stack"><${Skeleton} width="40%" height=${16} /><${Skeleton} /><${Skeleton} width="70%" /></div>`)}</div>`
-      : items.length === 0
-        ? html`<div class="card">
-            <${Empty}
-              icon="layers"
-              title="No projects yet"
-              action=${html`<${Button} variant="primary" icon="plus" onClick=${() => setCreating(true)}>Create a project</${Button}>`}
-            >
-              Host several apps from this installation, each isolated in its own database.
-            </${Empty}>
-          </div>`
-        : html`<div class="project-grid">
-            ${items.map((p, i) => html`<${ProjectCard} key=${p.name} project=${p} index=${i} onDelete=${() => setDeleting(p)} onHosts=${() => setEditingHosts(p)} />`)}
-          </div>`}
-    ${creating &&
-    html`<${CreateProject}
-      onClose=${() => setCreating(false)}
-      onCreated=${(project) => {
-        const list = [...(items || []), project].sort((a, b) => a.name.localeCompare(b.name));
-        setItems(list);
-        app.set({ projects: list });
-      }}
-    />`}
-    ${editingHosts &&
-    html`<${EditHosts}
-      project=${editingHosts}
-      onClose=${() => setEditingHosts(null)}
-      onSaved=${(project) => {
-        const list = (items || []).map((p) => (p.name === project.name ? project : p));
-        setItems(list);
-        app.set({ projects: list });
-      }}
-    />`}
-    ${deleting &&
-    html`<${DeleteProject}
-      project=${deleting}
-      onClose=${() => setDeleting(null)}
-      onDeleted=${(name) => {
-        const list = (items || []).filter((p) => p.name !== name);
-        setItems(list);
-        app.set({ projects: list });
-      }}
-    />`}
-  </div>`;
-}
-
-function ProjectCard({ project, index, onDelete, onHosts }) {
-  const [label, chipTone] = STATUS[project.status] || [project.status, "outline"];
-  const url = location.origin + project.path.replace(/\/$/, "");
-  return html`<div class="card pad project-card" style=${{ "--i": index }}>
-    <div class="row">
-      <span class="coll-glyph project-glyph" style=${{ "--c": tone(project.name) }}>${project.name.slice(0, 1)}</span>
-      <div class="grow" style="min-width:0">
-        <a class="project-name" href=${dashboardUrl(project.name)}>${project.name}</a>
-        <div class="small muted mono truncate">${project.path}</div>
-      </div>
-      <span class=${"chip " + chipTone}>${label}</span>
-      <${Menu}
-        trigger=${(toggle) => html`<${IconButton} icon="more" label="More" onClick=${toggle} />`}
-        items=${[
-          { icon: "external", label: "Open dashboard", onClick: () => (location.href = dashboardUrl(project.name)) },
-          { icon: "copy", label: "Copy API URL", onClick: () => navigator.clipboard.writeText(url).then(() => toast("Copied.")) },
-          { icon: "globe", label: "Host names…", onClick: onHosts },
-          "-",
-          { icon: "trash", label: "Delete project", danger: true, onClick: onDelete },
-        ]}
-      />
-    </div>
-    ${project.statusDetail && html`<${Callout} kind="warn">${project.statusDetail}</${Callout}>`}
-    <dl class="project-facts small">
-      <dt>Database</dt><dd class="mono">${project.database}${project.role && html` <span class="muted">· own role</span>`}</dd>
-      ${project.hosts.length > 0 &&
-      html`<dt>Hosts</dt><dd>${project.hosts.map((h, i) => html`${i > 0 && ", "}<a href=${`//${h}/_/`} class="mono">${h}</a>`)}</dd>`}
-      <dt>Created</dt><dd><span class="tip" data-tip=${formatDate(project.created)}>${relativeTime(project.created)}</span></dd>
-    </dl>
-    <div class="row" style="margin-top:auto">
-      <code class="small truncate grow">new PocketBase("${url}")</code>
-      <${CopyButton} text=${`new PocketBase("${url}")`} />
-      <a class="btn sm" href=${dashboardUrl(project.name)}>Open <${Icon} name="arrowRight" size=${14} /></a>
-    </div>
-  </div>`;
+  const [version, setVersion] = useState(0);
+  // the project switcher in the sidebar follows the list
+  const changed = () => {
+    setVersion((v) => v + 1);
+    api.get("/api/projects").then((res) => app.set({ projects: res.items })).catch(() => {});
+  };
+  return html`<${CommandCenter}
+      version=${version}
+      onCreate=${() => setCreating(true)}
+      onDelete=${setDeleting}
+      onHosts=${setEditingHosts}
+    />
+    ${creating && html`<${CreateProject} onClose=${() => setCreating(false)} onCreated=${changed} />`}
+    ${editingHosts && html`<${EditHosts} project=${editingHosts} onClose=${() => setEditingHosts(null)} onSaved=${changed} />`}
+    ${deleting && html`<${DeleteProject} project=${deleting} onClose=${() => setDeleting(null)} onDeleted=${changed} />`}`;
 }
 
 function CreateProject({ onClose, onCreated }) {
@@ -145,6 +36,8 @@ function CreateProject({ onClose, onCreated }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [ownRole, setOwnRole] = useState(false);
+  const [where, setWhere] = useState("here");
+  const [databaseUrl, setDatabaseUrl] = useState("");
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState(null);
@@ -155,7 +48,13 @@ function CreateProject({ onClose, onCreated }) {
     setBusy(true);
     setErrors({});
     try {
-      const project = await api.post("/api/projects", { name, superuserEmail: email, superuserPassword: password, ownRole });
+      const project = await api.post("/api/projects", {
+        name,
+        superuserEmail: email,
+        superuserPassword: password,
+        ownRole: where === "here" && ownRole,
+        databaseUrl: where === "connect" ? databaseUrl : undefined,
+      });
       onCreated(project);
       setCreated(project);
     } catch (err) {
@@ -171,7 +70,7 @@ function CreateProject({ onClose, onCreated }) {
       created
         ? html`<${SheetHead} title="Project created" icon="check" onClose=${close} />
             <div class="sheet-body stack">
-              <p><b>${created.name}</b> is ready, in the database <code>${created.database}</code>.</p>
+              <p><b>${created.name}</b> is ready, in the database <code>${created.database}</code>${created.external ? html` on <code>${created.server}</code>` : ""}.</p>
               <p class="muted small">
                 Sign in to its dashboard with the superuser you just created. Its API is at <code>${location.origin + created.path}api/</code>.
               </p>
@@ -205,16 +104,35 @@ function CreateProject({ onClose, onCreated }) {
                 <${Input} type="password" value=${password} onInput=${setPassword} autocomplete="new-password" required />
               </${Field}>
               <div class="stack tight" style="margin-top:4px">
-                <${Switch} checked=${ownRole} onChange=${setOwnRole} label="Own database role" />
-                <span class="small muted">
-                  The project connects with a PostgreSQL role of its own that owns its database, and other roles can't connect to it. Needs CREATEROLE.
-                </span>
+                <span class="label">Database</span>
+                <${Segmented}
+                  value=${where}
+                  onChange=${setWhere}
+                  options=${[
+                    { value: "here", label: "Create on this server" },
+                    { value: "connect", label: "Connect a database" },
+                  ]}
+                />
               </div>
+              ${where === "here"
+                ? html`<div class="stack tight">
+                    <${Switch} checked=${ownRole} onChange=${setOwnRole} label="Own database role" />
+                    <span class="small muted">
+                      The project connects with a PostgreSQL role of its own that owns its database, and other roles can't connect to it. Needs CREATEROLE.
+                    </span>
+                  </div>`
+                : html`<${Field}
+                    label="Connection URL"
+                    error=${errors.databaseUrl || errors.ownRole}
+                    help="An existing database, on any PostgreSQL 14+ server. slonbase adds its tables to it; a database that already holds a slonbase installation keeps its data and superusers. Deleting the project leaves the database as it is."
+                  >
+                    <${Input} value=${databaseUrl} onInput=${setDatabaseUrl} class="mono" placeholder="postgres://user:password@db2.internal:5432/shop?sslmode=require" autocomplete="off" required />
+                  </${Field}>`}
             </div>
             <div class="sheet-foot">
               <span class="spacer"></span>
               <${Button} variant="ghost" onClick=${close} disabled=${busy}>Cancel</${Button}>
-              <${Button} variant="primary" type="submit" loading=${busy} disabled=${!nameOk || !email || !password}>Create project</${Button}>
+              <${Button} variant="primary" type="submit" loading=${busy} disabled=${!nameOk || !email || !password || (where === "connect" && !databaseUrl.trim())}>${where === "connect" ? "Connect project" : "Create project"}</${Button}>
             </div>
           </form>`}
   </${Modal}>`;
@@ -246,7 +164,7 @@ function DeleteProject({ project, onClose, onDeleted }) {
       result
         ? html`<${SheetHead} title="Project deleted" icon="check" onClose=${close} />
             <div class="sheet-body stack">
-              <p><b>${project.name}</b> and its database were deleted.</p>
+              <p>${result.databaseKept ? html`<b>${project.name}</b> was deleted. Its database, <code>${result.databaseKept}</code>, was left as it is.` : html`<b>${project.name}</b> and its database were deleted.`}</p>
               ${result.backup &&
               html`<div class="field"><span class="label">Backup</span><div class="row"><code class="small grow truncate">${result.backup}</code><${CopyButton} text=${result.backup} /></div></div>`}
               ${result.files &&
@@ -259,8 +177,9 @@ function DeleteProject({ project, onClose, onDeleted }) {
                 <div class="stack tight grow">
                   <h3>Delete ${project.name}?</h3>
                   <p class="muted">
-                    This stops the project and drops its database, <code>${project.database}</code>, with every
-                    collection, record and superuser in it.
+                    ${project.external
+                      ? html`This stops the project and removes it from this installation, with its files. Its database, <code>${project.database}</code> on <code>${project.server}</code>, isn't slonbase's to drop: it's left as it is.`
+                      : html`This stops the project and drops its database, <code>${project.database}</code>, with every collection, record and superuser in it.`}
                   </p>
                 </div>
               </div>

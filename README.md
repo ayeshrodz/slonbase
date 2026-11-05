@@ -37,6 +37,16 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 1.11
+
+- 🛰️ **A command center for every project:** the main installation's Projects page shows each
+  installation live (requests per minute, errors, latency, data, connections, configuration),
+  and changes a project's settings, restarts or deletes it.
+- 🔌 **Projects on other PostgreSQL servers:** connect an existing database by URL instead of
+  creating one on the main server.
+- 🧮 **An SQL console you can trust:** read-only unless `SLONBASE_SQL_CONSOLE_WRITES=true`,
+  with row and time limits, a table browser, highlighting, and exports to Excel, CSV and JSON.
+
 ## New in 1.10
 
 - 🛠️ **A dashboard that looks like a developer tool**: IBM Plex Sans for the interface,
@@ -45,29 +55,6 @@
   version, and the API URL ready to copy on the overview.
 - 🌗 **Neutral, GitHub-like colours** in light and dark, flat buttons, and only the motion that
   tells you something changed.
-
-## New in 1.9
-
-- 🧬 **View fields copied from their sources**, as PocketBase makes them: selects keep their
-  values, relations their collection, files their options, through joins, subqueries and CTEs;
-  and a view record's files are served from the record they came from.
-- 🔑 **Sign in with VK**, the last of PocketBase's OAuth2 presets.
-- 🔁 **Six answers now as PocketBase's**, found by the differential runner, which now also
-  compares sign-up, sign-in, confirm tokens, batches and error codes.
-- ⚡ **Health checks ahead of PocketBase** (1.43 times as many as 1.8) and cheaper
-  single-record reads ([benchmarks](bench/README.md)).
-- ♿ **A dashboard that passes axe's WCAG 2 AA checks** in light and dark, kept that way in CI
-  with screenshot comparisons.
-
-## New in 1.8
-
-- 🔒 **A security review of what 1.7 added**, with three fixes: view previews leave nothing
-  behind on pooled connections, more token-carrying answers stay uncompressed, and a
-  transaction left open can't slow realtime down ([details](docs/security-review.md#what-17-added-180)).
-- ✍️ **Creates in one round trip**: 1.31 times as fast as 1.7, and 1.37 times PocketBase's
-  with PostgreSQL's safe defaults ([benchmarks](bench/README.md)).
-- 🌙 **Cheaper when idle**: each instance checks the outbox every 5 s instead of every 500 ms
-  while nothing happens.
 
 ## Why slonbase
 
@@ -211,6 +198,8 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/records-dark.png"><img alt="A collection's records in a live grid" src="docs/assets/screenshots/records-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/overview-dark.png"><img alt="Overview" src="docs/assets/screenshots/overview-light.png"></picture> |
 | **Schema** | **Logs** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/schema-dark.png"><img alt="Schema editor" src="docs/assets/screenshots/schema-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/logs-dark.png"><img alt="Logs" src="docs/assets/screenshots/logs-light.png"></picture> |
+| **Projects: the command center** | **SQL console** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/projects-dark.png"><img alt="Every installation side by side: requests per minute, errors, latency, data and configuration" src="docs/assets/screenshots/projects-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/sql-dark.png"><img alt="The SQL console: tables and columns, a highlighted query and its results, ready to export" src="docs/assets/screenshots/sql-light.png"></picture> |
 | **Record editor** | **API rules** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/editor-dark.png"><img alt="A record open in the drawer beside the grid" src="docs/assets/screenshots/editor-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> |
 

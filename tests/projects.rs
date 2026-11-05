@@ -831,3 +831,218 @@ async fn project_hooks_reload() {
     drop(app);
     tdb.drop_db().await;
 }
+
+// The main installation's command center: every installation's numbers, a project's settings
+// and restart; and projects on databases slonbase didn't create (here on the same server, as
+// one on another server would be, by URL).
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn command_center_and_connected_databases() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let bearer = format!("Bearer {token}");
+    let admin = [("authorization", bearer.as_str())];
+    let external = format!("{}_ext", tdb.name);
+    admin_exec(&tdb.admin_url, &format!("CREATE DATABASE {external}")).await;
+    let external_url = with_database(&tdb.admin_url, &external);
+    let create = |name: &str, url: Option<&str>, own_role: bool| {
+        json!({
+            "name": name, "superuserEmail": PROJECT_EMAIL, "superuserPassword": PROJECT_PASSWORD,
+            "databaseUrl": url, "ownRole": own_role,
+        })
+    };
+
+    // what a connected database can't be
+    for (body, field) in [
+        (create("ext", Some(&external_url), true), "ownRole"),
+        (create("ext", Some(&tdb.url), false), "databaseUrl"),
+        (create("ext", Some("not a url"), false), "databaseUrl"),
+        (
+            create("ext", Some("postgres://nobody@127.0.0.1:1/x"), false),
+            "databaseUrl",
+        ),
+    ] {
+        let (status, res) = request(&app, "POST", "/api/projects", &admin, Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+        assert!(res["data"][field].is_object(), "{field}: {res}");
+    }
+
+    let (status, project) = request(
+        &app,
+        "POST",
+        "/api/projects",
+        &admin,
+        Some(create("ext", Some(&external_url), false)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{project}");
+    assert_eq!(project["external"], true);
+    assert_eq!(project["database"], external.as_str());
+    assert!(
+        project["server"].as_str().unwrap().contains(':'),
+        "{project}"
+    );
+    assert!(
+        !project.to_string().contains("postgres://"),
+        "no URL, no password: {project}"
+    );
+    let (status, _) = request(&app, "GET", "/p/ext/api/health", &[], None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, res) = request(
+        &app,
+        "POST",
+        "/api/projects",
+        &admin,
+        Some(create("ext2", Some(&external_url), false)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res["data"]["databaseUrl"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("ext"),
+        "{res}"
+    );
+    let (status, local) = request(
+        &app,
+        "POST",
+        "/api/projects",
+        &admin,
+        Some(create("local", None, false)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{local}");
+    assert_eq!(local["external"], false);
+
+    // the overview: the main installation first, then the projects
+    let (status, _) = request(&app, "GET", "/api/projects/overview", &[], None).await;
+    assert!(
+        status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN,
+        "{status}"
+    );
+    let (status, overview) = request(&app, "GET", "/api/projects/overview", &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{overview}");
+    let items = overview["items"].as_array().unwrap();
+    let names: Vec<&str> = items.iter().map(|i| i["name"].as_str().unwrap()).collect();
+    assert_eq!(names, ["main", "ext", "local"]);
+    assert_eq!(items[0]["main"], true);
+    for item in items {
+        assert_eq!(item["status"], "ready", "{item}");
+        assert_eq!(
+            item["traffic"]["perMinute"].as_array().unwrap().len(),
+            60,
+            "{item}"
+        );
+        assert_eq!(
+            item["traffic"]["perHour"].as_array().unwrap().len(),
+            24,
+            "{item}"
+        );
+        assert!(item["db"]["sizeBytes"].as_i64().unwrap() > 0, "{item}");
+        assert!(item["server"].is_string(), "{item}");
+    }
+    assert_eq!(items[1]["external"], true);
+    assert_eq!(items[1]["config"]["appName"], "ext");
+
+    // a project's settings, from the main installation
+    let (status, settings) = request(&app, "GET", "/api/projects/ext/settings", &admin, None).await;
+    assert_eq!(status, StatusCode::OK, "{settings}");
+    assert_eq!(settings["meta"]["appName"], "ext");
+    assert_eq!(settings["smtp"]["password"], "");
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/projects/ext/settings",
+        &admin,
+        Some(json!({ "meta": { "appName": "Shop" }, "backups": { "cron": "0 3 * * *", "cronMaxKeep": 7 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["meta"]["appName"], "Shop");
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/projects/ext/settings",
+        &admin,
+        Some(json!({ "backups": { "cron": "not a cron" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    let (_, overview) = request(&app, "GET", "/api/projects/overview", &admin, None).await;
+    assert_eq!(overview["items"][1]["config"]["appName"], "Shop");
+    assert_eq!(overview["items"][1]["config"]["backupsCron"], "0 3 * * *");
+    // and the project's own superusers see the change
+    let (status, project_token) = sign_in(&app, "/p/ext", PROJECT_EMAIL, PROJECT_PASSWORD).await;
+    assert_eq!(status, StatusCode::OK);
+    let project_bearer = format!("Bearer {project_token}");
+    let (_, own) = request(
+        &app,
+        "GET",
+        "/p/ext/api/settings",
+        &[("authorization", project_bearer.as_str())],
+        None,
+    )
+    .await;
+    assert_eq!(own["meta"]["appName"], "Shop", "{own}");
+    // a project has no command center of its own
+    let (status, _) = request(
+        &app,
+        "GET",
+        "/p/ext/api/projects/overview",
+        &[("authorization", project_bearer.as_str())],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    let (status, _) = request(&app, "GET", "/api/projects/nope/settings", &admin, None).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // restart
+    let (status, _) = request(&app, "POST", "/api/projects/ext/restart", &admin, None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        eventually(
+            async || request(&app, "GET", "/p/ext/api/health", &[], None).await.0 == StatusCode::OK
+        )
+        .await
+    );
+
+    // deleting a project leaves a connected database as it is
+    let (status, deleted) = request(
+        &app,
+        "DELETE",
+        "/api/projects/ext?confirm=ext&backup=false",
+        &admin,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{deleted}");
+    assert!(
+        deleted["databaseKept"]
+            .as_str()
+            .unwrap()
+            .starts_with(&external),
+        "{deleted}"
+    );
+    assert!(database_exists(&tdb, &external).await);
+    let (status, _) = request(
+        &app,
+        "DELETE",
+        "/api/projects/local?confirm=local&backup=false",
+        &admin,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!database_exists(&tdb, &format!("{}_local", tdb.name)).await);
+
+    drop(app);
+    admin_exec(
+        &tdb.admin_url,
+        &format!("DROP DATABASE IF EXISTS {external} WITH (FORCE)"),
+    )
+    .await;
+    tdb.drop_db().await;
+}
