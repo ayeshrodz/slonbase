@@ -128,7 +128,7 @@ export function Health() {
       <${Button} size="sm" icon="refresh" loading=${loading} onClick=${load}>Refresh</${Button}>
     </div>
 
-    <div class="grid-3 stagger" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:18px">
+    <div class="grid-3" style="grid-template-columns:repeat(auto-fit,minmax(190px,1fr));margin-bottom:18px">
       <${Tile} i=${0} label="Database round trip" icon="data" color="var(--tone-2)" value=${db.latencyMs + " ms"} sub=${db.version.split(" ")[0] && "PostgreSQL " + db.version.split(" ")[0]}>
         <${Sparkline} values=${h.latency} />
       </${Tile}>

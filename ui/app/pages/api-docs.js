@@ -168,7 +168,7 @@ export function ApiDocs({ collection: c }) {
       </${Callout}>
     </div>
     <div class="row"><span class="grow section-title">Endpoints</span><${Segmented} value=${lang} onChange=${setLang} options=${[{ value: "sdk", label: "JS SDK" }, { value: "curl", label: "curl" }]} /></div>
-    <div class="stack tight stagger">
+    <div class="stack tight">
       ${list.map(
         (e, i) => html`<div style=${{ "--i": i }}>
           <div class=${"endpoint" + (open === i ? " open" : "")} onClick=${() => setOpen(open === i ? -1 : i)}>

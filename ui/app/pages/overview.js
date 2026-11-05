@@ -85,7 +85,7 @@ export function Overview() {
       </div>
     </section>
 
-    <div class="metrics stagger">
+    <div class="metrics">
       ${[
         { label: "Collections", value: loaded ? user.length : undefined, icon: "data", to: "/data", color: "var(--tone-1)" },
         { label: "Records", value: Object.keys(counts).length || (loaded && !user.length) ? totalRecords : undefined, icon: "table", to: "/data", color: "var(--tone-2)" },
@@ -116,7 +116,7 @@ export function Overview() {
               <p class="small">Collections hold your records. Create one to define its fields and API rules.</p>
               <${Button} variant="primary" icon="plus" onClick=${() => navigate("/data?new=1")}>Create a collection</${Button}>
             </div>`
-          : html`<div class="coll-rows stagger">
+          : html`<div class="coll-rows">
               ${user
                 .slice()
                 .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0))

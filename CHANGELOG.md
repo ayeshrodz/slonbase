@@ -8,6 +8,23 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **A new look for the dashboard's type, buttons and dark theme.**
+  - Three typefaces, each with one job: Instrument Serif for page titles, the sign-in headline,
+    figures and empty states; Geist for the interface (text, menus, buttons, fields); Geist Mono
+    for small-capital labels over sections, columns and figures, and for ids and code. They
+    replace Ubuntu Sans and are shipped with the dashboard (152 KB in all).
+  - Buttons are flat and exact: a hairline, a colour change on hover and a darker press, a
+    2px focus outline; nothing lifts, scales or shines.
+  - Far less motion: no page or title entrances, staggered lists, springy icons, pointer
+    spotlight on cards, counting numbers or growing bars. Menus, dialogs, drawers and toasts
+    still fade in briefly, and a changed row still flashes.
+  - The dark theme is cool ink in GitHub's manner (`#0d1117` canvas, hairline borders,
+    GitHub's status colours) instead of warm charcoal.
+  - Still no serious or critical axe (WCAG 2 AA) violation on any checked screen, in either
+    theme.
+
 ## [1.9.0] - 2026-11-04
 
 **Closer to PocketBase, and checked against it.** View fields are copies of their source

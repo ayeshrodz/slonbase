@@ -1,45 +1,65 @@
-/* slonbase dashboard: warm, muted and calm. Tokens first, then components. */
+/* slonbase dashboard: warm paper in light, GitHub-like ink in dark. Tokens first, then components. */
 
-/* Type: Ubuntu Sans and Ubuntu Sans Mono (variable, so every weight in the scale is a real cut),
-   shipped with the dashboard under the Ubuntu Font Licence (see fonts/). */
+/* Type, three families with one job each, shipped with the dashboard under the SIL Open Font
+   Licence (see fonts/):
+   - Instrument Serif: display. Page titles, the sign-in headline, figures, empty states.
+   - Geist (variable): the interface. Body text, menus, buttons, fields, tables.
+   - Geist Mono (variable): labels and data. Small capitals over sections and columns, ids, code. */
 @font-face {
-  font-family: "Ubuntu Sans Variable";
+  font-family: "Instrument Serif";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 800;
-  src: url("./fonts/ubuntu-sans-latin.woff2") format("woff2");
+  font-weight: 400;
+  src: url("./fonts/instrument-serif-latin.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Ubuntu Sans Variable";
+  font-family: "Instrument Serif";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 800;
-  src: url("./fonts/ubuntu-sans-latin-ext.woff2") format("woff2");
+  font-weight: 400;
+  src: url("./fonts/instrument-serif-latin-ext.woff2") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 @font-face {
-  font-family: "Ubuntu Sans Mono Variable";
-  font-style: normal;
+  font-family: "Instrument Serif";
+  font-style: italic;
   font-display: swap;
-  font-weight: 400 700;
-  src: url("./fonts/ubuntu-sans-mono-latin.woff2") format("woff2");
+  font-weight: 400;
+  src: url("./fonts/instrument-serif-latin-italic.woff2") format("woff2");
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 @font-face {
-  font-family: "Ubuntu Sans Mono Variable";
+  font-family: "Geist";
   font-style: normal;
   font-display: swap;
-  font-weight: 400 700;
-  src: url("./fonts/ubuntu-sans-mono-latin-ext.woff2") format("woff2");
+  font-weight: 100 900;
+  src: url("./fonts/geist-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/geist-latin-ext.woff2") format("woff2");
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
-
-/* The spotlight on cards: how strongly the pointer lights the border (animated, so registered) */
-@property --glow {
-  syntax: "<percentage>";
-  inherits: false;
-  initial-value: 0%;
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/geist-mono-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Geist Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("./fonts/geist-mono-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
 /* Tokens: warm paper and stone neutrals, one muted sage accent (overridable from the settings),
@@ -101,8 +121,11 @@
   --r-xl: 18px;
   --r-pill: 999px;
 
-  --font: "Ubuntu Sans Variable", "Ubuntu Sans", "Ubuntu", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: "Ubuntu Sans Mono Variable", "Ubuntu Sans Mono", "Ubuntu Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Instrument Serif", "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* small capitals over sections, columns and figures */
+  --font-label: var(--mono);
 
   /* one scale: every size in the dashboard is one of these */
   --text-2xs: 11px;
@@ -116,24 +139,23 @@
   --text-3xl: 30px;
   /* and weights (a variable font, so the in-betweens are real cuts) */
   --w-regular: 400;
-  --w-book: 450;
-  --w-medium: 520;
+  --w-book: 430;
+  --w-medium: 500;
   --w-semibold: 600;
-  --w-bold: 660;
+  --w-bold: 650;
   /* tracking: tighter as text grows, looser for small capitals */
-  --track-display: -0.024em;
-  --track-title: -0.012em;
-  --track-tight: -0.004em;
-  --track-caps: 0.08em;
+  --track-display: -0.012em;
+  --track-title: -0.014em;
+  --track-tight: -0.006em;
+  --track-caps: 0.07em;
 
   --ease: cubic-bezier(0.25, 0.8, 0.25, 1);
   --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: cubic-bezier(0.3, 1.3, 0.6, 1);
-  /* indicators that glide to their place and settle with a hint of overshoot */
-  --ease-glide: cubic-bezier(0.34, 1.22, 0.64, 1);
-  --t-fast: 110ms;
-  --t-med: 180ms;
-  --t-slow: 280ms;
+  --ease-glide: var(--ease-out);
+  /* motion is short and only says what changed: nothing springs, bounces or blurs */
+  --t-fast: 90ms;
+  --t-med: 140ms;
+  --t-slow: 200ms;
 
   /* the sidebar, and the bar above the page on small screens (none on large ones) */
   --side-w: 256px;
@@ -143,47 +165,48 @@
 }
 
 :root[data-theme="dark"] {
-  --accent: #8db3a5;
+  /* cool ink neutrals in GitHub's manner: surfaces told apart by hairlines, not shadows */
+  --accent: #6fc2a2;
   --accent-strong: color-mix(in srgb, var(--accent), white 14%);
-  --accent-soft: color-mix(in srgb, var(--accent), transparent 88%);
-  --accent-ring: color-mix(in srgb, var(--accent), transparent 64%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 55%);
 
-  --canvas: #141413;
-  --canvas-2: #1a1a18;
-  --sidebar: #0f0f0e;
-  --surface: #1b1b19;
-  --surface-2: #20201d;
-  --raised: #242421;
-  --ink: #edebe6;
-  --ink-2: #d0cdc5;
-  --ink-3: #a6a299;
-  --muted: #a19d94;
-  --faint: #8f8b82;
+  --canvas: #0d1117;
+  --canvas-2: #151b23;
+  --sidebar: #010409;
+  --surface: #0d1117;
+  --surface-2: #151b23;
+  --raised: #151b23;
+  --ink: #f0f6fc;
+  --ink-2: #d1d9e0;
+  --ink-3: #b2bac4;
+  --muted: #9198a1;
+  --faint: #8b929b;
   --text-mix: 0%;
-  --line: #2a2926;
-  --line-2: #37352f;
-  --hover: rgba(240, 230, 210, 0.05);
-  --press: rgba(240, 230, 210, 0.09);
-  --primary: color-mix(in srgb, var(--accent), #141413 44%);
+  --line: #262c36;
+  --line-2: #3d444d;
+  --hover: rgba(101, 108, 118, 0.16);
+  --press: rgba(101, 108, 118, 0.26);
+  --primary: color-mix(in srgb, var(--accent), #0d1117 52%);
   --primary-ink: #ffffff;
 
-  --ok: #7db694;
-  --warn: #d2aa68;
-  --danger: #dc8a83;
-  --info: #8fadd0;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+  --info: #4493f8;
 
-  --tone-1: #8fb3a5;
-  --tone-2: #94a8c4;
-  --tone-3: #b0b884;
-  --tone-4: #d4b071;
-  --tone-5: #d7977d;
-  --tone-6: #cc95ad;
-  --tone-7: #ab9dcb;
-  --tone-8: #82b4b8;
+  --tone-1: #7cc7ab;
+  --tone-2: #8fb2e8;
+  --tone-3: #b6c27a;
+  --tone-4: #e0b25f;
+  --tone-5: #f0957a;
+  --tone-6: #e597c0;
+  --tone-7: #b6a2ef;
+  --tone-8: #6cc5d0;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 250, 240, 0.035);
-  --shadow-2: 0 12px 28px -14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 250, 240, 0.04);
-  --shadow-3: 0 30px 70px -24px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --shadow-1: 0 0 transparent;
+  --shadow-2: 0 8px 24px rgba(1, 4, 9, 0.55), 0 0 0 1px var(--line-2);
+  --shadow-3: 0 16px 48px rgba(1, 4, 9, 0.7), 0 0 0 1px var(--line-2);
   color-scheme: dark;
 }
 
@@ -209,7 +232,7 @@ body {
   text-rendering: optimizeLegibility;
   font-feature-settings: "kern", "calt";
   font-kerning: normal;
-  transition: background var(--t-med), color var(--t-med);
+  font-synthesis: none;
 }
 /* a soft light at the top of the page, so the canvas isn't flat */
 body::before {
@@ -223,6 +246,9 @@ body::before {
     radial-gradient(1000px 380px at 30% -160px, color-mix(in srgb, var(--accent), transparent 90%), transparent 70%),
     radial-gradient(800px 340px at 95% -180px, color-mix(in srgb, var(--tone-4), transparent 92%), transparent 70%);
 }
+:root[data-theme="dark"] body::before {
+  display: none;
+}
 #app {
   min-height: 100%;
 }
@@ -234,12 +260,6 @@ a:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
   text-decoration-thickness: 1px;
-  animation: underline-in var(--t-med) ease;
-}
-@keyframes underline-in {
-  from {
-    text-decoration-color: transparent;
-  }
 }
 button,
 input,
@@ -274,11 +294,13 @@ h4 {
   color: var(--ink);
   text-wrap: balance;
 }
+/* titles are set in the display serif, at its one weight */
 h1 {
-  font-size: var(--text-2xl);
-  font-weight: var(--w-bold);
+  font-family: var(--font-display);
+  font-size: 32px;
+  font-weight: 400;
   letter-spacing: var(--track-display);
-  line-height: 1.15;
+  line-height: 1.1;
 }
 h2 {
   font-size: var(--text-lg);
@@ -487,14 +509,6 @@ table,
     background: transparent;
   }
 }
-@keyframes grow-up {
-  from {
-    transform: scaleY(0);
-  }
-  to {
-    transform: scaleY(1);
-  }
-}
 @keyframes shake {
   20%,
   60% {
@@ -507,11 +521,7 @@ table,
 }
 
 .enter {
-  animation: page-in 420ms var(--ease-out) backwards;
-}
-.stagger > * {
-  animation: rise var(--t-slow) var(--ease-out) backwards;
-  animation-delay: calc(var(--i, 0) * 18ms);
+  animation: fade var(--t-slow) ease backwards;
 }
 .fade-in {
   animation: fade var(--t-med) ease backwards;
@@ -532,79 +542,122 @@ table,
 
 /* ------------------------------------------------------------------ buttons */
 
+/* Buttons: flat and exact. A hairline, a 1px inner highlight on solid ones, a colour change on
+   hover and a darker press; no lifting, scaling or sheen. Labels in Geist at 500. */
 .btn {
   --btn-bg: var(--surface);
-  box-shadow: var(--shadow-1);
   --btn-fg: var(--ink);
   --btn-line: var(--line-2);
+  --btn-hover: color-mix(in srgb, var(--btn-bg), var(--ink) 5%);
+  --btn-press: color-mix(in srgb, var(--btn-bg), var(--ink) 9%);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: var(--r-md);
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--btn-line);
   background: var(--btn-bg);
   color: var(--btn-fg);
+  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
+  font-family: var(--font);
   font-weight: var(--w-medium);
   font-size: var(--text-sm);
+  letter-spacing: -0.003em;
+  line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
   position: relative;
-  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), transform var(--t-fast) var(--ease);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+.btn .icon {
+  opacity: 0.85;
 }
 .btn:hover {
-  background: color-mix(in srgb, var(--btn-bg), var(--ink) 4%);
+  background: var(--btn-hover);
   text-decoration: none;
 }
 .btn:active {
-  transform: scale(0.98);
+  background: var(--btn-press);
 }
 .btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .btn[disabled] {
-  opacity: 0.45;
+  opacity: 0.5;
   pointer-events: none;
+}
+:root[data-theme="dark"] .btn {
+  --btn-bg: #212830;
+  --btn-hover: #262c36;
+  --btn-press: #2a313c;
+  box-shadow: none;
 }
 .btn.primary {
   --btn-bg: var(--primary);
   --btn-fg: var(--primary-ink);
-  --btn-line: color-mix(in srgb, var(--primary), black 12%);
-  background-image: linear-gradient(to bottom, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0));
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary), transparent 70%), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --btn-line: color-mix(in srgb, var(--primary), black 14%);
+  --btn-hover: color-mix(in srgb, var(--primary), black 7%);
+  --btn-press: color-mix(in srgb, var(--primary), black 13%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 0 rgba(31, 35, 40, 0.06);
 }
-.btn.primary:hover {
-  background-color: color-mix(in srgb, var(--primary), black 8%);
+:root[data-theme="dark"] .btn.primary {
+  --btn-bg: var(--primary);
+  --btn-line: color-mix(in srgb, var(--accent), transparent 60%);
+  --btn-hover: color-mix(in srgb, var(--primary), var(--accent) 10%);
+  --btn-press: color-mix(in srgb, var(--primary), var(--accent) 16%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.btn.primary .icon {
+  opacity: 1;
 }
 .btn.ghost {
   --btn-bg: transparent;
   --btn-line: transparent;
+  --btn-hover: var(--hover);
+  --btn-press: var(--press);
   box-shadow: none;
   color: var(--ink-2);
 }
-.btn.ghost:hover {
-  background: var(--hover);
+:root[data-theme="dark"] .btn.ghost {
+  --btn-bg: transparent;
+  --btn-hover: var(--hover);
+  --btn-press: var(--press);
 }
 .btn.danger {
   --btn-bg: var(--danger);
   --btn-fg: #fff;
-  --btn-line: var(--danger);
+  --btn-line: color-mix(in srgb, var(--danger), black 14%);
+  --btn-hover: color-mix(in srgb, var(--danger), black 8%);
+  --btn-press: color-mix(in srgb, var(--danger), black 14%);
 }
-.btn.danger:hover {
-  background: color-mix(in srgb, var(--danger), black 10%);
+:root[data-theme="dark"] .btn.danger {
+  /* GitHub's dark danger: the colour on its own text, solid only on hover */
+  --btn-bg: #212830;
+  --btn-fg: var(--danger);
+  --btn-line: var(--line-2);
+  --btn-hover: #b62324;
+  --btn-press: #a40e26;
+}
+:root[data-theme="dark"] .btn.danger:hover {
+  color: #fff;
+  border-color: transparent;
 }
 .btn.danger-ghost {
   --btn-bg: transparent;
   --btn-line: transparent;
+  --btn-hover: var(--danger-soft);
+  --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
   box-shadow: none;
   color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
-.btn.danger-ghost:hover {
-  background: var(--danger-soft);
+:root[data-theme="dark"] .btn.danger-ghost {
+  --btn-bg: transparent;
+  --btn-hover: var(--danger-soft);
+  --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
 }
 .btn.sm {
   height: 28px;
@@ -617,18 +670,18 @@ table,
   padding: 0 8px;
   font-size: var(--text-xs);
   gap: 4px;
-  border-radius: var(--r-sm);
+  border-radius: var(--r-xs);
 }
 .btn.lg {
-  height: 40px;
-  padding: 0 18px;
+  height: 38px;
+  padding: 0 16px;
   font-size: var(--text-base);
 }
 .btn.block {
   width: 100%;
 }
 .btn.icon-only {
-  width: 34px;
+  width: 32px;
   padding: 0;
 }
 .btn.sm.icon-only {
@@ -663,7 +716,7 @@ table,
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: background var(--t-fast), color var(--t-fast);
+  transition: background-color var(--t-fast), color var(--t-fast);
 }
 .icon-btn:hover {
   background: var(--hover);
@@ -673,8 +726,8 @@ table,
   background: var(--press);
 }
 .icon-btn:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px var(--accent-ring);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .icon-btn.sm {
   width: 24px;
@@ -792,7 +845,7 @@ select.input {
   border-radius: 50%;
   background: #fff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform var(--t-slow) var(--ease-spring);
+  transition: transform var(--t-med) var(--ease-out);
 }
 .switch input:checked + .track {
   background: var(--accent);
@@ -1000,20 +1053,13 @@ select.input {
 /* ------------------------------------------------------------------ cards */
 
 .card {
-  --mx: -1000px;
-  --my: -1000px;
-  border: 1px solid transparent;
+  border: 1px solid var(--line);
   border-radius: var(--r-lg);
+  background: var(--surface);
   box-shadow: var(--shadow-1);
-  /* a soft light inside, the surface, and the border lit where the pointer is */
-  background:
-    radial-gradient(420px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) calc(var(--glow) / 7), transparent), transparent 65%) padding-box,
-    linear-gradient(var(--surface), var(--surface)) padding-box,
-    radial-gradient(260px circle at var(--mx) var(--my), color-mix(in srgb, var(--accent) var(--glow), var(--line)), var(--line) 80%) border-box;
-  transition: --glow 420ms var(--ease-out), box-shadow var(--t-med) var(--ease), transform var(--t-slow) var(--ease-out);
 }
-.card:hover {
-  --glow: 50%;
+:root[data-theme="dark"] .card {
+  border-color: var(--line-2);
 }
 .card.pad {
   padding: 18px;
@@ -1038,8 +1084,9 @@ select.input {
   border-radius: 0 0 var(--r-lg) var(--r-lg);
 }
 .section-title {
+  font-family: var(--font-label);
   font-size: var(--text-2xs);
-  font-weight: var(--w-semibold);
+  font-weight: var(--w-medium);
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
   font-feature-settings: "case";
@@ -1104,6 +1151,10 @@ select.input {
   margin-bottom: 4px;
 }
 .empty h3 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
+  letter-spacing: 0;
   color: var(--ink);
 }
 
@@ -1158,15 +1209,17 @@ select.input {
   align-items: center;
   gap: 10px;
   color: var(--ink);
-  font-weight: var(--w-bold);
-  font-size: 16px;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 23px;
+  letter-spacing: -0.005em;
 }
 .brand:hover {
   text-decoration: none;
 }
 .brand .brand-name b {
-  font-weight: var(--w-book);
+  font-weight: 400;
+  font-style: italic;
   color: var(--muted);
 }
 .side-fold {
@@ -1239,11 +1292,10 @@ select.input {
 .side-link .icon {
   flex: none;
   color: var(--faint);
-  transition: color var(--t-fast), transform 320ms var(--ease-spring);
+  transition: color var(--t-fast);
 }
 .side-link:hover .icon {
   color: var(--ink-3);
-  transform: scale(1.06);
 }
 .side-link.on {
   background: var(--surface);
@@ -1519,8 +1571,11 @@ select.input {
   margin-bottom: 26px;
 }
 .page-head .eyebrow {
-  font-size: var(--text-xs);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
   font-weight: var(--w-medium);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
   color: var(--muted);
   margin-bottom: 6px;
   display: flex;
@@ -1610,8 +1665,7 @@ select.input {
   margin-bottom: 20px;
 }
 .coll-header h1 {
-  font-size: var(--text-2xl);
-  letter-spacing: var(--track-display);
+  font-size: 30px;
 }
 .coll-header .coll-glyph {
   width: 44px;
@@ -1672,7 +1726,7 @@ select.input {
   border-radius: var(--r-md);
   background: var(--surface);
   box-shadow: var(--shadow-1);
-  transition: left 380ms var(--ease-glide), width 380ms var(--ease-glide);
+  transition: left var(--t-slow) var(--ease-out), width var(--t-slow) var(--ease-out);
 }
 .tabs .badge {
   font-size: var(--text-2xs);
@@ -1747,12 +1801,14 @@ table.grid th {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   text-align: left;
+  font-family: var(--font-label);
   font-weight: var(--w-medium);
-  font-size: var(--text-xs);
-  letter-spacing: 0.01em;
+  font-size: var(--text-2xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--muted);
   padding: 0 14px;
-  height: 42px;
+  height: 40px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   user-select: none;
@@ -1996,6 +2052,13 @@ table.grid .col-actions {
   gap: 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--line);
+}
+.sheet-head h2 {
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  line-height: 1.15;
 }
 .sheet-body {
   padding: 20px;
@@ -2281,21 +2344,23 @@ table.grid .col-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 18px;
-  font-weight: var(--w-bold);
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: 25px;
+  font-weight: 400;
 }
 .auth-art-brand .brand-name b {
-  font-weight: var(--w-book);
+  font-weight: 400;
+  font-style: italic;
   color: rgba(245, 241, 232, 0.7);
 }
 .auth-art-copy h2 {
   max-width: 420px;
   margin: 0 0 22px;
-  font-size: 34px;
-  line-height: 1.12;
-  font-weight: var(--w-semibold);
-  letter-spacing: var(--track-display);
+  font-family: var(--font-display);
+  font-size: 42px;
+  line-height: 1.05;
+  font-weight: 400;
+  letter-spacing: -0.01em;
   color: #fbf8f1;
 }
 .auth-art-copy ul {
@@ -2359,22 +2424,19 @@ table.grid .col-actions {
 /* ------------------------------------------------------------------ overview */
 
 .stat {
-  padding: 16px 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 4px;
   position: relative;
   transition: border-color var(--t-fast);
 }
-.stat:hover {
-  box-shadow: var(--shadow-2);
-  transform: translateY(-2px);
-}
 .stat .stat-value {
-  font-size: var(--text-3xl);
-  font-weight: var(--w-semibold);
-  line-height: 1.15;
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 400;
+  line-height: 1.05;
+  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
 }
 .stat .stat-icon {
@@ -2405,7 +2467,6 @@ table.grid .col-actions {
   background: linear-gradient(to top, color-mix(in srgb, var(--accent), transparent 45%), color-mix(in srgb, var(--accent), transparent 8%));
   opacity: 0.9;
   transform-origin: bottom;
-  animation: grow-up 0.5s var(--ease-out) backwards;
   animation-delay: calc(var(--i, 0) * 8ms);
   position: relative;
   transition: opacity var(--t-fast), background var(--t-fast);
@@ -2433,8 +2494,7 @@ table.grid .col-actions {
     linear-gradient(var(--line), var(--line)) border-box;
 }
 .hero h1 {
-  font-size: var(--text-3xl);
-  letter-spacing: var(--track-display);
+  font-size: 40px;
   margin: 6px 0 8px;
 }
 .hero p {
@@ -2442,8 +2502,11 @@ table.grid .col-actions {
   max-width: 440px;
 }
 .hero .eyebrow {
-  font-size: var(--text-xs);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
   font-weight: var(--w-medium);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
   color: var(--muted);
   display: flex;
   align-items: center;
@@ -2462,9 +2525,10 @@ table.grid .col-actions {
   margin-bottom: 8px;
 }
 .hero-total {
-  font-size: var(--text-2xl);
-  font-weight: var(--w-semibold);
-  letter-spacing: var(--track-display);
+  font-family: var(--font-display);
+  font-size: 34px;
+  font-weight: 400;
+  line-height: 1.05;
   font-variant-numeric: tabular-nums;
 }
 @media (max-width: 1060px) {
@@ -2485,7 +2549,6 @@ table.grid .col-actions {
   width: 100%;
   height: calc(100% - 20px);
   overflow: visible;
-  animation: fade 600ms var(--ease-out);
 }
 .area-cols {
   position: absolute;
@@ -2536,8 +2599,7 @@ table.grid .col-actions {
 }
 .metric:hover {
   text-decoration: none;
-  box-shadow: var(--shadow-2);
-  transform: translateY(-2px);
+  border-color: var(--line-2);
 }
 .metric-icon {
   grid-row: span 2;
@@ -2548,21 +2610,21 @@ table.grid .col-actions {
   place-items: center;
   color: var(--c, var(--accent));
   background: color-mix(in srgb, var(--c, var(--accent)), transparent 88%);
-  transition: transform 420ms var(--ease-spring);
-}
-.metric:hover .metric-icon {
-  transform: rotate(-8deg) scale(1.08);
 }
 .metric-label {
-  font-size: var(--text-xs);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
+  font-weight: var(--w-medium);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
   color: var(--muted);
 }
 .metric-value {
-  font-size: var(--text-xl);
-  font-weight: var(--w-semibold);
-  letter-spacing: var(--track-title);
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  line-height: 1.1;
 }
 
 .overview-grid {
@@ -2613,12 +2675,6 @@ table.grid .col-actions {
   border-radius: inherit;
   background: color-mix(in srgb, var(--accent), transparent 40%);
   transform-origin: left;
-  animation: grow-right 700ms var(--ease-out) backwards;
-}
-@keyframes grow-right {
-  from {
-    transform: scaleX(0);
-  }
 }
 .coll-row-count {
   text-align: right;
@@ -2668,7 +2724,6 @@ a.check-row:hover {
   border-radius: var(--r-md);
   background: var(--surface);
   transition: border-color var(--t-fast), box-shadow var(--t-med);
-  animation: rise var(--t-med) var(--ease-out) backwards;
 }
 .field-card:hover {
   border-color: var(--line-2);
@@ -3032,10 +3087,10 @@ pre.code {
   border: 0;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  transition: box-shadow var(--t-fast), transform 260ms var(--ease-spring);
+  transition: box-shadow var(--t-fast);
 }
 .swatch:hover {
-  transform: scale(1.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.08), 0 0 0 2px var(--surface), 0 0 0 3px var(--line-2);
 }
 .swatch.on {
   box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ink-2);
@@ -3155,7 +3210,6 @@ pre.code {
   flex-direction: column;
   gap: 14px;
   min-height: 190px;
-  animation: rise 0.32s var(--ease) both;
   animation-delay: calc(var(--i, 0) * 30ms);
 }
 .project-glyph {
@@ -3266,7 +3320,6 @@ a.btn:hover {
   border-radius: var(--r-lg);
   border: 1px solid color-mix(in srgb, var(--c), transparent 78%);
   background: color-mix(in srgb, var(--c), transparent 94%);
-  animation: rise var(--t-slow) var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 40ms);
 }
 .check-item.warn {
@@ -3332,7 +3385,6 @@ a.btn:hover {
   border-radius: var(--r-md);
   background: var(--surface-2);
   min-width: 0;
-  animation: rise var(--t-slow) var(--ease-out) both;
   animation-delay: calc(var(--i, 0) * 40ms);
 }
 .instance.current {
@@ -3365,7 +3417,7 @@ a.btn:hover {
   margin-right: 6px;
 }
 .dg-title-block h1 {
-  font-size: var(--text-xl);
+  font-size: 26px;
   margin: 0;
 }
 .dg-search {
@@ -3685,273 +3737,21 @@ a.btn:hover {
   }
 }
 
-/* ------------------------------------------------------------------ micro-interactions */
+/* ------------------------------------------------------------------ motion */
 
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-    filter: blur(3px);
-  }
-}
-@keyframes title-in {
-  from {
-    opacity: 0;
-    letter-spacing: 0.01em;
-    filter: blur(5px);
-  }
-}
-@keyframes pop-in {
-  from {
-    opacity: 0;
-    transform: scale(0.96) translateY(-4px);
-    filter: blur(2px);
-  }
-}
-@keyframes spin-in {
-  from {
-    opacity: 0;
-    transform: rotate(-100deg) scale(0.5);
-  }
-}
-@keyframes ripple {
-  from {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  to {
-    transform: scale(3.2);
-    opacity: 0;
-  }
-}
-@keyframes draw {
-  from {
-    stroke-dashoffset: 28;
-  }
-}
-@keyframes press-pop {
-  0% {
-    transform: scale(0.8);
-  }
-  60% {
-    transform: scale(1.12);
-  }
-}
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-4px);
-  }
-}
-@keyframes life {
-  to {
-    transform: scaleX(0);
-  }
-}
-@keyframes ring-in {
-  from {
-    box-shadow: 0 0 0 7px transparent;
-  }
-}
-
-/* page titles: the top of the scale */
+/* Only what helps you follow a change: overlays and menus fade in (with a 4px rise for the
+   ones that open from somewhere), a toast's time runs out, a live dot pulses, a changed row
+   flashes once. Nothing on hover moves. */
 .page-head h1 {
-  font-size: var(--text-3xl);
-  letter-spacing: -0.02em;
+  font-size: 34px;
 }
-
-/* page titles settle into place */
-.page-head h1,
-.coll-header h1,
-.dg-title-block h1 {
-  animation: title-in 620ms var(--ease-out) backwards;
-}
-.page-head .eyebrow {
-  animation: rise 420ms var(--ease-out) 60ms backwards;
-}
-.page-head > :not(.grow) {
-  animation: rise 420ms var(--ease-out) 120ms backwards;
-}
-
-.brand svg {
-  transition: transform 520ms var(--ease-spring);
-}
-.brand:hover svg {
-  transform: rotate(-8deg) scale(1.06);
-}
-.theme-switch button.on .icon {
-  animation: spin-in 520ms var(--ease-spring);
-}
-
-/* buttons: a quick press and a springy release, a sheen across primary ones */
-.btn {
-  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med), transform 260ms var(--ease-spring);
-}
-.btn:active {
-  transform: scale(0.97);
-  transition-duration: 80ms;
-}
-.btn:focus-visible,
-.icon-btn:focus-visible,
-.input:focus {
-  animation: ring-in 260ms var(--ease-out);
-}
-.btn.primary {
-  overflow: hidden;
-}
-.btn.primary::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.2) 50%, transparent 70%);
-  transform: translateX(-130%);
-  pointer-events: none;
-}
-.btn.primary:hover::after {
-  transform: translateX(130%);
-  transition: transform 750ms var(--ease-out);
-}
-.icon-btn:active {
-  transform: scale(0.92);
-}
-.icon-btn {
-  transition: background var(--t-fast), color var(--t-fast), transform 240ms var(--ease-spring);
-}
-
-/* icons react to what they're on */
-.icon {
-  transition: transform 320ms var(--ease-spring);
-}
-:is(.btn, a, button, .coll-card, .palette-item):hover > .i-arrowRight,
-:is(.coll-card, .coll-item, .palette-item, .dg-link):hover .i-chevronRight {
-  transform: translateX(3px);
-}
-:is(.btn, .icon-btn):hover > .i-plus {
-  transform: rotate(90deg);
-}
-:is(.btn, .icon-btn):hover > .i-refresh {
-  transform: rotate(180deg);
-  transition-duration: 600ms;
-}
-:is(.btn, .icon-btn):hover > .i-sparkle {
-  transform: rotate(18deg) scale(1.12);
-}
-:is(.btn, .icon-btn):hover > .i-download {
-  transform: translateY(2px);
-}
-:is(.btn, .icon-btn):hover > .i-upload {
-  transform: translateY(-2px);
-}
-:is(.btn, .icon-btn):hover > :is(.i-copy, .i-edit, .i-search, .i-filter) {
-  transform: scale(1.1);
-}
-:is(.btn, .icon-btn):hover > .i-trash {
-  transform: rotate(-10deg);
-}
-:is(.btn, .icon-btn):hover > .i-close {
-  transform: rotate(90deg);
-}
-:is(.btn, .icon-btn):hover > :is(.i-sun, .i-moon) {
-  transform: rotate(-20deg);
-}
-
-/* cards: the spotlight follows the pointer (main.js sets --mx and --my) */
-.stat .stat-icon,
-.coll-row .coll-glyph,
-.coll-item .coll-glyph {
-  transition: transform 420ms var(--ease-spring);
-}
-.stat:hover .stat-icon {
-  transform: rotate(-8deg) scale(1.1);
-}
-.coll-row:hover .coll-glyph,
-.coll-item:hover .coll-glyph {
-  transform: scale(1.08);
-}
-.project-card:hover {
-  box-shadow: var(--shadow-2);
-  transform: translateY(-2px);
-}
-
-/* fields: the label lights up with its input */
-.field > .label {
-  transition: color var(--t-med);
-}
-.field:focus-within > .label {
-  color: var(--ink);
-}
-
-/* switches stretch while pressed, checkboxes draw their tick */
-.switch .knob {
-  transition: transform var(--t-slow) var(--ease-spring), width 180ms var(--ease-out);
-}
-.switch:active .knob {
-  width: 18px;
-}
-.switch:active input:checked + .track .knob {
-  transform: translateX(10px);
-}
-.check.on,
-.check.partial {
-  animation: press-pop 300ms var(--ease-out);
-}
-.check.on .icon path,
-.check.on .icon polyline {
-  stroke-dasharray: 28;
-  animation: draw 360ms var(--ease-out) 40ms backwards;
-}
-
-/* live status: a ripple instead of a blink */
-.dot.live {
-  position: relative;
-  animation: none;
-}
-.dot.live::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: currentColor;
-  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
-  animation: ripple 2.2s var(--ease-out) infinite;
-}
-
-/* menus, the palette and toasts arrive softly; their items follow one another */
 .menu {
-  animation: pop-in 220ms var(--ease-out);
-}
-.menu > button,
-.menu > a {
-  animation: rise 300ms var(--ease-out) backwards;
-}
-.menu > :nth-child(2) {
-  animation-delay: 25ms;
-}
-.menu > :nth-child(3) {
-  animation-delay: 50ms;
-}
-.menu > :nth-child(4) {
-  animation-delay: 75ms;
-}
-.menu > :nth-child(5) {
-  animation-delay: 100ms;
-}
-.menu > :nth-child(n + 6) {
-  animation-delay: 125ms;
-}
-.palette-item {
-  transition: background var(--t-fast), color var(--t-fast), box-shadow var(--t-med);
-  animation: rise 280ms var(--ease-out) backwards;
-  animation-delay: calc(min(var(--i, 0), 10) * 16ms);
+  animation: drop var(--t-med) var(--ease-out);
 }
 .toast {
   position: relative;
   overflow: hidden;
-  animation: pop-in 380ms var(--ease-spring);
+  animation: rise var(--t-slow) var(--ease-out);
 }
 .toast::after {
   content: "";
@@ -3965,62 +3765,70 @@ a.btn:hover {
   transform-origin: left;
   animation: life var(--life, 3600ms) linear forwards;
 }
+@keyframes life {
+  to {
+    transform: scaleX(0);
+  }
+}
 .backdrop {
-  animation: fade 220ms ease;
+  animation: fade var(--t-med) ease;
 }
 .sheet,
 .palette {
-  animation: pop-in 320ms var(--ease-out);
+  animation: rise var(--t-slow) var(--ease-out);
+}
+.field > .label {
+  transition: color var(--t-fast);
+}
+.field:focus-within > .label {
+  color: var(--ink);
 }
 
-/* empty states breathe a little */
-.empty .empty-art {
-  animation: float 5s ease-in-out infinite;
+/* dark: selections are a lighter fill with a hairline, as on GitHub, and overlays dim to black */
+:root[data-theme="dark"] .side-link.on,
+:root[data-theme="dark"] .tabs .tab-ink,
+:root[data-theme="dark"] .seg .seg-thumb,
+:root[data-theme="dark"] .theme-switch button.on {
+  background: #212830;
+  box-shadow: inset 0 0 0 1px var(--line-2);
 }
-
+:root[data-theme="dark"] .side-link.on::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
+}
+:root[data-theme="dark"] .backdrop.at-side {
+  background: rgba(1, 4, 9, 0.55);
+}
+:root[data-theme="dark"] .sheet,
+:root[data-theme="dark"] .menu,
+:root[data-theme="dark"] .palette {
+  border-color: var(--line-2);
+}
 
 /* sign in: the wordmark as in the sidebar, a display title, and the form arriving in steps */
 .auth-brand {
-  font-size: 17px;
-  font-weight: var(--w-bold);
-  letter-spacing: -0.02em;
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 400;
 }
 .auth-brand .brand-name b {
-  font-weight: var(--w-book);
+  font-weight: 400;
+  font-style: italic;
   color: var(--muted);
 }
-.auth-brand svg {
-  transition: transform 520ms var(--ease-spring);
-}
-.auth-brand:hover svg {
-  transform: rotate(-8deg) scale(1.06);
-}
 .auth-form h1 {
-  font-size: var(--text-3xl);
-  letter-spacing: -0.02em;
-  animation: title-in 620ms var(--ease-out) 80ms backwards;
+  font-size: 40px;
+  line-height: 1.05;
 }
-.auth-form > *,
-.auth-form form > * {
-  animation: rise 460ms var(--ease-out) backwards;
-}
-.auth-form > :nth-child(2) {
-  animation-delay: 60ms;
-}
-.auth-form form > :nth-child(1) {
-  animation-delay: 140ms;
-}
-.auth-form form > :nth-child(2) {
-  animation-delay: 190ms;
-}
-.auth-form form > :nth-child(3) {
-  animation-delay: 240ms;
-}
-.auth-form form > :nth-child(n + 4) {
-  animation-delay: 290ms;
-}
-.auth-form > :last-child {
-  animation-delay: 340ms;
+.auth-form h1 em {
+  font-style: italic;
+  color: var(--muted);
 }
 
 /* a page whose module is loading (lazy() in core.js) */

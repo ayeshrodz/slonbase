@@ -336,7 +336,7 @@ function Backups({ s }) {
         ? html`<${Skeleton} height=${48} />`
         : list.length === 0
         ? html`<${Empty} icon="archive" title="No backups yet">Create one now, or schedule them below.</${Empty}>`
-        : html`<div class="stack tight stagger">
+        : html`<div class="stack tight">
             ${list.map(
               (b, i) => html`<div class="row" style=${{ "--i": i, padding: "10px 12px", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
                 <span class="field-type-badge"><${Icon} name="archive" size=${15} /></span>
@@ -463,7 +463,7 @@ function Crons() {
       ? html`<${Skeleton} height=${40} />`
       : jobs.length === 0
       ? html`<${Empty} icon="clock" title="No cron jobs">Add them with <code>cronAdd()</code> in a hook file, or schedule backups.</${Empty}>`
-      : html`<div class="stack tight stagger">
+      : html`<div class="stack tight">
           ${jobs.map(
             (j, i) => html`<div class="row" style=${{ "--i": i, padding: "10px 12px", border: "1px solid var(--line)", borderRadius: "var(--r-md)" }}>
               <span class="field-type-badge"><${Icon} name="clock" size=${15} /></span>

@@ -87,7 +87,7 @@ export function Indexes({ draft, setDraft, errors }) {
     ${errorKeys.length > 0 && html`<${Callout} kind="danger">${errors[errorKeys[0]]}</${Callout}>`}
     ${list.length === 0
       ? html`<div class="card"><${Empty} icon="zap" title="No indexes">Add one for the fields you filter or sort by most.</${Empty}></div>`
-      : html`<div class="stack tight stagger">
+      : html`<div class="stack tight">
           ${list.map((sql, i) => {
             const idx = parseIndex(sql);
             return html`<div class="card" style=${{ "--i": i, padding: "12px 14px" }}>

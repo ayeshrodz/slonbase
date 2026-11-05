@@ -404,22 +404,7 @@ export function CollectionGlyph({ collection, size }) {
   </span>`;
 }
 
-// animated count-up for numbers
+// a number, grouped (it used to count up; figures now just appear)
 export function CountUp({ value }) {
-  const [shown, setShown] = useState(0);
-  useEffect(() => {
-    if (typeof value !== "number") return;
-    const start = performance.now();
-    const from = 0;
-    let frame;
-    const step = (t) => {
-      const p = Math.min(1, (t - start) / 700);
-      const eased = 1 - Math.pow(1 - p, 3);
-      setShown(Math.round(from + (value - from) * eased));
-      if (p < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [value]);
-  return html`<span>${typeof value === "number" ? shown.toLocaleString() : "—"}</span>`;
+  return html`<span>${typeof value === "number" ? value.toLocaleString() : "—"}</span>`;
 }

@@ -9,6 +9,8 @@ gzipped). Edit the files and rebuild.
 - `app/lib/` — the API client, store and router, components, icons and formatting
 - `app/pages/` — one module per screen
 - `app/app.css` — design tokens (light and dark), components and motion
+- `app/fonts/` — the three typefaces (SIL Open Font License): Instrument Serif for titles and
+  figures, Geist for the interface, Geist Mono for small-capital labels, ids and code
 
 It talks to the server only through the public API, the same one the SDKs use.
 

@@ -19,25 +19,6 @@ const Diagram = lazy(() => import("./pages/diagram.js"), "Diagram");
 
 initTheme();
 
-// The spotlight on cards: where the pointer is, relative to the card under it (app.css draws
-// it). Large cards (tables) are left alone, since repainting them on every move is costly.
-let spotFrame = 0;
-document.addEventListener(
-  "pointermove",
-  (e) => {
-    if (spotFrame || e.pointerType === "touch") return;
-    spotFrame = requestAnimationFrame(() => {
-      spotFrame = 0;
-      const card = e.target instanceof Element && e.target.closest(".card");
-      if (!card) return;
-      const r = card.getBoundingClientRect();
-      if (r.height > 560) return;
-      card.style.setProperty("--mx", e.clientX - r.left + "px");
-      card.style.setProperty("--my", e.clientY - r.top + "px");
-    });
-  },
-  { passive: true }
-);
 if (PROJECT) document.title = `${PROJECT} · slonbase`;
 
 const NAV = [

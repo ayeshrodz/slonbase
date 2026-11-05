@@ -197,7 +197,7 @@ function TypePicker({ onPick, onClose, auth }) {
     ${(close) => html`
       <${SheetHead} title="Add a field" subtitle="Pick a type — it can't be changed later" icon="plus" onClose=${close} />
       <div class="sheet-body">
-        <div class="type-grid stagger">
+        <div class="type-grid">
           ${types.map(
             (t, i) => html`<button class="type-tile" style=${{ "--i": i }} onClick=${() => {
               onPick(t.type);
