@@ -1,0 +1,35 @@
+# The image built from source (the root Dockerfile). Releases publish their image from the
+# release binaries instead (release.yml), so this only runs when something it depends on changes.
+name: Docker
+
+on:
+  push:
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - packaging/**
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/docker.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - name: Build the image from source
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

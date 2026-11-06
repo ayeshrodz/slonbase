@@ -1,8 +1,10 @@
-# Builds the signed apt and dnf repositories from every release's packages and publishes them
+# Builds the signed apt and dnf repositories from the newest releases' packages and publishes them
 # on GitHub Pages (https://<owner>.github.io/<repo>/), with the project's page (site/) at the
 # root and the documentation site (scripts/build-docs.mjs) at /docs/. The Release workflow starts
 # it after publishing a release; it also runs when the page or the docs change on the default
-# branch, and can be run by hand.
+# branch, and can be run by hand. Only the newest releases are kept in the repositories (the
+# Pages artifact is limited to 1 GB, and every version adds four packages); older packages stay
+# on their release pages.
 #
 # Needs the REPO_GPG_PRIVATE_KEY secret (an armored signing key without a passphrase) and
 # Settings → Pages → Source: GitHub Actions. See CONTRIBUTING.md.
@@ -15,8 +17,6 @@ on:
     paths:
       - site/**
       - docs/**
-      - CHANGELOG.md
-      - Cargo.toml
       - ui/app/fonts/**
       - scripts/build-docs.mjs
       - scripts/docs/**
@@ -39,12 +39,13 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq --no-install-recommends apt-utils createrepo-c rpm
-      - name: Download the packages of every release
+      - name: Download the packages of the newest releases
         env:
           GH_TOKEN: ${{ github.token }}
+          KEEP: "5"
         run: |
           mkdir pkgs
-          gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 --exclude-drafts --exclude-pre-releases \
+          gh release list --repo "$GITHUB_REPOSITORY" --limit "$KEEP" --exclude-drafts --exclude-pre-releases \
               --json tagName --jq '.[].tagName' |
           while read -r tag; do
               gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir pkgs \

@@ -306,22 +306,3 @@ jobs:
       - run: compat/upgrade/run.sh ${{ matrix.from }}
         env:
           GH_TOKEN: ${{ github.token }}
-
-  package:
-    needs: [lint, audit, test, compat, import, upgrade]
-    uses: ./.github/workflows/package.yml
-    with:
-      version: ""
-
-  docker:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - name: Build the image from source
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          push: false
-          cache-from: type=gha
-          cache-to: type=gha,mode=max

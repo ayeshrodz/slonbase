@@ -43,12 +43,15 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cross
-      - uses: actions/setup-go@v7
-        with:
-          go-version: stable
-          cache: false
       - name: Install nfpm
-        run: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3
+        run: |
+          base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
+          tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
+          curl -fsSLO "$base/$tar"
+          curl -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          tar -xzf "$tar" nfpm
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
 
       - name: Build
         run: cross build --release --locked --target ${{ matrix.target }}
