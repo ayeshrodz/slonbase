@@ -45,6 +45,9 @@
    earthy status colors, and eight desaturated tones for glyphs and select values. Surfaces are
    told apart by soft shadows and hairlines rather than heavy borders. */
 :root {
+  /* every page has the same width and gutters (the data grid alone goes edge to edge) */
+  --page-max: 1440px;
+  --page-pad: 32px 40px 72px;
   --accent: #4f7a6c;
   --accent-strong: color-mix(in srgb, var(--accent), black 18%);
   --accent-soft: color-mix(in srgb, var(--accent), transparent 89%);
@@ -1540,9 +1543,13 @@ select.input {
 .page {
   flex: 1;
   width: 100%;
-  max-width: 1320px;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 36px 40px 72px;
+  padding: var(--page-pad);
+}
+/* a form-like page or panel inside the standard page */
+.page-narrow {
+  max-width: 900px;
 }
 .page-head {
   display: flex;
@@ -1628,13 +1635,13 @@ select.input {
 .workspace-main {
   flex: 1;
   min-width: 0;
-  max-width: 1480px;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 30px 40px 64px;
+  padding: var(--page-pad);
 }
 @media (max-width: 920px) {
   .workspace-main {
-    padding: 18px 14px 48px;
+    padding: 22px 16px 56px;
   }
 }
 
@@ -3992,9 +3999,6 @@ a.btn:hover {
 
 /* ------------------------------------------------------------------ SQL console */
 
-.page.page-wide {
-  max-width: 1600px;
-}
 .sql-mode {
   gap: 10px;
   align-self: center;

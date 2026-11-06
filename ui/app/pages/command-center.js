@@ -180,7 +180,7 @@ export function CommandCenter({ onCreate, onDelete, onHosts, version }) {
   const series = items.filter((i) => i.traffic && !hidden[i.name]).map((i) => ({ name: i.name, color: colorOf(i), values: i.traffic.perMinute }));
   const slowest = items.reduce((m, i) => (i.traffic && i.traffic.p95Ms > (m ? m.traffic.p95Ms : -1) ? i : m), null);
 
-  return html`<div class="page page-wide cc enter">
+  return html`<div class="page cc enter">
     <div class="page-head">
       <div class="grow">
         <div class="eyebrow"><${Icon} name="layers" size=${14} /> Command center</div>

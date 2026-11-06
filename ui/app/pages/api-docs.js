@@ -160,7 +160,7 @@ export function ApiDocs({ collection: c }) {
   const [open, setOpen] = useState(0);
   const [lang, setLang] = useState("sdk");
   const list = endpoints(c);
-  return html`<div class="stack" style="max-width:960px">
+  return html`<div class="stack page-narrow">
     <div class="row">
       <${Callout}>
         Call these endpoints with any HTTP client, or with the PocketBase <a href="https://github.com/pocketbase/js-sdk" target="_blank" rel="noopener">JavaScript</a>

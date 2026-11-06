@@ -1,15 +1,16 @@
 // The SQL console (when enabled on the server): a schema browser and history beside an editor
 // with line numbers and highlighting, and the results below it, ready to export.
 import { html, useState, useEffect, useRef, useStore, cx } from "../lib/core.js";
-import { api, PROJECT } from "../lib/api.js";
+import { api, PROJECT, scopedKey } from "../lib/api.js";
 import { app } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
 import { Button, Callout, Empty, Menu, toast, CollectionGlyph } from "../lib/ui.js";
 import { plural } from "../lib/format.js";
 import { toCsv, toTsv, toJson, toXlsx, download } from "../lib/export.js";
 
-const HISTORY_KEY = "slonbase.sql.history";
-const ROWS_KEY = "slonbase.sql.rows";
+// each installation keeps its own history
+const HISTORY_KEY = scopedKey("sql.history");
+const ROWS_KEY = scopedKey("sql.rows");
 
 function load(key, fallback) {
   try {
@@ -281,7 +282,7 @@ export function SqlConsole() {
   const errorLine = error && error.data && error.data.line;
   const tooLong = info && query.length > info.maxQueryLength;
 
-  return html`<div class="page page-wide sql-page enter">
+  return html`<div class="page sql-page enter">
     <div class="page-head">
       <div class="grow">
         <div class="eyebrow"><${Icon} name="terminal" size=${14} /> Database${PROJECT ? ` · ${PROJECT}` : ""}</div>

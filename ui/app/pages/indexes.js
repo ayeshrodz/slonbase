@@ -79,7 +79,7 @@ export function Indexes({ draft, setDraft, errors }) {
     setDraft({ ...draft, indexes: next });
   };
   const errorKeys = Object.keys(errors).filter((k) => k.startsWith("indexes"));
-  return html`<div class="stack" style="max-width:900px">
+  return html`<div class="stack page-narrow">
     <div class="row">
       <div class="grow small muted">Indexes speed up filters and sorting; unique indexes reject duplicates.</div>
       <${Button} variant="primary" icon="plus" onClick=${() => setEditing("new")}>New index</${Button}>

@@ -284,7 +284,7 @@ export function Schema({ draft, setDraft, collection, errors }) {
     if (first) setOpen(Number(first.split(".")[1]));
   }, [errors]);
 
-  return html`<div style="max-width:900px">
+  return html`<div class="page-narrow">
     ${collection.type === "view" &&
     html`<div style="margin-bottom:12px"><${Callout}>A view's fields come from its query (edit it in Settings). Here you can set how they're shown and whether they're hidden.</${Callout}></div>`}
     <div class="row" style="margin:4px 0 14px">

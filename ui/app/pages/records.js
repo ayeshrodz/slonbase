@@ -1,6 +1,6 @@
 // A collection's records: filter, sort, paginate, select, live updates.
 import { html, useState, useEffect, useLayoutEffect, useRef, navigate, cx, route, useStore } from "../lib/core.js";
-import { api, qs, enc, fileUrl, realtime, getFileToken, remembered } from "../lib/api.js";
+import { api, qs, enc, fileUrl, realtime, getFileToken, remembered, scopedKey } from "../lib/api.js";
 import { Icon, fieldMeta } from "../lib/icons.js";
 import { Button, IconButton, Check, Skeleton, Empty, Menu, Switch, toast, confirmDialog, CopyButton, Portal, tone } from "../lib/ui.js";
 import { formatDate, relativeTime, truncate, stripHtml, isImage, plural, recordLabel } from "../lib/format.js";
@@ -50,7 +50,7 @@ function useRowWindow(ref, count) {
 }
 
 function hiddenKey(c) {
-  return "slonbase.columns." + c.id;
+  return scopedKey("columns." + c.id);
 }
 
 function loadHidden(c) {

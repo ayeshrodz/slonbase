@@ -8,6 +8,22 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-06
+
+**Each installation keeps its own SQL history, and every page has the same width.**
+
+### Fixed
+
+- **The SQL console's history was shared between the main installation and its projects.**
+  Projects under the main installation's address share its browser storage, so queries run in
+  one showed up in the history of every other. The history, the row limit and a collection's
+  hidden columns are now kept per installation; the main installation keeps the history it has.
+- **Pages had different widths:** the Projects page and the SQL console were wider (1,600px)
+  than the other pages (1,320px), and a collection's pages (1,480px) in between. Every page is
+  now up to 1,440px wide with the same margins; forms (API preview, rules, indexes, auth
+  options) keep a readable 900px column inside it, and the records grid still uses the whole
+  width.
+
 ## [1.11.0] - 2026-11-05
 
 **A command center for every project, and an SQL console you can trust.** The main
@@ -1068,7 +1084,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/ayeshrodz/slonbase/compare/v1.8.0...v1.9.0

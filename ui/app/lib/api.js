@@ -14,6 +14,11 @@ const MAIN_DASHBOARD = CONTEXT.main || "/_/";
 const MAIN_TOKEN_KEY = "slonbase.auth";
 const TOKEN_KEY = MAIN_TOKEN_KEY + BASE;
 
+// A localStorage key for this installation: projects under the main installation share its
+// origin, so what belongs to one (SQL history, hidden columns) is keyed by its path. The main
+// installation's keys are unchanged ("slonbase.{name}").
+export const scopedKey = (name) => `slonbase.${name}${BASE}`;
+
 export class ApiError extends Error {
   constructor(status, message, data) {
     super(message || "Request failed.");

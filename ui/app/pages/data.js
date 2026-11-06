@@ -256,7 +256,7 @@ function CollectionSettings({ draft, setDraft, collection }) {
       toast.error(err);
     }
   };
-  return html`<div class="stack loose enter" style="max-width:760px">
+  return html`<div class="stack loose enter page-narrow">
     <div class="card">
       <div class="card-head"><h3>General</h3></div>
       <div class="card-body stack">

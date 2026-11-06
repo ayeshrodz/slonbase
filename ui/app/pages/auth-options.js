@@ -206,7 +206,7 @@ export function AuthOptions({ draft, setDraft, errors }) {
     ["emailChangeToken", "Email change link"],
     ["fileToken", "Protected file token"],
   ];
-  return html`<div class="stack loose" style="max-width:900px">
+  return html`<div class="stack loose page-narrow">
     <${RuleCard}
       rule=${{ key: "authRule", label: "Who can sign in", icon: "key", hint: "An extra condition on the record, e.g. verified = true." }}
       value=${draft.authRule}

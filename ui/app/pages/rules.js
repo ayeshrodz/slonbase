@@ -68,7 +68,7 @@ export function RuleCard({ rule, value, onChange, fields, error, nullLabel = "Su
 export function Rules({ draft, setDraft, errors }) {
   const fields = draft.fields.map((f) => f.name).filter((n) => n !== "password" && n !== "tokenKey");
   const set = (key, value) => setDraft({ ...draft, [key]: value });
-  return html`<div class="stack" style="max-width:900px">
+  return html`<div class="stack page-narrow">
     <${Callout}>
       Rules are filters like <code>status = 'published' || author = @request.auth.id</code>. They can use the record's
       fields, <code>@request.auth.*</code>, <code>@request.body.*</code>, <code>@request.query.*</code>,
