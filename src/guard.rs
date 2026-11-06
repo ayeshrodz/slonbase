@@ -158,7 +158,7 @@ impl RateLimiter {
 }
 
 /// How often each account may be sent each kind of auth email (verification, password reset,
-/// email change, OTP) on request.
+/// email change, OTP) on request, by default (`security.authEmailInterval`).
 pub const MAIL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(60);
 
 /// One auth email of each kind per account per [`MAIL_INTERVAL`], in memory: what
@@ -180,10 +180,16 @@ impl MailThrottle {
 
     /// Claims `kind` for the account now, remembering `sent` (an OTP's id): `Err` with what
     /// was sent last when it's too soon.
-    pub fn claim(&self, account: &str, kind: &'static str, sent: &str) -> Result<(), String> {
+    pub fn claim(
+        &self,
+        account: &str,
+        kind: &'static str,
+        sent: &str,
+        interval: std::time::Duration,
+    ) -> Result<(), String> {
         let now = Instant::now();
         let mut map = self.sent.lock().expect("mail throttle lock");
-        map.retain(|_, (at, _)| now.duration_since(*at) < MAIL_INTERVAL);
+        map.retain(|_, (at, _)| now.duration_since(*at) < interval);
         match map.entry((account.to_string(), kind)) {
             std::collections::hash_map::Entry::Occupied(last) => Err(last.get().1.clone()),
             std::collections::hash_map::Entry::Vacant(slot) => {
@@ -209,9 +215,16 @@ pub async fn claim_mail(
         Ok(claimed) => claimed,
         Err(err) => {
             tracing::debug!(error = %format!("{err:#}"), "shared mail throttle failed; counting here");
-            core.mail_throttle.claim(account, kind, sent)
+            core.mail_throttle
+                .claim(account, kind, sent, mail_interval(core))
         }
     }
+}
+
+fn mail_interval(core: &Core) -> std::time::Duration {
+    std::time::Duration::from_secs(u64::from(
+        core.settings().security.auth_email_interval.max(1),
+    ))
 }
 
 async fn shared_claim_mail(
@@ -225,7 +238,7 @@ async fn shared_claim_mail(
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
-    let interval = MAIL_INTERVAL.as_secs_f64();
+    let interval = mail_interval(core).as_secs_f64();
     let row = client
         .query_one(
             "WITH claimed AS ( \
@@ -288,7 +301,15 @@ async fn shared_allow(
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
-    let key = format!("{limiter}|{ip}");
+    shared_count(&client, &format!("{limiter}|{ip}"), rule).await
+}
+
+/// Counts one under `key` in its window (shared by the instances); false once over.
+async fn shared_count(
+    client: &deadpool_postgres::Object,
+    key: &str,
+    rule: &RateLimitRule,
+) -> anyhow::Result<bool> {
     let max = i32::try_from(rule.max_requests).unwrap_or(i32::MAX);
     let duration = rule.duration as f64;
     let remaining: i32 = client
@@ -308,6 +329,132 @@ async fn shared_allow(
         .await?
         .get(0);
     Ok(remaining >= 0)
+}
+
+// ---------------------------------------------------------------------------
+// sign-in lockout (`security.loginLockout`): failed password sign-ins per identity and address,
+// counted in the database so every instance sees them
+
+fn lockout_key(collection: &str, identity: &str, ip: Option<IpAddr>) -> String {
+    let ip = ip.map(|i| i.to_string()).unwrap_or_default();
+    format!("lockout|{collection}|{}|{ip}", identity.to_lowercase())
+}
+
+/// `Err` with a 429 when the identity is locked out from this address.
+pub async fn check_lockout(
+    core: &Core,
+    collection: &str,
+    identity: &str,
+    ip: Option<IpAddr>,
+) -> Result<(), ApiError> {
+    let lockout = core.settings().security.login_lockout.clone();
+    if lockout.attempts == 0 {
+        return Ok(());
+    }
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let locked = client
+        .query_opt(
+            "SELECT 1 FROM _slonbase.rate_limits WHERE key = $1 AND remaining <= 0 \
+             AND started > now() - make_interval(mins => $2::int4)",
+            &[
+                &lockout_key(collection, identity, ip)
+                    as &(dyn tokio_postgres::types::ToSql + Sync),
+                &(lockout.minutes.max(1) as i32),
+            ],
+        )
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?
+        .is_some();
+    if locked {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            format!(
+                "Too many failed sign-ins. Try again in {} minute(s).",
+                lockout.minutes
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// Counts a failed sign-in (`failed`), or forgets the failures after one that succeeded.
+pub async fn record_sign_in(
+    core: &Core,
+    collection: &str,
+    identity: &str,
+    ip: Option<IpAddr>,
+    failed: bool,
+) {
+    let lockout = core.settings().security.login_lockout.clone();
+    if lockout.attempts == 0 {
+        return;
+    }
+    let key = lockout_key(collection, identity, ip);
+    let done = async {
+        let client = core
+            .pool
+            .get()
+            .await
+            .map_err(crate::db::describe_pool_error)?;
+        if failed {
+            let rule = RateLimitRule {
+                label: String::new(),
+                audience: String::new(),
+                duration: u64::from(lockout.minutes.max(1)) * 60,
+                max_requests: lockout.attempts,
+            };
+            shared_count(&client, &key, &rule).await?;
+        } else {
+            client
+                .execute("DELETE FROM _slonbase.rate_limits WHERE key = $1", &[&key])
+                .await?;
+        }
+        anyhow::Ok(())
+    };
+    if let Err(err) = done.await {
+        tracing::warn!(error = %format!("{err:#}"), "failed to count a sign-in");
+    }
+}
+
+/// What the rate limits do with a request: its labels, most specific first, and the rule that
+/// applies (`POST /api/settings/rate-limits/explain`, superusers).
+pub async fn explain(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    crate::extract::JsonObject(body): crate::extract::JsonObject,
+) -> Result<axum::Json<serde_json::Value>, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let text = |k: &str| {
+        body.get(k)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string()
+    };
+    let method = Method::from_bytes(text("method").to_uppercase().as_bytes())
+        .map_err(|_| ApiError::bad_request("Invalid method."))?;
+    let path = text("path");
+    if !path.starts_with('/') {
+        return Err(ApiError::bad_request("The path must start with /."));
+    }
+    let path = path.split('?').next().unwrap_or_default().to_string();
+    let audiences: &[&str] = match text("audience").as_str() {
+        "@auth" => &["", "@auth"],
+        _ => &["", "@guest"],
+    };
+    let settings = core.settings();
+    let (labels, _) = labels(&method, &path, &core.registry());
+    let rule = find_rule(&settings.rate_limits, &labels, audiences);
+    Ok(axum::Json(serde_json::json!({
+        "enabled": settings.rate_limits.enabled,
+        "labels": labels,
+        "rule": rule,
+        "index": rule.and_then(|r| settings.rate_limits.rules.iter().position(|x| std::ptr::eq(x, r))),
+    })))
 }
 
 fn too_many_requests() -> Response {

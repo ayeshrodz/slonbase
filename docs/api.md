@@ -49,6 +49,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (hooks' and the automatic backup), with their schedule in words, next run and last run |
 | `GET /api/jobs/runs` | What backups and cron jobs did (`kind`, `job`, `status`, `limit`), superusers |
 | `GET /api/settings/storage`, `POST /api/settings/storage/clear-thumbs` | Where files are, the free space and what uploads take; delete generated thumbnails |
+| `POST /api/settings/rate-limits/explain` | Which rate-limit rule a request meets (`{method, path, audience}`), superusers |
 | `POST /api/settings/mail/preview` | An email as it would be sent, with sample values (`{collection, template}` and/or `{subject, body, layout}`) |
 | `GET/POST /api/branding/assets`, `PATCH/DELETE /api/branding/assets/{id}` | The installation's images (superusers; upload as multipart `file`) |
 | `GET /api/branding/assets/{id}` | An image, for anyone (sign-in pages and emails show them) |

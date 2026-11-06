@@ -43,6 +43,7 @@ pub struct Settings {
     pub security: Security,
     /// The HTML around every email's body (a slonbase setting).
     pub mail_layout: MailLayout,
+    pub files: Files,
     /// Superusers' roles by id (none: owner). Changed with `/api/team`, never sent by
     /// `/api/settings` nor changed by it.
     pub superuser_roles: std::collections::BTreeMap<String, String>,
@@ -111,6 +112,47 @@ pub struct Security {
     /// The API answers 503 to everyone but superusers (the dashboard keeps working).
     pub maintenance: bool,
     pub maintenance_message: String,
+    /// How often each account may be sent each kind of auth email, in seconds.
+    pub auth_email_interval: u32,
+    /// Refuses password sign-ins for an identity from an address after too many failures.
+    pub login_lockout: LoginLockout,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LoginLockout {
+    /// Failed sign-ins allowed in the window (0: off).
+    pub attempts: u32,
+    /// The window, in minutes (1 to 60).
+    pub minutes: u32,
+}
+
+impl Default for LoginLockout {
+    fn default() -> Self {
+        Self {
+            attempts: 0,
+            minutes: 15,
+        }
+    }
+}
+
+/// Uploaded files (a slonbase setting).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Files {
+    /// The largest file, in bytes, for file fields without a size of their own (0: 5 MB).
+    pub default_max_size: i64,
+    /// Thumbnails are made when asked for (off: the original is served).
+    pub thumbs: bool,
+}
+
+impl Default for Files {
+    fn default() -> Self {
+        Self {
+            default_max_size: 0,
+            thumbs: true,
+        }
+    }
 }
 
 impl Default for Security {
@@ -121,6 +163,8 @@ impl Default for Security {
             hsts: false,
             maintenance: false,
             maintenance_message: String::new(),
+            auth_email_interval: 60,
+            login_lockout: LoginLockout::default(),
         }
     }
 }
@@ -595,6 +639,21 @@ fn validate(s: &Settings) -> Errors {
     let sec = &s.security;
     if !(1..=16384).contains(&sec.max_upload_mb) {
         errors.invalid("security.maxUploadMb", "Must be between 1 and 16384.");
+    }
+    if !(5..=86_400).contains(&sec.auth_email_interval) {
+        errors.invalid(
+            "security.authEmailInterval",
+            "Must be between 5 and 86400 seconds.",
+        );
+    }
+    if sec.login_lockout.attempts > 1000 {
+        errors.invalid("security.loginLockout.attempts", "Must be at most 1000.");
+    }
+    if sec.login_lockout.attempts > 0 && !(1..=60).contains(&sec.login_lockout.minutes) {
+        errors.invalid("security.loginLockout.minutes", "Must be between 1 and 60.");
+    }
+    if !(0..=MAX_SAFE_JSON_INT).contains(&s.files.default_max_size) {
+        errors.invalid("files.defaultMaxSize", "Must be 0 or more.");
     }
     if sec.maintenance_message.chars().count() > 300 {
         errors.invalid(

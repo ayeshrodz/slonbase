@@ -356,6 +356,7 @@ pub fn apply(
     current: &Values,
     body: &Map<String, Value>,
     uploads: Vec<Upload>,
+    default_max_size: i64,
     errors: &mut Errors,
 ) -> FilePlan {
     let mut plan = FilePlan::default();
@@ -382,7 +383,10 @@ pub fn apply(
 
         let mut accept = |uploads: Vec<Upload>, errors: &mut Errors| -> Vec<String> {
             let max_size = if options.max_size == 0 {
-                DEFAULT_MAX_SIZE
+                match default_max_size {
+                    0 => DEFAULT_MAX_SIZE,
+                    n => n,
+                }
             } else {
                 options.max_size
             };
@@ -772,7 +776,9 @@ pub async fn serve(
     let mut thumb_error = Value::Null;
 
     if let Some(thumb) = query.get("thumb").filter(|t| !t.is_empty()) {
-        let allowed = matches!(&field.kind, FieldKind::File(o) if thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
+        // thumbnails off in the settings: the original, as for an unsupported size
+        let allowed = core.settings().files.thumbs
+            && matches!(&field.kind, FieldKind::File(o) if thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
         if let (true, Some(size)) = (allowed, ThumbSize::parse(thumb)) {
             if let Some(key) = ensure_thumb(
                 &core,

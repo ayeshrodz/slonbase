@@ -7,6 +7,7 @@ import { Icon } from "../../lib/icons.js";
 import { Button, IconButton, Field, Input, Select, Modal, SheetHead, Skeleton, Empty, Callout, toast, confirmDialog, CollectionGlyph } from "../../lib/ui.js";
 import { formatDate, relativeTime } from "../../lib/format.js";
 import { branding } from "../../lib/branding.js";
+import { TokenLifetimes } from "./storage.js";
 import { Card } from "./shared.js";
 
 export const ROLES = [
@@ -232,6 +233,7 @@ export function Team() {
             </tbody>
           </table></div>`}
     </${Card}>
+    <${TokenLifetimes} only=${["_superusers"]} />
     <${Card} title="Signing in with OAuth2" subtitle="Superusers can sign in with Google, GitHub, Microsoft… when providers are set on _superusers" icon="globe" actions=${html`<a class="btn sm" href="#/data/_superusers/auth"><${Icon} name="settings" size=${15} /><span>Set up providers</span></a>`}>
       <div class="small muted">The sign-in page shows a button per provider. Only existing superusers whose email the provider has verified can sign in this way: nobody gets an account by signing in.</div>
     </${Card}>

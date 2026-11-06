@@ -8,6 +8,26 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-06
+
+**The rest of 2.0's plan: files, sign-in protection and a rate-limit tester.**
+
+### Added
+
+- **Lockout after failed sign-ins** (`security.loginLockout`): an identity that fails
+  `attempts` password sign-ins from one address within `minutes` gets `429` until the window
+  ends, even with the right password; a success clears the count. Shared by every instance.
+  Off by default.
+- **The interval between auth emails is a setting** (`security.authEmailInterval`, 60 seconds
+  by default, 5 to 86,400): verification, password reset, email change and one-time
+  passwords, per account.
+- **Files:** `files.defaultMaxSize` sets the largest file for file fields without a size of
+  their own (it was always 5 MB), and `files.thumbs` turns thumbnails off (the original file
+  is served instead). Settings → File storage shows both, and each auth collection's session
+  and protected-file token lifetimes; Team shows the superusers'.
+- **A rate-limit tester:** Settings → Security & limits says which rule a request would meet
+  (`POST /api/settings/rate-limits/explain`), with the same matcher the guard uses.
+
 ## [2.0.0] - 2026-11-06
 
 **Settings in which every setting does something.** The Settings page is rebuilt: an
@@ -1200,7 +1220,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...v2.0.0
 [1.11.1]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...v1.11.0

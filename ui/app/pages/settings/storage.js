@@ -1,7 +1,8 @@
 // Settings → File storage: where uploads are kept (this server's disk, or an S3 bucket), how
 // much room there is and how much they take.
-import { html, useState, useEffect } from "../../lib/core.js";
-import { api } from "../../lib/api.js";
+import { html, useState, useEffect, useStore } from "../../lib/core.js";
+import { api, enc } from "../../lib/api.js";
+import { app, upsertCollection } from "../../lib/state.js";
 import { Icon } from "../../lib/icons.js";
 import { Button, IconButton, Field, Input, Switch, Callout, Skeleton, toast, confirmDialog } from "../../lib/ui.js";
 import { bytes, relativeTime } from "../../lib/format.js";
@@ -120,6 +121,47 @@ function Where({ refreshKey }) {
   </${Card}>`;
 }
 
+// how long an auth token and a protected-file token last, per auth collection
+export function TokenLifetimes({ only }) {
+  const collections = useStore(app, (st) => st.collections).filter((c) => c.type === "auth" && (only ? only.includes(c.name) : c.name !== "_superusers"));
+  const [busy, setBusy] = useState("");
+  const set = async (c, key, minutes) => {
+    const seconds = Math.round(Number(minutes) * 60);
+    if (!(seconds >= 60)) return toast.error(new Error("At least one minute."));
+    setBusy(c.id + key);
+    try {
+      const res = await api.patch(`/api/collections/${enc(c.id)}`, { ...c, [key]: { ...c[key], duration: seconds } });
+      upsertCollection(res);
+      toast("Saved.");
+    } catch (err) {
+      toast.error(err);
+    } finally {
+      setBusy("");
+    }
+  };
+  if (!collections.length) return null;
+  const rows = [
+    ["fileToken", "Protected-file token"],
+    ["authToken", "Session"],
+  ];
+  return html`<${Card} title="Token lifetimes" subtitle="How long a session and a protected-file token last, per auth collection" icon="clock">
+    <div class="table-wrap"><table class="table">
+      <thead><tr><th>Collection</th>${rows.map(([, label]) => html`<th>${label} (minutes)</th>`)}</tr></thead>
+      <tbody>
+        ${collections.map(
+          (c) => html`<tr key=${c.id}>
+            <td><b>${c.name}</b></td>
+            ${rows.map(
+              ([key, label]) => html`<td><input class="input" type="number" min="1" aria-label=${`${c.name}: ${label} in minutes`} defaultValue=${Math.round(((c[key] || {}).duration || 0) / 60)} disabled=${busy === c.id + key} onBlur=${(e) => Number(e.target.value) * 60 !== (c[key] || {}).duration && set(c, key, e.target.value)} style="max-width:140px" /></td>`
+            )}
+          </tr>`
+        )}
+      </tbody>
+    </table></div>
+    <div class="small muted">Saved when you leave the field.</div>
+  </${Card}>`;
+}
+
 export function Storage({ s }) {
   const on = s.draft.s3.enabled;
   return html`<div class="stack loose">
@@ -133,12 +175,17 @@ export function Storage({ s }) {
       ${on && html`<${S3Fields} s=${s} path="s3" errors=${s.errors} />`}
       ${on && html`<div class="row"><${Callout}>Existing files aren't moved when you switch storage.</${Callout}><span class="spacer"></span><${TestS3} filesystem="storage" disabled=${s.dirty} /></div>`}
     </${Card}>
-    <${Card} title="Upload limit" subtitle="The largest request the API accepts (file uploads, mostly)" icon="upload">
+    <${Card} title="Uploads" subtitle="How large files and requests may be, and thumbnails" icon="upload">
       <div class="grid-2">
-        <${Field} label="Largest request (MB)" error=${s.errors["security.maxUploadMb"]} help="Each file field has its own limit too. Backup uploads aren't limited.">
+        <${Field} label="Largest request (MB)" error=${s.errors["security.maxUploadMb"]} help="The whole request, files together. Backup uploads aren't limited.">
           <${Input} type="number" min="1" max="16384" value=${s.draft.security.maxUploadMb} onInput=${(v) => s.set("security.maxUploadMb", Number(v))} />
         </${Field}>
+        <${Field} label="Default file size (MB)" error=${s.errors["files.defaultMaxSize"]} help="For file fields without a size of their own; 0 is 5 MB">
+          <${Input} type="number" min="0" step="0.5" value=${Math.round(((s.draft.files.defaultMaxSize || 0) / 1048576) * 100) / 100} onInput=${(v) => s.set("files.defaultMaxSize", Math.round(Number(v) * 1048576))} />
+        </${Field}>
       </div>
+      <${Switch} checked=${s.draft.files.thumbs} onChange=${(v) => s.set("files.thumbs", v)} label="Make thumbnails when asked for (off: the original file is served, whatever the size)" />
     </${Card}>
+    <${TokenLifetimes} />
   </div>`;
 }

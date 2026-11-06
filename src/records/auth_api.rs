@@ -490,6 +490,10 @@ pub async fn auth_with_password(
             "The collection is not configured to allow password authentication.",
         ));
     }
+    // too many failures from here for this identity (security.loginLockout)
+    let ip = ctx.client.ip(&core.settings().trusted_proxy);
+    let lockout_identity = identity.clone();
+    crate::guard::check_lockout(&core, &c.id, &lockout_identity, ip).await?;
     let requested_field = body_str(&body, "identityField");
     let fields: Vec<&String> = if requested_field.is_empty() {
         options.password_auth.identity_fields.iter().collect()
@@ -554,6 +558,8 @@ pub async fn auth_with_password(
                 .unwrap_or_else(|| dummy_hash(&e.collection));
             let valid = values::verify_password(e.str("password").to_string(), hash).await;
             let failed = || ApiError::bad_request("Failed to authenticate.");
+            crate::guard::record_sign_in(&e.core, &e.collection.id, &lockout_identity, ip, !valid)
+                .await;
             let Some(record) = e.record.clone().filter(|_| valid) else {
                 return Err(failed());
             };

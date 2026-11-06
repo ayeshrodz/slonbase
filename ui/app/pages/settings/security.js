@@ -1,6 +1,7 @@
 // Settings → Security & limits: rate limits, browsers' access (CORS), superusers' IPs, the
 // trusted proxy, HTTPS only, batch requests and maintenance.
-import { html, useStore, useState } from "../../lib/core.js";
+import { html, useStore, useState, useEffect } from "../../lib/core.js";
+import { api } from "../../lib/api.js";
 import { app } from "../../lib/state.js";
 import { Icon } from "../../lib/icons.js";
 import { Button, IconButton, Field, Input, TextArea, Switch, Select, Callout } from "../../lib/ui.js";
@@ -30,6 +31,45 @@ function CurrentIp() {
   const health = useStore(app, (st) => st.health);
   if (!health || !health.realIP) return null;
   return html`<div class="small muted row"><${Icon} name="info" size=${14} /> Your IP: <code>${health.realIP}</code>${health.possibleProxyHeader && html`<span> · behind a proxy? It sent <code>${health.possibleProxyHeader}</code></span>`}</div>`;
+}
+
+// which rate-limit rule a request would meet (the server's own matcher)
+function RuleTester({ dirty }) {
+  const [method, setMethod] = useState("POST");
+  const [path, setPath] = useState("/api/collections/users/auth-with-password");
+  const [audience, setAudience] = useState("@guest");
+  const [res, setRes] = useState(null);
+  const [error, setError] = useState("");
+  const run = async () => {
+    setError("");
+    try {
+      setRes(await api.post("/api/settings/rate-limits/explain", { method, path, audience }));
+    } catch (err) {
+      setRes(null);
+      setError(err.message);
+    }
+  };
+  useEffect(() => {
+    run();
+  }, []);
+  return html`<div class="stack tight rule-tester">
+    <div class="row wrap top">
+      <${Field} label="Method"><${Select} value=${method} onChange=${setMethod} options=${["GET", "POST", "PATCH", "PUT", "DELETE"]} /></${Field}>
+      <${Field} class="grow" label="Path"><${Input} class="mono" value=${path} onInput=${setPath} /></${Field}>
+      <${Field} label="Caller"><${Select} value=${audience} onChange=${setAudience} options=${[{ value: "@guest", label: "Guest" }, { value: "@auth", label: "Signed in" }]} /></${Field}>
+      <div class="label-pad"><${Button} size="sm" icon="zap" onClick=${run}>Test</${Button}></div>
+    </div>
+    ${error && html`<div class="small" style="color:var(--danger)">${error}</div>`}
+    ${res &&
+    html`<div class="small">
+      ${!res.enabled && html`<span class="chip warn">rate limits are off</span> `}
+      ${res.rule
+        ? html`Rule <b>${res.rule.label}</b> (${res.rule.audience || "everyone"}): <b>${res.rule.maxRequests}</b> requests per <b>${res.rule.duration}</b> s.`
+        : html`<span class="muted">No rule applies: this request isn't limited.</span>`}
+      <div class="tiny muted">Checked in order: ${res.labels.map((l) => html`<code>${l}</code> `)}</div>
+      ${dirty && html`<div class="tiny muted">Tests the saved rules: save first.</div>`}
+    </div>`}
+  </div>`;
 }
 
 export function Security({ s }) {
@@ -73,6 +113,10 @@ export function Security({ s }) {
           <div><code>POST /api/files</code> — a method and a path; <code>/api/</code> — any request whose path starts so. The most specific rule wins.</div>
         </div>
       </details>
+      <details class="small muted" open>
+        <summary>Test a request</summary>
+        <div style="padding-top:8px"><${RuleTester} dirty=${s.dirty} /></div>
+      </details>
       <${Field} label="Never limit these IPs" help="IPs or CIDR ranges, separated by commas">
         <${Input} class="mono" value=${(d.rateLimits.excludedIPs || []).join(", ")} onInput=${(v) => s.set("rateLimits.excludedIPs", list(v))} />
       </${Field}>
@@ -92,6 +136,19 @@ export function Security({ s }) {
         <${Input} class="mono" value=${(d.superuserIPs || []).join(", ")} onInput=${(v) => s.set("superuserIPs", list(v))} placeholder="10.0.0.0/8, 203.0.113.7" />
       </${Field}>
       <${CurrentIp} />
+    </${Card}>
+    <${Card} title="Signing in and auth emails" subtitle="Slowing down password guessing and email floods" icon="key">
+      <div class="grid-3">
+        <${Field} label="Lock out after (failures)" error=${s.errors["security.loginLockout.attempts"]} help="Password sign-ins for one account from one address; 0 is off">
+          <${Input} type="number" min="0" max="1000" value=${sec.loginLockout.attempts} onInput=${(v) => s.set("security.loginLockout.attempts", Number(v))} />
+        </${Field}>
+        <${Field} label="For (minutes)" error=${s.errors["security.loginLockout.minutes"]} help="The window failures are counted in, and how long the lockout lasts">
+          <${Input} type="number" min="1" max="60" value=${sec.loginLockout.minutes} onInput=${(v) => s.set("security.loginLockout.minutes", Number(v))} />
+        </${Field}>
+        <${Field} label="One auth email per (seconds)" error=${s.errors["security.authEmailInterval"]} help="Verification, password reset, email change and one-time passwords, per account">
+          <${Input} type="number" min="5" max="86400" value=${sec.authEmailInterval} onInput=${(v) => s.set("security.authEmailInterval", Number(v))} />
+        </${Field}>
+      </div>
     </${Card}>
     <${Card} title="HTTPS only" subtitle="Strict-Transport-Security: browsers use HTTPS for a year" icon="lock" actions=${html`<${Switch} checked=${sec.hsts} onChange=${(v) => s.set("security.hsts", v)} label=${sec.hsts ? "On" : "Off"} />`}>
       ${sec.hsts && !https && html`<${Callout} kind="warn">Sent only when the application URL is https (Settings → Application).</${Callout}>`}

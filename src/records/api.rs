@@ -885,7 +885,15 @@ async fn create_checked<C: TextQuery + GenericClient>(
     let mut errors = Errors::new();
     let changes = values::apply_body(c, &mut values, &body, true, &mut errors);
     values::finalize(c, &mut values, true, &request.now, &mut errors);
-    let file_plan = files::apply(c, &mut values, &Values::new(), &body, uploads, &mut errors);
+    let file_plan = files::apply(
+        c,
+        &mut values,
+        &Values::new(),
+        &body,
+        uploads,
+        core.settings().files.default_max_size,
+        &mut errors,
+    );
     values::validate(c, &values, &changes, true, &mut errors);
     check_password_confirm(c, &body, &mut errors);
     // reported with the other errors, as PocketBase does
@@ -1101,7 +1109,15 @@ async fn update_checked(
 
     let changes = values::apply_body(c, &mut values, &body, false, &mut errors);
     values::finalize(c, &mut values, false, &request.now, &mut errors);
-    let file_plan = files::apply(c, &mut values, &original, &body, uploads, &mut errors);
+    let file_plan = files::apply(
+        c,
+        &mut values,
+        &original,
+        &body,
+        uploads,
+        core.settings().files.default_max_size,
+        &mut errors,
+    );
     values::validate(c, &values, &changes, false, &mut errors);
     check_password_confirm(c, &body, &mut errors);
     // reported with the other errors, as PocketBase does

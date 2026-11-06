@@ -60,7 +60,7 @@ async fn jobs_history_backups_and_crons() {
         .unwrap();
     extensions
         .hooks
-        .cron("flaky", "*/30 * * * *", |_| async {
+        .cron("flaky", "15 4 1 1 *", |_| async {
             Err(ApiError::bad_request("upstream returned 502"))
         })
         .unwrap();

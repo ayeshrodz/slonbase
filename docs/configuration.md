@@ -165,7 +165,8 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `rateLimits` | `enabled`, `rules` |
 | `trustedProxy` | `headers` carrying the client IP, `useLeftmostIP` |
 | `superuserIPs` | Addresses or ranges superusers may use |
-| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage` |
+| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage`, `authEmailInterval` (seconds between auth emails to an account, 60), `loginLockout` (`attempts`, `minutes`) |
+| `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
 
@@ -175,6 +176,12 @@ Emails fill `{APP_NAME}`, `{APP_URL}`, `{TOKEN}` (and `{OTP}`, `{OTP_ID}`, `{ALE
 templates) as PocketBase does, and slonbase's `{APP_LOGO}` (the logo, or the name),
 `{APP_LOGO_URL}`, `{ACCENT}` and `{RECORD:field}` (the recipient's fields, escaped; hidden
 fields stay empty).
+
+**Lockout.** With `security.loginLockout.attempts` above 0, an identity that fails that many
+password sign-ins from one address within `minutes` gets `429` until the window ends, even with
+the right password; a successful sign-in clears the count. It's counted in the database, so
+every instance shares it. `POST /api/settings/rate-limits/explain` (`{method, path, audience}`)
+says which rate-limit rule a request would meet.
 
 **CORS.** Pages on any site may call the API, as with PocketBase (`security.allowedOrigins` is
 `["*"]`). List origins (`https://app.example.com`) to allow only those; an empty list allows

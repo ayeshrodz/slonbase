@@ -85,6 +85,10 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/settings/test/s3", post(settings::test_s3))
         .route("/api/settings/test/email", post(settings::test_email))
         .route("/api/settings/mail/preview", post(settings::mail_preview))
+        .route(
+            "/api/settings/rate-limits/explain",
+            post(crate::guard::explain),
+        )
         .route("/api/settings/storage", get(crate::storage_info::info))
         .route(
             "/api/settings/storage/clear-thumbs",
