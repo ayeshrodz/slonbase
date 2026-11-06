@@ -5807,3 +5807,69 @@ table.table tr.on td {
     max-height: 240px;
   }
 }
+.or-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--faint);
+  font-size: var(--text-xs);
+}
+.or-line::before,
+.or-line::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+/* ------------------------------------------------------------------ team */
+
+.role-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.role-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+.role-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.role-option.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.role-option:focus-within {
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.role-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 6px 16px;
+}
+.key-secret {
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--canvas-2);
+  word-break: break-all;
+}
+.app-users {
+  display: grid;
+  gap: 10px;
+}
+.app-user-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}

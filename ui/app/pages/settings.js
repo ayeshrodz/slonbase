@@ -27,6 +27,7 @@ import { Storage } from "./settings/storage.js";
 import { Security, LogsSettings } from "./settings/security.js";
 import { Transfer } from "./settings/transfer.js";
 import { Mail } from "./settings/mail.js";
+import { Team, AppUsers } from "./settings/team.js";
 import { Application } from "./settings/application.js";
 import { Branding } from "./settings/branding.js";
 import { LoginScreen } from "./settings/login-screen.js";
@@ -40,6 +41,13 @@ const GROUPS = [
       { id: "general", label: "Application", icon: "sparkle", sections: ["meta"] },
       { id: "branding", label: "Branding", icon: "image", sections: ["meta"] },
       { id: "login", label: "Login screen", icon: "lock", sections: ["login"] },
+    ],
+  },
+  {
+    label: "People",
+    items: [
+      { id: "users", label: "Team", icon: "users" },
+      { id: "app-users", label: "App users", icon: "user" },
     ],
   },
   {
@@ -71,7 +79,7 @@ const SECTIONS = GROUPS.flatMap((g) => g.items);
 export function Settings({ section }) {
   const s = useSettings();
   const active = SECTIONS.find((x) => x.id === section) || SECTIONS[0];
-  const needsDraft = !["crons", "transfer"].includes(active.id);
+  const needsDraft = !["crons", "transfer", "users", "app-users"].includes(active.id);
   return html`<div class="page enter">
     <div class="page-head"><div class="grow"><div class="eyebrow"><${Icon} name="settings" size=${14} /> Configuration</div><h1>Settings</h1></div></div>
     <div class="settings-layout">
@@ -100,6 +108,8 @@ export function Settings({ section }) {
               ${active.id === "security" && html`<${Security} s=${s} />`}
               ${active.id === "logs" && html`<${LogsSettings} s=${s} />`}
               ${active.id === "crons" && html`<${Crons} />`}
+              ${active.id === "users" && html`<${Team} />`}
+              ${active.id === "app-users" && html`<${AppUsers} />`}
               ${active.id === "transfer" && html`<${Transfer} />`}
             `}
         ${s.dirty &&

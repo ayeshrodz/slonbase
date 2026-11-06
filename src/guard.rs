@@ -344,23 +344,66 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     request.extensions_mut().insert(ClientIp(ip));
 
     let limits = &settings.rate_limits;
-    if !limits.enabled && settings.superuser_ips.is_empty() {
-        return next.run(request).await;
-    }
-
     let token = request
         .headers()
         .get(header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
         .and_then(token_from_header)
         .map(str::to_string);
-    let auth = match token {
+    // nothing to check without limits, IP allowlists or a token (a token's resolved once
+    // here, for the handler too)
+    if !limits.enabled && settings.superuser_ips.is_empty() && token.is_none() {
+        return next.run(request).await;
+    }
+    let mut auth = match token {
+        Some(token) if crate::roles::is_api_key(&token) => {
+            // file tokens would act for the key's superuser with their role, not the key's
+            if request.uri().path() == "/api/files/token" {
+                return ApiError::forbidden("API keys can't make file tokens.").into_response();
+            }
+            match crate::roles::authenticate_key(&core, &token, ip).await {
+                Some((record, role)) => RequestAuth {
+                    superuser: Some(record),
+                    record: None,
+                    role: Some(role),
+                },
+                None => RequestAuth::default(),
+            }
+        }
         Some(token) => authenticate(&core, &token).await,
         None => RequestAuth::default(),
     };
+    let path = request.uri().path().to_string();
+    // what the superuser's role allows (owners: everything)
+    if let Some(su) = &auth.superuser {
+        let role = auth
+            .role
+            .unwrap_or_else(|| crate::roles::role_of(&core, su.id()));
+        if role != crate::roles::Role::Owner {
+            auth.role = Some(role);
+            let sql_writes = core.sql_console_writes;
+            // their own password and email, whatever their role
+            let own = request.method() == Method::PATCH
+                && path == format!("/api/collections/_superusers/records/{}", su.id());
+            if !own && !crate::roles::allowed(role, request.method(), &path, sql_writes) {
+                return ApiError::forbidden(format!(
+                    "Your role ({}) doesn't allow this.",
+                    role.as_str()
+                ))
+                .into_response();
+            }
+        }
+        // there's always an owner
+        if request.method() == Method::DELETE {
+            if let Some(id) = path.strip_prefix("/api/collections/_superusers/records/") {
+                if let Err(err) = crate::roles::check_delete(&core, id).await {
+                    return err.into_response();
+                }
+            }
+        }
+    }
     request.extensions_mut().insert(ResolvedAuth(auth.clone()));
     let registry = core.registry();
-    let path = request.uri().path().to_string();
 
     if !superuser_ip_allowed(&settings.superuser_ips, ip)
         && (auth.is_superuser() || targets_superusers(&path, &registry))

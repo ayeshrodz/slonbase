@@ -113,6 +113,17 @@ fn app_router(app: Arc<App>) -> Router {
         )
         .route("/api/crons", get(crate::sql_console::crons))
         .route("/api/jobs/runs", get(crate::jobs::runs))
+        .route("/api/team", get(crate::roles::list))
+        .route("/api/team/me", get(crate::roles::me))
+        .route(
+            "/api/team/members/{id}",
+            axum::routing::patch(crate::roles::set_role),
+        )
+        .route("/api/team/keys", post(crate::roles::create_key))
+        .route(
+            "/api/team/keys/{id}",
+            axum::routing::delete(crate::roles::delete_key),
+        )
         .route("/api/crons/{id}", post(crate::sql_console::run_cron))
         .route(
             "/api/collections/meta/scaffolds",

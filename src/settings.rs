@@ -43,7 +43,15 @@ pub struct Settings {
     pub security: Security,
     /// The HTML around every email's body (a slonbase setting).
     pub mail_layout: MailLayout,
+    /// Superusers' roles by id (none: owner). Changed with `/api/team`, never sent by
+    /// `/api/settings` nor changed by it.
+    pub superuser_roles: std::collections::BTreeMap<String, String>,
+    /// API keys (their hashes). Like the roles, only `/api/team` shows and changes them.
+    pub api_keys: Vec<crate::roles::ApiKey>,
 }
+
+/// Settings that only `/api/team` shows and changes.
+const PRIVATE_SECTIONS: &[&str] = &["superuserRoles", "apiKeys"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -502,6 +510,11 @@ impl Settings {
     /// The representation returned by the API (passwords and secrets are never sent back).
     pub(crate) fn public_json(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("settings serialize");
+        if let Some(o) = value.as_object_mut() {
+            for key in PRIVATE_SECTIONS {
+                o.remove(*key);
+            }
+        }
         value["smtp"]["password"] = Value::String(String::new());
         value["s3"]["secret"] = Value::String(String::new());
         value["backups"]["s3"]["secret"] = Value::String(String::new());
@@ -921,6 +934,9 @@ pub(crate) fn prepare_patch(
 ) -> Result<Settings, ApiError> {
     let mut merged = serde_json::to_value(current).expect("settings serialize");
     for (section, value) in body {
+        if PRIVATE_SECTIONS.contains(&section.as_str()) {
+            continue;
+        }
         let Some(target) = merged.get_mut(&section) else {
             continue; // unknown sections are ignored
         };

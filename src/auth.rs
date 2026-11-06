@@ -255,6 +255,9 @@ pub async fn verify_record_token(
 pub struct RequestAuth {
     pub superuser: Option<AuthRecord>,
     pub record: Option<AuthRecord>,
+    /// The superuser's role when it's known to be less than owner's (an API key's, or set by
+    /// the guard); `None` for an owner or when not looked up (see [`crate::roles`]).
+    pub role: Option<crate::roles::Role>,
 }
 
 impl RequestAuth {
@@ -263,10 +266,12 @@ impl RequestAuth {
             Some(r) if r.collection.id == SUPERUSERS_COLLECTION_ID => Self {
                 superuser: Some(r),
                 record: None,
+                role: None,
             },
             record => Self {
                 superuser: None,
                 record,
+                role: None,
             },
         }
     }
@@ -288,6 +293,7 @@ impl RequestAuth {
                 refreshable: false,
             }),
             record: None,
+            role: None,
         }
     }
 

@@ -1069,6 +1069,11 @@ pub async fn download(
     {
         return Err(denied());
     }
+    // the whole installation: owners and admins (the guard doesn't see file tokens)
+    let id = auth.superuser.as_ref().map(|s| s.id()).unwrap_or_default();
+    if crate::roles::role_of(&core, id) < crate::roles::Role::Admin {
+        return Err(denied());
+    }
     if !valid_name(&key) {
         return Err(ApiError::not_found());
     }

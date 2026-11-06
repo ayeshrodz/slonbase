@@ -57,6 +57,7 @@ pub mod picker;
 pub mod projects;
 pub mod realtime;
 pub mod records;
+pub mod roles;
 pub mod s3;
 pub mod secrets;
 pub mod server;

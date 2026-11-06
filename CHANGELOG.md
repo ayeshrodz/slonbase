@@ -72,12 +72,32 @@ Work towards 2.0: a new Settings page, in which every setting does something.
   fields, the password and the token key stay empty). `POST /api/settings/mail/preview`
   renders an email with sample values.
 
+- **Roles for superusers.** Each superuser of an installation is an owner (everything, as
+  before), an admin (everything but the team, restores and deleting projects), a developer
+  (collections, records, files, the SQL console when it only reads, cron jobs) or a viewer
+  (looks at everything but backups' files, changes nothing). Roles are checked for every
+  request, extensions' routes included; everyone may still sign in, refresh their session and
+  change their own password. There's always an owner. Settings → Team lists the superusers,
+  adds them and changes their roles (`GET /api/team`, `GET /api/team/me`,
+  `PATCH /api/team/members/{id}`).
+- **API keys** (`sb_…`, sent as a bearer token): for scripts, CI and servers, each acts for the
+  superuser who made it, with a role up to theirs, and optionally an expiry date and IPs it
+  works from. Only a hash is kept; the key is shown once. They can't make file tokens
+  (`POST /api/team/keys`, `DELETE /api/team/keys/{id}`).
+- **Signing in to the dashboard with OAuth2:** the sign-in page shows a button per provider
+  set up on `_superusers`; only existing superusers whose verified email matches get in.
+- **App users:** Settings → App users shows the auth collections your application signs its
+  users in with: how many users, which ways to sign in are on, which OAuth2 providers are
+  configured, and the redirect URL to register with providers.
+
 ### Security
 
 - **Uploaded images can't run anything.** An image's type comes from its bytes, not from what
   the upload says it is. SVG images with scripts, event handlers, animations, embedded
   documents, DTDs or links outside the file are refused, and every image is served with
   `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`.
+- **Backups' files are for owners and admins**, however the request is made (with a file token
+  too).
 
 ## [1.11.1] - 2026-11-06
 

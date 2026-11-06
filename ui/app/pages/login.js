@@ -1,6 +1,6 @@
 // Superuser sign-in (password, then OTP when MFA is on) and password reset.
-import { html, useState, useRef, navigate, useStore, cx } from "../lib/core.js";
-import { api, session, ApiError, PROJECT } from "../lib/api.js";
+import { html, useState, useRef, useEffect, navigate, useStore, cx } from "../lib/core.js";
+import { api, session, ApiError, PROJECT, BASE } from "../lib/api.js";
 import { Logo, Icon } from "../lib/icons.js";
 import { app } from "../lib/state.js";
 import { branding, logoFor } from "../lib/branding.js";
@@ -81,6 +81,86 @@ export function AuthFrame({ children, title, subtitle, primary = false, preview 
   </div>`;
 }
 
+// Signing in with an OAuth2 provider, as the PocketBase SDK does: the provider in a popup,
+// which redirects to /api/oauth2-redirect; the server hands the code over realtime ("@oauth2",
+// to this page's connection, named in `state`), and the code is traded for a session.
+function oauth2SignIn(provider) {
+  return new Promise((resolve, reject) => {
+    const redirectURL = location.origin + BASE + "/api/oauth2-redirect";
+    const popup = window.open("", "slonbase-oauth2", "width=520,height=680");
+    if (!popup) return reject(new Error("Allow pop-ups to sign in with " + provider.displayName + "."));
+    const source = new EventSource(BASE + "/api/realtime");
+    let done = false;
+    const finish = (fn, value) => {
+      if (done) return;
+      done = true;
+      source.close();
+      clearInterval(watch);
+      fn(value);
+    };
+    const watch = setInterval(() => popup.closed && finish(reject, new Error("The sign-in window was closed.")), 600);
+    source.addEventListener("PB_CONNECT", async (e) => {
+      const { clientId } = JSON.parse(e.data);
+      try {
+        await api.post("/api/realtime", { clientId, subscriptions: ["@oauth2"] }, { noAuth: true });
+        const url = new URL(provider.authURL + encodeURIComponent(redirectURL));
+        url.searchParams.set("state", clientId);
+        popup.location.href = url.toString();
+      } catch (err) {
+        popup.close();
+        finish(reject, err);
+      }
+    });
+    source.addEventListener("@oauth2", async (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        popup.close();
+        if (msg.error || !msg.code) throw new Error(msg.error || "The provider didn't sign you in.");
+        const res = await api.post(
+          "/api/collections/_superusers/auth-with-oauth2",
+          { provider: provider.name, code: msg.code, codeVerifier: provider.codeVerifier, redirectURL },
+          { noAuth: true }
+        );
+        finish(resolve, res);
+      } catch (err) {
+        finish(reject, err);
+      }
+    });
+    source.onerror = () => finish(reject, new Error("Lost the connection to the server."));
+  });
+}
+
+function OAuth2Buttons({ onError }) {
+  const [providers, setProviders] = useState([]);
+  const [busy, setBusy] = useState("");
+  useEffect(() => {
+    api
+      .get("/api/collections/_superusers/auth-methods", { noAuth: true })
+      .then((m) => setProviders((m.oauth2 && m.oauth2.enabled && m.oauth2.providers) || []))
+      .catch(() => {});
+  }, []);
+  if (!providers.length) return null;
+  const go = async (p) => {
+    setBusy(p.name);
+    try {
+      const res = await oauth2SignIn(p);
+      session.set(res.token, res.record);
+      navigate(location.hash.replace(/^#/, "") || "/", true);
+    } catch (err) {
+      onError(err);
+    } finally {
+      setBusy("");
+    }
+  };
+  return html`<div class="stack tight oauth2-buttons">
+    <div class="or-line"><span>or</span></div>
+    ${providers.map(
+      (p) => html`<${Button} class="block" icon="key" loading=${busy === p.name} onClick=${() => go(p)}>Continue with ${p.displayName}</${Button}>`
+    )}
+    <div class="tiny muted">Only for existing superusers with the same, verified email.</div>
+  </div>`;
+}
+
 export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -149,6 +229,7 @@ export function Login() {
       </${Button}>
       ${mfa && html`<${Button} variant="ghost" onClick=${() => setMfa(null)}>Use another account</${Button}>`}
     </form>
+    ${!mfa && html`<${OAuth2Buttons} onError=${fail} />`}
   </${AuthFrame}>`;
 }
 
