@@ -1257,5 +1257,13 @@ project's, in one transaction each.
     and thumbnail settings and token lifetimes in Settings, and a rate-limit tester.
 19. **2.1.1** (done): batches and uploads take turns so the dashboard stays usable during bulk imports,
     and the overview and Health say when request logging is off.
-20. **Next:** the differential runner over file uploads and realtime events, and the remaining
+20. **2.1.2** (done): a dashboard whose parts can be told apart (layered surfaces in both themes,
+    controls in the accent colour, the mail preview below its editor, a scrolling overview list).
+21. **2.1.3** (done): a leaner release pipeline: packages built once, one CI build shared by the
+    jobs that run it, the source image built only when its inputs change, and apt and dnf
+    repositories that keep the five newest versions (the Pages artifact had outgrown 1 GB).
+22. **2.2** (done): the site on its own domain, <https://slonbase.com>, and an installation that
+    starts from a bare Linux server: `install.sh` installs PostgreSQL if needed, creates its role
+    and database, installs the package and creates the first superuser.
+23. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

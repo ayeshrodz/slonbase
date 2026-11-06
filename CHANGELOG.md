@@ -8,6 +8,32 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-07
+
+**slonbase.com, and an installation that starts from a bare server.**
+
+### Added
+
+- **`install.sh`:** `curl -fsSL https://slonbase.com/install.sh | sudo sh` takes a Debian,
+  Ubuntu, Fedora, RHEL, Rocky or Alma server to a working instance: it installs PostgreSQL when
+  there is none (a 14 or newer; on RHEL 8 and 9 it enables the 16 stream and moves localhost
+  logins from `ident` to passwords), creates a role and a database for slonbase with a generated
+  password (never touching an existing role or database), adds the signed repository, installs
+  the package and creates the first superuser. It prints each step and the sign-in at the end,
+  takes its choices from environment variables (`SLONBASE_EMAIL`, `SLONBASE_DATABASE_URL`, ...)
+  and is safe to run again. It is checked with ShellCheck in CI.
+- **A guide from zero:** the installation guide starts with that command, then does each step by
+  hand (PostgreSQL, the role and database, the package, the setup), and ends with a check that
+  it works and a troubleshooting table. Docker and Docker Compose are their own sections.
+
+### Changed
+
+- **The project lives at <https://slonbase.com>** (the apt and dnf repositories, the docs and the
+  page). Old `github.io` addresses redirect, so existing repository entries keep working.
+- The documentation, README, site and every dashboard screenshot are brought up to date with the
+  current release (the screenshots were from 2.0, before the layered surfaces); the package's
+  post-install message says that a database is needed and points at the installer.
+
 ## [2.1.3] - 2026-11-07
 
 **A leaner release pipeline.** The same binary as 2.1.2; only how it is built and published

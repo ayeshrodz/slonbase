@@ -1,5 +1,5 @@
 # Builds the signed apt and dnf repositories from the newest releases' packages and publishes them
-# on GitHub Pages (https://<owner>.github.io/<repo>/), with the project's page (site/) at the
+# on GitHub Pages (https://slonbase.com/, the repository's custom domain), with the project's page (site/) at the
 # root and the documentation site (scripts/build-docs.mjs) at /docs/. The Release workflow starts
 # it after publishing a release; it also runs when the page or the docs change on the default
 # branch, and can be run by hand. Only the newest releases are kept in the repositories (the
@@ -64,10 +64,11 @@ jobs:
           printf '%s\n' "$KEY" | gpg --batch --import
           echo "fingerprint=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_OUTPUT"
       - name: Build the repositories
+        env:
+          # the repository variable SITE_URL overrides the address (a fork, say)
+          SITE_URL: ${{ vars.SITE_URL || 'https://slonbase.com' }}
         run: |
-          owner=$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
-          scripts/build-repo.sh pkgs site-out "${{ steps.key.outputs.fingerprint }}" \
-              "https://$owner.github.io/${GITHUB_REPOSITORY#*/}"
+          scripts/build-repo.sh pkgs site-out "${{ steps.key.outputs.fingerprint }}" "$SITE_URL"
       - name: Add the project's page
         run: |
           cp -r site/. site-out/

@@ -38,6 +38,8 @@ file, and then the defaults.
 | `--projects-path` | `SLONBASE_PROJECTS_PATH` | `projects.path` | `slonbase_data/projects` |
 | | | `projects.max_connections` | `4` |
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
+| `setup --email`, `--password` | `SLONBASE_SUPERUSER_EMAIL`, `SLONBASE_SUPERUSER_PASSWORD` | | required by `setup` (the password is better in the environment) |
+| `rekey --to` | `SLONBASE_NEW_ENCRYPTION_KEY` | | none (removes the encryption) |
 
 Relative paths are relative to the working directory. The Docker image sets
 `SLONBASE_CONFIG=/data/slonbase.toml` and keeps the paths under `/data`. The packages pass

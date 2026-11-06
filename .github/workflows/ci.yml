@@ -24,6 +24,8 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
+      # the installer people pipe into a root shell
+      - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"

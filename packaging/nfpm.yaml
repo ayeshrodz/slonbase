@@ -14,7 +14,7 @@ description: |
   and an admin dashboard, on your own PostgreSQL database. PostgreSQL is not bundled: point slonbase at a
   local or remote server from the first-run setup wizard.
 vendor: slonbase
-homepage: https://ayeshrodz.github.io/slonbase/
+homepage: https://slonbase.com/
 license: MIT
 
 overrides:

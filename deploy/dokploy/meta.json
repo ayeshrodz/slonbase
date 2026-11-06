@@ -6,8 +6,8 @@
   "logo": "slonbase.svg",
   "links": {
     "github": "https://github.com/ayeshrodz/slonbase",
-    "website": "https://ayeshrodz.github.io/slonbase/",
-    "docs": "https://ayeshrodz.github.io/slonbase/docs/platforms/#dokploy"
+    "website": "https://slonbase.com/",
+    "docs": "https://slonbase.com/docs/platforms/#dokploy"
   },
   "tags": ["backend", "baas", "postgres", "realtime", "auth", "api"]
 }

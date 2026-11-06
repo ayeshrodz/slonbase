@@ -68,12 +68,18 @@ Maintainers release by:
 2. setting the version in `Cargo.toml`;
 3. pushing a `vX.Y.Z` tag.
 
-The release workflow checks that the tag matches `Cargo.toml` and that the changelog has the
-version's section. It then builds the packages and publishes the GitHub release, with those notes,
-and the Docker image. Last, it starts the **Package repositories** workflow, which rebuilds the
-apt and dnf repositories from every release's packages and publishes them on GitHub Pages,
-with the project's page (`site/index.html`, using the images in `docs/assets/`) at the root and
-the documentation site at `/docs/`; it also runs when the page or the docs change on `main`.
+Bumping the version on `main` is also a release: when CI passes on `main` and `Cargo.toml` has a
+version without a tag, the **Release** workflow tags that commit and releases it. It checks that
+the changelog has the version's section, builds the packages once (amd64 and arm64), publishes
+the GitHub release, with those notes, and the Docker image (built from the packages' binaries).
+Last, it starts the **Package repositories** workflow, which rebuilds the apt and dnf
+repositories from the five newest releases' packages (the Pages artifact is limited to 1 GB;
+older packages stay on their release pages) and publishes them on GitHub Pages at
+<https://slonbase.com>, with the project's page (`site/index.html` and `site/install.sh`, using
+the images in `docs/assets/`) at the root and the documentation site at `/docs/`. It also runs
+when the page or the docs change on `main`. CI doesn't build packages or the source image on
+every push: the Release does, before it publishes anything, and the **Docker** workflow builds
+the image from source only when its inputs change.
 
 The documentation site is built from `docs/*.md` and `CHANGELOG.md` by
 `scripts/build-docs.mjs` (Node, no dependencies). To preview it, build it next to the page and
@@ -99,6 +105,16 @@ The repositories need, once:
    Keep a copy of the key somewhere safe. A new key means every user has to download the
    public key again.
 2. Settings → Pages → Source: **GitHub Actions**.
+3. The custom domain, once: Settings → Pages → Custom domain `slonbase.com`, then **Enforce
+   HTTPS** when the certificate is ready. At the registrar (Namecheap, with its default
+   *BasicDNS* nameservers, under Advanced DNS) delete the parking records, then add `A` records
+   for host `@` to `185.199.108.153`, `185.199.109.153`, `185.199.110.153` and
+   `185.199.111.153`, optionally `AAAA` records to `2606:50c0:8000::153` to `8003::153`, and
+   a `CNAME` for host `www` to `ayeshrodz.github.io.` (a `www` that fails GitHub's check is
+   usually a missing record, or custom nameservers). To keep the domain from being claimed by
+   someone else, also verify it in the account settings (Pages → Add a domain). The address the
+   `.list` and `.repo` files carry comes from the repository variable `SITE_URL` (default
+   `https://slonbase.com`), which a fork sets to its own.
 
 The workflow can also be run by hand (Actions → Package repositories → Run workflow), for
 example after editing a release.

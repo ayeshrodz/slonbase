@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://ayeshrodz.github.io/slonbase/">Website</a> ·
+  <a href="https://slonbase.com/">Website</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="docs/installation.md">Install</a> ·
   <a href="docs/api.md">API</a> ·
@@ -147,7 +147,18 @@ one small app on one small machine is the whole plan, or when you extend it in G
 
 ## Quick start
 
-**In 60 seconds, with Docker.** This starts slonbase and a PostgreSQL 17 server for it:
+**On a Linux server** (Debian, Ubuntu, Fedora, RHEL, Rocky, Alma): one command installs
+PostgreSQL if the machine has none, creates the database and its role, installs slonbase from
+the signed repository and creates your first superuser:
+
+```sh
+curl -fsSL https://slonbase.com/install.sh | sudo sh
+```
+
+It asks for your email and prints the dashboard address and a generated password. The
+[installation guide](docs/installation.md) shows every step by hand, from a bare server.
+
+**With Docker.** This starts slonbase and a PostgreSQL 17 server for it:
 
 ```sh
 mkdir slonbase && cd slonbase
@@ -166,22 +177,11 @@ Open the printed link and create your first superuser. That's it: the dashboard 
 
 <a href="https://render.com/deploy?repo=https://github.com/ayeshrodz/slonbase"><img alt="Deploy to Render" src="https://render.com/images/deploy-to-render-button.svg" height="32"></a>
 
-**Without Docker**, PostgreSQL isn't bundled: slonbase connects to any PostgreSQL 14+ server, on
-the same machine, elsewhere, or a managed service, and the setup link asks for it.
-
-**Debian / Ubuntu:** from the apt repository, so `apt upgrade` keeps it up to date:
-
-```sh
-curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.gpg | sudo tee /usr/share/keyrings/slonbase.gpg > /dev/null
-curl -fsSL https://ayeshrodz.github.io/slonbase/slonbase.list | sudo tee /etc/apt/sources.list.d/slonbase.list
-sudo apt update && sudo apt install slonbase
-sudo journalctl -u slonbase | grep "setup?token"
-```
-
-**Fedora / RHEL:** `sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://ayeshrodz.github.io/slonbase/slonbase.repo && sudo dnf install slonbase`.
-The `.deb` and `.rpm` files are also on the [releases](https://github.com/ayeshrodz/slonbase/releases) page.
-
-**Binary:** extract the `.tar.gz` from the releases and run `./slonbase serve`.
+**Other ways:** the `.deb`, `.rpm` and static binaries are on the
+[releases](https://github.com/ayeshrodz/slonbase/releases) page, and the apt and dnf
+repositories are described in the [installation guide](docs/installation.md#3-install-slonbase).
+PostgreSQL isn't bundled: slonbase connects to any 14+ server, on the same machine, elsewhere,
+or a managed service.
 
 Then connect from your app with any HTTP client, or with the PocketBase SDKs, which work with
 slonbase's API:
@@ -206,7 +206,7 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | **Record editor** | **API rules** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/editor-dark.png"><img alt="A record open in the drawer beside the grid" src="docs/assets/screenshots/editor-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> |
 | **Settings: appearance** | **Email designer** |
-| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png"><img alt="Settings: color mode, thirteen named accents and a preview" src="docs/assets/screenshots/settings-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/mail-dark.png"><img alt="The email designer: a template's HTML beside a live preview" src="docs/assets/screenshots/mail-light.png"></picture> |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png"><img alt="Settings: color mode, thirteen named accents and a preview" src="docs/assets/screenshots/settings-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/mail-dark.png"><img alt="The email designer: the layout and each template, with a live preview below" src="docs/assets/screenshots/mail-light.png"></picture> |
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/diagram-dark.png"><img alt="The schema diagram: every collection with its fields, and its relations" src="docs/assets/screenshots/diagram-light.png"></picture>
 <p align="center"><sub>The schema diagram, drawn from the collections: hover one to follow its relations.</sub></p>
@@ -219,7 +219,7 @@ anything it does, you can script too.
 ## Documentation
 
 The guides are also on the documentation site, with search:
-**[ayeshrodz.github.io/slonbase/docs](https://ayeshrodz.github.io/slonbase/docs/)**.
+**[slonbase.com/docs](https://slonbase.com/docs/)**.
 
 - [Installation](docs/installation.md): Docker, packages, binaries, first-run setup, upgrades
 - [Configuration](docs/configuration.md): server options and application settings

@@ -1,13 +1,13 @@
 [package]
 name = "slonbase"
-version = "2.1.3"
+version = "2.2.0"
 edition = "2024"
 rust-version = "1.87"
 description = "Your whole backend, built on PostgreSQL: collections, a REST and realtime API, auth, files, hooks and an admin dashboard in one binary"
 license = "MIT"
 repository = "https://github.com/ayeshrodz/slonbase"
 readme = "README.md"
-homepage = "https://ayeshrodz.github.io/slonbase/"
+homepage = "https://slonbase.com/"
 documentation = "https://github.com/ayeshrodz/slonbase/tree/main/docs"
 keywords = ["backend", "postgresql", "rest-api", "realtime", "auth"]
 categories = ["web-programming::http-server", "database", "authentication"]

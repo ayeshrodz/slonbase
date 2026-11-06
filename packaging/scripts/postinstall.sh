@@ -28,7 +28,11 @@ fi
 if [ ! -f /etc/slonbase/config.toml ]; then
     cat <<'MSG'
 
-slonbase is installed. To finish setting it up, get the one-time setup link:
+slonbase is installed, but not set up: it needs a PostgreSQL database.
+(The one-command installer, curl -fsSL https://slonbase.com/install.sh | sudo sh,
+creates one for you; the steps by hand are at https://slonbase.com/docs/installation/.)
+
+To finish in the browser, get the one-time setup link:
 
     sudo journalctl -u slonbase | grep "setup?token"
 
