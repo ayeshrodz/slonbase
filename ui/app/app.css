@@ -5886,3 +5886,8 @@ table.table tr.on td {
   border-radius: var(--r-md);
 }
 
+
+/* a card in its own accent tint keeps its caption readable on it */
+.accent-card .tiny.muted {
+  color: var(--ink-3);
+}
