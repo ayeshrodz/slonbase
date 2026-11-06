@@ -345,7 +345,7 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
   <div class="wrap">
     <a class="brand" href="#"><img src="assets/logo.svg" alt=""><span class="word">slon<span>base</span></span></a>
     <nav>
-      <a class="hide-sm" href="#new">New in 1.7</a>
+      <a class="hide-sm" href="#new">New in 2.x</a>
       <a class="hide-sm" href="#features">Features</a>
       <a class="hide-sm" href="#performance">Performance</a>
       <a class="hide-sm" href="#scale">Scale out</a>
@@ -407,44 +407,44 @@ footer { border-top: 1px solid var(--line); padding: 56px 0 64px; margin-top: 96
 <section id="new" class="alt">
   <div class="wrap">
     <div class="center">
-      <div class="eyebrow">New in 1.7</div>
-      <h2>A new dashboard.<br>Faster everywhere else.</h2>
-      <p class="sub">The biggest release since 1.0: a redesigned dashboard, writes that no longer queue behind each other, compressed answers, live previews for view collections, and every release checked against PocketBase itself.</p>
+      <div class="eyebrow">New in 2.x</div>
+      <h2>Make it yours.<br>Install it in a minute.</h2>
+      <p class="sub">2.0 rebuilt Settings so that every setting does something: your name, colours, logo, sign-in page and emails, with roles for the people who run it. 2.1 and 2.2 added sign-in lockout, a rate-limit tester and a one-command install that starts from a bare server.</p>
     </div>
     <div class="bento">
       <div class="card wide tall reveal">
-        <span class="tag">Dashboard</span>
-        <h3>Redesigned from the sidebar up</h3>
-        <p>One sidebar for sections, collections, theme and account. A warm, muted palette in light and dark, pill tabs, a calmer records grid, records edited in a drawer beside the list, and an overview with the day's traffic.</p>
-        <div class="peek"><img id="new-shot" src="assets/screenshots/overview-light.png" alt="The redesigned slonbase dashboard overview" width="2880" height="1800" loading="lazy"></div>
+        <span class="tag">Settings</span>
+        <h3>An installation that looks like yours</h3>
+        <p>Thirteen named accents or a colour of your own, a light or dark mode, the application's name in the tab, the sidebar and the sign-in page, your logo, and a sign-in page you lay out yourself. Each project on a server has its own.</p>
+        <div class="peek"><img id="new-shot" src="assets/screenshots/settings-light.png" alt="Settings: the application's name and address, and an appearance with colour modes and named accents" width="2880" height="1800" loading="lazy"></div>
       </div>
       <div class="card third reveal">
-        <span class="tag">Writes</span>
-        <h3>Commits no longer wait in line</h3>
-        <div class="big">1.64×<small>creates/s vs 1.6</small></div>
-        <p>Realtime no longer sends a notification inside every write, which made PostgreSQL commit them one at a time.</p>
+        <span class="tag">Install</span>
+        <h3>One command on Linux</h3>
+        <div class="big">1<small>command, bare server to sign-in</small></div>
+        <p><code>install.sh</code> installs PostgreSQL if needed, creates its role and database, installs the signed package and creates your first superuser.</p>
       </div>
       <div class="card third reveal">
-        <span class="tag">Network</span>
-        <h3>Compressed answers</h3>
-        <div class="big">6.6×<small>smaller lists</small></div>
-        <p>gzip for JSON over 1 KB. A 30-record page drops from 14.5 KB to 2.2 KB, for about 25 µs of CPU. Anything carrying a token stays uncompressed, so BREACH can't guess it.</p>
+        <span class="tag">Team</span>
+        <h3>Roles and API keys</h3>
+        <div class="big">4<small>roles for superusers</small></div>
+        <p>Owner, Admin, Developer and Viewer decide what each superuser may change in the dashboard. API keys let scripts and CI call the API without a person's password.</p>
       </div>
       <div class="card half reveal">
-        <span class="tag">View collections</span>
-        <h3>See a view before you save it</h3>
-        <p>The view editor shows the fields and the first rows of your query as you type, through <code>POST /api/collections/meta/dry-run-view</code>, run read-only and time-limited.</p>
-<pre class="mini">SELECT p.id, p.title, count(c.id) AS comments
-FROM posts p LEFT JOIN comments c ON c.post = p.id
-GROUP BY p.id  <span class="cm">-- fields: id · title · comments (number)</span></pre>
+        <span class="tag">Email</span>
+        <h3>An email designer with a live preview</h3>
+        <p>A layout around every email, each template as HTML, and placeholders for the record and the link, with the real result shown below as you type.</p>
+<pre class="mini">&lt;h1&gt;Welcome to {APP_NAME}&lt;/h1&gt;
+&lt;p&gt;Hi {RECORD:name}, your one-time code is:&lt;/p&gt;
+&lt;p&gt;&lt;b&gt;{OTP}&lt;/b&gt;&lt;/p&gt;</pre>
       </div>
       <div class="card half reveal">
-        <span class="tag">Compatibility</span>
-        <h3>Checked against PocketBase, every push</h3>
-        <p>A differential runner starts PocketBase and slonbase side by side, sends both the same requests, plus a thousand fuzzed HTML documents for excerpts, and fails CI on any difference in the answers.</p>
+        <span class="tag">Operations</span>
+        <h3>See what ran, and keep it safe</h3>
+        <p>A history of every backup and cron job with how it ended, encrypted backups shown as such, lockout after failed sign-ins, CORS and maintenance mode, and a tester that tells you which rate-limit rule a request would hit.</p>
         <div class="meter">
-          <div>requests<i class="us"></i><b>identical</b></div>
-          <div>excerpts<i class="us"></i><b>1,000 fuzzed</b></div>
+          <div>backups<i class="us"></i><b>history kept</b></div>
+          <div>sign-in lockout<i class="us"></i><b>per account</b></div>
         </div>
       </div>
     </div>
@@ -841,7 +841,7 @@ slonbase serve</pre>
     shot.src = "assets/screenshots/" + name + "-" + (root.dataset.theme === "dark" ? "dark" : "light") + ".png";
     shot.alt = "The slonbase dashboard: " + name;
     var hero = document.getElementById("new-shot");
-    if (hero) hero.src = "assets/screenshots/overview-" + (root.dataset.theme === "dark" ? "dark" : "light") + ".png";
+    if (hero) hero.src = "assets/screenshots/settings-" + (root.dataset.theme === "dark" ? "dark" : "light") + ".png";
   }
   document.querySelectorAll("[data-shot]").forEach(function (b) {
     b.addEventListener("click", function () {
