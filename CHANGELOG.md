@@ -8,6 +8,21 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.1.3] - 2026-11-07
+
+**A leaner release pipeline.** The same binary as 2.1.2; only how it is built and published
+changed.
+
+### Changed
+
+- **The apt and dnf repositories keep the five newest versions.** They carried every release,
+  and their GitHub Pages deployment grew past the 1 GB limit, so publishing 2.1.2 to them
+  timed out. Older versions stay on their [release pages](https://github.com/ayeshrodz/slonbase/releases)
+  as `.deb`, `.rpm` and `.tar.gz` files and as Docker images.
+- Releases build their packages once, and update the repositories once. CI no longer builds the
+  packages or the image from source on every push (the release does, before it publishes), and
+  its jobs that run slonbase share a single build.
+
 ## [2.1.2] - 2026-11-07
 
 **A dashboard whose parts you can tell apart.**
