@@ -32,6 +32,31 @@ Work towards 2.0: a new Settings page, in which every setting does something.
   panel, in a card, or alone), background (plain, a grid or an image), heading, line under it,
   logo, a notice (plain text), up to three links (`https:` or `mailto:`) and whether
   "powered by slonbase" shows, with a live preview of the real page.
+- **A history of what ran.** Automatic and manual backups and cron jobs (hooks' `cronAdd` and
+  the backups' schedule) record each run: when, what started it, how long it took, how it
+  ended (with the error when it failed) and, for backups, the file, its size and whether it's
+  encrypted. The last 500 runs of each job are kept (`GET /api/jobs/runs`).
+- **Backups say whether they're encrypted** (`encrypted`, from the file's first bytes, in
+  `GET /api/backups`) and whether they're automatic; the page filters them and shows when the
+  next automatic one runs.
+- **Cron jobs, at a glance:** each job's schedule in words ("every day at 03:00"), its next run
+  and how its last run went (`GET /api/crons` has `description`, `next` and `lastRun`), with
+  its history.
+- **File storage shows where files are:** the directory on the server (or the bucket), the free
+  space there, what the uploads take (measured in the background, by collection) and
+  thumbnails, which can be cleared (`GET /api/settings/storage`).
+- **CORS.** Pages on other sites may call the API, as with PocketBase; Settings → Security &
+  limits can restrict that to some origins (`security.allowedOrigins`). Until now, slonbase
+  sent no CORS headers, so browsers refused such calls.
+- **More of Security & limits:** maintenance (the API answers 503 with your message to all but
+  superusers and health checks), HTTPS only (`Strict-Transport-Security`, when the application
+  URL is https), and the largest request (128 MB by default, now a setting).
+- **More of Logs:** paths not to log (unless they fail on the server), slow requests logged as
+  warnings whatever the minimum level, and a maximum number of entries.
+- **Import & export:** choose which collections to export (system ones too, indented or not, to
+  copy or download); an import shows, collection by collection, the fields added, changed and
+  removed, the rules and indexes it changes, and what Replace would delete; and the settings
+  can be exported and applied elsewhere (without passwords, secrets or images).
 
 ### Security
 

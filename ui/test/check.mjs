@@ -184,6 +184,10 @@ for (const theme of ["light", "dark"]) {
     ["login screen", "#/settings/login", { screenshot: false }],
     ["backups", "#/settings/backups", { screenshot: false }],
     ["security", "#/settings/security", { screenshot: false }],
+    ["crons", "#/settings/crons", { screenshot: false }],
+    ["storage", "#/settings/storage", { screenshot: false }],
+    ["logs settings", "#/settings/logs", { screenshot: false }],
+    ["import", "#/settings/transfer", { screenshot: false }],
   ];
   for (const [name, hash, options] of screens) {
     await page.goto(`${base}/_/${hash}`);

@@ -658,11 +658,25 @@ pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
             }
         }
         let (core, run, id) = (core.clone(), job.run.clone(), job.id.clone());
-        tokio::spawn(async move {
-            if let Err(err) = run(core).await {
-                tracing::error!(job = %id, error = %err.details.as_deref().unwrap_or(&err.message), "a cron job failed");
-            }
-        });
+        tokio::spawn(run_cron_recorded(core, id, run, "schedule"));
+    }
+}
+
+/// Runs a cron job, recorded in the jobs' history.
+pub(crate) async fn run_cron_recorded(
+    core: Arc<Core>,
+    id: String,
+    run: Arc<CronFn>,
+    trigger: &'static str,
+) {
+    let record = crate::jobs::start(&core, crate::jobs::CRON, &id, trigger).await;
+    match run(core).await {
+        Ok(()) => record.finish(Ok(serde_json::json!({}))).await,
+        Err(err) => {
+            let detail = err.details.as_deref().unwrap_or(&err.message).to_string();
+            tracing::error!(job = %id, error = %detail, "a cron job failed");
+            record.finish(Err(detail)).await;
+        }
     }
 }
 

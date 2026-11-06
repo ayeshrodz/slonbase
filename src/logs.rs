@@ -176,7 +176,7 @@ async fn write(pool: &Pool, batch: &[Entry]) -> anyhow::Result<()> {
 }
 
 /// Deletes entries older than `max_days`.
-pub async fn cleanup(pool: &Pool, max_days: u32) -> anyhow::Result<()> {
+pub async fn cleanup(pool: &Pool, max_days: u32, max_rows: u32) -> anyhow::Result<()> {
     let client = pool.get().await.map_err(crate::db::describe_pool_error)?;
     client
         .execute(
@@ -184,6 +184,16 @@ pub async fn cleanup(pool: &Pool, max_days: u32) -> anyhow::Result<()> {
             &[&(max_days.max(1) as i32)],
         )
         .await?;
+    if max_rows > 0 {
+        // the newest `max_rows` stay
+        client
+            .execute(
+                "DELETE FROM _slonbase.logs WHERE created < (
+                     SELECT created FROM _slonbase.logs ORDER BY created DESC OFFSET $1 LIMIT 1)",
+                &[&(i64::from(max_rows) - 1)],
+            )
+            .await?;
+    }
     Ok(())
 }
 
@@ -273,12 +283,27 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     if status.is_success() && (path.starts_with("/_/") || path == "/api/health" || path == "/") {
         return response;
     }
+    // nor paths left out in the settings, unless they failed on the server
+    if !status.is_server_error()
+        && settings
+            .logs
+            .exclude_paths
+            .iter()
+            .any(|p| path.starts_with(p.as_str()))
+    {
+        return response;
+    }
+    let elapsed_ms = started.elapsed().as_millis();
+    let slow = settings.logs.slow_request_ms > 0
+        && elapsed_ms >= u128::from(settings.logs.slow_request_ms);
     let level = if status.as_u16() >= 400 {
         LEVEL_ERROR
+    } else if slow {
+        LEVEL_WARN
     } else {
         LEVEL_INFO
     };
-    if level < settings.logs.min_level {
+    if level < settings.logs.min_level && !slow {
         return response;
     }
 
@@ -293,6 +318,9 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         json!((started.elapsed().as_secs_f64() * 1e6).round() / 1e3),
     );
     data.insert("auth".into(), caller.collection.into());
+    if slow {
+        data.insert("slow".into(), true.into());
+    }
     if settings.logs.log_auth_id {
         data.insert("authId".into(), caller.id.into());
     }

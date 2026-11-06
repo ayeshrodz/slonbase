@@ -2151,6 +2151,7 @@ dependencies = [
  "image",
  "infer",
  "lettre",
+ "libc",
  "md-5",
  "memchr",
  "mimalloc",

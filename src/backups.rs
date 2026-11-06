@@ -832,14 +832,55 @@ pub async fn run_scheduled(core: &Arc<Core>) {
     }
     let core = core.clone();
     tokio::spawn(async move {
-        if let Err(err) = run_auto_backup(&core).await {
+        if let Err(err) = run_auto_backup_recorded(&core, "schedule").await {
             tracing::error!(error = %err, "the automatic backup failed");
         }
     });
 }
 
+/// What the history keeps of a backup: its name, size and whether it's encrypted.
+async fn backup_meta(core: &Core, name: &str) -> Value {
+    let target = storage(core);
+    let size = target.size(name).await.ok().flatten();
+    let encrypted = is_encrypted_in(&target, name).await.ok();
+    json!({ "key": name, "size": size, "encrypted": encrypted })
+}
+
+/// Whether a stored backup is encrypted, from its first bytes.
+async fn is_encrypted_in(target: &crate::storage::Storage, key: &str) -> anyhow::Result<bool> {
+    use futures_util::StreamExt;
+    let magic = crate::backup_crypt::MAGIC;
+    let Some(mut object) = target.open_range(key, 0, magic.len() as u64 - 1).await? else {
+        return Ok(false);
+    };
+    let mut start = Vec::with_capacity(magic.len());
+    while let Some(chunk) = object.stream.next().await {
+        start.extend_from_slice(&chunk?);
+        if start.len() >= magic.len() {
+            break;
+        }
+    }
+    Ok(start.starts_with(magic))
+}
+
+/// [`run_auto_backup`], recorded in the jobs' history.
+pub async fn run_auto_backup_recorded(core: &Arc<Core>, trigger: &str) -> Result<(), BackupError> {
+    let run = crate::jobs::start(core, crate::jobs::BACKUP, "auto", trigger).await;
+    match run_auto_backup(core).await {
+        Ok(name) => {
+            run.finish(Ok(backup_meta(core, &name).await)).await;
+            Ok(())
+        }
+        Err(err) => {
+            run.finish(Err(err.to_string())).await;
+            Err(err)
+        }
+    }
+}
+
 /// Creates an automatic backup and deletes the oldest beyond `backups.cronMaxKeep`.
-pub async fn run_auto_backup(core: &Arc<Core>) -> Result<(), BackupError> {
+/// Returns its name.
+pub async fn run_auto_backup(core: &Arc<Core>) -> Result<String, BackupError> {
     let name = format!(
         "{AUTO_PREFIX}{}.zip",
         chrono::Utc::now().format("%Y%m%d%H%M%S")
@@ -860,7 +901,7 @@ pub async fn run_auto_backup(core: &Arc<Core>) -> Result<(), BackupError> {
             tracing::warn!(backup = %key, error = %format!("{err:#}"), "failed to delete an old automatic backup");
         }
     }
-    Ok(())
+    Ok(name)
 }
 
 // ---------------------------------------------------------------------------
@@ -878,10 +919,28 @@ pub async fn list(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json
         .filter(|(key, _, _)| valid_name(key))
         .collect();
     items.sort_by(|a, b| b.2.cmp(&a.2));
+    // whether each is encrypted: its first bytes, read a few at a time
+    let target = storage(&core);
+    let mut flags = Vec::with_capacity(items.len());
+    for chunk in items.chunks(8) {
+        let checks = chunk
+            .iter()
+            .map(|(key, _, _)| is_encrypted_in(&target, key));
+        flags.extend(
+            futures_util::future::join_all(checks)
+                .await
+                .into_iter()
+                .map(Result::ok),
+        );
+    }
     Ok(Json(Value::Array(
         items
             .into_iter()
-            .map(|(key, size, modified)| json!({ "key": key, "size": size, "modified": modified }))
+            .zip(flags)
+            .map(|((key, size, modified), encrypted)| {
+                let auto = key.starts_with(AUTO_PREFIX);
+                json!({ "key": key, "size": size, "modified": modified, "encrypted": encrypted, "auto": auto })
+            })
             .collect(),
     )))
 }
@@ -914,7 +973,14 @@ pub async fn create_handler(
             name.to_string()
         }
     };
-    create(&core, &name).await?;
+    let run = crate::jobs::start(&core, crate::jobs::BACKUP, "manual", "manual").await;
+    match create(&core, &name).await {
+        Ok(()) => run.finish(Ok(backup_meta(&core, &name).await)).await,
+        Err(err) => {
+            run.finish(Err(err.to_string())).await;
+            return Err(err.into());
+        }
+    }
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

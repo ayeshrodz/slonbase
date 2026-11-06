@@ -38,6 +38,38 @@ pub struct Settings {
     pub superuser_ips: Vec<String>,
     /// The dashboard's sign-in page (a slonbase setting; PocketBase has none).
     pub login: Login,
+    /// Who may call the API from a browser, how much it may upload, HTTPS and maintenance
+    /// (a slonbase setting).
+    pub security: Security,
+}
+
+/// What the API accepts beyond rate limits.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Security {
+    /// Origins (`https://app.example.com`) whose pages may call the API; `*` for any, as
+    /// PocketBase allows; empty for none (browsers then only call it from its own address).
+    pub allowed_origins: Vec<String>,
+    /// The largest request body, in MB (file uploads, mostly). Backups uploads aren't limited.
+    pub max_upload_mb: u32,
+    /// Tells browsers to use HTTPS only (`Strict-Transport-Security`), when the application
+    /// URL is https.
+    pub hsts: bool,
+    /// The API answers 503 to everyone but superusers (the dashboard keeps working).
+    pub maintenance: bool,
+    pub maintenance_message: String,
+}
+
+impl Default for Security {
+    fn default() -> Self {
+        Self {
+            allowed_origins: vec!["*".into()],
+            max_upload_mb: 128,
+            hsts: false,
+            maintenance: false,
+            maintenance_message: String::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -271,6 +303,15 @@ pub struct Logs {
     #[serde(rename = "logIP")]
     pub log_ip: bool,
     pub log_auth_id: bool,
+    /// Requests to paths starting with one of these aren't logged unless they fail with a
+    /// server error (a slonbase setting).
+    pub exclude_paths: Vec<String>,
+    /// Requests slower than this many milliseconds are logged as warnings, whatever the
+    /// minimum level (0: off; a slonbase setting).
+    pub slow_request_ms: u32,
+    /// At most this many entries are kept, the oldest deleted first (0: no limit; a
+    /// slonbase setting).
+    pub max_rows: u32,
 }
 
 impl Default for Logs {
@@ -281,6 +322,9 @@ impl Default for Logs {
             min_level: 0,
             log_ip: true,
             log_auth_id: false,
+            exclude_paths: Vec::new(),
+            slow_request_ms: 0,
+            max_rows: 0,
         }
     }
 }
@@ -470,6 +514,38 @@ fn validate(s: &Settings) -> Errors {
         }
     }
     validate_login(&s.login, &mut errors);
+    if s.logs.exclude_paths.len() > 30 {
+        errors.invalid("logs.excludePaths", "At most 30 paths.");
+    }
+    for (i, p) in s.logs.exclude_paths.iter().enumerate() {
+        if !p.starts_with('/') || p.len() > 200 {
+            errors.invalid(
+                format!("logs.excludePaths.{i}"),
+                "Must be a path starting with /.",
+            );
+        }
+    }
+    let sec = &s.security;
+    if !(1..=16384).contains(&sec.max_upload_mb) {
+        errors.invalid("security.maxUploadMb", "Must be between 1 and 16384.");
+    }
+    if sec.maintenance_message.chars().count() > 300 {
+        errors.invalid(
+            "security.maintenanceMessage",
+            "Must be at most 300 characters.",
+        );
+    }
+    if sec.allowed_origins.len() > 50 {
+        errors.invalid("security.allowedOrigins", "At most 50 origins.");
+    }
+    for (i, origin) in sec.allowed_origins.iter().enumerate() {
+        if !(origin == "*" || crate::http_policy::valid_origin(origin)) {
+            errors.invalid(
+                format!("security.allowedOrigins.{i}"),
+                "Must be * or an origin such as https://app.example.com (no path).",
+            );
+        }
+    }
     if s.smtp.enabled {
         if s.smtp.host.trim().is_empty() {
             errors.add("smtp.host", "validation_required", "Cannot be blank.");

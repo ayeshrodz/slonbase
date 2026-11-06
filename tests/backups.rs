@@ -377,9 +377,16 @@ async fn automatic_backups() {
     )
     .await;
     let (_, crons) = admin(&app, &token, "GET", "/api/crons", None).await;
+    // the rest (next run, last run, description) in tests/operations.rs
+    let crons: Vec<Value> = crons
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| json!({ "id": j["id"], "expression": j["expression"] }))
+        .collect();
     assert_eq!(
         crons,
-        json!([{ "id": "__pbAutoBackup__", "expression": "0 3 * * *" }])
+        vec![json!({ "id": "__pbAutoBackup__", "expression": "0 3 * * *" })]
     );
     for _ in 0..3 {
         let (status, res) = admin(&app, &token, "POST", "/api/crons/__pbAutoBackup__", None).await;

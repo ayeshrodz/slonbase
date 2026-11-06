@@ -341,9 +341,16 @@ async fn js_hooks() {
 
     // cron jobs
     let (_, crons) = call(&app, admin, "GET", "/api/crons", None).await;
+    // the rest (next run, last run, description) in tests/operations.rs
+    let crons: Vec<Value> = crons
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| json!({ "id": j["id"], "expression": j["expression"] }))
+        .collect();
     assert_eq!(
         crons,
-        json!([{ "id": "jsjob", "expression": "*/5 * * * *" }])
+        vec![json!({ "id": "jsjob", "expression": "*/5 * * * *" })]
     );
     call(&app, admin, "POST", "/api/crons/jsjob", None).await;
     wait_for_log(&app, &token, "cron 1").await;

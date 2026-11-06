@@ -268,9 +268,16 @@ async fn rust_extensions() {
 
     // cron jobs are listed and can be run from the dashboard
     let (_, crons) = call(&app, admin, "GET", "/api/crons", None).await;
+    // the rest (next run, last run, description) in tests/operations.rs
+    let crons: Vec<Value> = crons
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|j| json!({ "id": j["id"], "expression": j["expression"] }))
+        .collect();
     assert_eq!(
         crons,
-        json!([{ "id": "cleanup", "expression": "0 3 * * *" }])
+        vec![json!({ "id": "cleanup", "expression": "0 3 * * *" })]
     );
     let (status, _) = call(&app, admin, "POST", "/api/crons/cleanup", None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);

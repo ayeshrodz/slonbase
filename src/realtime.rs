@@ -1449,9 +1449,10 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                     _ = prune.tick() => {
                         let Some(core) = weak.upgrade() else { return };
                         core.rate_limiter.prune();
+                        crate::jobs::prune_hourly(&core).await;
                         let max_days = core.settings().logs.max_days;
                         if max_days > 0 {
-                            if let Err(err) = crate::logs::cleanup(&core.pool, max_days).await {
+                            if let Err(err) = crate::logs::cleanup(&core.pool, max_days, core.settings().logs.max_rows).await {
                                 tracing::debug!(error = %format!("{err:#}"), "failed to delete old logs");
                             }
                         }

@@ -5538,3 +5538,145 @@ a.btn:hover {
   object-fit: cover;
   object-position: left center;
 }
+
+/* ------------------------------------------------------------------ settings tables and operations */
+
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+table.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+table.table th {
+  padding: 8px 12px;
+  text-align: left;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  background: var(--canvas-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+table.table td {
+  padding: 9px 12px;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+table.table tbody tr:first-child td {
+  border-top: 0;
+}
+table.table .num {
+  text-align: right;
+  white-space: nowrap;
+}
+table.table tr.on td {
+  background: var(--accent-soft);
+}
+.runs-table tbody tr {
+  cursor: default;
+}
+.runs-table tr.row-error {
+  cursor: pointer;
+}
+.runs-table tr.row-error td:first-child {
+  box-shadow: inset 2px 0 0 var(--danger);
+}
+.run-detail {
+  margin-top: 4px;
+  max-height: 2.6em;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.run-detail.open {
+  max-height: none;
+}
+.row.end {
+  justify-content: flex-end;
+}
+.row.tight {
+  gap: 6px;
+}
+.danger-text {
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
+}
+.card-warn {
+  border-color: color-mix(in srgb, var(--warn), transparent 40%);
+}
+.backup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+}
+.backup-lock {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: var(--r-md);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn), transparent 88%);
+}
+.backup-lock.on {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok), transparent 88%);
+}
+.storage-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+}
+.storage-facts code {
+  max-width: 100%;
+}
+.pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
+}
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  min-width: 0;
+}
+.pick > .ellipsis {
+  flex: 1;
+}
+.pick.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.diff-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+.diff-add {
+  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
+}
+.diff-change {
+  color: color-mix(in srgb, var(--warn), var(--ink) var(--text-mix));
+}
+.diff-remove {
+  color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
+}

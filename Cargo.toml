@@ -28,6 +28,7 @@ flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 form_urlencoded = "1.2.2"
 futures-util = { version = "0.3.34", default-features = false, features = ["std", "sink"] }
 hex = "0.4.3"
+libc = "0.2.190"
 memchr = "2.8.3"
 hmac = "0.13.0"
 image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
@@ -59,6 +60,7 @@ rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
 mimalloc = { version = "0.1", default-features = false }
 html5ever = { version = "0.40.1", default-features = false }
+http-body-util = "0.1.5"
 
 [features]
 default = ["js"]
@@ -70,7 +72,6 @@ flate2 = "1.1.10"
 
 [dev-dependencies]
 form_urlencoded = "1.2.2"
-http-body-util = "0.1.5"
 tokio-rustls = { version = "0.26.6", default-features = false, features = ["ring"] }
 
 [profile.release]

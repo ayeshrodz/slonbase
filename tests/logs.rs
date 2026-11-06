@@ -280,7 +280,7 @@ async fn request_logs() {
         )
         .await
         .unwrap();
-    slonbase::logs::cleanup(&pool, 5).await.unwrap();
+    slonbase::logs::cleanup(&pool, 5, 0).await.unwrap();
     let (status, _) = admin(&app, &token, "GET", "/api/logs/old0000000000aa", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _) = admin(&app, &token, "DELETE", "/api/logs", None).await;

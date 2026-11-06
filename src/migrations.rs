@@ -104,6 +104,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "assets",
         sql: include_str!("../migrations/0017_assets.sql"),
     },
+    Migration {
+        version: 18,
+        name: "job_runs",
+        sql: include_str!("../migrations/0018_job_runs.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

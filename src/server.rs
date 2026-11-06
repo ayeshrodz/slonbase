@@ -23,7 +23,8 @@ const HEALTH_DB_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// Record writes may carry file uploads (JSON bodies have their own, smaller limit).
 fn upload_limit() -> DefaultBodyLimit {
-    DefaultBodyLimit::max(records::files::MAX_MULTIPART_SIZE)
+    // Settings → Security & limits sets it (see http_policy)
+    DefaultBodyLimit::disable()
 }
 
 pub fn router(app: Arc<App>) -> Router {
@@ -83,6 +84,11 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/settings/test/s3", post(settings::test_s3))
         .route("/api/settings/test/email", post(settings::test_email))
+        .route("/api/settings/storage", get(crate::storage_info::info))
+        .route(
+            "/api/settings/storage/clear-thumbs",
+            post(crate::storage_info::clear_thumbs),
+        )
         .route("/api/system/status", get(crate::status::status))
         .route(
             "/api/branding/assets",
@@ -105,6 +111,7 @@ fn app_router(app: Arc<App>) -> Router {
             get(crate::sql_console::info).post(crate::sql_console::run),
         )
         .route("/api/crons", get(crate::sql_console::crons))
+        .route("/api/jobs/runs", get(crate::jobs::runs))
         .route("/api/crons/{id}", post(crate::sql_console::run_cron))
         .route(
             "/api/collections/meta/scaffolds",
@@ -263,6 +270,12 @@ fn app_router(app: Arc<App>) -> Router {
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),
             crate::guard::middleware,
+        ))
+        // CORS, sizes, HTTPS and maintenance: outside the guard, so its refusals carry CORS
+        // headers too
+        .layer(axum::middleware::from_fn_with_state(
+            app.clone(),
+            crate::http_policy::middleware,
         ))
         .layer(axum::middleware::from_fn_with_state(
             app.clone(),

@@ -363,13 +363,48 @@ pub async fn crons(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let mut last = crate::jobs::last_runs(&client, crate::jobs::CRON)
+        .await
+        .map_err(ApiError::internal)?;
+    let backups = crate::jobs::last_runs(&client, crate::jobs::BACKUP)
+        .await
+        .map_err(ApiError::internal)?;
+    let now = chrono::Utc::now();
+    let describe = |id: &str, expression: &str, kind: &str, last: Option<Value>| {
+        let next = crate::cron::Schedule::parse(expression)
+            .and_then(|s| s.next_after(&now))
+            .map(|t| crate::datetime::format(&t));
+        json!({
+            "id": id,
+            "expression": expression,
+            "description": crate::cron::Schedule::describe(expression),
+            "next": next,
+            "kind": kind,
+            "lastRun": last,
+        })
+    };
     let cron = core.settings().backups.cron.trim().to_string();
     let mut jobs = Vec::new();
     if !cron.is_empty() {
-        jobs.push(json!({ "id": AUTO_BACKUP_JOB, "expression": cron }));
+        jobs.push(describe(
+            AUTO_BACKUP_JOB,
+            &cron,
+            "backup",
+            backups.get("auto").cloned(),
+        ));
     }
     for job in core.hooks.crons() {
-        jobs.push(json!({ "id": job.id, "expression": job.expression }));
+        jobs.push(describe(
+            &job.id,
+            &job.expression,
+            "hook",
+            last.remove(&job.id),
+        ));
     }
     Ok(Json(Value::Array(jobs)))
 }
@@ -386,17 +421,13 @@ pub async fn run_cron(
     if let Some(job) = core.hooks.crons().iter().find(|j| j.id == id) {
         // in the background, like PocketBase
         let (run, core) = (job.run.clone(), core.clone());
-        tokio::spawn(async move {
-            if let Err(err) = run(core).await {
-                tracing::error!(job = %id, error = %err.details.as_deref().unwrap_or(&err.message), "a cron job failed");
-            }
-        });
+        tokio::spawn(crate::hooks::run_cron_recorded(core, id, run, "manual"));
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
     }
     if id != AUTO_BACKUP_JOB || core.settings().backups.cron.trim().is_empty() {
         return Err(ApiError::not_found());
     }
-    crate::backups::run_auto_backup(&core).await?;
+    crate::backups::run_auto_backup_recorded(&core, "manual").await?;
     Ok(axum::http::StatusCode::NO_CONTENT.into_response())
 }
 

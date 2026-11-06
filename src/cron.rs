@@ -99,6 +99,100 @@ impl Schedule {
             && bit(self.months, at.month())
             && day_matches
     }
+
+    /// The first minute after `after` the schedule fires in, within about five years
+    /// (`None` for a schedule that never does, such as `0 0 30 2 *`).
+    pub fn next_after(&self, after: &DateTime<Utc>) -> Option<DateTime<Utc>> {
+        use chrono::Duration;
+        let bit = |set: u64, v: u32| set & (1 << v) != 0;
+        let mut t = after
+            .with_second(0)?
+            .with_nanosecond(0)?
+            .checked_add_signed(Duration::minutes(1))?;
+        let limit = *after + Duration::days(366 * 5);
+        while t <= limit {
+            let day = bit(self.days, t.day());
+            let weekday = bit(self.weekdays, t.weekday().num_days_from_sunday());
+            let day_matches = if self.day_or {
+                day || weekday
+            } else {
+                day && weekday
+            };
+            if !bit(self.months, t.month()) || !day_matches {
+                // the next day at 00:00
+                t = (t + Duration::days(1)).with_hour(0)?.with_minute(0)?;
+            } else if !bit(self.hours, t.hour()) {
+                t = (t + Duration::hours(1)).with_minute(0)?;
+            } else if !bit(self.minutes, t.minute()) {
+                t += Duration::minutes(1);
+            } else {
+                return Some(t);
+            }
+        }
+        None
+    }
+
+    /// The schedule in words, for the common shapes ("every 5 minutes", "every day at
+    /// 03:00"); `None` for the others.
+    pub fn describe(raw: &str) -> Option<String> {
+        let raw = raw.trim();
+        match raw {
+            "@hourly" => return Some("every hour".into()),
+            "@daily" | "@midnight" => return Some("every day at 00:00".into()),
+            "@weekly" => return Some("every Sunday at 00:00".into()),
+            "@monthly" => return Some("on the 1st of every month at 00:00".into()),
+            "@yearly" | "@annually" => return Some("every year on January 1st at 00:00".into()),
+            _ => {}
+        }
+        let parts: Vec<&str> = raw.split_whitespace().collect();
+        let [mi, h, d, mo, wd] = parts.as_slice() else {
+            return None;
+        };
+        let num = |v: &str| v.parse::<u32>().ok();
+        let step = |v: &str| v.strip_prefix("*/").and_then(|n| n.parse::<u32>().ok());
+        const DAYS: [&str; 8] = [
+            "Sunday",
+            "Monday",
+            "Tuesday",
+            "Wednesday",
+            "Thursday",
+            "Friday",
+            "Saturday",
+            "Sunday",
+        ];
+        match (*mi, *h, *d, *mo, *wd) {
+            ("*", "*", "*", "*", "*") => Some("every minute".into()),
+            (m, "*", "*", "*", "*") if step(m).is_some() => {
+                Some(format!("every {} minutes", step(m)?))
+            }
+            (m, "*", "*", "*", "*") if num(m).is_some() => {
+                Some(format!("every hour at minute {}", num(m)?))
+            }
+            (m, hh, "*", "*", "*") if num(m).is_some() && step(hh).is_some() => {
+                Some(format!("every {} hours at minute {}", step(hh)?, num(m)?))
+            }
+            (m, hh, "*", "*", "*") if num(m).is_some() && num(hh).is_some() => {
+                Some(format!("every day at {:02}:{:02}", num(hh)?, num(m)?))
+            }
+            (m, hh, "*", "*", w) if num(m).is_some() && num(hh).is_some() && num(w).is_some() => {
+                Some(format!(
+                    "every {} at {:02}:{:02}",
+                    DAYS.get(num(w)? as usize)?,
+                    num(hh)?,
+                    num(m)?
+                ))
+            }
+            (m, hh, dd, "*", "*") if num(m).is_some() && num(hh).is_some() && num(dd).is_some() => {
+                Some(format!(
+                    "on day {} of every month at {:02}:{:02}",
+                    num(dd)?,
+                    num(hh)?,
+                    num(m)?
+                ))
+            }
+            _ => None,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -108,6 +202,55 @@ mod tests {
 
     fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()
+    }
+
+    #[test]
+    fn next_runs() {
+        let next =
+            |expr: &str, from: DateTime<Utc>| Schedule::parse(expr).unwrap().next_after(&from);
+        let from = Utc.with_ymd_and_hms(2026, 11, 6, 7, 30, 15).unwrap();
+        assert_eq!(next("* * * * *", from), Some(at(2026, 11, 6, 7, 31)));
+        assert_eq!(next("*/15 * * * *", from), Some(at(2026, 11, 6, 7, 45)));
+        assert_eq!(next("0 3 * * *", from), Some(at(2026, 11, 7, 3, 0)));
+        assert_eq!(
+            next("30 7 * * *", from),
+            Some(at(2026, 11, 7, 7, 30)),
+            "not this minute"
+        );
+        assert_eq!(
+            next("0 3 * * 0", from),
+            Some(at(2026, 11, 8, 3, 0)),
+            "Sunday"
+        );
+        assert_eq!(next("0 0 1 1 *", from), Some(at(2027, 1, 1, 0, 0)));
+        assert_eq!(
+            next("0 0 29 2 *", from),
+            Some(at(2028, 2, 29, 0, 0)),
+            "a leap day"
+        );
+        assert_eq!(next("0 0 30 2 *", from), None, "never");
+        // every result matches
+        for expr in ["5 4 * * 1-5", "*/7 */3 1,15 * *", "@monthly"] {
+            let n = next(expr, from).unwrap();
+            assert!(Schedule::parse(expr).unwrap().matches(&n), "{expr}: {n}");
+        }
+    }
+
+    #[test]
+    fn descriptions() {
+        for (expr, words) in [
+            ("* * * * *", Some("every minute")),
+            ("*/5 * * * *", Some("every 5 minutes")),
+            ("15 * * * *", Some("every hour at minute 15")),
+            ("0 */6 * * *", Some("every 6 hours at minute 0")),
+            ("0 3 * * *", Some("every day at 03:00")),
+            ("30 2 * * 1", Some("every Monday at 02:30")),
+            ("0 4 1 * *", Some("on day 1 of every month at 04:00")),
+            ("@hourly", Some("every hour")),
+            ("0 3 * 1-6 *", None),
+        ] {
+            assert_eq!(Schedule::describe(expr).as_deref(), words, "{expr}");
+        }
     }
 
     #[test]
