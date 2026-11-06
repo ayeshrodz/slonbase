@@ -70,7 +70,7 @@ function Appearance({ s }) {
       </div>
       <div class="appearance-preview-body">
         <div class="row wrap">
-          <button type="button" class="btn primary sm" tabindex="-1">Save record</button>
+          <button type="button" class="btn primary sm" tabindex="-1">Primary button</button>
           <button type="button" class="btn sm" tabindex="-1">Cancel</button>
           <span class="chip accent">realtime</span>
           <a href="#/settings/general" onClick=${(e) => e.preventDefault()} tabindex="-1">View the API docs</a>
@@ -84,9 +84,8 @@ function Appearance({ s }) {
       </div>
     </div>
     <div class="row">
-      <span class="small muted grow">${changed ? "Previewing: not saved yet." : "Saved."}</span>
+      <span class="small muted grow">${changed ? "Previewing: save it with the bar below, with the rest of the settings." : "Saved."}</span>
       <${Button} size="sm" variant="ghost" icon="undo" disabled=${!changed} onClick=${() => pick(savedValue)}>Reset preview</${Button}>
-      <${Button} size="sm" variant="primary" icon="check" disabled=${!changed} loading=${s.saving} onClick=${() => s.save({ meta: { accentColor: value } })}>Save appearance</${Button}>
     </div>
   </${Card}>`;
 }

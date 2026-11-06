@@ -238,6 +238,9 @@ is marked `"__pb_truncated__": true`. Paths in `logs.excludePaths` aren't logged
 fail with a server error; requests slower than `logs.slowRequestMs` are logged as warnings (and
 marked `"slow": true`) whatever `minLevel`; `logs.maxRows` caps the entries kept.
 
+Turning request logging off (`maxDays` 0), as a bulk import often does, means traffic isn't
+counted: the overview says so, and Health warns.
+
 ### Rate limits
 
 `rateLimits` limits requests per client IP. New installations (and new projects) start with them

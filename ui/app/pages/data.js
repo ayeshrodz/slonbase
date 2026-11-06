@@ -124,9 +124,9 @@ function cell(v) {
   return String(v);
 }
 
-function NewCollection({ onClose }) {
+function NewCollection({ onClose, initialType = "base" }) {
   const [name, setName] = useState("");
-  const [type, setType] = useState("base");
+  const [type, setType] = useState(initialType);
   const [query, setQuery] = useState("SELECT id, created FROM posts");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -412,9 +412,10 @@ export function DataWorkspace({ collection: name, tab, record }) {
     </section>
     ${creating &&
     html`<${NewCollection}
+      initialType=${query.new === "auth" ? "auth" : "base"}
       onClose=${() => {
         setCreating(false);
-        if (query.new) navigate(location.hash.replace(/^#/, "").replace(/[?&]new=1/, ""), true);
+        if (query.new) navigate(location.hash.replace(/^#/, "").replace(/[?&]new=(1|auth)/, ""), true);
       }}
     />`}
   </div>`;

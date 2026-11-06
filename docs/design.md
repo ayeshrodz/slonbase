@@ -1255,5 +1255,7 @@ project's, in one transaction each.
     only, log settings, import diffs, roles for superusers and API keys.
 18. **2.1** (done): lockout after failed sign-ins, the interval between auth emails, file size
     and thumbnail settings and token lifetimes in Settings, and a rate-limit tester.
-19. **Next:** the differential runner over file uploads and realtime events, and the remaining
+19. **2.1.1** (done): batches and uploads take turns so the dashboard stays usable during bulk imports,
+    and the overview and Health say when request logging is off.
+20. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

@@ -8,6 +8,26 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-07
+
+**A dashboard that stays usable during bulk imports, and honest about logging.**
+
+### Fixed
+
+- **A bulk import made the dashboard laggy.** A batch holds a database connection for its whole
+  transaction, and a project's pool is small (4 by default), so a few import workers took every
+  connection and the dashboard's own requests waited behind them. Batches and uploads now take
+  turns, using all but one connection of the pool; the rest wait, instead of failing on the
+  pool's timeout, and one connection is always free for everything else.
+- **The overview showed a confident low request count when request logging was off.** Requests
+  are counted from the request logs, so with logging off (`logs.maxDays` of 0, as an import
+  script may set) it counted nothing. The overview now says "Not logged" and links to the
+  setting, Health warns, and the command center shows "No logs" on the installation.
+- **Settings → Application had two save buttons** for the accent: its own, and the settings
+  bar's. The accent is saved with the bar, like everything else; Reset preview stays.
+- **App users → New auth collection** opened the dialog with the Base type. It starts with
+  Auth now.
+
 ## [2.1.0] - 2026-11-06
 
 **The rest of 2.0's plan: files, sign-in protection and a rate-limit tester.**
@@ -1220,7 +1240,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.1...HEAD
+[2.1.1]: https://github.com/ayeshrodz/slonbase/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...v2.0.0
 [1.11.1]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...v1.11.1

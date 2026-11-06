@@ -443,3 +443,106 @@ async fn log_settings() {
     assert_eq!(count("").await, 2);
     tdb.drop_db().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn bulk_batches_leave_the_dashboard_a_connection() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // a pool of 3: at most 2 batches write at once
+    let (app, token, _dir) = ready_app_configured(&tdb, slonbase::Extensions::default(), |o| {
+        o.max_connections = Some(3)
+    })
+    .await;
+    settings(
+        &app,
+        &token,
+        json!({ "batch": { "enabled": true, "maxRequests": 1000, "timeout": 60 }, "rateLimits": { "enabled": false } }),
+    )
+    .await;
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "rows", "fields": [{ "name": "n", "type": "number" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // many more concurrent batches than the pool has connections
+    let mut batches = Vec::new();
+    for w in 0..8 {
+        let (app, token) = (app.clone(), token.clone());
+        batches.push(tokio::spawn(async move {
+            let requests: Vec<Value> = (0..400)
+                .map(|i| json!({ "method": "POST", "url": "/api/collections/rows/records", "body": { "n": w * 1000 + i } }))
+                .collect();
+            admin(&app, &token, "POST", "/api/batch", Some(json!({ "requests": requests }))).await.0
+        }));
+    }
+    // while they run, everything else still gets a connection, quickly
+    let mut slowest = Duration::ZERO;
+    for _ in 0..15 {
+        let t = std::time::Instant::now();
+        let (status, _) = admin(&app, &token, "GET", "/api/collections", None).await;
+        assert_eq!(status, StatusCode::OK);
+        slowest = slowest.max(t.elapsed());
+        tokio::time::sleep(Duration::from_millis(60)).await;
+    }
+    assert!(
+        slowest < Duration::from_secs(3),
+        "the dashboard waited {slowest:?}"
+    );
+    for b in batches {
+        assert_eq!(
+            b.await.unwrap(),
+            StatusCode::OK,
+            "no batch fails for want of a connection"
+        );
+    }
+    let (_, count) = admin(
+        &app,
+        &token,
+        "GET",
+        "/api/collections/rows/records?perPage=1",
+        None,
+    )
+    .await;
+    assert_eq!(count["totalItems"], 8 * 400);
+    tdb.drop_db().await;
+}
+
+#[tokio::test]
+async fn health_says_when_logging_is_off() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let status = async || {
+        admin(&app, &token, "GET", "/api/system/status", None)
+            .await
+            .1
+    };
+    let s = status().await;
+    assert_eq!(s["logging"]["enabled"], true);
+    assert!(
+        s["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|c| c["id"] != "logging")
+    );
+    settings(&app, &token, json!({ "logs": { "maxDays": 0 } })).await;
+    let s = status().await;
+    assert_eq!(s["logging"]["enabled"], false);
+    let check = s["checks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["id"] == "logging")
+        .expect("a check");
+    assert_eq!(check["status"], "warn");
+    assert_eq!(check["link"], "#/settings/logs");
+    tdb.drop_db().await;
+}

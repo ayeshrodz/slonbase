@@ -255,7 +255,7 @@ export function AppUsers() {
   }, [collections.length]);
   const redirect = (branding.get().appURL || location.origin + BASE).replace(/\/$/, "") + "/api/oauth2-redirect";
   return html`<div class="stack loose">
-    <${Card} title="Your application's users" subtitle="The auth collections it signs people in with, and how" icon="users" actions=${html`<a class="btn sm" href="#/data?new=1"><${Icon} name="plus" size=${15} /><span>New auth collection</span></a>`}>
+    <${Card} title="Your application's users" subtitle="The auth collections it signs people in with, and how" icon="users" actions=${html`<a class="btn sm" href="#/data?new=auth"><${Icon} name="plus" size=${15} /><span>New auth collection</span></a>`}>
       ${collections.length === 0
         ? html`<${Empty} icon="users" title="No auth collections yet">Create one (a “users” collection, say) to sign your app's users in with passwords, one-time codes or OAuth2.</${Empty}>`
         : html`<div class="app-users">

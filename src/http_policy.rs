@@ -161,6 +161,21 @@ pub async fn middleware(State(app): State<Arc<App>>, request: Request, next: Nex
         }
     }
 
+    // heavy writes take turns, leaving one connection free for everything else (a signed-in
+    // superuser's bulk import included: it's the pool, not the caller, that has to stay usable)
+    let heavy = request.method() == Method::POST
+        && (path == "/api/batch"
+            || request
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .is_some_and(|t| t.starts_with("multipart/form-data")));
+    let _turn = if heavy {
+        core.heavy_writes.acquire().await.ok()
+    } else {
+        None
+    };
+
     let https = settings.meta.app_url.starts_with("https://");
     let hsts = security.hsts && https;
     let mut response = next.run(request).await;

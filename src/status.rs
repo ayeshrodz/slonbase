@@ -115,14 +115,30 @@ pub async fn status(
             "",
         )
     });
+    let logs_off = core.settings().logs.max_days == 0;
+    if logs_off {
+        checks.push(check(
+            "logging",
+            "warn",
+            "Request logging is off",
+            "Requests aren't logged, so the overview and the logs show nothing about traffic. Turn it on by keeping logs for at least a day.",
+            "#/settings/logs",
+        ));
+    }
     if pool.waiting > 0 {
         checks.push(check(
             "pool",
             "warn",
             "Requests are waiting for a database connection",
             format!(
-                "{} waiting, all {} connections in use. Raise --database-max-connections, or check for slow queries.",
-                pool.waiting, pool.max_size
+                "{} waiting, all {} connections in use. {}, or check for slow queries; heavy batch writes can fill the pool, so keep bulk-import workers below its size.",
+                pool.waiting,
+                pool.max_size,
+                if app.project().is_some() {
+                    "Raise projects.max_connections"
+                } else {
+                    "Raise --database-max-connections"
+                }
             ),
             "#/logs",
         ));
@@ -292,6 +308,7 @@ pub async fn status(
         .as_secs();
     let started_at: chrono::DateTime<chrono::Utc> = started.into();
     Ok(Json(json!({
+        "logging": { "enabled": !logs_off },
         "version": env!("CARGO_PKG_VERSION"),
         "startedAt": crate::datetime::format(&started_at),
         "uptimeSeconds": uptime,

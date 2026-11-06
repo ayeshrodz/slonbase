@@ -19,6 +19,8 @@ export function Overview() {
   const [errors, setErrors] = useState(null);
   const [backups, setBackups] = useState(null);
   const [status, setStatus] = useState(null);
+  // request logging off: the request figures would be zeros that mean nothing
+  const logsOff = !!status && status.logging && status.logging.enabled === false;
 
   useEffect(() => {
     api.get("/api/logs/stats" + qs({ filter: "data.type = 'request'" })).then(setStats).catch(() => setStats([]));
@@ -78,12 +80,16 @@ export function Overview() {
         <div class="row hero-chart-head">
           <div>
             <div class="small muted">Requests, last 24 hours</div>
-            <div class="hero-total">${stats === null ? html`<${Skeleton} width="80px" height=${30} />` : html`<${CountUp} value=${requests} />`}</div>
+            <div class="hero-total">${stats === null || status === null ? html`<${Skeleton} width="80px" height=${30} />` : logsOff ? html`<span class="muted">Not logged</span>` : html`<${CountUp} value=${requests} />`}</div>
           </div>
           <span class="spacer"></span>
-          <a class="small" href="#/logs">Open logs <${Icon} name="arrowRight" size=${13} /></a>
+          <a class="small" href=${logsOff ? "#/settings/logs" : "#/logs"}>${logsOff ? "Turn on logging" : "Open logs"} <${Icon} name="arrowRight" size=${13} /></a>
         </div>
-        ${stats === null ? html`<${Skeleton} height=${150} />` : html`<${AreaChart} hours=${hourly} max=${max} total=${requests} />`}
+        ${stats === null || status === null
+          ? html`<${Skeleton} height=${150} />`
+          : logsOff
+          ? html`<div class="muted small" style="padding:48px 0;text-align:center">Request logging is off, so traffic isn't counted. Keep logs for at least a day in Settings → Logs to see requests here.</div>`
+          : html`<${AreaChart} hours=${hourly} max=${max} total=${requests} />`}
       </div>
     </section>
 

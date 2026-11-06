@@ -49,6 +49,13 @@ them all.
   reconnect.
 - **Connections.** Each project opens up to `projects.max_connections` (4) pooled connections,
   plus one for realtime. Keep the total within PostgreSQL's `max_connections`.
+- **Bulk imports.** A batch (`POST /api/batch`) or an upload holds a connection while it runs.
+  slonbase lets those take turns, all but one connection at a time, so the dashboard and the
+  API's other requests always have one free; extra batches wait their turn. Importing with
+  more workers than the pool has connections (4 by default) therefore doesn't speed it up: use
+  about as many workers as there are connections less one, or raise `projects.max_connections`.
+  Batches of 1,000 to 2,000 records work well. Request logging is often switched off for an
+  import (`logs.maxDays` of 0); switch it back on afterwards, or traffic isn't counted.
 - **Several instances.** Every slonbase instance on the main database serves every project.
   Projects created or deleted on one instance start or stop on the others within moments.
 

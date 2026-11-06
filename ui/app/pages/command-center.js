@@ -305,6 +305,7 @@ function ConfigChips({ config }) {
     ${chip(config.smtp, "Mail", config.smtp ? `SMTP: ${config.smtpHost}` : "Emails aren't sent (no SMTP)")}
     ${chip(config.s3, config.s3 ? "S3 files" : "Local files", config.s3 ? "Files in an S3 bucket" : "Files on this server")}
     ${chip(!!config.backupsCron, config.backupsCron ? "Backups" : "No backups", config.backupsCron ? `Backups at ${config.backupsCron}, keeping ${config.backupsKeep}` : "No automatic backups")}
+    ${chip(config.logsDays > 0, config.logsDays > 0 ? "Logs" : "No logs", config.logsDays > 0 ? `Request logs kept ${config.logsDays} day(s)` : "Request logging is off: traffic isn't counted")}
     ${chip(config.rateLimits, "Rate limits", config.rateLimits ? "Rate limits on" : "Rate limits off")}
     ${chip(config.settingsEncrypted, "Encrypted", config.settingsEncrypted ? "Settings encrypted at rest" : "Settings stored plain")}
   </div>`;

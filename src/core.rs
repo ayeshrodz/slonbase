@@ -17,6 +17,9 @@ use crate::storage::Storage;
 
 pub struct Core {
     pub pool: Pool,
+    /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
+    /// The others wait here rather than for a connection (see `http_policy`).
+    pub(crate) heavy_writes: tokio::sync::Semaphore,
     /// The collections, with a generation that every replacement bumps.
     registry: RwLock<(u64, Arc<Registry>)>,
     auth_secret: RwLock<Arc<Vec<u8>>>,
@@ -166,8 +169,13 @@ impl Core {
         let logs = crate::logs::Logger::start(pool.clone(), settings.logs.max_data_size);
         let storage = storage_for(&settings, &local_storage);
         tracing::info!(storage = %storage.describe(), "file storage");
+        // heavy writes (batches, uploads) hold a connection for a long time: they may use all
+        // but one, so everything else (the dashboard, health checks) always finds one free
+        let heavy_writes =
+            tokio::sync::Semaphore::new(pool.status().max_size.saturating_sub(1).max(1));
         Ok(Arc::new(Self {
             pool,
+            heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
