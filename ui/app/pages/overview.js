@@ -19,6 +19,7 @@ export function Overview() {
   const [errors, setErrors] = useState(null);
   const [backups, setBackups] = useState(null);
   const [status, setStatus] = useState(null);
+  const [filter, setFilter] = useState("");
   // request logging off: the request figures would be zeros that mean nothing
   const logsOff = !!status && status.logging && status.logging.enabled === false;
 
@@ -124,9 +125,11 @@ export function Overview() {
               <p class="small">Collections hold your records. Create one to define its fields and API rules.</p>
               <${Button} variant="primary" icon="plus" onClick=${() => navigate("/data?new=1")}>Create a collection</${Button}>
             </div>`
-          : html`<div class="coll-rows">
+          : html`${user.length > 10 &&
+            html`<div class="coll-filter"><input class="input" value=${filter} onInput=${(e) => setFilter(e.target.value)} placeholder="Filter collections" aria-label="Filter collections" /></div>`}
+            <div class="coll-rows" tabindex="0" role="region" aria-label="Collections">
               ${user
-                .slice()
+                .filter((c) => !filter.trim() || c.name.toLowerCase().includes(filter.trim().toLowerCase()))
                 .sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0))
                 .map(
                   (c, i) => html`<a class="coll-row" href=${"#/data/" + enc(c.name)} style=${{ "--i": i }}>

@@ -8,6 +8,25 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.1.2] - 2026-11-07
+
+**A dashboard whose parts you can tell apart.**
+
+### Changed
+
+- **Layered surfaces.** The light theme's page is a soft grey with white cards, inputs and
+  tables on it, and darker wells (table heads, code) in them; the sidebar is a step darker than
+  the page; cards have a faint shadow. In the dark theme the cards and inputs are lighter than
+  the page, and table heads lighter again. Before, the page and the cards were the same white
+  (or the same black) and only hairlines told them apart.
+- **Controls follow the accent.** Checkboxes, radio buttons and sliders take the installation's
+  accent (they were always the browser's colour), as does the endpoint's method label.
+  Status colours stay green, amber and red whatever the accent.
+- **Settings → Mail: the preview is below the editor,** as wide as it, instead of beside it in
+  half the width.
+- **The overview's collections scroll** inside their card (with a filter once there are more
+  than ten) instead of making the page as long as the list.
+
 ## [2.1.1] - 2026-11-07
 
 **A dashboard that stays usable during bulk imports, and honest about logging.**
@@ -1240,7 +1259,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.2...HEAD
+[2.1.2]: https://github.com/ayeshrodz/slonbase/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/ayeshrodz/slonbase/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...v2.0.0

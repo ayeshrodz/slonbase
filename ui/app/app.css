@@ -53,17 +53,19 @@
   --accent-soft: color-mix(in srgb, var(--accent), transparent 89%);
   --accent-ring: color-mix(in srgb, var(--accent), transparent 72%);
 
-  --canvas: #ffffff;
-  --canvas-2: #f6f8fa;
-  --sidebar: #f6f8fa;
+  /* three layers: the page is a soft grey, cards and inputs sit on it in white, and wells
+     (table heads, code, bars) step back down */
+  --canvas: #eff2f5;
+  --canvas-2: #e7ebf0;
+  --sidebar: #e8ecf0;
   --surface: #ffffff;
-  --surface-2: #f6f8fa;
+  --surface-2: #f4f6f9;
   --raised: #ffffff;
   --ink: #1f2328;
   --ink-2: #31373d;
   --ink-3: #4b535c;
   --muted: #59636e;
-  --faint: #636c76;
+  --faint: #5d6670;
   /* coloured text (chips, statuses, links) is mixed this much with the ink, so it reads at
      4.5:1 or more on its own tint and on every surface (WCAG AA) */
   --text-mix: 41%;
@@ -92,7 +94,7 @@
   --tone-7: #7a6b9c; /* heather */
   --tone-8: #4d8287; /* teal */
 
-  --shadow-1: 0 1px 0 rgba(31, 35, 40, 0.04);
+  --shadow-1: 0 1px 2px rgba(31, 35, 40, 0.08), 0 0 0 0 transparent;
   --shadow-2: 0 8px 24px rgba(140, 149, 159, 0.2), 0 0 0 1px var(--line-2);
   --shadow-3: 0 16px 48px rgba(140, 149, 159, 0.3), 0 0 0 1px var(--line-2);
 
@@ -150,6 +152,8 @@
   --side-w-folded: 68px;
   --header-h: 0px;
   color-scheme: light;
+  /* checkboxes, radios and sliders (native controls), selected text: the installation's accent */
+  accent-color: var(--primary);
 }
 
 :root[data-theme="dark"] {
@@ -159,19 +163,21 @@
   --accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
   --accent-ring: color-mix(in srgb, var(--accent), transparent 55%);
 
-  --canvas: #0d1117;
-  --canvas-2: #151b23;
+  /* the page is the darkest layer after the sidebar; cards and inputs are lifted off it, and
+     table heads and code a step lighter again */
+  --canvas: #0b0f14;
+  --canvas-2: #080b10;
   --sidebar: #010409;
-  --surface: #0d1117;
-  --surface-2: #151b23;
-  --raised: #151b23;
+  --surface: #161d28;
+  --surface-2: #1f2733;
+  --raised: #1f2733;
   --ink: #f0f6fc;
   --ink-2: #d1d9e0;
   --ink-3: #b2bac4;
   --muted: #9198a1;
   --faint: #8b929b;
   --text-mix: 0%;
-  --line: #262c36;
+  --line: #2a313c;
   --line-2: #3d444d;
   --hover: rgba(101, 108, 118, 0.16);
   --press: rgba(101, 108, 118, 0.26);
@@ -2644,6 +2650,13 @@ table.grid .col-actions {
   display: flex;
   flex-direction: column;
   padding: 6px;
+  /* many collections scroll inside the card instead of making the page long */
+  max-height: 440px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.coll-filter {
+  padding: 8px 10px 0;
 }
 .coll-row {
   display: grid;
@@ -3935,7 +3948,7 @@ a.btn:hover {
 .endpoint .endpoint-method {
   font-weight: 600;
   letter-spacing: 0.04em;
-  color: color-mix(in srgb, var(--ok), var(--ink) var(--text-mix));
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
 }
 .endpoint .endpoint-url {
   overflow: hidden;
@@ -5731,10 +5744,11 @@ table.table tr.on td {
   color: var(--ink);
   font-weight: var(--w-medium);
 }
+/* the editor, and below it the preview, as wide as the editor: an email needs the room */
 .mail-editor {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 22px;
   align-items: start;
 }
 .mail-editor textarea.code {
@@ -5751,8 +5765,6 @@ table.table tr.on td {
   cursor: pointer;
 }
 .mail-preview {
-  position: sticky;
-  top: 16px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -5771,7 +5783,7 @@ table.table tr.on td {
 .mail-preview-frame {
   display: flex;
   justify-content: center;
-  height: 560px;
+  height: 720px;
   border: 1px solid var(--line);
   border-radius: var(--r-md);
   background: #f6f8fa;
@@ -5873,3 +5885,4 @@ table.table tr.on td {
   border: 1px solid var(--line);
   border-radius: var(--r-md);
 }
+
