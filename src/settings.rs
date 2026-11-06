@@ -41,6 +41,51 @@ pub struct Settings {
     /// Who may call the API from a browser, how much it may upload, HTTPS and maintenance
     /// (a slonbase setting).
     pub security: Security,
+    /// The HTML around every email's body (a slonbase setting).
+    pub mail_layout: MailLayout,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct MailLayout {
+    pub enabled: bool,
+    /// A whole HTML document with `{CONTENT}` where the email's body goes.
+    pub html: String,
+}
+
+impl Default for MailLayout {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            html: crate::mail::DEFAULT_LAYOUT.into(),
+        }
+    }
+}
+
+/// An accent (a name or `#rrggbb`) as a color for emails: the named accents' light tone.
+pub fn accent_hex(accent: &str) -> &str {
+    match accent {
+        "slate" => "#4f6478",
+        "mauve" => "#7a5f86",
+        "clay" => "#a2553b",
+        "sand" => "#85693a",
+        "teal" => "#1f7676",
+        "ocean" => "#1f63a8",
+        "indigo" => "#4c4fb3",
+        "rose" => "#a8405e",
+        "forest" => "#2f6b3f",
+        "amber" => "#8f5c0e",
+        "plum" => "#7d3b72",
+        "graphite" => "#4b5563",
+        a if a.len() == 7
+            && a.starts_with('#')
+            && a[1..].chars().all(|c| c.is_ascii_hexdigit())
+            && !["#1055c9", "#4a5a72", "#5062a6"].contains(&a.to_ascii_lowercase().as_str()) =>
+        {
+            a
+        }
+        _ => "#4f7a6c",
+    }
 }
 
 /// What the API accepts beyond rate limits.
@@ -514,6 +559,15 @@ fn validate(s: &Settings) -> Errors {
         }
     }
     validate_login(&s.login, &mut errors);
+    if s.mail_layout.enabled && !s.mail_layout.html.contains("{CONTENT}") {
+        errors.invalid(
+            "mailLayout.html",
+            "Must contain the {CONTENT} placeholder (where each email's body goes).",
+        );
+    }
+    if s.mail_layout.html.len() > 100_000 {
+        errors.invalid("mailLayout.html", "Must be at most 100 KB.");
+    }
     if s.logs.exclude_paths.len() > 30 {
         errors.invalid("logs.excludePaths", "At most 30 paths.");
     }
@@ -1051,23 +1105,11 @@ pub async fn test_email(
         }
     };
     let settings = core.settings();
-    let fill = |text: &str| {
-        crate::mail::render(
-            &text
-                .replace("{OTP}", "123456")
-                .replace("{OTP_ID}", "OTP_ID")
-                .replace(
-                    "{ALERT_INFO}",
-                    &crate::records::auth_api::alert_info("127.0.0.1", "Test client"),
-                ),
-            &settings,
-            "TEST_TOKEN",
-        )
-    };
+    let (subject, html) = sample_mail(&settings, &template.subject, &template.body);
     let message = crate::mail::Message {
         to: email.to_string(),
-        subject: fill(&template.subject),
-        html: fill(&template.body),
+        subject,
+        html,
     };
     if let Err(err) = core.send_mail_now(message).await {
         return Err(ApiError::bad_request(format!(
@@ -1075,6 +1117,75 @@ pub async fn test_email(
         )));
     }
     Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+/// A template filled with sample values (for the test email and the preview).
+fn sample_mail(settings: &Settings, subject: &str, body: &str) -> (String, String) {
+    let sample = |text: &str| {
+        text.replace("{OTP}", "123456")
+            .replace("{OTP_ID}", "OTP_ID")
+            .replace(
+                "{ALERT_INFO}",
+                &crate::records::auth_api::alert_info("127.0.0.1", "Test client"),
+            )
+    };
+    crate::mail::compose(
+        settings,
+        &sample(subject),
+        &sample(body),
+        "TEST_TOKEN",
+        None,
+    )
+}
+
+/// `POST /api/settings/mail/preview`: an email as it would be sent, with sample values.
+/// `{collection, template}` picks a collection's template; `subject`, `body` and `layout`
+/// (the draft being edited) stand in for the saved ones.
+pub async fn mail_preview(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+    JsonObject(body): JsonObject,
+) -> Result<Json<Value>, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let str_of = |key: &str| body.get(key).and_then(Value::as_str);
+    let mut settings = (*core.settings()).clone();
+    if let Some(layout) = body.get("layout").and_then(Value::as_object) {
+        if let Some(enabled) = layout.get("enabled").and_then(Value::as_bool) {
+            settings.mail_layout.enabled = enabled;
+        }
+        if let Some(html) = layout.get("html").and_then(Value::as_str) {
+            settings.mail_layout.html = html.chars().take(100_000).collect();
+        }
+    }
+    let (mut subject, mut text) = (String::new(), String::new());
+    if let (Some(collection), Some(template)) = (str_of("collection"), str_of("template")) {
+        let registry = core.registry();
+        let options = registry
+            .get(collection)
+            .and_then(|c| c.auth_options())
+            .ok_or_else(|| invalid_field("collection", "Must be an auth collection."))?;
+        let t = match template {
+            "verification" => &options.verification_template,
+            "password-reset" => &options.reset_password_template,
+            "email-change" => &options.confirm_email_change_template,
+            "otp" => &options.otp.email_template,
+            "login-alert" => &options.auth_alert.email_template,
+            _ => return Err(invalid_field("template", "Unknown template.")),
+        };
+        subject.clone_from(&t.subject);
+        text.clone_from(&t.body);
+    }
+    if let Some(s) = str_of("subject") {
+        subject = s.chars().take(1000).collect();
+    }
+    if let Some(b) = str_of("body") {
+        text = b.chars().take(200_000).collect();
+    }
+    let (subject, html) = sample_mail(&settings, &subject, &text);
+    Ok(Json(
+        serde_json::json!({ "subject": subject, "html": html }),
+    ))
 }
 
 #[cfg(test)]

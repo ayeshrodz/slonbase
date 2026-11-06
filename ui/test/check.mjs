@@ -188,6 +188,7 @@ for (const theme of ["light", "dark"]) {
     ["storage", "#/settings/storage", { screenshot: false }],
     ["logs settings", "#/settings/logs", { screenshot: false }],
     ["import", "#/settings/transfer", { screenshot: false }],
+    ["mail", "#/settings/mail", { screenshot: false }],
   ];
   for (const [name, hash, options] of screens) {
     await page.goto(`${base}/_/${hash}`);

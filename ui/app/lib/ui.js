@@ -59,8 +59,9 @@ export function Input({ value, onInput, invalid, class: cls, ...rest }) {
   />`;
 }
 
-export function TextArea({ value, onInput, invalid, code, class: cls, ...rest }) {
+export function TextArea({ value, onInput, invalid, code, class: cls, inputRef, ...rest }) {
   return html`<textarea
+    ref=${inputRef}
     class=${cx("input", { invalid, code }, cls)}
     value=${value ?? ""}
     onInput=${(e) => onInput && onInput(e.target.value, e)}

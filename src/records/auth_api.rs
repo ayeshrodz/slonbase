@@ -334,11 +334,18 @@ pub(super) fn send_template(
     record: &AuthRecord,
 ) {
     let settings = core.settings();
+    let (subject, html) = mail::compose(
+        &settings,
+        &template.subject,
+        &template.body,
+        token,
+        Some(record),
+    );
     core.send_mail_for(
         mail::Message {
             to: to.to_string(),
-            subject: mail::render(&template.subject, &settings, token),
-            html: mail::render(&template.body, &settings, token),
+            subject,
+            html,
         },
         kind,
         Some(record),
@@ -404,12 +411,18 @@ pub(crate) fn send_auth_alert(core: &Core, record: &AuthRecord, info: &str) {
         .expect("auth collection")
         .auth_alert;
     let settings = core.settings();
-    let fill = |text: &str| mail::render(&text.replace("{ALERT_INFO}", info), &settings, "");
+    let (subject, html) = mail::compose(
+        &settings,
+        &options.email_template.subject.replace("{ALERT_INFO}", info),
+        &options.email_template.body.replace("{ALERT_INFO}", info),
+        "",
+        Some(record),
+    );
     core.send_mail_for(
         mail::Message {
             to: record.email().to_string(),
-            subject: fill(&options.email_template.subject),
-            html: fill(&options.email_template.body),
+            subject,
+            html,
         },
         "authAlert",
         Some(record),

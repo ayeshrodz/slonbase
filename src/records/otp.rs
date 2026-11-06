@@ -171,19 +171,22 @@ pub(crate) fn send_otp(core: &Core, record: &AuthRecord, otp_id: &str, password:
         .otp;
     let settings = core.settings();
     let fill = |template: &str| {
-        mail::render(
-            &template
-                .replace("{OTP}", password)
-                .replace("{OTP_ID}", otp_id),
-            &settings,
-            "",
-        )
+        template
+            .replace("{OTP}", password)
+            .replace("{OTP_ID}", otp_id)
     };
+    let (subject, html) = mail::compose(
+        &settings,
+        &fill(&options.email_template.subject),
+        &fill(&options.email_template.body),
+        "",
+        Some(record),
+    );
     core.send_mail_for(
         mail::Message {
             to: record.email().to_string(),
-            subject: fill(&options.email_template.subject),
-            html: fill(&options.email_template.body),
+            subject,
+            html,
         },
         "otp",
         Some(record),

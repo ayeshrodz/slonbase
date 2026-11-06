@@ -58,6 +58,20 @@ Work towards 2.0: a new Settings page, in which every setting does something.
   removed, the rules and indexes it changes, and what Replace would delete; and the settings
   can be exported and applied elsewhere (without passwords, secrets or images).
 
+- **An email designer.** Settings → Mail edits the layout around every email and each auth
+  collection's messages (verification, password reset, email change, one-time password, new
+  sign-in alert) as HTML, with buttons to insert placeholders, a live preview of what the
+  server would send (desktop or phone width, in a sandboxed frame that runs nothing), and a
+  test send from the collection's own template (the dashboard used to always send the
+  superusers').
+- **A layout around every email** (`mailLayout`, on by default): the logo, a card in the
+  accent's color, the application's name and address. A template that's a whole HTML
+  document of its own isn't wrapped.
+- **New placeholders in emails:** `{APP_LOGO}` (the logo, or the application's name),
+  `{APP_LOGO_URL}`, `{ACCENT}` and `{RECORD:field}` (the recipient's fields, escaped; hidden
+  fields, the password and the token key stay empty). `POST /api/settings/mail/preview`
+  renders an email with sample values.
+
 ### Security
 
 - **Uploaded images can't run anything.** An image's type comes from its bytes, not from what

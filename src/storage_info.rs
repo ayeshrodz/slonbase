@@ -33,7 +33,8 @@ struct Usage {
 }
 
 enum Slot {
-    Measuring,
+    /// Being measured, with the last numbers meanwhile.
+    Measuring(Option<Usage>),
     Done(Instant, Usage),
 }
 
@@ -86,23 +87,22 @@ fn walk(root: &Path) -> Usage {
 fn usage(root: &Path, refresh: bool) -> Option<Usage> {
     let mut map = cache().lock().expect("usage lock");
     let stale = match map.get(root) {
-        Some(Slot::Measuring) => false,
+        Some(Slot::Measuring(_)) => false,
         Some(Slot::Done(at, _)) => refresh || at.elapsed() > USAGE_TTL,
         None => true,
     };
     let current = match map.get(root) {
         Some(Slot::Done(_, u)) => Some(u.clone()),
-        _ => None,
+        Some(Slot::Measuring(last)) => last.clone(),
+        None => None,
     };
     if stale {
-        map.insert(root.to_path_buf(), Slot::Measuring);
+        map.insert(root.to_path_buf(), Slot::Measuring(current.clone()));
         let root = root.to_path_buf();
-        let previous = current.clone();
         tokio::task::spawn_blocking(move || {
             let measured = walk(&root);
             let mut map = cache().lock().expect("usage lock");
             map.insert(root, Slot::Done(Instant::now(), measured));
-            drop(previous);
         });
     }
     current
@@ -194,7 +194,7 @@ fn usage_json_pending(path: Option<&Path>) -> bool {
     path.is_some_and(|p| {
         matches!(
             cache().lock().expect("usage lock").get(p),
-            Some(Slot::Measuring)
+            Some(Slot::Measuring(_))
         )
     })
 }
