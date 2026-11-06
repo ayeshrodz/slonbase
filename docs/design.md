@@ -1248,5 +1248,10 @@ project's, in one transaction each.
 16. **1.11** (done): a command center for every project in the main installation, projects
     on other PostgreSQL servers, and an SQL console that only reads unless allowed to write, with
     limits, a schema browser and exports.
-17. **Next:** the differential runner over file uploads and realtime events, and the remaining
+17. **2.0** (done): Settings revamped so that every setting does something: appearance with
+    named accents, the application's name and images used everywhere, a sign-in page of your
+    own, an email designer with a layout and new placeholders, the jobs' history (backups and
+    cron jobs), encrypted backups shown as such, storage facts, CORS, maintenance and HTTPS
+    only, log settings, import diffs, roles for superusers and API keys.
+18. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

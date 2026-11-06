@@ -37,6 +37,19 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 2.0
+
+- 🎛️ **Settings in which every setting does something:** named accents, the application's name
+  and logo in the browser tab, the sidebar, the sign-in page and emails, and a sign-in page you
+  can lay out, word and brand, per project.
+- 👥 **Roles and API keys:** owners, admins, developers and viewers, checked on every request,
+  and keys for scripts and CI with a role, an expiry date and IPs of their own.
+- ✉️ **An email designer:** a layout around every email and each template as HTML, with
+  placeholders and a live preview.
+- 🗓️ **A history of what ran:** every backup and cron job run, how long it took and how it
+  ended; backups marked encrypted or not. Plus CORS, maintenance, HTTPS only, and file storage
+  facts.
+
 ## New in 1.11
 
 - 🛰️ **A command center for every project:** the main installation's Projects page shows each
@@ -46,15 +59,6 @@
   creating one on the main server.
 - 🧮 **An SQL console you can trust:** read-only unless `SLONBASE_SQL_CONSOLE_WRITES=true`,
   with row and time limits, a table browser, highlighting, and exports to Excel, CSV and JSON.
-
-## New in 1.10
-
-- 🛠️ **A dashboard that looks like a developer tool**: IBM Plex Sans for the interface,
-  condensed capitals for titles, JetBrains Mono for ids, labels, figures and code.
-- 📟 **A status bar** with the connection, PostgreSQL version and round trip, API base and
-  version, and the API URL ready to copy on the overview.
-- 🌗 **Neutral, GitHub-like colours** in light and dark, flat buttons, and only the motion that
-  tells you something changed.
 
 ## Why slonbase
 
@@ -202,6 +206,8 @@ const posts = await pb.collection("posts").getList(1, 20, { filter: 'published =
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/projects-dark.png"><img alt="Every installation side by side: requests per minute, errors, latency, data and configuration" src="docs/assets/screenshots/projects-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/sql-dark.png"><img alt="The SQL console: tables and columns, a highlighted query and its results, ready to export" src="docs/assets/screenshots/sql-light.png"></picture> |
 | **Record editor** | **API rules** |
 | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/editor-dark.png"><img alt="A record open in the drawer beside the grid" src="docs/assets/screenshots/editor-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/rules-dark.png"><img alt="API rules" src="docs/assets/screenshots/rules-light.png"></picture> |
+| **Settings: appearance** | **Email designer** |
+| <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/settings-dark.png"><img alt="Settings: color mode, thirteen named accents and a preview" src="docs/assets/screenshots/settings-light.png"></picture> | <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/mail-dark.png"><img alt="The email designer: a template's HTML beside a live preview" src="docs/assets/screenshots/mail-light.png"></picture> |
 
 <picture><source media="(prefers-color-scheme: dark)" srcset="docs/assets/screenshots/diagram-dark.png"><img alt="The schema diagram: every collection with its fields, and its relations" src="docs/assets/screenshots/diagram-light.png"></picture>
 <p align="center"><sub>The schema diagram, drawn from the collections: hover one to follow its relations.</sub></p>

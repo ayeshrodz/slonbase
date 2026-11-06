@@ -46,7 +46,14 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `POST /api/sql` | The SQL console (when enabled): `{"query", "maxRows"?}` |
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
 | `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
-| `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (the automatic backup) |
+| `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (hooks' and the automatic backup), with their schedule in words, next run and last run |
+| `GET /api/jobs/runs` | What backups and cron jobs did (`kind`, `job`, `status`, `limit`), superusers |
+| `GET /api/settings/storage`, `POST /api/settings/storage/clear-thumbs` | Where files are, the free space and what uploads take; delete generated thumbnails |
+| `POST /api/settings/mail/preview` | An email as it would be sent, with sample values (`{collection, template}` and/or `{subject, body, layout}`) |
+| `GET/POST /api/branding/assets`, `PATCH/DELETE /api/branding/assets/{id}` | The installation's images (superusers; upload as multipart `file`) |
+| `GET /api/branding/assets/{id}` | An image, for anyone (sign-in pages and emails show them) |
+| `GET /api/team`, `GET /api/team/me`, `PATCH /api/team/members/{id}` | Superusers and their roles (owners change roles) |
+| `POST /api/team/keys`, `DELETE /api/team/keys/{id}` | API keys (the key is in the answer, once) |
 | `POST /api/batch` | Several record creates, updates, upserts (`PUT`) and deletes in one transaction (enable `batch` in the settings) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
@@ -55,7 +62,24 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{name}` | Projects (superusers of the main installation; see [projects](projects.md)) |
 | `GET /api/projects/overview`, `GET/PATCH /api/projects/{name}/settings`, `POST /api/projects/{name}/restart` | The command center: every installation's numbers, a project's settings, a restart (see [projects](projects.md#the-command-center)) |
 
-Send the token as `Authorization: Bearer <token>` (or just the token).
+Send the token as `Authorization: Bearer <token>` (or just the token). An API key
+(`sb_…`, Settings → Team) goes the same way: it acts for the superuser who made it, with its own
+role.
+
+### Roles
+
+Each superuser of an installation has a role (Settings → Team); one without is an owner, as
+every superuser was before 2.0.
+
+| Role | May |
+|---|---|
+| owner | everything |
+| admin | everything but superusers and roles, restoring backups and deleting projects |
+| developer | read everything but backups' files; write collections, records and files; run cron jobs and the SQL console (when it only reads) |
+| viewer | read everything but backups' files |
+
+Every superuser may sign in, refresh their session and change their own password. A request
+the role doesn't allow gets `403`. There's always at least one owner.
 
 ```sh
 # create a collection anyone can read and add to

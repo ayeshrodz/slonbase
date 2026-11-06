@@ -8,7 +8,32 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
-Work towards 2.0: a new Settings page, in which every setting does something.
+## [2.0.0] - 2026-11-06
+
+**Settings in which every setting does something.** The Settings page is rebuilt: an
+appearance with named accents, the application's name and images used everywhere, a sign-in
+page of your own, an email designer, roles for superusers and API keys, a history of what
+backups and cron jobs did, CORS, maintenance, and more of logs, storage and import. Each
+installation (the main one and every project) has its own.
+
+### Upgrading
+
+Nothing needs doing: existing settings and superusers carry over. What behaves differently:
+
+- **The API sends CORS headers**, allowing pages on any site, as PocketBase does; slonbase sent
+  none before, so browsers refused cross-origin calls. To allow only some sites, list them in
+  Settings → Security & limits (`security.allowedOrigins`).
+- **Emails are put in a layout** (the logo, a card, the application's name and address), unless
+  a template is a whole HTML document of its own. Turn it off, or change it, in Settings → Mail
+  (`mailLayout.enabled`).
+- **Every superuser is an owner** until you give them another role, so nobody loses access.
+- **Two migrations** add `_slonbase.assets` (images, included in backups) and
+  `_slonbase.job_runs` (the jobs' history). A backup made with 2.0 can't be restored by 1.x.
+- `GET /api/crons` items have more fields (`description`, `next`, `kind`, `lastRun`);
+  `GET /api/backups` items have `encrypted` and `auto`.
+- The default accent is `sage` (the colour the dashboard already had); saved colours stay.
+- For the Rust library API: `RequestAuth` has a `role` field, and `logs::cleanup` takes the
+  maximum number of entries.
 
 ### Added
 
@@ -1175,7 +1200,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/ayeshrodz/slonbase/compare/v1.11.1...v2.0.0
 [1.11.1]: https://github.com/ayeshrodz/slonbase/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/ayeshrodz/slonbase/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/ayeshrodz/slonbase/compare/v1.9.0...v1.10.0

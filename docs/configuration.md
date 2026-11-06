@@ -156,15 +156,30 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 
 | Section | What it controls |
 |---|---|
-| `meta` | `appName`, `appURL` (used in email links), `senderName`, `senderAddress`, the dashboard's `accentColor`, `hideControls` |
+| `meta` | `appName` (the browser tab, the sidebar, the sign-in page, emails), `appURL` (email links, OAuth2 redirects), `senderName`, `senderAddress`, `accentColor` (a named accent such as `ocean`, or `#rrggbb`), `hideControls`, and the images `logo`, `logoDark`, `favicon` (ids from Settings → Branding) |
 | `smtp` | Outgoing mail: `enabled`, `host`, `port`, `username`, `password`, `authMethod`, `tls`, `localName`. While it's disabled, emails are written to the log. |
 | `s3` | File storage in an S3 bucket instead of `--storage-path` |
 | `backups` | `cron` (automatic backups), `cronMaxKeep`, and `s3` (keep backups in a bucket) |
-| `logs` | `maxDays` (0 turns request logs off), `minLevel`, `logIP`, `logAuthId` |
+| `logs` | `maxDays` (0 turns request logs off), `minLevel`, `logIP`, `logAuthId`, and slonbase's `excludePaths`, `slowRequestMs`, `maxRows` |
 | `batch` | `enabled`, `maxRequests`, `timeout`, `maxBodySize` for `/api/batch` |
 | `rateLimits` | `enabled`, `rules` |
 | `trustedProxy` | `headers` carrying the client IP, `useLeftmostIP` |
 | `superuserIPs` | Addresses or ranges superusers may use |
+| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage` |
+| `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
+| `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
+
+Roles and API keys are kept with the settings but only `/api/team` shows and changes them.
+
+Emails fill `{APP_NAME}`, `{APP_URL}`, `{TOKEN}` (and `{OTP}`, `{OTP_ID}`, `{ALERT_INFO}` in their
+templates) as PocketBase does, and slonbase's `{APP_LOGO}` (the logo, or the name),
+`{APP_LOGO_URL}`, `{ACCENT}` and `{RECORD:field}` (the recipient's fields, escaped; hidden
+fields stay empty).
+
+**CORS.** Pages on any site may call the API, as with PocketBase (`security.allowedOrigins` is
+`["*"]`). List origins (`https://app.example.com`) to allow only those; an empty list allows
+none, so browsers only call the API from its own address. **Maintenance** answers `503` with
+your message to everyone but superusers and `/api/health`.
 
 Secrets (the SMTP password, S3 secrets, OAuth2 client secrets) are never returned by the API.
 `POST /api/settings/test/email` and `POST /api/settings/test/s3` check the mail and S3 settings.
@@ -212,7 +227,9 @@ too. Logs are kept for `logs.maxDays` days (5 by default) in an unlogged Postgre
 writing them is cheap. They're written in batches in the background, and they don't survive a
 PostgreSQL crash. Browse them in the dashboard or with `/api/logs`. An entry's data is kept
 under `logs.maxDataSize` bytes (16 KiB when 0): a larger one keeps the attributes that fit and
-is marked `"__pb_truncated__": true`.
+is marked `"__pb_truncated__": true`. Paths in `logs.excludePaths` aren't logged unless they
+fail with a server error; requests slower than `logs.slowRequestMs` are logged as warnings (and
+marked `"slow": true`) whatever `minLevel`; `logs.maxRows` caps the entries kept.
 
 ### Rate limits
 
