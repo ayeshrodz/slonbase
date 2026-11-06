@@ -188,7 +188,9 @@ if [ -n "$EMAIL" ]; then
     say "Creating the first superuser"
     PASSWORD=${SLONBASE_PASSWORD:-$(random_hex 12)}
     # the service is in setup mode (no database yet); setup writes the configuration itself
-    [ "$SYSTEMD" = yes ] && systemctl stop slonbase >/dev/null 2>&1 || true
+    if [ "$SYSTEMD" = yes ]; then
+        systemctl stop slonbase >/dev/null 2>&1 || true
+    fi
     run_as slonbase env RUST_LOG=warn SLONBASE_SUPERUSER_PASSWORD="$PASSWORD" \
         slonbase setup --config "$CONFIG" --database-url "$DATABASE_URL" --email "$EMAIL"
     if [ "$SYSTEMD" = yes ]; then
@@ -211,7 +213,9 @@ if [ -n "$EMAIL" ]; then
         note "Password:   $PASSWORD   (generated; shown only now. Change it in Settings > Team)"
     fi
 elif [ "$CONFIGURED" = yes ]; then
-    [ "$SYSTEMD" = yes ] && systemctl restart slonbase >/dev/null 2>&1 || true
+    if [ "$SYSTEMD" = yes ]; then
+        systemctl restart slonbase >/dev/null 2>&1 || true
+    fi
     note "Your configuration and data were left as they are."
 else
     note "Finish in the browser with the one-time link:"
