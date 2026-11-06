@@ -91,10 +91,26 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --locked
 
+  # the debug binary, built once for the jobs below that run it
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked
+      - uses: actions/upload-artifact@v7
+        with:
+          name: slonbase-debug
+          path: target/debug/slonbase
+          retention-days: 1
+          if-no-files-found: error
+
   # the official PocketBase JavaScript SDK against slonbase, and against PocketBase itself
   # (which keeps the suite's expectations honest)
   compat:
     name: compatibility (${{ matrix.target }})
+    needs: build
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -125,11 +141,15 @@ jobs:
       - run: npm ci
         working-directory: compat
       - if: matrix.target == 'slonbase'
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
       - if: matrix.target == 'slonbase'
-        uses: Swatinem/rust-cache@v2
-      - if: matrix.target == 'slonbase'
-        run: cargo build --locked
+        name: Use the shared build
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
       - if: matrix.target == 'pocketbase'
         name: Download PocketBase
         run: |
@@ -146,6 +166,7 @@ jobs:
   # with fuzzed HTML for the `:excerpt` modifier (compat/diff)
   differential:
     name: differential (PocketBase vs slonbase)
+    needs: build
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -167,9 +188,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Use the shared build
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
       - name: Download PocketBase
         run: |
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
@@ -184,6 +210,7 @@ jobs:
   # the dashboard: accessibility (axe, WCAG 2 AA) and screenshots against the baselines
   dashboard:
     name: dashboard (accessibility and screenshots)
+    needs: build
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -204,9 +231,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Use the shared build
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
       - name: Install the checks and Chromium
         working-directory: ui/test
         run: |
@@ -224,6 +256,7 @@ jobs:
   # PocketBase data (seeded through its API, then its backup) imported into slonbase
   import:
     name: PocketBase import
+    needs: build
     runs-on: ubuntu-24.04
     services:
       postgres:
@@ -249,9 +282,14 @@ jobs:
           cache-dependency-path: compat/package-lock.json
       - run: npm ci
         working-directory: compat
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Use the shared build
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
       - name: Download PocketBase
         run: |
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
@@ -271,6 +309,7 @@ jobs:
   # a released slonbase with data, upgraded to this build in place
   upgrade:
     name: upgrade from ${{ matrix.from }}
+    needs: build
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -300,9 +339,14 @@ jobs:
           cache-dependency-path: compat/package-lock.json
       - run: npm ci
         working-directory: compat
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Use the shared build
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
       - run: compat/upgrade/run.sh ${{ matrix.from }}
         env:
           GH_TOKEN: ${{ github.token }}
