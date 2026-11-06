@@ -1253,5 +1253,7 @@ project's, in one transaction each.
     own, an email designer with a layout and new placeholders, the jobs' history (backups and
     cron jobs), encrypted backups shown as such, storage facts, CORS, maintenance and HTTPS
     only, log settings, import diffs, roles for superusers and API keys.
-18. **Next:** the differential runner over file uploads and realtime events, and the remaining
+18. **2.1** (done): lockout after failed sign-ins, the interval between auth emails, file size
+    and thumbnail settings and token lifetimes in Settings, and a rate-limit tester.
+19. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

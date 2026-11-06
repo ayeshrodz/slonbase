@@ -37,6 +37,15 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
+## New in 2.1
+
+- 🔒 **Lockout after failed sign-ins:** an account that fails too many password sign-ins from
+  one address is refused for a while, shared by every instance; and the interval between auth
+  emails is a setting.
+- 📎 **File settings:** the default file size and thumbnails on or off, with token lifetimes
+  in Settings.
+- 🧭 **A rate-limit tester** that says which rule a request meets.
+
 ## New in 2.0
 
 - 🎛️ **Settings in which every setting does something:** named accents, the application's name
@@ -49,16 +58,6 @@
 - 🗓️ **A history of what ran:** every backup and cron job run, how long it took and how it
   ended; backups marked encrypted or not. Plus CORS, maintenance, HTTPS only, and file storage
   facts.
-
-## New in 1.11
-
-- 🛰️ **A command center for every project:** the main installation's Projects page shows each
-  installation live (requests per minute, errors, latency, data, connections, configuration),
-  and changes a project's settings, restarts or deletes it.
-- 🔌 **Projects on other PostgreSQL servers:** connect an existing database by URL instead of
-  creating one on the main server.
-- 🧮 **An SQL console you can trust:** read-only unless `SLONBASE_SQL_CONSOLE_WRITES=true`,
-  with row and time limits, a table browser, highlighting, and exports to Excel, CSV and JSON.
 
 ## Why slonbase
 
