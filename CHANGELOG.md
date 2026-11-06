@@ -8,6 +8,38 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+Work towards 2.0: a new Settings page, in which every setting does something.
+
+### Added
+
+- **Settings, reorganized.** Sections are grouped (Workspace, Delivery, Operations,
+  Protection, Data), with a dot on those with unsaved changes. Links to a section (from Health's
+  checks, the command palette) keep working.
+- **Appearance.** Settings → Application has cards for the color mode (system, light, dark;
+  kept per browser) and thirteen named accents (Sage, Slate, Mauve, Clay, Sand, Teal, Ocean,
+  Indigo, Rose, Forest, Amber, Plum, Graphite), each with a light and a dark tone that stay
+  readable (WCAG AA) in either theme, or a color of your own, with a preview to try them before
+  saving. The accent is the installation's: it applies before the first paint, on the sign-in
+  page too, and each project has its own.
+- **The application's name means something.** It names the browser tab (`Logs · Acme`), the
+  sidebar and the sign-in page, besides emails.
+- **Branding: images and logos.** Each installation keeps a library of images (PNG, JPEG,
+  WebP, GIF, ICO or SVG, up to 2 MB, up to 100) at `/api/branding/assets`, and chooses its logo,
+  its logo on dark backgrounds and its browser icon from it. Anyone may view an image (the
+  sign-in page and emails show them); only superusers upload, rename or delete them, and an
+  image the settings use can't be deleted. They live in the database, so they go with backups.
+- **A sign-in page of your own.** Settings → Login screen sets its layout (beside the code
+  panel, in a card, or alone), background (plain, a grid or an image), heading, line under it,
+  logo, a notice (plain text), up to three links (`https:` or `mailto:`) and whether
+  "powered by slonbase" shows, with a live preview of the real page.
+
+### Security
+
+- **Uploaded images can't run anything.** An image's type comes from its bytes, not from what
+  the upload says it is. SVG images with scripts, event handlers, animations, embedded
+  documents, DTDs or links outside the file are refused, and every image is served with
+  `X-Content-Type-Options: nosniff` and a sandboxing `Content-Security-Policy`.
+
 ## [1.11.1] - 2026-11-06
 
 **Each installation keeps its own SQL history, and every page has the same width.**

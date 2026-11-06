@@ -4900,3 +4900,641 @@ a.btn:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ------------------------------------------------------------------ accents
+
+   The named accents (Settings → Application). Each has a light and a dark tone, both readable
+   as text on the theme's surfaces and under white on buttons. Set on the root by boot.js (from
+   the installation's settings) or on any element, such as a preview, which then gets its own
+   accent and the tokens made from it. */
+[data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent), black 18%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 89%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 72%);
+  --primary: var(--accent);
+}
+[data-theme="dark"] [data-accent],
+[data-theme="dark"][data-accent] {
+  --accent-strong: color-mix(in srgb, var(--accent), white 14%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 55%);
+  --primary: color-mix(in srgb, var(--accent), #0d1117 52%);
+}
+[data-accent="sage"] {
+  --accent: #4f7a6c;
+}
+[data-accent="slate"] {
+  --accent: #4f6478;
+}
+[data-accent="mauve"] {
+  --accent: #7a5f86;
+}
+[data-accent="clay"] {
+  --accent: #a2553b;
+}
+[data-accent="sand"] {
+  --accent: #85693a;
+}
+[data-accent="teal"] {
+  --accent: #1f7676;
+}
+[data-accent="ocean"] {
+  --accent: #1f63a8;
+}
+[data-accent="indigo"] {
+  --accent: #4c4fb3;
+}
+[data-accent="rose"] {
+  --accent: #a8405e;
+}
+[data-accent="forest"] {
+  --accent: #2f6b3f;
+}
+[data-accent="amber"] {
+  --accent: #8f5c0e;
+}
+[data-accent="plum"] {
+  --accent: #7d3b72;
+}
+[data-accent="graphite"] {
+  --accent: #4b5563;
+}
+[data-theme="dark"] [data-accent="sage"],
+[data-theme="dark"][data-accent="sage"] {
+  --accent: #6fc2a2;
+}
+[data-theme="dark"] [data-accent="slate"],
+[data-theme="dark"][data-accent="slate"] {
+  --accent: #8fb0cc;
+}
+[data-theme="dark"] [data-accent="mauve"],
+[data-theme="dark"][data-accent="mauve"] {
+  --accent: #c3a3d0;
+}
+[data-theme="dark"] [data-accent="clay"],
+[data-theme="dark"][data-accent="clay"] {
+  --accent: #e59a7d;
+}
+[data-theme="dark"] [data-accent="sand"],
+[data-theme="dark"][data-accent="sand"] {
+  --accent: #d6b67a;
+}
+[data-theme="dark"] [data-accent="teal"],
+[data-theme="dark"][data-accent="teal"] {
+  --accent: #5cc8c4;
+}
+[data-theme="dark"] [data-accent="ocean"],
+[data-theme="dark"][data-accent="ocean"] {
+  --accent: #6aa9ec;
+}
+[data-theme="dark"] [data-accent="indigo"],
+[data-theme="dark"][data-accent="indigo"] {
+  --accent: #9b9ff0;
+}
+[data-theme="dark"] [data-accent="rose"],
+[data-theme="dark"][data-accent="rose"] {
+  --accent: #ec8fa8;
+}
+[data-theme="dark"] [data-accent="forest"],
+[data-theme="dark"][data-accent="forest"] {
+  --accent: #74c38a;
+}
+[data-theme="dark"] [data-accent="amber"],
+[data-theme="dark"][data-accent="amber"] {
+  --accent: #e8ad4f;
+}
+[data-theme="dark"] [data-accent="plum"],
+[data-theme="dark"][data-accent="plum"] {
+  --accent: #d38cc6;
+}
+[data-theme="dark"] [data-accent="graphite"],
+[data-theme="dark"][data-accent="graphite"] {
+  --accent: #aab3bf;
+}
+
+/* ------------------------------------------------------------------ branding */
+
+/* the installation's own logo and name (Settings → Branding) */
+.brand-logo {
+  flex: none;
+  width: auto;
+  max-width: 132px;
+  object-fit: contain;
+}
+.brand-custom {
+  display: inline-block;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-weight: var(--w-bold);
+  letter-spacing: -0.01em;
+}
+.pre-line {
+  white-space: pre-line;
+}
+
+/* the sign-in page's layouts (Settings → Login screen) */
+.auth-logo {
+  height: 32px;
+  width: auto;
+  max-width: 220px;
+  object-fit: contain;
+}
+.auth-page.layout-centered,
+.auth-page.layout-minimal {
+  grid-template-columns: minmax(0, 1fr);
+  background-color: var(--canvas-2);
+}
+.auth-page.layout-minimal {
+  background-color: var(--canvas);
+}
+.auth-page.layout-centered .auth-form {
+  max-width: 420px;
+  padding: 36px 34px 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-2);
+}
+.auth-page.bg-grid {
+  background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 44px 44px;
+  background-position: center;
+}
+.auth-page.bg-image {
+  background-size: cover;
+  background-position: center;
+}
+.auth-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.auth-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: var(--text-xs);
+}
+.auth-powered {
+  font-size: var(--text-xs);
+  color: var(--faint);
+}
+.auth-powered b {
+  font-weight: 400;
+}
+/* the live preview in the settings: the page drawn small */
+.auth-page.preview {
+  min-height: 100%;
+  height: 100%;
+}
+.auth-page.preview .auth-form {
+  animation: none;
+}
+
+/* ------------------------------------------------------------------ settings (2.0) */
+
+.settings-group + .settings-group {
+  margin-top: 14px;
+}
+.settings-group-label {
+  padding: 4px 10px 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.unsaved-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  flex: none;
+}
+@media (max-width: 860px) {
+  .settings-group {
+    display: flex;
+    gap: 2px;
+  }
+  .settings-group + .settings-group {
+    margin-top: 0;
+  }
+  .settings-group-label {
+    display: none;
+  }
+  .settings-nav a {
+    white-space: nowrap;
+  }
+}
+.label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.label-pad {
+  padding-top: 24px;
+}
+
+/* color mode cards, each with a small drawing of the dashboard */
+.mode-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.mode-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color var(--t-fast), box-shadow var(--t-fast);
+}
+.mode-card:hover {
+  border-color: var(--line-2);
+}
+.mode-card.on {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.mode-card-label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 2px 2px;
+}
+.mode-card-check {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: #fff;
+  background: var(--primary);
+}
+.mode-art {
+  display: flex;
+  height: 92px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+}
+.mode-art-half {
+  flex: 1;
+  display: flex;
+  --art-bg: #ffffff;
+  --art-side: #f6f8fa;
+  --art-line: #d0d7de;
+  --art-ink: #1f2328;
+  background: var(--art-bg);
+}
+.mode-art-half.dark {
+  --art-bg: #0d1117;
+  --art-side: #010409;
+  --art-line: #30363d;
+  --art-ink: #e6edf3;
+}
+.mode-art-side {
+  width: 26%;
+  padding: 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  background: var(--art-side);
+  border-right: 1px solid var(--art-line);
+}
+.mode-art-side i,
+.mode-art-main i {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--art-line);
+}
+.mode-art-side i:first-child {
+  background: var(--accent);
+  opacity: 0.8;
+}
+.mode-art-main {
+  flex: 1;
+  padding: 9px 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mode-art-main b {
+  display: block;
+  width: 55%;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--art-ink);
+  opacity: 0.85;
+}
+.mode-art-main i:nth-of-type(2) {
+  width: 70%;
+}
+.mode-art-main span {
+  margin-top: auto;
+  width: 34%;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+/* named accents */
+.accent-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
+  gap: 8px;
+}
+.accent-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: border-color var(--t-fast), background var(--t-fast);
+}
+.accent-card:hover {
+  border-color: var(--line-2);
+}
+.accent-card.on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.accent-dot,
+.accent-color {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+}
+.accent-color {
+  position: relative;
+  overflow: hidden;
+  background: conic-gradient(#d1495b, #edae49, #66a182, #00798c, #30638e, #8e5572, #d1495b);
+}
+.accent-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.accent-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.accent-text .tiny {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the little preview: a few components in the chosen accent */
+.appearance-preview {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--canvas-2);
+}
+.appearance-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+}
+.appearance-preview-body {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.appearance-preview a {
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
+}
+.appearance-preview-input {
+  display: flex;
+  align-items: center;
+  max-width: 320px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--accent-ring);
+  font-size: var(--text-sm);
+}
+.appearance-preview-input .caret {
+  width: 1px;
+  height: 15px;
+  margin-left: 2px;
+  background: var(--ink);
+}
+.appearance-preview-rows {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+  font-size: var(--text-sm);
+}
+.appearance-preview-rows > div {
+  display: grid;
+  grid-template-columns: 90px 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 7px 12px;
+  border-top: 1px solid var(--line);
+}
+.appearance-preview-rows > div:first-child {
+  border-top: 0;
+}
+.appearance-preview-rows > div.on {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* branding: roles and the image library */
+.brand-roles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.brand-role {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.brand-role-preview {
+  display: grid;
+  place-items: center;
+  height: 84px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: #ffffff;
+}
+.brand-role-preview.dark {
+  background: #0d1117;
+  border-color: #30363d;
+}
+.brand-role-preview img {
+  max-width: 70%;
+  max-height: 46px;
+  object-fit: contain;
+}
+.dropzone {
+  align-items: center;
+  text-align: center;
+  padding: 22px 12px;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--ink-3);
+}
+.dropzone:hover {
+  border-color: var(--accent);
+}
+.dropzone.busy {
+  opacity: 0.7;
+  pointer-events: none;
+}
+.asset-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.asset-tile {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.asset-thumb {
+  display: grid;
+  place-items: center;
+  height: 110px;
+  border-bottom: 1px solid var(--line);
+}
+.asset-thumb img {
+  max-width: 80%;
+  max-height: 84px;
+  object-fit: contain;
+}
+.checker {
+  background-color: var(--surface-2);
+  background-image: linear-gradient(45deg, var(--line) 25%, transparent 25%), linear-gradient(-45deg, var(--line) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, var(--line) 75%), linear-gradient(-45deg, transparent 75%, var(--line) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+}
+.asset-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px 4px;
+  min-width: 0;
+}
+.asset-name {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: var(--w-medium);
+  text-align: left;
+  cursor: text;
+}
+.asset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 0 6px 6px;
+}
+@media (max-width: 900px) {
+  .mode-cards,
+  .brand-roles {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* the sign-in page designer: settings beside a live preview */
+.login-designer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr);
+  gap: 20px;
+  align-items: start;
+}
+.login-preview-wrap {
+  position: sticky;
+  top: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.login-preview {
+  position: relative;
+  aspect-ratio: 16 / 11;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--canvas);
+  box-shadow: var(--shadow-1);
+}
+/* the page at 1280px wide, drawn at the preview's width */
+.login-preview-scale {
+  position: absolute;
+  inset: 0 auto auto 0;
+  width: 1280px;
+  height: 880px;
+  transform: scale(var(--preview-scale, 0.42));
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+.login-preview.layout-minimal .login-preview-scale,
+.login-preview.layout-centered .login-preview-scale {
+  width: 1100px;
+  height: 756px;
+  transform: scale(calc(var(--preview-scale, 0.42) * 1.1636));
+}
+.preview-input {
+  display: flex;
+  align-items: center;
+  color: var(--faint);
+}
+@media (max-width: 1180px) {
+  .login-designer {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .login-preview-wrap {
+    position: static;
+  }
+}
+/* a folded sidebar shows the logo's left part (its mark, usually) */
+.app.collapsed .brand-logo {
+  max-width: 30px;
+  object-fit: cover;
+  object-position: left center;
+}

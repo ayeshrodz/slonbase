@@ -85,6 +85,18 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/settings/test/email", post(settings::test_email))
         .route("/api/system/status", get(crate::status::status))
         .route(
+            "/api/branding/assets",
+            get(crate::assets::list)
+                .post(crate::assets::upload)
+                .layer(DefaultBodyLimit::max(crate::assets::MAX_SIZE + 64 * 1024)),
+        )
+        .route(
+            "/api/branding/assets/{id}",
+            get(crate::assets::serve)
+                .patch(crate::assets::rename)
+                .delete(crate::assets::delete),
+        )
+        .route(
             "/api/settings/apple/generate-client-secret",
             post(settings::generate_apple_client_secret),
         )

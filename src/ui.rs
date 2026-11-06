@@ -150,7 +150,10 @@ pub async fn context(
         Some(axum::Extension(r)) => (r.base.clone(), r.main_dashboard.clone()),
         None => (String::new(), "/_/".to_string()),
     };
-    let context = serde_json::json!({ "project": app.project(), "base": base, "main": main });
+    let mut context = serde_json::json!({ "project": app.project(), "base": base, "main": main });
+    if let Ok(core) = app.core() {
+        context["branding"] = branding(&core.settings(), &base);
+    }
     (
         [
             (header::CONTENT_TYPE, "text/javascript; charset=utf-8"),
@@ -159,6 +162,39 @@ pub async fn context(
         format!("window.SLONBASE_CONTEXT = {context};\n"),
     )
         .into_response()
+}
+
+/// What the dashboard and its sign-in page show before anyone signs in: the application's
+/// name, accent and images, and the sign-in page's settings. All of it is public (the sign-in
+/// page shows it); nothing else from the settings is.
+fn branding(settings: &crate::settings::Settings, base: &str) -> serde_json::Value {
+    let asset = |id: &str| {
+        if id.is_empty() {
+            serde_json::Value::Null
+        } else {
+            crate::assets::url(base, id).into()
+        }
+    };
+    let login = &settings.login;
+    serde_json::json!({
+        "appName": settings.meta.app_name,
+        "appURL": settings.meta.app_url,
+        "accent": settings.meta.accent_color,
+        "logo": asset(&settings.meta.logo),
+        "logoDark": asset(&settings.meta.logo_dark),
+        "favicon": asset(&settings.meta.favicon),
+        "login": {
+            "title": login.title,
+            "subtitle": login.subtitle,
+            "logo": asset(&login.logo),
+            "layout": login.layout,
+            "background": login.background,
+            "backgroundImage": if login.background == "asset" { asset(&login.background_asset) } else { serde_json::Value::Null },
+            "notice": login.notice,
+            "footerLinks": login.footer_links,
+            "showPoweredBy": login.show_powered_by,
+        },
+    })
 }
 
 /// `GET /_/{*path}`

@@ -21,124 +21,47 @@ import {
   confirmDialog,
 } from "../lib/ui.js";
 import { bytes, formatDate, relativeTime, plural } from "../lib/format.js";
+import { Card, useSettings } from "./settings/shared.js";
+import { Application } from "./settings/application.js";
+import { Branding } from "./settings/branding.js";
+import { LoginScreen } from "./settings/login-screen.js";
 
-const SECTIONS = [
-  { id: "general", label: "Application", icon: "sparkle" },
-  { id: "mail", label: "Mail", icon: "mail" },
-  { id: "storage", label: "File storage", icon: "cloud" },
-  { id: "backups", label: "Backups", icon: "archive" },
-  { id: "security", label: "Security & limits", icon: "shield" },
-  { id: "logs", label: "Logs", icon: "logs" },
-  { id: "crons", label: "Cron jobs", icon: "clock" },
-  { id: "transfer", label: "Import & export", icon: "layers" },
+// grouped in the side navigation; the ids are linked to from elsewhere (Health's checks, the
+// command palette), so they stay
+const GROUPS = [
+  {
+    label: "Workspace",
+    items: [
+      { id: "general", label: "Application", icon: "sparkle", sections: ["meta"] },
+      { id: "branding", label: "Branding", icon: "image", sections: ["meta"] },
+      { id: "login", label: "Login screen", icon: "lock", sections: ["login"] },
+    ],
+  },
+  {
+    label: "Delivery",
+    items: [
+      { id: "mail", label: "Mail", icon: "mail", sections: ["smtp"] },
+      { id: "storage", label: "File storage", icon: "cloud", sections: ["s3"] },
+    ],
+  },
+  {
+    label: "Operations",
+    items: [
+      { id: "backups", label: "Backups", icon: "archive", sections: ["backups"] },
+      { id: "crons", label: "Cron jobs", icon: "clock" },
+      { id: "logs", label: "Logs", icon: "logs", sections: ["logs"] },
+    ],
+  },
+  {
+    label: "Protection",
+    items: [{ id: "security", label: "Security & limits", icon: "shield", sections: ["rateLimits", "superuserIPs", "trustedProxy", "batch"] }],
+  },
+  {
+    label: "Data",
+    items: [{ id: "transfer", label: "Import & export", icon: "layers" }],
+  },
 ];
-
-function clone(v) {
-  return JSON.parse(JSON.stringify(v));
-}
-
-function Card({ title, subtitle, icon, children, actions }) {
-  return html`<div class="card enter">
-    <div class="card-head">
-      ${icon && html`<span class="field-type-badge"><${Icon} name=${icon} size=${16} /></span>`}
-      <div class="grow"><h3>${title}</h3>${subtitle && html`<div class="small muted">${subtitle}</div>`}</div>
-      ${actions}
-    </div>
-    ${[].concat(children).some(Boolean) && html`<div class="card-body stack">${children}</div>`}
-  </div>`;
-}
-
-// settings sections share one draft and a save bar
-function useSettings() {
-  const [saved, setSaved] = useState(null);
-  const [draft, setDraft] = useState(null);
-  const [errors, setErrors] = useState({});
-  const [saving, setSaving] = useState(false);
-  useEffect(() => {
-    api
-      .get("/api/settings")
-      .then((s) => {
-        setSaved(s);
-        setDraft(clone(s));
-      })
-      .catch(toast.error);
-  }, []);
-  const dirty = useMemo(() => saved && JSON.stringify(saved) !== JSON.stringify(draft), [saved, draft]);
-  const save = async () => {
-    setSaving(true);
-    setErrors({});
-    try {
-      const res = await api.patch("/api/settings", draft);
-      setSaved(res);
-      setDraft(clone(res));
-      applyAccent(res.meta.accentColor);
-      app.set({ hideControls: !!res.meta.hideControls });
-      toast("Settings saved.");
-    } catch (err) {
-      setErrors(err.fieldErrors ? err.fieldErrors() : {});
-      toast.error(err);
-    } finally {
-      setSaving(false);
-    }
-  };
-  const set = (path, value) => {
-    setDraft((d) => {
-      const next = clone(d);
-      const keys = path.split(".");
-      let obj = next;
-      for (const k of keys.slice(0, -1)) obj = obj[k];
-      obj[keys[keys.length - 1]] = value;
-      return next;
-    });
-  };
-  return { saved, draft, set, setDraft, dirty, save, saving, errors, reset: () => setDraft(clone(saved)) };
-}
-
-export function applyAccent(color) {
-  // the default (and PocketBase's #1055c9, and earlier defaults #4a5a72 and #5062a6) keeps the
-  // theme's own accent,
-  // which has a light and a dark variant
-  if (!color || !/^#[0-9a-f]{6}$/i.test(color) || ["#1055c9", "#4a5a72", "#5062a6", "#4f7a6c"].includes(color.toLowerCase())) {
-    document.documentElement.style.removeProperty("--accent");
-    return;
-  }
-  document.documentElement.style.setProperty("--accent", color);
-}
-
-// ------------------------------------------------------------------ sections
-
-function General({ s }) {
-  const d = s.draft;
-  // muted tones that sit well on the neutral surfaces
-  const swatches = ["#4f7a6c", "#5f7593", "#7c8452", "#ad8542", "#b06a50", "#9d6582", "#7a6b9c", "#4d8287"];
-  return html`<${Card} title="Application" subtitle="Name and address used in emails and links" icon="sparkle">
-    <div class="grid-2">
-      <${Field} label="Application name" error=${s.errors["meta.appName"]}><${Input} value=${d.meta.appName} onInput=${(v) => s.set("meta.appName", v)} /></${Field}>
-      <${Field} label="Application URL" error=${s.errors["meta.appURL"]} help="Links in emails point here"><${Input} value=${d.meta.appURL} onInput=${(v) => s.set("meta.appURL", v)} /></${Field}>
-    </div>
-    <${Field} label="Dashboard accent" help="Applies to this dashboard for every superuser">
-      <div class="row wrap">
-        ${swatches.map(
-          (c) => html`<button
-            type="button"
-            aria-label=${c}
-            class=${"swatch" + (d.meta.accentColor === c ? " on" : "")}
-            style=${{ background: c }}
-            onClick=${() => {
-              s.set("meta.accentColor", c);
-              applyAccent(c);
-            }}
-          ></button>`
-        )}
-        <input type="color" value=${d.meta.accentColor} onInput=${(e) => {
-          s.set("meta.accentColor", e.target.value);
-          applyAccent(e.target.value);
-        }} class="swatch-custom" aria-label="Custom color" title="Any color" />
-      </div>
-    </${Field}>
-    <${Switch} checked=${d.meta.hideControls} onChange=${(v) => s.set("meta.hideControls", v)} label="Hide schema controls (lock collection editing in the dashboard)" />
-  </${Card}>`;
-}
+const SECTIONS = GROUPS.flatMap((g) => g.items);
 
 function Mail({ s }) {
   const d = s.draft;
@@ -380,10 +303,10 @@ function Security({ s }) {
         <div class="row tiny faint" style="padding:0 4px"><span style="flex:2">Label (path or collection:action)</span><span style="flex:1">Audience</span><span style="width:110px">Max requests</span><span style="width:110px">Per seconds</span><span style="width:32px"></span></div>
         ${rules.map(
           (r, i) => html`<div class="row" key=${i}>
-            <${Input} style="flex:2" class="mono" value=${r.label} onInput=${(v) => setRule(i, { label: v })} placeholder="/api/ or *:auth" />
-            <${Select} style="flex:1" value=${r.audience} onChange=${(v) => setRule(i, { audience: v })} options=${[{ value: "", label: "Everyone" }, { value: "@guest", label: "Guests" }, { value: "@auth", label: "Signed in" }]} />
-            <${Input} style="width:110px" type="number" value=${r.maxRequests} onInput=${(v) => setRule(i, { maxRequests: Number(v) })} />
-            <${Input} style="width:110px" type="number" value=${r.duration} onInput=${(v) => setRule(i, { duration: Number(v) })} />
+            <${Input} style="flex:2" class="mono" value=${r.label} onInput=${(v) => setRule(i, { label: v })} placeholder="/api/ or *:auth" aria-label=${`Rule ${i + 1}: label`} />
+            <${Select} style="flex:1" aria-label=${`Rule ${i + 1}: audience`} value=${r.audience} onChange=${(v) => setRule(i, { audience: v })} options=${[{ value: "", label: "Everyone" }, { value: "@guest", label: "Guests" }, { value: "@auth", label: "Signed in" }]} />
+            <${Input} style="width:110px" type="number" value=${r.maxRequests} onInput=${(v) => setRule(i, { maxRequests: Number(v) })} aria-label=${`Rule ${i + 1}: max requests`} />
+            <${Input} style="width:110px" type="number" value=${r.duration} onInput=${(v) => setRule(i, { duration: Number(v) })} aria-label=${`Rule ${i + 1}: per seconds`} />
             <${IconButton} icon="trash" label="Remove" onClick=${() => s.set("rateLimits.rules", rules.filter((_, j) => j !== i))} />
           </div>`
         )}
@@ -551,14 +474,25 @@ export function Settings({ section }) {
   return html`<div class="page enter">
     <div class="page-head"><div class="grow"><div class="eyebrow"><${Icon} name="settings" size=${14} /> Configuration</div><h1>Settings</h1></div></div>
     <div class="settings-layout">
-      <nav class="settings-nav">
-        ${SECTIONS.map((x) => html`<a href=${"#/settings/" + x.id} class=${cx({ on: x.id === active.id })}><${Icon} name=${x.icon} size=${17} />${x.label}</a>`)}
+      <nav class="settings-nav" aria-label="Settings">
+        ${GROUPS.map(
+          (g) => html`<div class="settings-group">
+            <div class="settings-group-label">${g.label}</div>
+            ${g.items.map(
+              (x) => html`<a href=${"#/settings/" + x.id} class=${cx({ on: x.id === active.id })} aria-current=${x.id === active.id ? "page" : undefined}>
+                <${Icon} name=${x.icon} size=${17} /><span class="grow">${x.label}</span>${(x.sections || []).some((k) => s.changed(k)) && x.id !== "branding" && html`<span class="unsaved-dot" title="Unsaved changes"></span>`}
+              </a>`
+            )}
+          </div>`
+        )}
       </nav>
       <div key=${active.id}>
         ${needsDraft && !s.draft
           ? html`<div class="stack"><${Skeleton} height=${160} /><${Skeleton} height=${120} /></div>`
           : html`
-              ${active.id === "general" && html`<${General} s=${s} />`}
+              ${active.id === "general" && html`<${Application} s=${s} />`}
+              ${active.id === "branding" && html`<${Branding} s=${s} />`}
+              ${active.id === "login" && html`<${LoginScreen} s=${s} />`}
               ${active.id === "mail" && html`<${Mail} s=${s} />`}
               ${active.id === "storage" && html`<${Storage} s=${s} />`}
               ${active.id === "backups" && html`<${Backups} s=${s} />`}
@@ -571,11 +505,8 @@ export function Settings({ section }) {
         html`<div class="savebar">
           <${Icon} name="edit" size=${16} />
           <span class="grow">Unsaved settings</span>
-          <${Button} variant="ghost" size="sm" icon="undo" onClick=${() => {
-            s.reset();
-            applyAccent(s.saved.meta.accentColor);
-          }}>Discard</${Button}>
-          <${Button} variant="primary" size="sm" loading=${s.saving} onClick=${s.save}>Save settings</${Button}>
+          <${Button} variant="ghost" size="sm" icon="undo" onClick=${s.reset}>Discard</${Button}>
+          <${Button} variant="primary" size="sm" loading=${s.saving} onClick=${() => s.save()}>Save settings</${Button}>
         </div>`}
       </div>
     </div>

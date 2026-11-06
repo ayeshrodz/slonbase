@@ -36,6 +36,8 @@ pub struct Settings {
     /// When not empty, superusers can only sign in and act from these IPs or ranges.
     #[serde(rename = "superuserIPs")]
     pub superuser_ips: Vec<String>,
+    /// The dashboard's sign-in page (a slonbase setting; PocketBase has none).
+    pub login: Login,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -47,10 +49,86 @@ pub struct Meta {
     pub app_url: String,
     pub sender_name: String,
     pub sender_address: String,
-    /// The dashboard's accent color.
+    /// The dashboard's accent: one of [`ACCENTS`] or a `#rrggbb` color.
     pub accent_color: String,
     /// Hides the collection and record controls in the dashboard.
     pub hide_controls: bool,
+    /// Branding assets (ids in `_slonbase.assets`, empty for none): the logo on light and on
+    /// dark backgrounds (the dashboard, its sign-in page and emails) and the browser icon.
+    pub logo: String,
+    pub logo_dark: String,
+    pub favicon: String,
+}
+
+/// The named accents the dashboard knows (their colors are in its stylesheet).
+pub const ACCENTS: &[&str] = &[
+    "sage", "slate", "mauve", "clay", "sand", "teal", "ocean", "indigo", "rose", "forest", "amber",
+    "plum", "graphite",
+];
+
+/// The dashboard's sign-in page.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Login {
+    /// The heading (empty: "Sign in").
+    pub title: String,
+    /// The line under it (empty: the application's name).
+    pub subtitle: String,
+    /// An asset shown above the form (empty: the application's logo).
+    pub logo: String,
+    /// `split` (the form beside a code panel), `centered` (a card) or `minimal` (the form).
+    pub layout: String,
+    /// `none`, `grid` or `asset` (the image in `background_asset`).
+    pub background: String,
+    pub background_asset: String,
+    /// A notice shown above the form, as plain text.
+    pub notice: String,
+    /// Links under the form (`https:` or `mailto:`), at most three.
+    pub footer_links: Vec<LoginLink>,
+    /// "Powered by slonbase" under the form.
+    pub show_powered_by: bool,
+}
+
+impl Default for Login {
+    fn default() -> Self {
+        Self {
+            title: String::new(),
+            subtitle: String::new(),
+            logo: String::new(),
+            layout: "split".into(),
+            background: "none".into(),
+            background_asset: String::new(),
+            notice: String::new(),
+            footer_links: Vec::new(),
+            show_powered_by: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct LoginLink {
+    pub label: String,
+    pub url: String,
+}
+
+impl Settings {
+    /// The branding assets the settings use, with where each is used.
+    pub fn asset_uses(&self) -> Vec<(&str, &'static str)> {
+        [
+            (self.meta.logo.as_str(), "the logo"),
+            (self.meta.logo_dark.as_str(), "the logo on dark backgrounds"),
+            (self.meta.favicon.as_str(), "the browser icon"),
+            (self.login.logo.as_str(), "the sign-in page's logo"),
+            (
+                self.login.background_asset.as_str(),
+                "the sign-in page's background",
+            ),
+        ]
+        .into_iter()
+        .filter(|(id, _)| !id.is_empty())
+        .collect()
+    }
 }
 
 impl Default for Meta {
@@ -60,8 +138,11 @@ impl Default for Meta {
             app_url: "http://localhost:8090".into(),
             sender_name: "Support".into(),
             sender_address: "support@example.com".into(),
-            accent_color: "#1055c9".into(),
+            accent_color: "sage".into(),
             hide_controls: false,
+            logo: String::new(),
+            logo_dark: String::new(),
+            favicon: String::new(),
         }
     }
 }
@@ -364,6 +445,31 @@ fn validate(s: &Settings) -> Errors {
     if !s.meta.sender_address.contains('@') {
         errors.invalid("meta.senderAddress", "Must be a valid email address.");
     }
+    if s.meta.app_name.chars().count() > 60 {
+        errors.invalid("meta.appName", "Must be at most 60 characters.");
+    }
+    let accent = s.meta.accent_color.as_str();
+    let hex = accent.len() == 7
+        && accent.starts_with('#')
+        && accent[1..].chars().all(|c| c.is_ascii_hexdigit());
+    if !(accent.is_empty() || hex || ACCENTS.contains(&accent)) {
+        errors.invalid(
+            "meta.accentColor",
+            "Must be a named accent or a #rrggbb color.",
+        );
+    }
+    for (key, id) in [
+        ("meta.logo", &s.meta.logo),
+        ("meta.logoDark", &s.meta.logo_dark),
+        ("meta.favicon", &s.meta.favicon),
+        ("login.logo", &s.login.logo),
+        ("login.backgroundAsset", &s.login.background_asset),
+    ] {
+        if !(id.is_empty() || crate::assets::valid_id(id)) {
+            errors.invalid(key, "Must be an asset's id.");
+        }
+    }
+    validate_login(&s.login, &mut errors);
     if s.smtp.enabled {
         if s.smtp.host.trim().is_empty() {
             errors.add("smtp.host", "validation_required", "Cannot be blank.");
@@ -429,6 +535,63 @@ fn validate(s: &Settings) -> Errors {
         }
     }
     errors
+}
+
+fn validate_login(l: &Login, errors: &mut Errors) {
+    let too_long = |text: &str, max: usize| text.chars().count() > max;
+    if too_long(&l.title, 80) {
+        errors.invalid("login.title", "Must be at most 80 characters.");
+    }
+    if too_long(&l.subtitle, 160) {
+        errors.invalid("login.subtitle", "Must be at most 160 characters.");
+    }
+    if too_long(&l.notice, 500) {
+        errors.invalid("login.notice", "Must be at most 500 characters.");
+    }
+    if !matches!(l.layout.as_str(), "split" | "centered" | "minimal") {
+        errors.invalid("login.layout", "Must be split, centered or minimal.");
+    }
+    if !matches!(l.background.as_str(), "none" | "grid" | "asset") {
+        errors.invalid("login.background", "Must be none, grid or asset.");
+    }
+    if l.background == "asset" && l.background_asset.is_empty() {
+        errors.add(
+            "login.backgroundAsset",
+            "validation_required",
+            "Choose an image.",
+        );
+    }
+    if l.footer_links.len() > 3 {
+        errors.invalid("login.footerLinks", "At most 3 links.");
+    }
+    for (i, link) in l.footer_links.iter().enumerate() {
+        let label = link.label.trim();
+        if label.is_empty() || too_long(label, 40) {
+            errors.invalid(
+                format!("login.footerLinks.{i}.label"),
+                "Must be 1 to 40 characters.",
+            );
+        }
+        if !safe_link(&link.url) {
+            errors.invalid(
+                format!("login.footerLinks.{i}.url"),
+                "Must be an https: or mailto: link.",
+            );
+        }
+    }
+}
+
+/// An `https:` URL or a `mailto:` address, without spaces or control characters.
+fn safe_link(url: &str) -> bool {
+    let lower = url.to_ascii_lowercase();
+    let rest = lower
+        .strip_prefix("https://")
+        .or_else(|| lower.strip_prefix("mailto:"));
+    rest.is_some_and(|r| !r.is_empty())
+        && url.len() <= 500
+        && !url
+            .chars()
+            .any(|c| c.is_whitespace() || c.is_control() || c == '"' || c == '<' || c == '>')
 }
 
 /// Merges `patch` into `target` like PocketBase does: objects key by key (recursively),
@@ -586,6 +749,7 @@ pub(crate) async fn apply_patch(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    crate::assets::check_uses(&client, &settings).await?;
     settings
         .save(&client, core.secrets_key())
         .await

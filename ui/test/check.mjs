@@ -179,6 +179,11 @@ for (const theme of ["light", "dark"]) {
     ["schema", "#/data/tasks/schema", {}],
     ["rules", "#/data/tasks/rules", {}],
     ["settings", "#/settings", {}],
+    // accessibility only
+    ["branding", "#/settings/branding", { screenshot: false }],
+    ["login screen", "#/settings/login", { screenshot: false }],
+    ["backups", "#/settings/backups", { screenshot: false }],
+    ["security", "#/settings/security", { screenshot: false }],
   ];
   for (const [name, hash, options] of screens) {
     await page.goto(`${base}/_/${hash}`);

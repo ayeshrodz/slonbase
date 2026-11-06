@@ -1,7 +1,9 @@
 // Superuser sign-in (password, then OTP when MFA is on) and password reset.
-import { html, useState, useRef, navigate } from "../lib/core.js";
+import { html, useState, useRef, navigate, useStore, cx } from "../lib/core.js";
 import { api, session, ApiError, PROJECT } from "../lib/api.js";
 import { Logo, Icon } from "../lib/icons.js";
+import { app } from "../lib/state.js";
+import { branding, logoFor } from "../lib/branding.js";
 import { Button, Field, Input, Callout, toast, useAutofocus } from "../lib/ui.js";
 
 const SU = "/api/collections/_superusers";
@@ -25,11 +27,26 @@ const CODE = [
   "});",
 ];
 
-export function AuthFrame({ children, title, subtitle }) {
+// The sign-in page's frame, laid out as Settings → Login screen says: the form beside the code
+// panel (split), in a card (centered) or alone (minimal). `primary` pages (signing in) take
+// the configured title; `preview` (the settings' live preview) gives the branding to show.
+export function AuthFrame({ children, title, subtitle, primary = false, preview = null }) {
   const ref = useRef();
-  useAutofocus(ref);
-  return html`<div class="auth-page" ref=${ref}>
-    <aside class="auth-art" aria-hidden="true">
+  useAutofocus(preview ? { current: null } : ref);
+  const live = useStore(branding);
+  useStore(app, (s) => s.theme);
+  const b = preview || live;
+  const l = b.login;
+  const dark = document.documentElement.dataset.theme === "dark";
+  const logo = l.logo || logoFor(b, dark);
+  const layout = ["split", "centered", "minimal"].includes(l.layout) ? l.layout : "split";
+  const heading = (primary && l.title) || title;
+  const sub = primary && l.subtitle ? l.subtitle : subtitle;
+  const custom = b.appName && b.appName !== "slonbase";
+  const bg = layout !== "split" && l.background === "asset" && l.backgroundImage ? { backgroundImage: `url("${l.backgroundImage}")` } : null;
+  return html`<div class=${cx("auth-page", "layout-" + layout, { "bg-grid": layout !== "split" && l.background === "grid", "bg-image": !!bg, preview: !!preview })} style=${bg} ref=${ref}>
+    ${layout === "split" &&
+    html`<aside class="auth-art" aria-hidden="true">
       <div class="auth-art-brand"><${Logo} size=${30} /><span class="brand-name">slon<b>base</b></span></div>
       <div class="auth-art-copy">
         <h2>Your whole backend, built on PostgreSQL.</h2>
@@ -39,17 +56,27 @@ export function AuthFrame({ children, title, subtitle }) {
         </div>
       </div>
       <div class="auth-art-foot mono"><span class="c-prompt">$</span> slonbase serve · PostgreSQL 14+ · one binary</div>
-    </aside>
+    </aside>`}
     <div class="auth-form">
-      <div class="auth-brand"><${Logo} size=${28} /><span class="brand-name">slon<b>base</b></span>${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}</div>
+      <div class="auth-brand">
+        ${logo ? html`<img class="auth-logo" src=${logo} alt=${b.appName || "Logo"} />` : html`<${Logo} size=${28} />`}
+        ${!logo && html`<span class="brand-name">${custom ? html`<span class="brand-custom">${b.appName}</span>` : html`slon<b>base</b>`}</span>`}
+        ${PROJECT && html`<span class="chip outline mono">${PROJECT}</span>`}
+      </div>
       <div class="stack loose">
         <div class="stack tight">
-          <h1>${title}</h1>
-          ${subtitle && html`<p class="muted">${subtitle}</p>`}
+          <h1>${heading}</h1>
+          ${sub && html`<p class="muted">${sub}</p>`}
         </div>
+        ${primary && l.notice && html`<${Callout} kind="info"><span class="pre-line">${l.notice}</span></${Callout}>`}
         ${children}
       </div>
-      <div class="auth-foot row"><${Icon} name="shield" size=${14} /> <span>${PROJECT ? html`Superuser access to the project <b>${PROJECT}</b>.` : "Superuser access to this slonbase installation."}</span></div>
+      <div class="auth-foot">
+        <div class="row"><${Icon} name="shield" size=${14} /> <span>${PROJECT ? html`Superuser access to the project <b>${PROJECT}</b>.` : custom ? html`Superuser access to <b>${b.appName}</b>.` : "Superuser access to this slonbase installation."}</span></div>
+        ${(l.footerLinks || []).length > 0 &&
+        html`<nav class="auth-links" aria-label="Links">${l.footerLinks.map((x) => html`<a href=${x.url} target="_blank" rel="noopener noreferrer">${x.label}</a>`)}</nav>`}
+        ${l.showPoweredBy !== false && custom && html`<div class="auth-powered mono">powered by slon<b>base</b></div>`}
+      </div>
     </div>
   </div>`;
 }
@@ -99,6 +126,7 @@ export function Login() {
   };
 
   return html`<${AuthFrame}
+    primary=${!mfa}
     title=${mfa ? "Check your inbox" : "Welcome back"}
     subtitle=${mfa ? `Enter the one-time password sent to ${email}.` : "Sign in with your superuser account."}
   >

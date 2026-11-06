@@ -2,14 +2,16 @@
 import { html, render, useState, useEffect, useRef, useLayoutEffect, useStore, route, navigate, match, cx, lazy } from "./lib/core.js";
 import { session, refreshAuth, api, PROJECT, BASE, listProjects, dashboardUrl } from "./lib/api.js";
 import { app, initTheme, setTheme, loadCollections } from "./lib/state.js";
-import { Icon, Logo } from "./lib/icons.js";
+import { Icon } from "./lib/icons.js";
 import { Toasts, Menu, CollectionGlyph, useAutofocus } from "./lib/ui.js";
 import { initials } from "./lib/format.js";
 import { Login, PasswordResetRequest, PasswordResetConfirm } from "./pages/login.js";
 import { PublicAuth } from "./pages/public-auth.js";
 import { Overview } from "./pages/overview.js";
 import { DataWorkspace, CollectionTree } from "./pages/data.js";
-import { Settings, applyAccent } from "./pages/settings.js";
+import { Settings } from "./pages/settings.js";
+import { branding, applyBranding, pageTitle } from "./lib/branding.js";
+import { BrandMark } from "./lib/brand-mark.js";
 // opened by few visits: loaded when first shown (see `lazy`)
 const Logs = lazy(() => import("./pages/logs.js"), "Logs");
 const SqlConsole = lazy(() => import("./pages/sql.js"), "SqlConsole");
@@ -18,8 +20,8 @@ const Health = lazy(() => import("./pages/health.js"), "Health");
 const Diagram = lazy(() => import("./pages/diagram.js"), "Diagram");
 
 initTheme();
-
-if (PROJECT) document.title = `${PROJECT} · slonbase`;
+applyBranding();
+document.title = pageTitle();
 
 const NAV = [
   { path: "/", match: (p) => p === "/", icon: "overview", label: "Overview" },
@@ -115,7 +117,7 @@ function Sidebar({ path, collapsed, onCollapse, open, onClose, onSearch }) {
   const mac = navigator.platform.includes("Mac");
   return html`<aside class=${cx("sidebar", { open })} aria-label="Navigation">
     <div class="side-top">
-      <a class="brand" href="#/" onClick=${onClose}><${Logo} size=${26} /><span class="brand-name side-label">slon<b>base</b></span></a>
+      <a class="brand" href="#/" onClick=${onClose}><${BrandMark} size=${26} /></a>
       <button class="icon-btn side-fold" aria-label=${collapsed ? "Expand the sidebar" : "Collapse the sidebar"} data-tip=${collapsed ? "Expand" : "Collapse"} onClick=${onCollapse}>
         <${Icon} name="sidebar" size=${17} />
       </button>
@@ -322,10 +324,7 @@ function Shell() {
     api.get("/api/health").then((h) => app.set({ health: h.data })).catch(() => {});
     api
       .get("/api/settings")
-      .then((st) => {
-        applyAccent(st.meta.accentColor);
-        app.set({ hideControls: !!st.meta.hideControls });
-      })
+      .then((st) => app.set({ hideControls: !!st.meta.hideControls }))
       .catch(() => {});
     const timer = setInterval(() => {
       if (session.expiresIn() < 3600) refreshAuth();
@@ -343,6 +342,12 @@ function Shell() {
       window.removeEventListener("keydown", key);
     };
   }, []);
+
+  const navLabel = (NAV.find((n) => n.path !== "/" && n.match(path)) || (path === "/" ? { label: "Overview" } : {})).label;
+  const appName = useStore(branding, (b) => b.appName);
+  useEffect(() => {
+    document.title = pageTitle(navLabel);
+  }, [navLabel, appName]);
 
   let page;
   let params;
@@ -372,7 +377,7 @@ function Shell() {
     <div class="app-main">
       <header class="mobile-bar">
         <button class="icon-btn" aria-label="Menu" onClick=${() => setNavOpen(true)}><${Icon} name="menu" size=${20} /></button>
-        <a class="brand" href="#/"><${Logo} size=${24} /><span class="brand-name">slon<b>base</b></span></a>
+        <a class="brand" href="#/"><${BrandMark} size=${24} /></a>
         <span class="spacer"></span>
         <button class="icon-btn" aria-label="Search" onClick=${() => setPalette(true)}><${Icon} name="search" size=${18} /></button>
       </header>

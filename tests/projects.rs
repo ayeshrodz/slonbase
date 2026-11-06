@@ -119,6 +119,89 @@ async fn projects_are_separate_installations() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(res["data"]["name"].is_object(), "{res}");
 
+    // each installation has its own branding and images (a project is named after itself)
+    let (_, ctx_body) = {
+        let (s, _, b) = raw_request(&app, "GET", "/p/blog/_/context.js", &[], vec![]).await;
+        (s, b)
+    };
+    assert!(
+        String::from_utf8(ctx_body)
+            .unwrap()
+            .contains(r#""appName":"blog""#)
+    );
+    let (_, project_token) = sign_in(&app, "/p/blog", PROJECT_EMAIL, PROJECT_PASSWORD).await;
+    let project_auth = format!("Bearer {project_token}");
+    let (content_type, body) = multipart(
+        &[],
+        &[(
+            "file",
+            "blog.svg",
+            &br#"<svg xmlns="http://www.w3.org/2000/svg"/>"#[..],
+        )],
+    );
+    let (status, _, uploaded) = raw_request(
+        &app,
+        "POST",
+        "/p/blog/api/branding/assets",
+        &[
+            ("content-type", content_type.as_str()),
+            ("authorization", project_auth.as_str()),
+        ],
+        body,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let asset: serde_json::Value = serde_json::from_slice(&uploaded).unwrap();
+    let asset_id = asset["id"].as_str().unwrap();
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/p/blog/api/settings",
+        &[("authorization", project_auth.as_str())],
+        Some(json!({ "meta": { "appName": "The Blog", "accentColor": "rose", "logo": asset_id } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (_, main_assets) = request(&app, "GET", "/api/branding/assets", &admin, None).await;
+    assert_eq!(main_assets, json!([]), "the main installation has none");
+    let context_of = |body: Vec<u8>| -> serde_json::Value {
+        let text = String::from_utf8(body).unwrap();
+        serde_json::from_str(
+            text.trim()
+                .trim_start_matches("window.SLONBASE_CONTEXT = ")
+                .trim_end_matches(';'),
+        )
+        .unwrap()
+    };
+    let (_, _, body) = raw_request(&app, "GET", "/p/blog/_/context.js", &[], vec![]).await;
+    let ctx = context_of(body);
+    assert_eq!(ctx["branding"]["appName"], "The Blog");
+    assert_eq!(ctx["branding"]["accent"], "rose");
+    assert_eq!(
+        ctx["branding"]["logo"],
+        format!("/p/blog/api/branding/assets/{asset_id}")
+    );
+    let (status, _, _) = raw_request(
+        &app,
+        "GET",
+        &format!("/p/blog/api/branding/assets/{asset_id}"),
+        &[],
+        vec![],
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _, _) = raw_request(
+        &app,
+        "GET",
+        &format!("/api/branding/assets/{asset_id}"),
+        &[],
+        vec![],
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "not the main installation's");
+    let (_, _, body) = raw_request(&app, "GET", "/_/context.js", &[], vec![]).await;
+    assert_eq!(context_of(body)["branding"]["appName"], "slonbase");
+
     // routing
     let (status, health) = request(&app, "GET", "/p/blog/api/health", &[], None).await;
     assert_eq!(status, StatusCode::OK, "{health}");
@@ -190,7 +273,8 @@ async fn projects_are_separate_installations() {
         "the main installation has no posts"
     );
     let (_, settings) = request(&app, "GET", "/p/blog/api/settings", &owner_auth, None).await;
-    assert_eq!(settings["meta"]["appName"], "blog");
+    // named after the project when created (renamed above)
+    assert_eq!(settings["meta"]["appName"], "The Blog");
     assert!(
         settings["meta"]["appURL"]
             .as_str()
@@ -548,7 +632,11 @@ async fn host_names() {
                 .trim()
                 .trim_start_matches("window.SLONBASE_CONTEXT = ")
                 .trim_end_matches(';');
-            serde_json::from_str::<serde_json::Value>(json).unwrap()
+            let mut ctx = serde_json::from_str::<serde_json::Value>(json).unwrap();
+            // each installation's branding (see tests/branding.rs), here its name
+            let branding = ctx.as_object_mut().unwrap().remove("branding").unwrap();
+            assert!(branding["appName"].is_string(), "{branding}");
+            ctx
         }
     };
     let main = context("localhost", "/_/context.js").await;
