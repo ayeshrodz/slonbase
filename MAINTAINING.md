@@ -13,7 +13,8 @@ when CI passes (squash merge, branch deleted afterwards). `main` is protected by
 - code owner review for the paths in `.github/CODEOWNERS` once there is a second maintainer
   (while the maintainer is the only one, the required number of approving reviews is 0, because
   nobody could approve their own pull request);
-- release tags (`v*`) can be created only by the maintainer, and not deleted or moved.
+- release tags (`v*`) can't be deleted or moved (creating them stays open, because the Release
+  workflow creates the tag with the workflow token, which a ruleset can't exempt).
 
 The steps for setting this up on GitHub are in the repository's settings guide (the PDF that
 came with this change, and the checklist at the end of this page).

@@ -7,7 +7,7 @@
 # on their release pages.
 #
 # Needs the REPO_GPG_PRIVATE_KEY secret (an armored signing key without a passphrase) and
-# Settings → Pages → Source: GitHub Actions. See CONTRIBUTING.md.
+# Settings → Pages → Source: GitHub Actions. See MAINTAINING.md.
 name: Package repositories
 
 on:
@@ -60,7 +60,7 @@ jobs:
           KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-              echo "::error::the REPO_GPG_PRIVATE_KEY secret is not set (see CONTRIBUTING.md)"
+              echo "::error::the REPO_GPG_PRIVATE_KEY secret is not set (see MAINTAINING.md)"
               exit 1
           fi
           printf '%s\n' "$KEY" | gpg --batch --import
