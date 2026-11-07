@@ -13,6 +13,10 @@ when CI passes (squash merge, branch deleted afterwards). `main` is protected by
 - code owner review for the paths in `.github/CODEOWNERS` once there is a second maintainer
   (while the maintainer is the only one, the required number of approving reviews is 0, because
   nobody could approve their own pull request);
+- CI runs on pull requests and on `main`, not on every branch push (a branch with an open pull
+  request would otherwise run twice, and the cancelled duplicate counts as a failed required
+  check). To test a branch without a pull request, such as a backport before its tag, run CI by
+  hand: Actions, CI, Run workflow, on that branch;
 - release tags (`v*`) can't be deleted or moved (creating them stays open, because the Release
   workflow creates the tag with the workflow token, which a ruleset can't exempt).
 

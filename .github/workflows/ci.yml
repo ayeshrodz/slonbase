@@ -1,17 +1,21 @@
 name: CI
 
+# Pull requests are tested as pull requests, and main once more after the merge (the Release
+# workflow waits for that run). A branch push isn't tested on its own: with a pull request open
+# it would run twice, and GitHub counts the cancelled duplicate as a failed required check.
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# one run per commit, whether it arrives by push or in a pull request
+# a newer push to the same pull request replaces the run in progress; runs on main never cancel
 concurrency:
-  group: ci-${{ github.event.pull_request.head.sha || github.sha }}
-  cancel-in-progress: true
+  group: ci-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CARGO_TERM_COLOR: always

@@ -55,7 +55,7 @@ jobs:
           passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$sha&per_page=50" \
             --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')
           if [ "${passed:-0}" -eq 0 ]; then
-            echo "::error::CI has not passed on $sha. Push the commit to a branch (or open a pull request) and wait for CI, then release it."
+            echo "::error::CI has not passed on $sha. Open a pull request with it, or run CI by hand on its branch (Actions, CI, Run workflow), and wait for it to pass; then release it."
             exit 1
           fi
           echo "CI passed on $sha"
