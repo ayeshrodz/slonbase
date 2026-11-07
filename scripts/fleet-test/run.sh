@@ -8,15 +8,16 @@
 #
 # Needs: a slonbase binary (SLONBASE_BIN, default target/debug/slonbase), a PostgreSQL role that
 # may create roles and databases (FLEET_ADMIN_URL), Node 22, psql, and for FLEET_POOLER=pgbouncer
-# the pgbouncer binary. The instances listen on 8101..., the balancer on 9000, PgBouncer on 6432.
+# the pgbouncer binary. The instances listen on 8101..., the balancer on 9000, PgBouncer on 6439 (FLEET_PGB_PORT).
 set -euo pipefail
 cd "$(dirname "$0")"
 bin="$(realpath "${SLONBASE_BIN:-../../target/debug/slonbase}")"
 admin="${FLEET_ADMIN_URL:-postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable}"
 n="${1:-3}"
 pooler="${FLEET_POOLER:-none}"
+pgb_port="${FLEET_PGB_PORT:-6439}"
 work="$(mktemp -d)"
-chmod 755 "$work"
+chmod 777 "$work"   # PgBouncer may run as another user and writes its log and pid here
 pids=()
 cleanup() {
   for p in "${pids[@]:-}"; do kill "$p" 2>/dev/null || true; done
@@ -42,7 +43,7 @@ if [ "$pooler" = pgbouncer ]; then
 * = host=127.0.0.1 port=${host_port}
 [pgbouncer]
 listen_addr = 127.0.0.1
-listen_port = 6432
+listen_port = ${pgb_port}
 auth_type = scram-sha-256
 auth_file = $work/userlist.txt
 pool_mode = transaction
@@ -55,14 +56,19 @@ pidfile = $work/pgbouncer.pid
 INI
   chmod 644 "$work"/*
   if [ "$(id -u)" = 0 ]; then runuser -u postgres -- pgbouncer -d "$work/pgbouncer.ini"; else pgbouncer -d "$work/pgbouncer.ini"; fi
-  sleep 1
-  url="postgres://fleet:fleet@127.0.0.1:6432/fleet_main?sslmode=disable"
+  for _ in $(seq 1 50); do (exec 3<>"/dev/tcp/127.0.0.1/${pgb_port}") 2>/dev/null && break; sleep 0.2; done
+  if ! (exec 3<>"/dev/tcp/127.0.0.1/${pgb_port}") 2>/dev/null; then echo "PgBouncer did not start on port ${pgb_port}:"; cat "$work/pgbouncer.log" 2>/dev/null; exit 1; fi
+  url="postgres://fleet:fleet@127.0.0.1:${pgb_port}/fleet_main?sslmode=disable"
   export SLONBASE_DATABASE_LISTEN_URL="$direct_url"   # LISTEN needs a direct connection
   echo "through PgBouncer (transaction mode); notifications on a direct connection"
 fi
 export SLONBASE_DATABASE_URL="$url"
 
-"$bin" --config "$work/setup.toml" --storage-path "$work/s0" setup --email admin@example.com --password admin-password-1 > "$work/setup.log" 2>&1
+"$bin" --config "$work/setup.toml" --storage-path "$work/s0" setup --email admin@example.com --password admin-password-1 > "$work/setup.log" 2>&1 || {
+  echo "slonbase setup failed:"; sed 's/\x1b\[[0-9;]*m//g' "$work/setup.log" | tail -n 20
+  [ -f "$work/pgbouncer.log" ] && { echo "PgBouncer log:"; tail -n 20 "$work/pgbouncer.log"; }
+  exit 1
+}
 ports=()
 for i in $(seq 1 "$n"); do
   d="$work/i$i"; mkdir -p "$d"

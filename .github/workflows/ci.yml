@@ -341,7 +341,9 @@ jobs:
           path: ${{ runner.temp }}/slonbase
       - name: Install PgBouncer
         if: matrix.mode == 'pgbouncer'
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq pgbouncer
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq pgbouncer
+          sudo systemctl disable --now pgbouncer || true
       - name: Run the scenarios
         env:
           FLEET_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
