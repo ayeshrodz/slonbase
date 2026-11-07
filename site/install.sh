@@ -160,8 +160,9 @@ else
         saved_user=$(sed -n 's/^DB_USER=//p' "$STATE")
         saved_name=$(sed -n 's/^DB_NAME=//p' "$STATE")
         DB_PASSWORD=$(sed -n 's/^DB_PASSWORD=//p' "$STATE")
-        [ "$saved_user" = "$DB_USER" ] && [ "$saved_name" = "$DB_NAME" ] && [ -n "$DB_PASSWORD" ] \
-            || die "$STATE is from an install of role \"$saved_user\" and database \"$saved_name\". Run with SLONBASE_DB_USER=$saved_user SLONBASE_DB_NAME=$saved_name, or remove $STATE."
+        if [ "$saved_user" != "$DB_USER" ] || [ "$saved_name" != "$DB_NAME" ] || [ -z "$DB_PASSWORD" ]; then
+            die "$STATE is from an install of role \"$saved_user\" and database \"$saved_name\". Run with SLONBASE_DB_USER=$saved_user SLONBASE_DB_NAME=$saved_name, or remove $STATE."
+        fi
         note "Continuing an earlier install (the role's password is in $STATE)."
     elif [ "$role_exists" = 1 ]; then
         die "the PostgreSQL role \"$DB_USER\" already exists, and its password is not mine to change. Use another name (SLONBASE_DB_USER=...), or point slonbase at your own database with SLONBASE_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/dbname"
