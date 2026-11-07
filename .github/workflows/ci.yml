@@ -308,6 +308,49 @@ jobs:
           DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/import_encrypted?sslmode=disable \
             ENCRYPTION_KEY=0123456789abcdef0123456789abcdef compat/import/run.sh
 
+  # several instances behind a balancer with no affinity on one PostgreSQL: tokens, schema, settings,
+  # rate limits, realtime and projects, directly and through PgBouncer in transaction mode
+  fleet:
+    name: several instances (${{ matrix.mode }})
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [direct, pgbouncer]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Install PgBouncer
+        if: matrix.mode == 'pgbouncer'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq pgbouncer
+      - name: Run the scenarios
+        env:
+          FLEET_ADMIN_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
+        run: |
+          chmod +x "$RUNNER_TEMP/slonbase/slonbase"
+          export SLONBASE_BIN="$RUNNER_TEMP/slonbase/slonbase"
+          if [ "${{ matrix.mode }}" = pgbouncer ]; then export FLEET_POOLER=pgbouncer; fi
+          scripts/fleet-test/run.sh 3
+
   # a released slonbase with data, upgraded to this build in place
   upgrade:
     name: upgrade from ${{ matrix.from }}
