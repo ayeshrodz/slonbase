@@ -598,4 +598,291 @@ mod tests {
         assert!(!can(Role::Admin, Method::DELETE, "/api/projects/blog"));
         assert!(can(Role::Owner, Method::POST, "/api/backups/x.zip/restore"));
     }
+
+    /// Every API route, by method, with the lowest role that may use it (`None`: no role may,
+    /// the request needs another credential). A route added to `server.rs` without a line here
+    /// fails `every_route_has_a_role_decision`, so each new route gets a deliberate answer
+    /// (and a changed answer shows up in review as a changed line).
+    const POLICY: &[(&str, &str, Option<Role>)] = &[
+        ("DELETE", "/api/backups/{key}", Some(Role::Admin)),
+        ("DELETE", "/api/branding/assets/{id}", Some(Role::Admin)),
+        (
+            "DELETE",
+            "/api/collections/{collection}",
+            Some(Role::Developer),
+        ),
+        (
+            "DELETE",
+            "/api/collections/{collection}/records/{id}",
+            Some(Role::Developer),
+        ),
+        (
+            "DELETE",
+            "/api/collections/{collection}/records/{id}/external-auths/{provider}",
+            Some(Role::Developer),
+        ),
+        (
+            "DELETE",
+            "/api/collections/{collection}/truncate",
+            Some(Role::Developer),
+        ),
+        ("DELETE", "/api/logs", Some(Role::Admin)),
+        ("DELETE", "/api/projects/{name}", Some(Role::Owner)),
+        ("DELETE", "/api/team/keys/{id}", Some(Role::Admin)),
+        ("GET", "/api/backups", Some(Role::Viewer)),
+        ("GET", "/api/backups/{key}", Some(Role::Admin)),
+        ("GET", "/api/branding/assets", Some(Role::Viewer)),
+        ("GET", "/api/branding/assets/{id}", Some(Role::Viewer)),
+        ("GET", "/api/collections", Some(Role::Viewer)),
+        (
+            "GET",
+            "/api/collections/meta/oauth2-providers",
+            Some(Role::Viewer),
+        ),
+        ("GET", "/api/collections/meta/scaffolds", Some(Role::Viewer)),
+        ("GET", "/api/collections/{collection}", Some(Role::Viewer)),
+        (
+            "GET",
+            "/api/collections/{collection}/auth-methods",
+            Some(Role::Viewer),
+        ),
+        (
+            "GET",
+            "/api/collections/{collection}/records",
+            Some(Role::Viewer),
+        ),
+        (
+            "GET",
+            "/api/collections/{collection}/records/{id}",
+            Some(Role::Viewer),
+        ),
+        (
+            "GET",
+            "/api/collections/{collection}/records/{id}/external-auths",
+            Some(Role::Viewer),
+        ),
+        ("GET", "/api/crons", Some(Role::Viewer)),
+        (
+            "GET",
+            "/api/files/{collection}/{record}/{filename}",
+            Some(Role::Viewer),
+        ),
+        ("GET", "/api/health", Some(Role::Viewer)),
+        ("GET", "/api/jobs/runs", Some(Role::Viewer)),
+        ("GET", "/api/logs", Some(Role::Viewer)),
+        ("GET", "/api/logs/stats", Some(Role::Viewer)),
+        ("GET", "/api/logs/{id}", Some(Role::Viewer)),
+        ("GET", "/api/oauth2-redirect", Some(Role::Viewer)),
+        ("GET", "/api/projects", Some(Role::Viewer)),
+        ("GET", "/api/projects/overview", Some(Role::Viewer)),
+        ("GET", "/api/projects/{name}", Some(Role::Viewer)),
+        ("GET", "/api/projects/{name}/settings", Some(Role::Viewer)),
+        ("GET", "/api/realtime", Some(Role::Viewer)),
+        ("GET", "/api/settings", Some(Role::Viewer)),
+        ("GET", "/api/settings/storage", Some(Role::Viewer)),
+        ("GET", "/api/setup", Some(Role::Viewer)),
+        ("GET", "/api/sql", Some(Role::Viewer)),
+        ("GET", "/api/system/status", Some(Role::Viewer)),
+        ("GET", "/api/team", Some(Role::Viewer)),
+        ("GET", "/api/team/me", Some(Role::Viewer)),
+        ("PATCH", "/api/branding/assets/{id}", Some(Role::Admin)),
+        (
+            "PATCH",
+            "/api/collections/{collection}",
+            Some(Role::Developer),
+        ),
+        (
+            "PATCH",
+            "/api/collections/{collection}/records/{id}",
+            Some(Role::Developer),
+        ),
+        ("PATCH", "/api/projects/{name}", Some(Role::Admin)),
+        ("PATCH", "/api/projects/{name}/settings", Some(Role::Admin)),
+        ("PATCH", "/api/settings", Some(Role::Admin)),
+        ("PATCH", "/api/team/members/{id}", Some(Role::Owner)),
+        ("POST", "/api/backups", Some(Role::Admin)),
+        ("POST", "/api/backups/upload", Some(Role::Admin)),
+        ("POST", "/api/backups/{key}/restore", Some(Role::Owner)),
+        ("POST", "/api/batch", Some(Role::Developer)),
+        ("POST", "/api/branding/assets", Some(Role::Admin)),
+        ("POST", "/api/collections", Some(Role::Developer)),
+        (
+            "POST",
+            "/api/collections/meta/dry-run-view",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/auth-refresh",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/auth-with-oauth2",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/auth-with-otp",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/auth-with-password",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/confirm-email-change",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/confirm-password-reset",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/confirm-verification",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/impersonate/{id}",
+            Some(Role::Admin),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/records",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/records/{id}/revoke-tokens",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/request-email-change",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/request-otp",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/request-password-reset",
+            Some(Role::Developer),
+        ),
+        (
+            "POST",
+            "/api/collections/{collection}/request-verification",
+            Some(Role::Developer),
+        ),
+        ("POST", "/api/crons/{id}", Some(Role::Developer)),
+        ("POST", "/api/files/token", Some(Role::Viewer)),
+        ("POST", "/api/oauth2-redirect", Some(Role::Admin)),
+        ("POST", "/api/projects", Some(Role::Admin)),
+        ("POST", "/api/projects/{name}/restart", Some(Role::Admin)),
+        ("POST", "/api/realtime", Some(Role::Viewer)),
+        (
+            "POST",
+            "/api/settings/apple/generate-client-secret",
+            Some(Role::Admin),
+        ),
+        ("POST", "/api/settings/mail/preview", Some(Role::Developer)),
+        (
+            "POST",
+            "/api/settings/rate-limits/explain",
+            Some(Role::Admin),
+        ),
+        (
+            "POST",
+            "/api/settings/storage/clear-thumbs",
+            Some(Role::Admin),
+        ),
+        ("POST", "/api/settings/test/email", Some(Role::Admin)),
+        ("POST", "/api/settings/test/s3", Some(Role::Admin)),
+        ("POST", "/api/setup/complete", Some(Role::Admin)),
+        ("POST", "/api/setup/database/test", Some(Role::Admin)),
+        ("POST", "/api/sql", Some(Role::Owner)),
+        ("POST", "/api/team/keys", Some(Role::Admin)),
+        ("PUT", "/api/collections/import", Some(Role::Developer)),
+    ];
+
+    /// The `(method, path)` of every `/api/` route registered in `server.rs`.
+    fn routes() -> Vec<(String, String)> {
+        let source = include_str!("server.rs");
+        let path = regex::Regex::new(r#"\.route\(\s*"(/api/[^"]+)""#).unwrap();
+        let method = regex::Regex::new(r"\b(get|post|put|patch|delete)\(").unwrap();
+        let starts: Vec<_> = path.captures_iter(source).collect();
+        let mut out = Vec::new();
+        for (n, caps) in starts.iter().enumerate() {
+            let whole = caps.get(0).unwrap();
+            let end = starts
+                .get(n + 1)
+                .map(|c| c.get(0).unwrap().start())
+                .unwrap_or(source.len());
+            // up to the next route, or the end of this router chain
+            let chunk = &source[whole.end()..end];
+            let chunk = chunk.split(".merge(").next().unwrap();
+            for m in method.captures_iter(chunk) {
+                out.push((m[1].to_uppercase(), caps[1].to_string()));
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
+    }
+
+    fn sample(path: &str) -> String {
+        path.replace("{collection}", "posts")
+            .replace("{name}", "x")
+            .replace("{id}", "x")
+            .replace("{key}", "x")
+            .replace("{provider}", "x")
+            .replace("{record}", "x")
+            .replace("{filename}", "x")
+    }
+
+    fn lowest(method: &Method, path: &str) -> Option<Role> {
+        [Role::Viewer, Role::Developer, Role::Admin, Role::Owner]
+            .into_iter()
+            .find(|role| allowed(*role, method, &sample(path)))
+    }
+
+    #[test]
+    fn every_route_has_a_role_decision() {
+        let routes = routes();
+        assert!(routes.len() > 60, "found only {} routes", routes.len());
+        if std::env::var("PRINT_POLICY").is_ok() {
+            for (m, p) in &routes {
+                let min = lowest(&m.parse().unwrap(), p);
+                println!("POLICY: (\"{m}\", \"{p}\", {min:?}),");
+            }
+        }
+        let mut missing = Vec::new();
+        for (m, p) in &routes {
+            match POLICY.iter().find(|(pm, pp, _)| pm == m && pp == p) {
+                None => missing.push(format!("{m} {p}")),
+                Some((_, _, min)) => assert_eq!(
+                    lowest(&m.parse().unwrap(), p),
+                    *min,
+                    "{m} {p}: the role rules changed; update POLICY on purpose"
+                ),
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "routes without a role decision: {missing:?}"
+        );
+        for (m, p, _) in POLICY {
+            assert!(
+                routes.iter().any(|(rm, rp)| rm == m && rp == p),
+                "POLICY lists {m} {p}, which isn't a route any more"
+            );
+        }
+    }
 }
