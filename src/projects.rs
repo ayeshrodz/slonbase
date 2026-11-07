@@ -1119,6 +1119,8 @@ pub fn project_config(
     let mut effective = main.effective.clone();
     if let Some(url) = url {
         effective.database.url = Some(url);
+        // a connected database is reached directly, not through the main server's pooler
+        effective.database.listen_url = None;
         effective.database.dbname = None;
         effective.database.user = None;
     } else {

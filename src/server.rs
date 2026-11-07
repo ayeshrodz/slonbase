@@ -182,6 +182,10 @@ fn app_router(app: Arc<App>) -> Router {
             axum::routing::delete(oauth2_api::unlink_external_auth),
         )
         .route(
+            "/api/collections/{collection}/records/{id}/revoke-tokens",
+            post(auth_api::revoke_tokens),
+        )
+        .route(
             "/api/collections/{collection}/auth-refresh",
             post(auth_api::auth_refresh),
         )

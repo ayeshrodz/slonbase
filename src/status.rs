@@ -12,6 +12,7 @@ use serde_json::{Value, json};
 use crate::app::App;
 use crate::auth::RequestAuth;
 use crate::error::ApiError;
+use crate::realtime::SyncState;
 use crate::storage::Storage;
 
 /// A check: `ok`, `info`, `warn` or `error`, with what it found and where to fix it.
@@ -91,6 +92,17 @@ pub async fn status(
         .await
         .map_err(db_error)?;
     let (requests, errors, warnings): (i64, i64, i64) = (logs.get(0), logs.get(1), logs.get(2));
+    // every client of the server, not only this instance's: what the server's limit is spent on
+    let connections = client
+        .query_one(
+            "SELECT count(*) FILTER (WHERE backend_type = 'client backend')::int8,
+                    (current_setting('max_connections')::int - current_setting('superuser_reserved_connections')::int)::int8
+             FROM pg_stat_activity",
+            &[],
+        )
+        .await
+        .map_err(db_error)?;
+    let (connections_used, connections_max): (i64, i64) = (connections.get(0), connections.get(1));
     drop(client);
     let pool = core.pool.status();
     let in_use = pool.size.saturating_sub(pool.available);
@@ -167,6 +179,45 @@ pub async fn status(
             ),
             "#/settings/storage",
         ));
+    }
+
+    // do the instances hear each other
+    match core.realtime.sync_state() {
+        SyncState::Broken => checks.push(check(
+            "sync",
+            "error",
+            "Changes made elsewhere aren't reaching this instance",
+            "This instance sent itself a notification through PostgreSQL and didn't get it back, so schema changes, settings, realtime events and rate limits from other instances don't arrive (and its own don't reach them). The usual cause is a connection pooler (PgBouncer) in transaction mode between slonbase and PostgreSQL, which can't carry LISTEN: set database.listen_url (--database-listen-url, SLONBASE_DATABASE_LISTEN_URL) to a direct or session-mode connection to the same server. See the scaling guide.",
+            "",
+        )),
+        SyncState::Working if instances.len() > 1 => checks.push(check(
+            "sync",
+            "ok",
+            "Instances stay in step",
+            format!(
+                "{} instances share this database and hear each other's changes",
+                instances.len()
+            ),
+            "",
+        )),
+        _ => {}
+    }
+    // the server's connection limit, which every instance and every project spends from
+    if connections_max > 0 {
+        let share = connections_used as f64 / connections_max as f64;
+        if share >= 0.8 {
+            checks.push(check(
+                "connections",
+                if share >= 0.95 { "error" } else { "warn" },
+                "PostgreSQL is close to its connection limit",
+                format!(
+                    "{connections_used} of {connections_max} connections to this server are in use. Each slonbase instance keeps up to {} (a pool of {} plus 2 for notifications), and every project adds its own, so several instances multiply that. Raise PostgreSQL's max_connections, lower --database-max-connections and projects.max_connections, or put a pooler in front (see the scaling guide).",
+                    pool.max_size + 2,
+                    pool.max_size
+                ),
+                "",
+            ));
+        }
     }
 
     // backups

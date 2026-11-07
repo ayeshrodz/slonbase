@@ -954,6 +954,51 @@ pub async fn confirm_password_reset(
 }
 
 // ---------------------------------------------------------------------------
+// signing out everywhere
+
+/// `POST /api/collections/{collection}/records/{id}/revoke-tokens`: gives the record a new
+/// token key, which invalidates every token it has (sessions, file tokens, pending reset and
+/// verification links) on every instance at once. The record itself, or a superuser, may ask
+/// (only an owner for a superuser other than themselves). Tokens are stateless, so this is
+/// what "sign out everywhere" means; a client signs out of one device by discarding its token.
+pub async fn revoke_tokens(
+    State(app): State<Arc<App>>,
+    Path((collection, id)): Path<(String, String)>,
+    auth: crate::auth::RequestAuth,
+) -> Result<Response, ApiError> {
+    let core = app.core()?;
+    let c = auth_collection(&core, &collection)?;
+    if !auth.is_record(&c.id, &id) {
+        if auth.record.is_none() && !auth.is_superuser() {
+            return Err(ApiError::unauthorized(
+                "The request requires valid record authorization token.",
+            ));
+        }
+        if !auth.is_superuser() || (c.name == "_superusers" && auth.role.is_some()) {
+            return Err(ApiError::forbidden(
+                "Only the record itself and superusers can revoke its tokens (superusers' only by an owner).",
+            ));
+        }
+    }
+    let client = core.pool.get().await.map_err(pool_error)?;
+    let updated = client
+        .execute(
+            &format!(
+                "UPDATE {} SET {} = $2::text WHERE id = $1::text",
+                table_ref(&c.name),
+                quote_ident(FIELD_TOKEN_KEY)
+            ),
+            &[&id, &new_token_key()],
+        )
+        .await
+        .map_err(db_error)?;
+    if updated == 0 {
+        return Err(ApiError::not_found());
+    }
+    Ok(no_content())
+}
+
+// ---------------------------------------------------------------------------
 // email change
 
 /// `POST /api/collections/{collection}/request-email-change` (the record itself)

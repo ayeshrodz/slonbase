@@ -676,28 +676,62 @@ async fn db_query(
     mode: &str,
     records: Option<&Collection>,
 ) -> Result<Value, ApiError> {
-    let client = core
+    let mut client = core
         .pool
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    // the search path for this query only (a session setting, not a transaction, so statements
-    // like CREATE INDEX CONCURRENTLY still work), reset before the connection goes back
-    client
-        .batch_execute("SET search_path = slonbase, public")
-        .await
-        .map_err(internal)?;
-    let result = run_query(&client, sql, params, mode, records).await;
+    let lower = sql.to_ascii_lowercase();
+    // statements that can't run in a transaction block keep a session search path, reset
+    // before the connection goes back
+    let outside_transaction = lower.contains("concurrently")
+        || ["vacuum", "create database", "drop database", "alter system"]
+            .iter()
+            .any(|k| lower.trim_start().starts_with(k));
+    let result = if outside_transaction {
+        client
+            .batch_execute("SET search_path = slonbase, public")
+            .await
+            .map_err(internal)?;
+        let result = run_query(&client, sql, params, mode, records).await;
+        if client.batch_execute("RESET search_path").await.is_err() {
+            // not back to the pool with this search path
+            let _ = deadpool_postgres::Object::take(client);
+            return finish_query(core, sql, result).await;
+        }
+        result
+    } else {
+        // the search path for this query only, in its own transaction (so it stays correct
+        // behind a pooler in transaction mode, which may change connections between statements)
+        let tx = client.transaction().await.map_err(internal)?;
+        tx.batch_execute(crate::collections::view::SEARCH_PATH)
+            .await
+            .map_err(internal)?;
+        let result = run_query(&tx, sql, params, mode, records).await;
+        if result.is_ok() {
+            tx.commit().await.map_err(internal)?;
+        } else {
+            let _ = tx.rollback().await;
+        }
+        result
+    };
+    finish_query(core, sql, result).await
+}
+
+/// After a hook's query: tell the other instances about what it changed.
+async fn finish_query(
+    core: &Core,
+    sql: &str,
+    result: Result<Value, ApiError>,
+) -> Result<Value, ApiError> {
     // row changes reach the realtime triggers, a TRUNCATE doesn't
     if result.is_ok() && sql.to_ascii_lowercase().contains("truncate") {
-        core.data_changed_everywhere(&client).await;
+        if let Ok(client) = core.pool.get().await {
+            core.data_changed_everywhere(&client).await;
+        }
     } else if result.is_ok() {
         // the poller picks up what the triggers recorded
         crate::realtime::written(core);
-    }
-    if client.batch_execute("RESET search_path").await.is_err() {
-        // not back to the pool with this search path
-        let _ = deadpool_postgres::Object::take(client);
     }
     result
 }

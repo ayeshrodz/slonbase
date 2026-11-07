@@ -95,7 +95,9 @@ pub fn role_of(core: &Core, superuser_id: &str) -> Role {
 
 fn superuser_action(rest: &str) -> bool {
     // signing in and the like: everyone may, for themselves
-    !rest.starts_with("records") && !rest.starts_with("impersonate")
+    // (revoking tokens: the handler allows it for the superuser themselves, or an owner)
+    (!rest.starts_with("records") || rest.ends_with("/revoke-tokens"))
+        && !rest.starts_with("impersonate")
 }
 
 /// Whether `role` may make a request (`method` and the installation's `path`).

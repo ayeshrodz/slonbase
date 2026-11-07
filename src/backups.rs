@@ -142,18 +142,33 @@ impl Drop for TempDir {
     }
 }
 
-/// Holds the instance's and the database-wide backup locks.
+/// Holds the instance's and the database-wide backup locks. The database-wide one is held by
+/// a transaction (`pg_advisory_xact_lock`) kept open on one connection for the backup, so it
+/// is released with the transaction, and works through a pooler in transaction mode (a
+/// session lock would be taken and released on different server connections there).
 struct Locks<'a> {
     _local: tokio::sync::MutexGuard<'a, ()>,
-    client: deadpool_postgres::Client,
+    client: Option<deadpool_postgres::Client>,
 }
 
 impl Locks<'_> {
-    async fn release(self) {
-        let _ = self
-            .client
-            .execute("SELECT pg_advisory_unlock($1)", &[&BACKUP_LOCK_KEY])
-            .await;
+    async fn release(mut self) {
+        if let Some(client) = self.client.take() {
+            if client.batch_execute("ROLLBACK").await.is_err() {
+                // not back to the pool inside a transaction
+                let _ = deadpool_postgres::Object::take(client);
+            }
+        }
+    }
+}
+
+impl Drop for Locks<'_> {
+    fn drop(&mut self) {
+        // dropped without `release` (an early return, a panic): the connection, with its
+        // open transaction, must not go back to the pool
+        if let Some(client) = self.client.take() {
+            let _ = deadpool_postgres::Object::take(client);
+        }
     }
 }
 
@@ -164,17 +179,27 @@ async fn lock(core: &Core) -> Result<Locks<'_>, BackupError> {
         .get()
         .await
         .map_err(|e| BackupError::Other(crate::db::describe_pool_error(e)))?;
-    let locked: bool = client
-        .query_one("SELECT pg_try_advisory_lock($1)", &[&BACKUP_LOCK_KEY])
+    client
+        .batch_execute("BEGIN")
         .await
-        .map_err(|e| BackupError::Other(e.into()))?
-        .get(0);
+        .map_err(|e| BackupError::Other(e.into()))?;
+    let locked: bool = match client
+        .query_one("SELECT pg_try_advisory_xact_lock($1)", &[&BACKUP_LOCK_KEY])
+        .await
+    {
+        Ok(row) => row.get(0),
+        Err(e) => {
+            let _ = deadpool_postgres::Object::take(client);
+            return Err(BackupError::Other(e.into()));
+        }
+    };
     if !locked {
+        let _ = client.batch_execute("ROLLBACK").await;
         return Err(BackupError::Busy);
     }
     Ok(Locks {
         _local: local,
-        client,
+        client: Some(client),
     })
 }
 

@@ -53,6 +53,16 @@ struct Cli {
     )]
     database_url: Option<String>,
 
+    /// PostgreSQL URL for LISTEN/NOTIFY when --database-url points at a pooler in transaction
+    /// mode (e.g. PgBouncer): a direct or session-mode connection to the same server.
+    #[arg(
+        long,
+        global = true,
+        env = "SLONBASE_DATABASE_LISTEN_URL",
+        hide_env_values = true
+    )]
+    database_listen_url: Option<String>,
+
     /// Maximum number of pooled database connections [default: 16].
     #[arg(long, global = true, env = "SLONBASE_DATABASE_MAX_CONNECTIONS")]
     database_max_connections: Option<usize>,
@@ -321,6 +331,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         metrics_bind: cli.metrics_bind,
         http_ca_file: cli.http_ca_file,
         database_url: cli.database_url,
+        database_listen_url: cli.database_listen_url,
         max_connections: cli.database_max_connections,
         ca_file: cli.database_ca_file,
         storage_path: cli.storage_path,

@@ -180,6 +180,11 @@ pub struct DatabaseConfig {
     pub url: Option<String>,
     /// Maximum number of pooled connections.
     pub max_connections: usize,
+    /// A direct (or session-mode) connection URL for `LISTEN/NOTIFY`, when `url` points at a
+    /// pooler in transaction mode (PgBouncer, say), which can't carry `LISTEN`. Defaults to `url`.
+    /// Only used for databases on the same server as `url`, never for a connected project.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub listen_url: Option<String>,
     /// Extra PEM CA bundle to trust for TLS connections (e.g. a managed provider's CA).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_file: Option<PathBuf>,
@@ -196,6 +201,7 @@ impl Default for DatabaseConfig {
         Self {
             url: None,
             max_connections: DEFAULT_MAX_CONNECTIONS,
+            listen_url: None,
             ca_file: None,
             dbname: None,
             user: None,
@@ -210,6 +216,7 @@ pub struct Overrides {
     pub metrics_bind: Option<String>,
     pub http_ca_file: Option<PathBuf>,
     pub database_url: Option<String>,
+    pub database_listen_url: Option<String>,
     pub max_connections: Option<usize>,
     pub ca_file: Option<PathBuf>,
     pub storage_path: Option<PathBuf>,
@@ -265,6 +272,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(url) = overrides.database_url {
         effective.database.url = Some(url);
+    }
+    if let Some(url) = overrides.database_listen_url {
+        effective.database.listen_url = Some(url);
     }
     if let Some(max) = overrides.max_connections {
         effective.database.max_connections = max;

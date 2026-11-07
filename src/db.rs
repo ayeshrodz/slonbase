@@ -79,7 +79,8 @@ pub async fn listen(
     tokio_postgres::Client,
     tokio::sync::mpsc::UnboundedReceiver<tokio_postgres::Notification>,
 )> {
-    let pg = parse_url(url, cfg)?;
+    // a pooler in transaction mode can't carry LISTEN: the listener may have a direct URL
+    let pg = parse_url(cfg.listen_url.as_deref().unwrap_or(url), cfg)?;
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let (client, mut connection) = pg.connect(tls).await?;
 

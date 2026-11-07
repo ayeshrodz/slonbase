@@ -243,16 +243,29 @@ async fn run_on(
     max_rows: usize,
 ) -> Result<Value, ApiError> {
     let failed = |e: tokio_postgres::Error| query_error(&e, query, 0);
-    client
-        .batch_execute(&format!(
-            "SET search_path = slonbase, public; \
-             SET statement_timeout = '{STATEMENT_TIMEOUT_SECONDS}s'; \
-             SET lock_timeout = '{LOCK_TIMEOUT_SECONDS}s'"
-        ))
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
+    // the limits are per transaction (`SET LOCAL`), so nothing is left on a connection that a
+    // pooler in transaction mode hands to someone else
+    let limits = format!(
+        "SET LOCAL search_path = slonbase, public; \
+         SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT_SECONDS}s'; \
+         SET LOCAL lock_timeout = '{LOCK_TIMEOUT_SECONDS}s'"
+    );
     // one statement or several: PostgreSQL prepares only one (and the columns' types come with it)
-    let statement = match client.prepare(query).await {
+    let prepared = {
+        let tx = client
+            .build_transaction()
+            .read_only(true)
+            .start()
+            .await
+            .map_err(failed)?;
+        tx.batch_execute(&limits)
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
+        let prepared = tx.prepare(query).await;
+        let _ = tx.rollback().await;
+        prepared
+    };
+    let statement = match prepared {
         Ok(statement) => Some(statement),
         Err(e) => {
             let several = e
@@ -289,6 +302,9 @@ async fn run_on(
             .start()
             .await
             .map_err(failed)?;
+        tx.batch_execute(&limits)
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
         let collected = if through_cursor {
             // through a cursor, so only the rows shown are read (the query is one statement:
             // the declaration can't carry another)

@@ -48,6 +48,9 @@ use crate::{db, ids};
 pub const CHANNEL: &str = "slonbase";
 
 const CLIENT_BUFFER: usize = 512;
+
+/// A pooled connection unused for this long is closed.
+const IDLE_CONNECTION: Duration = Duration::from_secs(120);
 const MAX_SUBSCRIPTIONS: usize = 1000;
 const MAX_TOPIC_LENGTH: usize = 2500;
 /// Outbox rows are kept this long (for catching up after a listener reconnect).
@@ -194,6 +197,22 @@ pub struct Hub {
     poll: Arc<tokio::sync::Notify>,
     /// Wakes the task telling the other instances that this one wrote.
     announce: Arc<tokio::sync::Notify>,
+    /// The self-test of the notification path (see [`check_sync`]): the last ping sent and the
+    /// last one received back, and the verdict.
+    ping_sent: std::sync::atomic::AtomicU64,
+    ping_seen: std::sync::atomic::AtomicU64,
+    sync: std::sync::atomic::AtomicU8,
+}
+
+/// The verdict of the notification self-test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncState {
+    /// Not tested yet.
+    Unknown,
+    /// This instance receives the notifications it sends through the database.
+    Working,
+    /// It doesn't: changes made through other instances don't reach it (and the other way round).
+    Broken,
 }
 
 impl Default for Hub {
@@ -206,6 +225,9 @@ impl Default for Hub {
             announced: Default::default(),
             poll: Default::default(),
             announce: Default::default(),
+            ping_sent: Default::default(),
+            ping_seen: Default::default(),
+            sync: Default::default(),
         }
     }
 }
@@ -271,6 +293,15 @@ impl Hub {
 
     pub fn other_instances(&self) -> usize {
         self.others.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Whether this instance gets back the notifications it sends (see [`check_sync`]).
+    pub fn sync_state(&self) -> SyncState {
+        match self.sync.load(std::sync::atomic::Ordering::Relaxed) {
+            1 => SyncState::Working,
+            2 => SyncState::Broken,
+            _ => SyncState::Unknown,
+        }
     }
 
     pub fn client_count(&self) -> usize {
@@ -553,6 +584,9 @@ pub async fn subscribe(
 /// How long a forwarded subscribe request waits for the instance holding the client.
 const FORWARD_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How long the other instances are waited for after one has answered "not mine".
+const FORWARD_OVERDUE: Duration = Duration::from_secs(2);
+
 /// Forwards a subscribe request for a client this instance doesn't hold to the other live
 /// instances, through the database: the request goes to `_slonbase.realtime_forwards` and is
 /// announced; the instance holding the client runs it (authenticating its `Authorization`
@@ -611,16 +645,26 @@ async fn forward(
     let held = match announced {
         Ok(()) => tokio::time::timeout(FORWARD_TIMEOUT, async {
             let mut missing = 0;
-            while let Some(held) = answers.recv().await {
-                if held {
-                    return true;
-                }
-                missing += 1;
-                if missing >= others {
-                    break;
+            // once some instance has said the client isn't its own, the others are given
+            // only a little longer: an instance that died still counts as live for a minute,
+            // and must not make every request wait the full time
+            let overdue = tokio::time::sleep(FORWARD_OVERDUE);
+            tokio::pin!(overdue);
+            loop {
+                tokio::select! {
+                    held = answers.recv() => match held {
+                        Some(true) => return true,
+                        Some(false) => {
+                            missing += 1;
+                            if missing >= others {
+                                return false;
+                            }
+                        }
+                        None => return false,
+                    },
+                    _ = &mut overdue, if missing > 0 => return false,
                 }
             }
-            false
         })
         .await
         .unwrap_or(false),
@@ -1327,6 +1371,45 @@ async fn reload_settings(core: &Arc<Core>) {
     }
 }
 
+/// Tests the path every instance relies on to stay in step (schema, settings, realtime, rate
+/// limits): sends this instance a notification through the database and waits for it to come
+/// back on the listener. It doesn't when something between slonbase and PostgreSQL can't carry
+/// `LISTEN`, a pooler in transaction mode above all, and nothing else would notice: requests
+/// keep working, and the instances quietly stop seeing each other's changes.
+pub async fn check_sync(core: &Core) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let hub = &core.realtime;
+    let n = hub.ping_sent.fetch_add(1, Relaxed) + 1;
+    let sent = async {
+        let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+        notify(&client, &format!("ping:{}:{n}", hub.instance)).await?;
+        anyhow::Ok(())
+    };
+    if sent.await.is_err() {
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+    let received = loop {
+        if hub.ping_seen.load(Relaxed) >= n {
+            break true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            break false;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    };
+    let before = hub.sync.swap(if received { 1 } else { 2 }, Relaxed);
+    if !received && before != 2 {
+        tracing::warn!(
+            "this instance didn't get back a notification it sent through PostgreSQL: changes made through other instances won't reach it. \
+             A connection pooler in transaction mode (PgBouncer) can't carry LISTEN: set database.listen_url \
+             (--database-listen-url) to a direct connection, see the scaling guide"
+        );
+    } else if received && before == 2 {
+        tracing::info!("notifications through PostgreSQL arrive again");
+    }
+}
+
 /// Marks this instance as live (every 20 seconds, from the listener), so other instances
 /// forward subscribe requests to it, and counts the others (for shared rate limits).
 async fn heartbeat(core: &Core) {
@@ -1424,6 +1507,15 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                             if let Some(state) = state {
                                 send_to_client(&core, &state, OAUTH2_TOPIC, data.to_string());
                             }
+                        } else if let Some(rest) = payload.strip_prefix("ping:") {
+                            // the self-test: this instance's own ping coming back
+                            if let Some((instance, n)) = rest.split_once(':') {
+                                if instance == core.realtime.instance {
+                                    if let Ok(n) = n.parse::<u64>() {
+                                        core.realtime.ping_seen.fetch_max(n, std::sync::atomic::Ordering::Relaxed);
+                                    }
+                                }
+                            }
                         } else if payload == "instance" {
                             // an instance started: count it
                             heartbeat(&core).await;
@@ -1443,12 +1535,22 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                     _ = schedule.tick() => {
                         let Some(core) = weak.upgrade() else { return };
                         heartbeat(&core).await;
+                        // (off the listener's task: the answer comes back through it)
+                        let tester = weak.clone();
+                        tokio::spawn(async move {
+                            if let Some(core) = tester.upgrade() {
+                                check_sync(&core).await;
+                            }
+                        });
                         crate::backups::run_scheduled(&core).await;
                         crate::hooks::run_scheduled_crons(&core).await;
                     }
                     _ = prune.tick() => {
                         let Some(core) = weak.upgrade() else { return };
                         core.rate_limiter.prune();
+                        // idle connections are let go (many projects, many instances: each pool
+                        // would otherwise keep what it once needed)
+                        core.pool.retain(|_, metrics| metrics.last_used() < IDLE_CONNECTION);
                         crate::jobs::prune_hourly(&core).await;
                         let max_days = core.settings().logs.max_days;
                         if max_days > 0 {
