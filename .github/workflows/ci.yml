@@ -29,7 +29,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       # the installer people pipe into a root shell
-      - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh
+      - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh
+      # the other scripts (bash), warnings and errors
+      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh
+      # the workflows themselves (expressions, permissions, shell in `run:`)
+      - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+      # the third-party license list matches Cargo.lock
+      - run: python3 scripts/third-party.py --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
@@ -87,7 +93,7 @@ jobs:
           mkdir -p "$HOME/minio/data"
           MINIO_ROOT_USER="$SLONBASE_TEST_S3_ACCESS_KEY" MINIO_ROOT_PASSWORD="$SLONBASE_TEST_S3_SECRET" \
             nohup "$HOME/minio/bin/minio" server "$HOME/minio/data" --address 127.0.0.1:9000 > "$HOME/minio/log" 2>&1 &
-          for i in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             curl -sf http://127.0.0.1:9000/minio/health/live && exit 0
             sleep 1
           done
@@ -309,7 +315,7 @@ jobs:
       - name: compat/import/run.sh, with PocketBase's settings encrypted
         run: |
           PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -qc 'CREATE DATABASE import_encrypted'
-          DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/import_encrypted?sslmode=disable \
+          DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/import_encrypted?sslmode=disable' \
             ENCRYPTION_KEY=0123456789abcdef0123456789abcdef compat/import/run.sh
 
   # several instances behind a balancer with no affinity on one PostgreSQL: tokens, schema, settings,

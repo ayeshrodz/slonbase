@@ -39,8 +39,21 @@ contents:
     type: config|noreplace
     file_info:
       mode: 0644
+  # the license, the notice and the third-party licenses travel with every package
   - src: LICENSE
     dst: /usr/share/doc/slonbase/copyright
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/slonbase/LICENSE
+    file_info:
+      mode: 0644
+  - src: NOTICE
+    dst: /usr/share/doc/slonbase/NOTICE
+    file_info:
+      mode: 0644
+  - src: THIRD-PARTY-LICENSES.md
+    dst: /usr/share/doc/slonbase/THIRD-PARTY-LICENSES.md
     file_info:
       mode: 0644
   # owned by the slonbase user (set in postinstall, the user doesn't exist yet at unpack time)

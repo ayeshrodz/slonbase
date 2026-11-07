@@ -13,6 +13,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 
 FROM scratch
 COPY --from=build /slonbase /slonbase
+COPY --from=build /src/LICENSE /src/NOTICE /src/THIRD-PARTY-LICENSES.md /licenses/
 COPY --from=build --chown=65532:65532 /data /data
 USER 65532:65532
 ENV SLONBASE_BIND=0.0.0.0:8090 \

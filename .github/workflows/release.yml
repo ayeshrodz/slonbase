@@ -88,7 +88,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Checksums
-        run: cd dist && sha256sum *.deb *.rpm *.tar.gz > SHA256SUMS
+        run: cd dist && sha256sum ./*.deb ./*.rpm ./*.tar.gz | sed 's| \./| |' > SHA256SUMS
       - name: Release notes
         env:
           VERSION: ${{ needs.verify.outputs.version }}
