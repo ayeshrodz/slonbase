@@ -63,6 +63,8 @@ jobs:
             version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
           fi
           scripts/package.sh ${{ matrix.target }} ${{ matrix.arch }} "$version"
+          # what is shipped: license, notice and third-party licenses in every archive and package
+          scripts/check-dist.sh dist "$version"
 
       - uses: actions/upload-artifact@v7
         with:

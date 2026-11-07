@@ -2,7 +2,7 @@
 name = "slonbase"
 version = "2.5.1"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 description = "Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project admin dashboard"
 license = "Apache-2.0"
 repository = "https://github.com/ayeshrodz/slonbase"
@@ -13,6 +13,12 @@ keywords = ["backend", "postgresql", "rest-api", "realtime", "auth"]
 categories = ["web-programming::http-server", "database", "authentication"]
 # not on crates.io yet: depend on it from git (see docs/extending.md)
 publish = false
+
+
+[lints.clippy]
+# With rust-version 1.88, clippy suggests merging nested `if let`s into let chains. The nested
+# form is kept (it reads the same); a style-only rewrite of every site isn't worth the churn.
+collapsible_if = "allow"
 
 [dependencies]
 anyhow = "1.0.104"

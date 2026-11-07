@@ -5,6 +5,7 @@ FROM scratch
 ARG TARGETARCH
 # --chmod: artifact downloads drop the executable bit
 COPY --chmod=0755 dist/linux-${TARGETARCH}/slonbase /slonbase
+COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /licenses/
 COPY --chown=65532:65532 packaging/docker-data/ /data/
 USER 65532:65532
 ENV SLONBASE_BIND=0.0.0.0:8090 \

@@ -249,7 +249,7 @@ By default it listens on `127.0.0.1:8090` and keeps its config (`slonbase.toml`)
 
 ## From source
 
-Rust 1.87 or newer:
+Rust 1.88 or newer:
 
 ```sh
 git clone https://github.com/ayeshrodz/slonbase && cd slonbase

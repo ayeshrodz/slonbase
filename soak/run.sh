@@ -24,6 +24,7 @@ common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-
 pids=()
 urls=()
 metrics=()
+# shellcheck disable=SC2154 # (p is the loop variable inside the trap string)
 trap 'for p in "${pids[@]}"; do kill "$p" 2>/dev/null || true; done; wait 2>/dev/null || true' EXIT
 for i in $(seq 0 $((instances - 1))); do
   http=$((port + i * 2))

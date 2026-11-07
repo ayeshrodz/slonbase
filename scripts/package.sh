@@ -26,4 +26,4 @@ done
 mv dist/slonbase "dist/linux-$arch/slonbase"
 tar -czf "dist/slonbase-$version-linux-$arch.tar.gz" \
     -C "$root/dist/linux-$arch" slonbase \
-    -C "$root" LICENSE README.md
+    -C "$root" LICENSE NOTICE THIRD-PARTY-LICENSES.md README.md

@@ -1,0 +1,24 @@
+# Dependency updates arrive as pull requests, checked by CI like any other change.
+version: 2
+updates:
+  # the actions the workflows use (a pin to a commit is updated here too)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  # Rust crates: patch and minor updates together, once a month
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      crates:
+        update-types: [minor, patch]
+  # the base image of the source Dockerfile
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: monthly
