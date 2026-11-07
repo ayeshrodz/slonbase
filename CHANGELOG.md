@@ -8,6 +8,11 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.4.1] - 2026-11-07
+
+Follow-up to 2.4.0's security hardening: a trusted proxy list, a bounded rate limiter, and tests that
+were checked to fail when the protection they cover is removed.
+
 ### Security
 
 - **The in-memory rate limiter stays bounded under a flood of distinct clients.** Before, once
@@ -18,6 +23,10 @@ changes, listed in its **Upgrading** section.
   forwarded-address headers. When it is set, a request from any other address has its headers
   ignored, so a client can't forge its address to dodge rate limits and lockouts; trusted hops are
   skipped from the right. Health warns when headers are trusted but no peers are listed.
+- **Tests that can fail:** the SQL console test expected a 403, which a console that is switched off
+  also returns, so it would have passed with the role check removed; it now runs with the console on
+  and fails without the check. Backup retries and the file swap of a restore (the old files must
+  stay if it fails) are tested too.
 
 ## [2.4.0] - 2026-11-07
 
