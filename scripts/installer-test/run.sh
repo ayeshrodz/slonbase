@@ -24,6 +24,15 @@ step() { printf '\n######## %s\n' "$*"; }
 fail() { printf '\nFAIL: %s\n' "$*" >&2; exit 1; }
 installer() { sh /src/site/install.sh; }
 
+# container images leave out /usr/share/doc to save space; a server keeps it, and the package's
+# license files live there
+if [ -d /etc/dpkg/dpkg.cfg.d ]; then
+    sed -i '/usr\/share\/doc/d' /etc/dpkg/dpkg.cfg.d/* 2>/dev/null || true
+fi
+if [ -f /etc/dnf/dnf.conf ]; then
+    sed -i '/^tsflags=nodocs/d' /etc/dnf/dnf.conf
+fi
+
 if command -v apt-get >/dev/null 2>&1; then
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -q >/dev/null && apt-get install -y -q curl ca-certificates >/dev/null
