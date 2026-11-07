@@ -8,6 +8,16 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **An open realtime stream no longer outlives its session.** A client subscribes with its token once and keeps
+  receiving events; ending that session (revoking its tokens, changing its password) or deleting
+  the account didn't stop the stream until the client disconnected. Each delivery now checks that the
+  account still exists with the same token key, and closes the streams of those that don't. Found
+  by a new test (`open_streams_follow_rights_changes`) that also checks a tightened rule stops
+  the events. A test now also guards the role rules: every API route needs a deliberate
+  decision in `roles.rs` (`POLICY`), so a new route can't be left out of the role checks unnoticed.
+
 ## [2.4.1] - 2026-11-07
 
 Follow-up to 2.4.0's security hardening: a trusted proxy list, a bounded rate limiter, and tests that

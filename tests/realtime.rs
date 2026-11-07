@@ -1028,3 +1028,174 @@ async fn delivers_late_commits_once() {
     drop(app);
     tdb.drop_db().await;
 }
+
+/// A stream that is already open must follow later changes: a rule that is tightened, and an
+/// account whose sessions are ended or that is deleted, stop receiving what they may no longer see.
+#[tokio::test]
+async fn open_streams_follow_rights_changes() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    let users = as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "users", "type": "auth", "createRule": "" })),
+    )
+    .await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "notes",
+            "fields": [
+                { "name": "text", "type": "text" },
+                { "name": "owner", "type": "relation", "collectionId": users["id"] }
+            ],
+            "listRule": "owner = @request.auth.id",
+            "viewRule": "owner = @request.auth.id"
+        })),
+    )
+    .await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "open", "fields": [{ "name": "text", "type": "text" }],
+            "listRule": "", "viewRule": ""
+        })),
+    )
+    .await;
+    let mut accounts = Vec::new();
+    for email in ["one@example.com", "two@example.com", "three@example.com"] {
+        let (_, user) = request(
+            &app,
+            "POST",
+            "/api/collections/users/records",
+            &[],
+            Some(json!({ "email": email, "password": "12345678", "passwordConfirm": "12345678" })),
+        )
+        .await;
+        let (_, login) = request(
+            &app,
+            "POST",
+            "/api/collections/users/auth-with-password",
+            &[],
+            Some(json!({ "identity": email, "password": "12345678" })),
+        )
+        .await;
+        accounts.push((
+            user["id"].as_str().unwrap().to_string(),
+            login["token"].as_str().unwrap().to_string(),
+        ));
+    }
+    let note = |text: &str, owner: &str| json!({ "text": text, "owner": owner });
+
+    // three signed-in streams on their own notes, and a guest on a public collection
+    let mut streams = Vec::new();
+    for (_, token) in &accounts {
+        let mut stream = Stream::open(&app).await;
+        let status = subscribe(&app, Some(token), &stream.client_id, &["notes/*"]).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        streams.push(std::mem::replace(&mut stream, Stream::open(&app).await));
+    }
+    let mut guest = Stream::open(&app).await;
+    subscribe(&app, None, &guest.client_id, &["open/*"]).await;
+    for (n, (id, _)) in accounts.iter().enumerate() {
+        as_admin(
+            &app,
+            &admin,
+            "POST",
+            "/api/collections/notes/records",
+            Some(note(&format!("first {n}"), id)),
+        )
+        .await;
+        let (event, data) = streams[n].expect().await;
+        assert_eq!(event, "notes/*");
+        assert_eq!(data["record"]["text"], format!("first {n}"));
+    }
+
+    // 1. the rule is tightened to superusers only: the open streams stop
+    as_admin(
+        &app,
+        &admin,
+        "PATCH",
+        "/api/collections/open",
+        Some(json!({ "listRule": null, "viewRule": null })),
+    )
+    .await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections/open/records",
+        Some(json!({ "text": "hidden now" })),
+    )
+    .await;
+    guest.expect_none().await;
+
+    // 2. an account's sessions are ended: its open stream stops
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        &format!(
+            "/api/collections/users/records/{}/revoke-tokens",
+            accounts[0].0
+        ),
+        None,
+    )
+    .await;
+    // 3. an account is deleted: its open stream stops
+    as_admin(
+        &app,
+        &admin,
+        "DELETE",
+        &format!("/api/collections/users/records/{}", accounts[1].0),
+        None,
+    )
+    .await;
+    // 4. the notes rule is tightened for everyone
+    for (n, (id, _)) in accounts.iter().enumerate() {
+        if n == 1 {
+            continue; // deleted: nobody to own a note
+        }
+        as_admin(
+            &app,
+            &admin,
+            "POST",
+            "/api/collections/notes/records",
+            Some(note(&format!("second {n}"), id)),
+        )
+        .await;
+    }
+    streams[0].expect_none().await; // sessions ended
+    streams[1].expect_none().await; // deleted
+    let (_, data) = streams[2].expect().await; // still valid: still gets its note
+    assert_eq!(data["record"]["text"], "second 2");
+    as_admin(
+        &app,
+        &admin,
+        "PATCH",
+        "/api/collections/notes",
+        Some(json!({ "listRule": null, "viewRule": null })),
+    )
+    .await;
+    as_admin(
+        &app,
+        &admin,
+        "POST",
+        "/api/collections/notes/records",
+        Some(note("third", &accounts[2].0)),
+    )
+    .await;
+    streams[2].expect_none().await;
+
+    tdb.drop_db().await;
+}

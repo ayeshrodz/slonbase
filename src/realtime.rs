@@ -962,6 +962,7 @@ async fn prepare(
             }
         }
     }
+    drop_ended_sessions(core, &mut targets).await;
     let mut messages = Vec::new();
     for chunk in targets.chunks(CHECK_CHUNK) {
         match check_access(core, &c, &record, chunk).await {
@@ -980,6 +981,55 @@ async fn prepare(
         }
     }
     messages
+}
+
+/// Removes the targets whose account no longer has the session they subscribed with: the account
+/// was deleted, or its tokens were revoked (its token key changed, as when its password
+/// changes). Their streams are closed, so that ending a session also ends what it receives.
+async fn drop_ended_sessions(core: &Arc<Core>, targets: &mut Vec<Target>) {
+    let mut seen: HashMap<(String, String), bool> = HashMap::new();
+    let Ok(client) = core.pool.get().await else {
+        return;
+    };
+    let mut ended = Vec::new();
+    for target in targets.iter() {
+        let Some(account) = target
+            .auth
+            .superuser
+            .as_ref()
+            .or(target.auth.record.as_ref())
+        else {
+            continue;
+        };
+        let key = (account.collection.id.clone(), account.id().to_string());
+        let valid = match seen.get(&key) {
+            Some(valid) => *valid,
+            None => {
+                let valid =
+                    match crate::records::store::find_by_id(&client, &account.collection, &key.1)
+                        .await
+                    {
+                        Ok(Some(values)) => {
+                            values
+                                .get(crate::collections::model::FIELD_TOKEN_KEY)
+                                .and_then(Value::as_str)
+                                == Some(account.token_key())
+                        }
+                        Ok(None) => false,
+                        Err(_) => true, // can't tell: don't cut anyone off
+                    };
+                seen.insert(key, valid);
+                valid
+            }
+        };
+        if !valid {
+            ended.push(target.client_id.clone());
+        }
+    }
+    for id in &ended {
+        core.realtime.remove(id);
+    }
+    targets.retain(|t| !ended.contains(&t.client_id));
 }
 
 /// Sends prepared messages to their clients.
