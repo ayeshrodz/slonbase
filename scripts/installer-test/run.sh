@@ -32,7 +32,10 @@ else
     dnf install -y -q curl postgresql-server util-linux >/dev/null
     # Red Hat's defaults: peer on the socket, ident (no password) on localhost TCP
     su postgres -s /bin/sh -c 'initdb -D /var/lib/pgsql/data --auth-local=peer --auth-host=ident >/dev/null'
-    su postgres -s /bin/sh -c 'pg_ctl -D /var/lib/pgsql/data -l /tmp/pg.log -w start >/dev/null'
+    # systemd-tmpfiles creates the socket directory at boot; there is no boot here
+    mkdir -p /run/postgresql && chown postgres:postgres /run/postgresql
+    su postgres -s /bin/sh -c 'pg_ctl -D /var/lib/pgsql/data -l /tmp/pg.log -w start >/dev/null' \
+        || { cat /tmp/pg.log; fail "PostgreSQL didn't start"; }
     psql_as() { su postgres -s /bin/sh -c "psql -X -qtA -c \"$1\""; }
 fi
 export SLONBASE_DB_USER=itest SLONBASE_DB_NAME=itest
