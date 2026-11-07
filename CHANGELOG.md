@@ -8,6 +8,16 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Packaging and project
+
+- **Every archive, package and container image now carries `LICENSE`, `NOTICE` and
+  `THIRD-PARTY-LICENSES.md`** (the dashboard's libraries and fonts in full, and every Rust crate
+  with its license and source). A check runs before anything is published.
+- **The minimum Rust version is 1.88**, not 1.87: dependencies already needed it. CI now builds
+  with the version `Cargo.toml` promises.
+- The security policy supports 2.5.x and 2.4.x (until February 7, 2027); `SUPPORT.md`,
+  `MAINTAINING.md`, `CODEOWNERS` and Dependabot configuration are new.
+
 ### Security
 
 - **More tests, no problem found:** every OAuth2 provider preset is well formed (https endpoints, no
