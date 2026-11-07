@@ -55,6 +55,9 @@ compiler never panic.
 
 ### 5. A restricted dashboard role could reach what it forbids by another route (high)
 
+Published as the security advisory [GHSA-8g53-r6rc-fm83](https://github.com/ayeshrodz/slonbase/security/advisories/GHSA-8g53-r6rc-fm83) (CVSS 8.1, High; CWE-863, CWE-269, CWE-200;
+affects 2.3.1 and earlier, fixed in 2.4.0).
+
 Two outside reviews of the source reported it; each case was reproduced with a test before it
 was fixed (`tests/roles_bypass.rs`, which failed first):
 

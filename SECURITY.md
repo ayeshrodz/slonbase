@@ -43,6 +43,14 @@ You'll get an answer within 7 days. Once the problem is confirmed, a fix is rele
 possible, and published together with a GitHub security advisory that credits you (unless you'd
 rather not be named). Please give us a reasonable time to fix the problem before you disclose it.
 
+## Published advisories
+
+- [GHSA-8g53-r6rc-fm83](https://github.com/ayeshrodz/slonbase/security/advisories/GHSA-8g53-r6rc-fm83): a restricted dashboard role or API key could escalate to owner or read secrets
+  (CVSS 8.1, High). Affects 2.3.1 and earlier; fixed in 2.4.0.
+
+All advisories are listed on the repository's
+[Security page](https://github.com/ayeshrodz/slonbase/security/advisories).
+
 ## Scope
 
 In scope: the slonbase server, the dashboard, the packages and the Docker image.

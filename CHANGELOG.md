@@ -70,7 +70,7 @@ every path to the same rules.** Prompted by an outside review of the code.
 - **Generated filter tests:** thousands of filters full of SQL and filter metacharacters are
   compiled, checking that a client's value never reaches the SQL text, only parameters, and
   20,000 random inputs that the parser and compiler never panic.
-- **A restricted dashboard role could reach what it forbids by another route** (reported by two
+- **A restricted dashboard role could reach what it forbids by another route** ([GHSA-8g53-r6rc-fm83](https://github.com/ayeshrodz/slonbase/security/advisories/GHSA-8g53-r6rc-fm83); reported by two
   outside reviews, reproduced with tests before fixing; see the
   [security reviews](docs/security-review.md)). A developer could create a superuser (which
   starts as an owner) through the superusers collection's *id* or through a *batch*; a read-only

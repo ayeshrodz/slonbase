@@ -60,6 +60,9 @@ allowed too, and it can run as a separate, restricted PostgreSQL role
 
 ## Known limits
 
+Past issues are listed, with their advisories, in the [security reviews](security-review.md) and in
+[SECURITY.md](https://github.com/ayeshrodz/slonbase/blob/main/SECURITY.md#published-advisories).
+
 Found by reviews, and what they mean in practice:
 
 - **Trusted proxy headers are believed from any connection unless you list your proxies.** Set
