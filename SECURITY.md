@@ -8,24 +8,11 @@ to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 2.4.x | ✅ |
-| 2.3.x | ✅ until three months after 2.4.0 (February 7, 2027) |
-| 2.2.x | ✅ until three months after 2.3.0 (February 7, 2027) |
-| 2.1.x | ✅ until three months after 2.2.0 (February 6, 2027) |
-| 2.0.x | ✅ until three months after 2.1.0 (February 6, 2027) |
-| 1.11.x | ✅ until three months after 2.0.0 (February 6, 2027) |
-| 1.10.x | ✅ until three months after 1.11.0 (February 5, 2027) |
-| 1.9.x | ✅ until three months after 1.10.0 (February 5, 2027) |
-| 1.8.x | ✅ until three months after 1.9.0 (February 4, 2027) |
-| 1.7.x | ✅ until three months after 1.8.0 (February 3, 2027) |
-| 1.6.x | ✅ until three months after 1.7.0 (February 3, 2027) |
-| 1.5.x | ✅ until three months after 1.6.0 (February 2, 2027) |
-| 1.4.x | ✅ until three months after 1.5.0 (February 2, 2027) |
-| 1.3.x | ✅ until three months after 1.4.0 (February 1, 2027) |
-| 1.2.x | ✅ until three months after 1.3.0 (February 1, 2027) |
-| 1.1.x | ✅ until three months after 1.2.0 (January 31, 2027) |
-| 1.0.x | ✅ until three months after 1.1.0 (January 30, 2027) |
-| 0.x | ❌ |
+| 2.5.x | ✅ |
+| 2.4.x | ✅ until three months after 2.5.0 (February 7, 2027) |
+| 2.3.x and older | ❌ |
+
+When a new minor release comes out, the table above is updated in the same release.
 
 ## Reporting a vulnerability
 

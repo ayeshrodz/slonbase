@@ -65,66 +65,7 @@ work to the project under Apache 2.0 and lets the maintainer license it under ot
 future (the project may one day offer separately licensed commercial features or hosted services).
 See [license and contributing terms](docs/licensing.md).
 
-## Releases
+## Releases and maintaining
 
-Maintainers release by:
-
-1. moving the "Unreleased" entries in `CHANGELOG.md` into a section for the new version;
-2. setting the version in `Cargo.toml`;
-3. pushing a `vX.Y.Z` tag.
-
-Bumping the version on `main` is also a release: when CI passes on `main` and `Cargo.toml` has a
-version without a tag, the **Release** workflow tags that commit and releases it. It checks that
-the changelog has the version's section, builds the packages once (amd64 and arm64), publishes
-the GitHub release, with those notes, and the Docker image (built from the packages' binaries).
-Last, it starts the **Package repositories** workflow, which rebuilds the apt and dnf
-repositories from the five newest releases' packages (the Pages artifact is limited to 1 GB;
-older packages stay on their release pages) and publishes them on GitHub Pages at
-<https://slonbase.com>, with the project's page (`site/index.html` and `site/install.sh`, using
-the images in `docs/assets/`) at the root and the documentation site at `/docs/`. It also runs
-when the page or the docs change on `main`. CI doesn't build packages or the source image on
-every push: the Release does, before it publishes anything, and the **Docker** workflow builds
-the image from source only when its inputs change.
-
-The screenshots in `docs/assets/screenshots/` and the tour video on the page come from
-`scripts/demo/run.sh` (it seeds a demo installation, takes the screenshots and records and encodes
-the tour; see the script's header for what it needs). The benchmark behind the page's numbers is in
-`bench/`.
-
-The documentation site is built from `docs/*.md` and `CHANGELOG.md` by
-`scripts/build-docs.mjs` (Node, no dependencies). To preview it, build it next to the page and
-serve the folder:
-
-```sh
-mkdir -p /tmp/site && cp -r site/. /tmp/site && cp -r docs/assets /tmp/site/assets
-node scripts/build-docs.mjs /tmp/site/docs && python3 -m http.server -d /tmp/site 8000
-```
-
-The build fails on a link to a page or heading that doesn't exist (CI runs it). A new guide goes
-in `SECTIONS` at the top of the script.
-
-The repositories need, once:
-
-1. a signing key without a passphrase, kept in the `REPO_GPG_PRIVATE_KEY` secret:
-
-   ```sh
-   gpg --batch --passphrase '' --quick-gen-key "slonbase packages <you@example.com>" rsa4096 sign never
-   gpg --armor --export-secret-keys "slonbase packages" | gh secret set REPO_GPG_PRIVATE_KEY
-   ```
-
-   Keep a copy of the key somewhere safe. A new key means every user has to download the
-   public key again.
-2. Settings → Pages → Source: **GitHub Actions**.
-3. The custom domain, once: Settings → Pages → Custom domain `slonbase.com`, then **Enforce
-   HTTPS** when the certificate is ready. At the registrar (Namecheap, with its default
-   *BasicDNS* nameservers, under Advanced DNS) delete the parking records, then add `A` records
-   for host `@` to `185.199.108.153`, `185.199.109.153`, `185.199.110.153` and
-   `185.199.111.153`, optionally `AAAA` records to `2606:50c0:8000::153` to `8003::153`, and
-   a `CNAME` for host `www` to `ayeshrodz.github.io.` (a `www` that fails GitHub's check is
-   usually a missing record, or custom nameservers). To keep the domain from being claimed by
-   someone else, also verify it in the account settings (Pages → Add a domain). The address the
-   `.list` and `.repo` files carry comes from the repository variable `SITE_URL` (default
-   `https://slonbase.com`), which a fork sets to its own.
-
-The workflow can also be run by hand (Actions → Package repositories → Run workflow), for
-example after editing a release.
+Releases, the package signing key, GitHub Pages and the domain are the maintainer's to run: see
+[MAINTAINING.md](MAINTAINING.md). A pull request never needs any of it.

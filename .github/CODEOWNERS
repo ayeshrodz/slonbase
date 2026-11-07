@@ -1,0 +1,13 @@
+# Who reviews what. With branch rules that require code owner review (see MAINTAINING.md), a
+# change to these paths needs the owner's approval.
+*                       @ayeshrodz
+/.github/               @ayeshrodz
+/packaging/             @ayeshrodz
+/scripts/package.sh     @ayeshrodz
+/scripts/build-repo.sh  @ayeshrodz
+/site/install.sh        @ayeshrodz
+/LICENSE                @ayeshrodz
+/NOTICE                 @ayeshrodz
+/CLA.md                 @ayeshrodz
+/TRADEMARKS.md          @ayeshrodz
+/SECURITY.md            @ayeshrodz

@@ -2,7 +2,7 @@
 name = "slonbase"
 version = "2.5.1"
 edition = "2024"
-rust-version = "1.87"
+rust-version = "1.88"
 description = "Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project admin dashboard"
 license = "Apache-2.0"
 repository = "https://github.com/ayeshrodz/slonbase"

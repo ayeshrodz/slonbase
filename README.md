@@ -17,7 +17,7 @@
   <a href="https://github.com/ayeshrodz/slonbase/releases"><img alt="Release" src="https://img.shields.io/github/v/release/ayeshrodz/slonbase?display_name=tag&sort=semver&color=4f7a6c"></a>
   <a href="https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-slonbase-4f7a6c?logo=docker&logoColor=white"></a>
   <img alt="PostgreSQL 14+" src="https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white">
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.87%2B-b7410e?logo=rust&logoColor=white">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.88%2B-b7410e?logo=rust&logoColor=white">
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-4f7a6c"></a>
 </p>
 
@@ -39,16 +39,17 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
-## New in 2.2
+## Install
 
-- 🚀 **One command on a bare Linux server:** `curl -fsSL https://slonbase.com/install.sh | sudo sh`
+- **One command on a bare Linux server:** `curl -fsSL https://slonbase.com/install.sh | sudo sh`
   installs PostgreSQL if needed, creates its role and database, installs slonbase and creates
-  your first superuser. The [installation guide](docs/installation.md) does every step by hand.
-- 🌐 **slonbase.com,** with a [tour of the dashboard](https://slonbase.com/), new
-  [benchmarks](bench/README.md) against PocketBase and PostgREST, and every
-  [feature](https://slonbase.com/docs/features/) in one list.
-- Before that: [settings in which every setting does something](CHANGELOG.md) (accents, your own
-  sign-in page and emails, roles and API keys, job history), sign-in lockout and a rate-limit tester.
+  your first superuser. The [installation guide](docs/installation.md) does every step by hand,
+  and covers packages, Docker and building from source.
+- **What changed lately:** see the [changelog](CHANGELOG.md) and the
+  [releases](https://github.com/ayeshrodz/slonbase/releases).
+- **More:** the [tour of the dashboard](https://slonbase.com/), [benchmarks](bench/README.md)
+  against PocketBase and PostgREST, and every [feature](https://slonbase.com/docs/features/) in
+  one list.
 
 ## Why slonbase
 

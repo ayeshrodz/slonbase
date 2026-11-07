@@ -60,9 +60,11 @@ until the next major version.
 
 ## Upgrades
 
-Upgrade from any 1.x release straight to the latest: stop the old version, start the new one,
-and its migrations run on start (see [installation](installation.md)). CI upgrades a database
-from the first release and from the previous one, with data, on every change.
+Upgrade from any release straight to the latest: stop the old version, start the new one, and
+its migrations run on start (see [installation](installation.md)). Across a major version (1.x
+to 2.x, say), read the **Upgrading** section of the changelog for the releases in between first.
+CI upgrades a database from the first release (0.1.0) and from the previous one, with data and a
+project, on every change.
 
 Downgrades aren't supported: a newer release can migrate the database in ways an older one
 doesn't understand. Take a backup before upgrading, and restore it to go back.

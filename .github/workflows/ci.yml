@@ -40,6 +40,20 @@ jobs:
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
 
+  # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
+  msrv:
+    name: minimum Rust version
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install the Rust version Cargo.toml promises
+        run: |
+          msrv=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$msrv" --profile minimal
+          echo "RUSTUP_TOOLCHAIN=$msrv" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --locked
+
   # known vulnerabilities in dependencies (RustSec); releases wait for CI, so this blocks them too
   audit:
     runs-on: ubuntu-24.04
