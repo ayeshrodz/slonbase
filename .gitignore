@@ -7,3 +7,5 @@
 /ui/test/node_modules
 /ui/test/out
 /ui/test/.run
+# written at packaging time by scripts/third-party.py
+/THIRD-PARTY-LICENSES.md

@@ -38,8 +38,8 @@ jobs:
       - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh
       # the workflows themselves (expressions, permissions, shell in `run:`)
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-      # the third-party license list matches Cargo.lock
-      - run: python3 scripts/third-party.py --check
+      # the third-party license list (written at packaging time, from Cargo.lock) can be generated
+      - run: python3 scripts/third-party.py
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
