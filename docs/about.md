@@ -3,7 +3,7 @@
 slonbase is an open-source backend platform on PostgreSQL. One Rust binary gives you a REST and
 realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard
 that manages many projects, with every collection kept as a real PostgreSQL table. It is
-self-hosted, runs as several instances behind a load balancer, and works with the PocketBase SDKs.
+self-hosted, runs as several instances behind a load balancer (see [scaling](scaling.md)), and works with the PocketBase SDKs.
 
 ## What it is for
 

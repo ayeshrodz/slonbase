@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 350" width="760" height="350" role="img" aria-label="One slonbase serving a main database and projects on two PostgreSQL servers"><title>One slonbase serving a main database and projects on two PostgreSQL servers</title><style>
+:root{--bg:#171a1d;--box:#20252a;--line:#3a424a;--ink:#e6e9ec;--mute:#9aa4ae;--acc:#7fb09f;--accbg:#233029;--pg:#8fa6c4;--pgbg:#232b36;--warn:#d1a05f}
+
+text{font:500 13px "IBM Plex Sans",system-ui,sans-serif;fill:var(--ink)}
+.s{font-size:11.5px;fill:var(--mute);font-weight:400}
+.t{font-weight:700;font-size:13px}
+.box{fill:var(--box);stroke:var(--line);stroke-width:1.2}
+.us{fill:var(--accbg);stroke:var(--acc);stroke-width:1.4}
+.pg{fill:var(--pgbg);stroke:var(--pg);stroke-width:1.4}
+.ln{stroke:var(--line);stroke-width:1.5;fill:none}
+.ac{stroke:var(--acc);stroke-width:1.6;fill:none}
+.pgl{stroke:var(--pg);stroke-width:1.6;fill:none}
+.dash{stroke-dasharray:5 4}
+.ar{fill:var(--mute)}
+</style><rect width="760" height="350" fill="var(--bg)" rx="10"/><rect class="box" x="20" y="125" width="110" height="60" rx="8"/><text class="t" x="75.0" y="160.0" text-anchor="middle">Clients</text><rect class="us" x="190" y="105" width="170" height="100" rx="8"/><text class="t" x="275.0" y="152.0" text-anchor="middle">slonbase</text><text class="s" x="275.0" y="169.0" text-anchor="middle">one or many instances</text><path class="ln" d="M130 155 L190 155"/><rect class="pg" x="470" y="20" width="260" height="140" rx="8"/><text class="t" x="600.0" y="95.0" text-anchor="middle"></text><text class="t" x="490" y="44">PostgreSQL server A</text><text class="s" x="490" y="64">main database: shop</text><text class="s" x="490" y="84">project database: shop_blog</text><text class="s" x="490" y="104">project database: shop_forum</text><rect class="pg" x="470" y="195" width="260" height="100" rx="8"/><text class="t" x="600.0" y="250.0" text-anchor="middle"></text><text class="t" x="490" y="219">PostgreSQL server B</text><text class="s" x="490" y="239">project "eu-customers"</text><text class="s" x="490" y="259">connected with databaseUrl</text><path class="pgl" d="M360 140 L470 90"/><path class="pgl" d="M360 170 L470 245"/><text class="s" x="20" y="330" text-anchor="start">Each project is a separate installation: its own users, collections and settings.</text></svg>

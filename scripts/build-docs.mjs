@@ -21,7 +21,7 @@ const out = path.resolve(process.argv[2] || "site-out/docs");
 // the guides, in reading order
 const SECTIONS = [
   { title: "About slonbase", pages: ["about", "features"] },
-  { title: "Get started", pages: ["quickstart", "installation", "configuration", "deployment", "platforms"] },
+  { title: "Get started", pages: ["quickstart", "installation", "configuration", "deployment", "scaling", "platforms"] },
   { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
   { title: "Compare", pages: ["slonbase-and-pocketbase", "slonbase-vs-postgrest", "benchmarks"] },
@@ -38,6 +38,7 @@ const SHORT = {
   installation: "Installation",
   configuration: "Configuration",
   deployment: "Production",
+  scaling: "Scaling",
   platforms: "Hosting platforms",
   api: "API",
   extending: "Hooks and extending",
@@ -59,6 +60,7 @@ const BLURB = {
   installation: "Install slonbase on Linux with one command, or with Docker, .deb and .rpm packages or a plain binary, then do the first-run setup and upgrade.",
   configuration: "Every slonbase server option, environment variable and application setting: database, storage, backups, mail, logs, rate limits and security.",
   deployment: "Run slonbase in production: TLS and reverse proxies, several instances behind a load balancer, PostgreSQL tuning, backups and monitoring.",
+  scaling: "Run several slonbase instances and projects: five tested deployment layouts with diagrams, the PostgreSQL connection budget, PgBouncer, sessions and sign-out across instances, upgrades and limits.",
   platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy, step by step, with a PostgreSQL database for each.",
   api: "The slonbase REST and realtime API: collections, records, sign-in, filters and rules, files, batch requests and realtime subscriptions.",
   extending: "Extend slonbase with JavaScript hooks, routes and cron jobs, a query builder, and a Rust library API for embedding it in your own program.",
@@ -83,6 +85,7 @@ const SEO_TITLE = {
   installation: "Install slonbase: Linux, Docker, packages and binaries",
   configuration: "slonbase configuration: options, environment variables and settings",
   deployment: "Run slonbase in production: TLS, proxies, scaling and backups",
+  scaling: "Scale slonbase: several instances, projects and PostgreSQL servers, PgBouncer and connections",
   platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy",
   api: "slonbase API reference: REST, filters, auth, files and realtime",
   extending: "Extend slonbase with JavaScript hooks, routes, cron jobs and Rust",

@@ -8,7 +8,52 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-11-07
+
+**Several instances, tested properly.** Running slonbase as a fleet, behind a balancer, behind
+PgBouncer and with projects on other servers, was run for real (`scripts/fleet-test`, also in CI),
+which found problems that are fixed here, and a [scaling guide](docs/scaling.md) now says what
+works, what was measured and where the limits are.
+
 ### Added
+
+- **`database.listen_url`** (`--database-listen-url`, `SLONBASE_DATABASE_LISTEN_URL`): a direct
+  connection for `LISTEN/NOTIFY`, so slonbase works behind PgBouncer in transaction mode. Without
+  it, behind such a pooler, instances started and answered requests but stopped sharing schema
+  changes, settings, realtime events and rate limits, with no error.
+- **Health checks for a fleet:** **sync** (each instance sends itself a notification every minute
+  and shows an error, naming a transaction-mode pooler and the fix, if it doesn't arrive) and
+  **connections** (PostgreSQL's connections in use against its limit, a warning from 80% and an
+  error from 95%, since several instances and projects multiply them).
+- **Sign out everywhere:** `POST /api/collections/{collection}/records/{id}/revoke-tokens` gives a
+  record a new token key, so every token it holds stops working on every instance; a user may
+  call it for themselves, a superuser for anyone. The dashboard's record menu has the action.
+  (Tokens are stateless, so there is no per-device logout, as in PocketBase.)
+- **[Scaling and deployment topologies](docs/scaling.md):** five layouts with diagrams (one
+  instance; projects on several servers; a load balancer; PgBouncer; managed failover), the
+  connection budget N × (18 + 5 × projects) with measured numbers, what is shared and what is per
+  instance, sessions and sign-out across instances, upgrades, nginx, HAProxy and PgBouncer
+  recipes, and the limits.
+- **`scripts/fleet-test`:** several instances behind a balancer with no affinity, checking tokens,
+  schema and settings propagation, shared rate limits, realtime forwarding and projects, run in
+  CI directly and through PgBouncer.
+
+### Changed
+
+- **Idle project pools release their connections** after two minutes, so many projects don't each
+  hold a few connections for nothing.
+- **Pooler-safe session state:** the backup lock is a transaction lock on a dedicated connection,
+  and the SQL console's and JavaScript hooks' `SET`s are `SET LOCAL` inside a transaction, so
+  nothing leaks onto the next user of a pooled connection (a leak that was possible even without a
+  pooler).
+- A realtime subscribe request that was forwarded to an instance that has died answers after two
+  seconds instead of five.
+- The website's scale-out section and the documentation say what was tested, including the
+  limits (connections, local files, no rolling upgrades).
+
+### Website, documentation and discovery
+
+#### Added
 
 - **Easier to find, for search engines and for AI assistants:** a sitemap, a `robots.txt` that
   welcomes search and AI crawlers, canonical addresses and Open Graph cards on every page,
@@ -19,7 +64,7 @@ changes, listed in its **Upgrading** section.
   [quickstart](docs/quickstart.md), [slonbase and PocketBase](docs/slonbase-and-pocketbase.md),
   [slonbase vs PostgREST](docs/slonbase-vs-postgrest.md) and the [benchmarks](docs/benchmarks.md).
 
-### Changed
+#### Changed
 
 - **slonbase is described as what it is now:** a backend platform on PostgreSQL (many projects,
   roles and API keys, an SQL console, designers, scale-out), compatible with the PocketBase SDKs,

@@ -123,7 +123,9 @@ or **Connect a database** in the dashboard's new-project dialog, or `"databaseUr
   database only.
 - **Deleting** the project stops it and removes it from the list, but leaves the database as it
   is, since slonbase didn't create it.
-- Every instance of the main installation must be able to reach the other server.
+- Every instance of the main installation must be able to reach the other server. Each project
+  holds its own connections on its own server (up to `projects.max_connections` plus one
+  listener per instance), which the [scaling guide](scaling.md#the-connection-budget) counts.
 
 ## Requirements
 

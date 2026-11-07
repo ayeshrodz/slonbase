@@ -53,7 +53,7 @@ platform on PostgreSQL: one Rust binary, with the dashboard built in.
 - **Many projects, one server:** each project is an isolated installation with its own users,
   superusers, collections, settings and files, in a PostgreSQL database of its own, on the main
   server or another ([projects](projects.md)).
-- **Several instances on one database,** behind any load balancer, with no sticky sessions.
+- **Several instances on one database,** behind any load balancer, with no sticky sessions, and optionally behind PgBouncer. Tested layouts, the connection budget and limits are in the [scaling guide](scaling.md).
   Realtime, schema changes, settings and rate limits are shared through PostgreSQL
   ([deployment](deployment.md)).
 

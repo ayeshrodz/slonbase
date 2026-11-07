@@ -23,6 +23,7 @@ file, and then the defaults.
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
+| `--database-listen-url` | `SLONBASE_DATABASE_LISTEN_URL` | `database.listen_url` | none (the listeners use `database.url`) |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
 | `--backups-path` | `SLONBASE_BACKUPS_PATH` | `backups.path` | `slonbase_data/backups` |
 | `--backups-encryption-key` | `SLONBASE_BACKUPS_ENCRYPTION_KEY` | `backups.encryption_key` | none (not encrypted) |
@@ -93,9 +94,16 @@ certificate against the Mozilla root certificates; for providers with their own 
 Amazon RDS), pass it with `--database-ca-file`.
 
 **Connections:** each instance opens up to `max_connections` to PostgreSQL, plus two for
-`LISTEN` (realtime and projects), and each [project](projects.md) adds its own. With several instances, keep the total below the server's `max_connections`, or use a
-pooler in session mode. Transaction-mode poolers (PgBouncer `pool_mode = transaction`) don't
-support `LISTEN`, so slonbase needs a direct or session-mode connection.
+`LISTEN` (realtime and projects), and each [project](projects.md) adds up to `projects.max_connections`
+(4) plus one more. N instances and P projects use at most N × (18 + 5 × P) connections, so with several
+instances keep the total below the server's `max_connections`: lower the pools, raise the limit,
+or use a pooler. Health warns from 80% of the limit.
+
+**Behind a pooler:** a transaction-mode pooler (PgBouncer `pool_mode = transaction`, version 1.21
+or newer, with `max_prepared_statements` set) can carry the queries but not `LISTEN`. Set
+`database.listen_url` to a direct (or session-mode) URL for the same database, and the listeners
+use it while everything else goes through `database.url`. Without it the instances stop hearing
+each other, and Health shows a **sync** error saying so. See the [scaling guide](scaling.md#d-several-instances-behind-pgbouncer).
 
 **Logging** goes to stderr and is controlled by `RUST_LOG` (default `info`; `warn`, `debug`, and
 per-module filters such as `info,slonbase=debug` also work). Requests are logged to the

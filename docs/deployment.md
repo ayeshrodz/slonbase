@@ -89,7 +89,7 @@ keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts
 uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
 root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:2.2.0`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:2.3.0`) rather than `latest` in production.
 
 ## PostgreSQL
 
@@ -100,8 +100,8 @@ root, as the [platform setups](platforms.md) do. Its health check
   the [security review](security-review.md#advice-not-changed)).
 - **Connections:** each instance uses up to `--database-max-connections` (16) plus two for
   `LISTEN/NOTIFY`, and up to `projects.max_connections` (4) plus one more for each
-  [project](projects.md). Poolers must run in session mode, since transaction mode can't carry
-  `LISTEN`.
+  [project](projects.md). A pooler in transaction mode (PgBouncer) works if the listeners get a
+  direct connection (`database.listen_url`); see [Scaling](scaling.md).
 - **Managed services:** use `sslmode=require`, and `--database-ca-file` when the provider has its
   own CA.
 - **Durability vs. write latency:** with PostgreSQL's default `synchronous_commit = on`, every
@@ -115,34 +115,25 @@ root, as the [platform setups](platforms.md) do. Its health check
 
 ## Several instances
 
-Any number of slonbase instances can share one database behind a load balancer. Realtime events,
-collection changes, settings and backup restores reach every instance through PostgreSQL
-`LISTEN/NOTIFY`. Cron jobs (including automatic backups) run on one instance per scheduled
-minute, and migrations run once.
+Any number of slonbase instances can share one database behind a load balancer, with no sticky
+sessions: a token issued by one instance is accepted by all, and realtime events, collection
+changes, settings, rate limits and backup restores reach every instance through PostgreSQL. Cron
+jobs (including automatic backups) run on one instance per scheduled minute, and migrations run
+once. Three things to plan for:
 
-What's per instance:
+- **Files** are local to an instance by default: use S3 storage, or one directory shared by every
+  instance. Health warns when instances share a database but not their files.
+- **Connections:** N instances and P projects use up to N × (18 + 5 × P) PostgreSQL connections,
+  against the server's `max_connections` (100 by default). Lower the pools, raise the limit, or use
+  PgBouncer.
+- **Upgrades:** stop all instances, start the new version, as for any upgrade with a migration.
+  Rolling upgrades are not supported.
 
-- **Files:** use S3 storage (`s3` in the settings), or all instances must share the same storage
-  directory.
-- **JavaScript hooks:** deploy the same hook files to every instance.
-- **The encryption key**, if you use one: every instance needs the same.
-
-**No client affinity needed.** A realtime client's event stream lives on one instance, and the
-SDKs set its subscriptions with a separate `POST /api/realtime`. When that request reaches
-another instance, it's forwarded through PostgreSQL to the one holding the stream, which checks
-the request's auth and answers. So a plain round-robin load balancer works. (Affinity, like
-nginx `ip_hash`, still saves that hop.)
-
-**Upgrade every instance together.** Since 1.7, instances learn of new realtime events by
-reading the outbox from a snapshot, and no longer by a notification sent with each write;
-instances older than 1.7 wait for those notifications, so they'd miss events written through a
-1.7 instance. Stop the old instances, start the new ones (the first runs the migration), as for
-any upgrade with a migration.
-
-**Rate limits are shared.** While an instance is alone, it counts requests in memory. When
-others share the database, the counters move to an unlogged PostgreSQL table, so a client gets
-the configured limit across all instances, not that limit on each. Instances find each other
-with a heartbeat every 20 seconds in `_slonbase.instances`.
+The [scaling guide](scaling.md) has the five tested layouts with diagrams (one instance, projects
+on several servers, a load balancer, PgBouncer, managed failover), the connection table, balancer
+recipes for nginx, HAProxy and PgBouncer, how sign-in and sign-out behave across instances, and the
+limits. Also per instance: JavaScript hooks and migrations (deploy the same files everywhere) and
+the settings encryption key (the same on every instance).
 
 ## Backups
 

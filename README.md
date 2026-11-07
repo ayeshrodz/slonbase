@@ -64,6 +64,8 @@ can query, replicate, back up and scale with the tools you already trust.
   rules allow.
 - ↔️ **Scales out.** Run several instances on one database behind any load balancer. Realtime,
   schema changes, settings and rate limits are shared through PostgreSQL, so no sticky sessions.
+  Tested layouts (a balancer, PgBouncer, projects on other servers) and the connection budget are
+  in the [scaling guide](docs/scaling.md).
 - 🧩 **Extend it your way.** Hooks, routes, cron jobs and a query builder in JavaScript files,
   no build step; or a Rust library API.
 - 🗂️ **Many projects, one server.** Host several isolated apps from one installation, each in a
@@ -217,6 +219,7 @@ The guides are also on the documentation site, with search:
 
 - [Installation](docs/installation.md): Docker, packages, binaries, first-run setup, upgrades
 - [Configuration](docs/configuration.md): server options and application settings
+- [Scaling](docs/scaling.md): several instances, PgBouncer, projects on several servers, connections
 - [Hosting platforms](docs/platforms.md): Render, Railway, Fly.io, Coolify and Dokploy
 - [Running in production](docs/deployment.md): reverse proxy, PostgreSQL, several instances,
   backups, monitoring, security

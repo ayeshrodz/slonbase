@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 260" width="760" height="260" role="img" aria-label="One slonbase instance on one PostgreSQL server"><title>One slonbase instance on one PostgreSQL server</title><style>
+:root{--bg:#fff;--box:#fff;--line:#c4ccd4;--ink:#1f2328;--mute:#5d6670;--acc:#4f7a6c;--accbg:#e8f0ed;--pg:#5f7593;--pgbg:#e9eef5;--warn:#9a6b2f}
+
+text{font:500 13px "IBM Plex Sans",system-ui,sans-serif;fill:var(--ink)}
+.s{font-size:11.5px;fill:var(--mute);font-weight:400}
+.t{font-weight:700;font-size:13px}
+.box{fill:var(--box);stroke:var(--line);stroke-width:1.2}
+.us{fill:var(--accbg);stroke:var(--acc);stroke-width:1.4}
+.pg{fill:var(--pgbg);stroke:var(--pg);stroke-width:1.4}
+.ln{stroke:var(--line);stroke-width:1.5;fill:none}
+.ac{stroke:var(--acc);stroke-width:1.6;fill:none}
+.pgl{stroke:var(--pg);stroke-width:1.6;fill:none}
+.dash{stroke-dasharray:5 4}
+.ar{fill:var(--mute)}
+</style><rect width="760" height="260" fill="var(--bg)" rx="10"/><rect class="box" x="30" y="110" width="130" height="60" rx="8"/><text class="t" x="95.0" y="137.0" text-anchor="middle">Clients</text><text class="s" x="95.0" y="154.0" text-anchor="middle">SDKs, browsers, apps</text><rect class="us" x="260" y="95" width="200" height="90" rx="8"/><text class="t" x="360.0" y="137.0" text-anchor="middle">slonbase</text><text class="s" x="360.0" y="154.0" text-anchor="middle">API · auth · files · realtime · dashboard</text><rect class="pg" x="560" y="110" width="170" height="60" rx="8"/><text class="t" x="645.0" y="137.0" text-anchor="middle">PostgreSQL</text><text class="s" x="645.0" y="154.0" text-anchor="middle">your data: ordinary tables</text><path class="ln" d="M160 140 L260 140"/><path class="pgl" d="M460 140 L560 140"/><text class="s" x="210" y="128" text-anchor="middle">HTTPS</text><text class="s" x="510" y="128" text-anchor="middle">SQL</text><text class="s" x="30" y="225" text-anchor="start">≈ 3 connections idle, up to 18 under load (16 pooled + 2 listeners)</text></svg>
