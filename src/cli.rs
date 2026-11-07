@@ -109,6 +109,11 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE_WRITES")]
     sql_console_writes: bool,
 
+    /// Run the SQL console's statements as this PostgreSQL role (`SET LOCAL ROLE`), e.g. a
+    /// role that can only read; slonbase's own role must be a member of it.
+    #[arg(long, global = true, env = "SLONBASE_SQL_CONSOLE_ROLE")]
+    sql_console_role: Option<String>,
+
     /// Don't gzip JSON answers (saves their CPU where bandwidth costs nothing).
     #[arg(long, global = true, env = "SLONBASE_NO_COMPRESSION")]
     no_compression: bool,
@@ -340,6 +345,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         encryption_key: cli.encryption_key,
         sql_console: cli.sql_console.then_some(true),
         sql_console_writes: cli.sql_console_writes.then_some(true),
+        sql_console_role: cli.sql_console_role,
         compression: cli.no_compression.then_some(false),
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,

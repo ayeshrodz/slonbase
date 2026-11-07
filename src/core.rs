@@ -56,6 +56,8 @@ pub struct Core {
     pub sql_console: bool,
     /// The SQL console may change data (`--sql-console-writes`); otherwise it only reads.
     pub sql_console_writes: bool,
+    /// The role the SQL console runs as (`SET LOCAL ROLE`), if not slonbase's own.
+    pub sql_console_role: Option<String>,
     /// The storage directory used unless S3 is enabled in the settings.
     local_storage: PathBuf,
     storage: RwLock<Arc<Storage>>,
@@ -194,6 +196,7 @@ impl Core {
             backup_lock: tokio::sync::Mutex::new(()),
             sql_console: config.server.sql_console,
             sql_console_writes: config.server.sql_console_writes,
+            sql_console_role: config.server.sql_console_role.clone(),
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),

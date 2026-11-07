@@ -8,6 +8,41 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-11-07
+
+**Security hardening: safer defaults, checks that say when a setup is weak, and tests that hold
+every path to the same rules.** Prompted by an outside review of the code.
+
+### Upgrading
+
+- **The sign-in lockout is now on, everywhere:** 10 failed password sign-ins per identity and
+  address in 15 minutes. Installations that had it at 0 (the old default) are switched on once,
+  at the first start of 2.4; turn it off again in Settings, Security, if you really need to
+  (Health will warn).
+
+### Security
+
+- **Rate limits keep their total when the database fails.** With several instances, requests are
+  counted in PostgreSQL; if that failed, each instance counted on its own, so three instances
+  allowed three times the limit, and only a debug log said so. Now each instance counts its
+  share of each limit (the limit divided by the live instances), the failure is logged as a
+  warning, and Health reports it.
+- **Health has security checks:** slonbase connecting as a PostgreSQL superuser, the lockout
+  off, rate limits off or recently degraded, and an application URL without https.
+- **The SQL console can run as a role of its own:** `--sql-console-role`
+  (`SLONBASE_SQL_CONSOLE_ROLE`, `server.sql_console_role`) runs its statements with
+  `SET LOCAL ROLE`, so it can have fewer privileges than slonbase, such as read-only access
+  (see [configuration](docs/configuration.md#server-configuration)).
+- **One test for every way to reach a record:** `tests/authz_matrix.rs` checks that list, view,
+  counts, filters (through relations and `@collection`), forward and back `expand`, protected
+  files, realtime, update, delete and batch all agree with the same rules, for a guest and two
+  users.
+- **Generated filter tests:** thousands of filters full of SQL and filter metacharacters are
+  compiled, checking that a client's value never reaches the SQL text, only parameters, and
+  20,000 random inputs that the parser and compiler never panic.
+- A [threat model](docs/security.md): what slonbase protects and trusts, how each boundary is
+  enforced and tested, and how to check a deployment. `SECURITY.md` invites independent review.
+
 ## [2.3.1] - 2026-11-07
 
 **slonbase is now licensed under the Apache License 2.0.**

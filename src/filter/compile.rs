@@ -1895,4 +1895,181 @@ mod tests {
         assert!(!sql.contains("DROP"));
         assert_eq!(params[0].as_deref(), Some("x'; DROP TABLE posts; --"));
     }
+
+    // ---------------------------------------------------------------------------------------
+    // generated inputs: the parser and compiler never panic, and a client's values only ever
+    // reach PostgreSQL as parameters, whatever they contain
+
+    /// A small deterministic generator (xorshift64*), so failures reproduce.
+    struct Gen(u64);
+
+    impl Gen {
+        fn next(&mut self) -> u64 {
+            self.0 ^= self.0 >> 12;
+            self.0 ^= self.0 << 25;
+            self.0 ^= self.0 >> 27;
+            self.0.wrapping_mul(0x2545_f491_4f6c_dd1d)
+        }
+        fn below(&mut self, n: usize) -> usize {
+            (self.next() % n as u64) as usize
+        }
+        fn pick<'a>(&mut self, items: &[&'a str]) -> &'a str {
+            items[self.below(items.len())]
+        }
+    }
+
+    /// Characters that matter to SQL, the filter syntax or both.
+    const NASTY: &[&str] = &[
+        "'",
+        "\"",
+        "\\",
+        ";",
+        "--",
+        "/*",
+        "*/",
+        "$1",
+        "$$",
+        ")",
+        "(",
+        "%",
+        "_",
+        "\0",
+        "\n",
+        "::",
+        "OR 1=1",
+        "DROP TABLE posts",
+        "@request.auth.id",
+        "{:x}",
+        "?=",
+        "&&",
+        "||",
+        "~",
+        "é",
+        "\u{202e}",
+    ];
+
+    /// A client value, quoted for the filter language, with a marker the SQL must never contain.
+    fn value(g: &mut Gen, marker: &str) -> (String, String) {
+        let mut raw = marker.to_string();
+        for _ in 0..g.below(6) {
+            raw.push_str(g.pick(NASTY));
+        }
+        let quote = if g.below(2) == 0 { '\'' } else { '"' };
+        let escaped = raw.replace(quote, &format!("\\{quote}"));
+        (format!("{quote}{escaped}{quote}"), raw)
+    }
+
+    fn condition(g: &mut Gen, n: &mut usize, markers: &mut Vec<String>) -> String {
+        let fields = [
+            "title",
+            "views",
+            "active",
+            "published",
+            "tags",
+            "meta.a.b",
+            "id",
+            "tags:each",
+            "title:lower",
+        ];
+        let ops = [
+            "=", "!=", ">", ">=", "<", "<=", "~", "!~", "?=", "?!=", "?~", "?>",
+        ];
+        *n += 1;
+        let marker = format!("ZQX{n}MARK");
+        markers.push(marker.clone());
+        let (literal, _) = value(g, &marker);
+        let field = g.pick(&fields);
+        let op = g.pick(&ops);
+        if g.below(2) == 0 {
+            format!("{field} {op} {literal}")
+        } else {
+            format!("{literal} {op} {field}")
+        }
+    }
+
+    fn expression(g: &mut Gen, depth: usize, n: &mut usize, markers: &mut Vec<String>) -> String {
+        if depth == 0 || g.below(3) == 0 {
+            return condition(g, n, markers);
+        }
+        let joiner = if g.below(2) == 0 { "&&" } else { "||" };
+        let left = expression(g, depth - 1, n, markers);
+        let right = expression(g, depth - 1, n, markers);
+        format!("({left} {joiner} {right})")
+    }
+
+    #[test]
+    fn client_values_are_always_parameters() {
+        let mut g = Gen(0x05ee_d510_ba5e);
+        let mut compiled = 0;
+        for _ in 0..3000 {
+            let (mut n, mut markers) = (0, Vec::new());
+            let filter = expression(&mut g, 3, &mut n, &mut markers);
+            if let Ok((sql, params)) = compile_str(&filter, false) {
+                compiled += 1;
+                for marker in &markers {
+                    assert!(
+                        !sql.contains(marker.as_str()),
+                        "a value reached the SQL text\nfilter: {filter}\nsql: {sql}"
+                    );
+                }
+                // every placeholder has its parameter
+                assert!(
+                    !sql.contains(&format!("${}::", params.len() + 1)),
+                    "a placeholder without a parameter\nfilter: {filter}\nsql: {sql}"
+                );
+            }
+        }
+        // most generated filters are valid, so the check isn't vacuous
+        assert!(compiled > 1000, "only {compiled} of 3000 filters compiled");
+    }
+
+    #[test]
+    fn arbitrary_input_never_panics() {
+        let pieces = [
+            "title",
+            "views",
+            "=",
+            "!=",
+            "~",
+            "?=",
+            "&&",
+            "||",
+            "(",
+            ")",
+            "'",
+            "\"",
+            "\\",
+            "@request.auth.id",
+            "@collection.posts.title",
+            "@now",
+            "1",
+            "-1.5e9",
+            "true",
+            "null",
+            ".",
+            ":lower",
+            ":each",
+            ":length",
+            "{:x}",
+            " ",
+            "  ",
+            "meta.",
+            "tags",
+            "🐘",
+            "\u{0}",
+            "strftime(",
+            ",",
+            "'%Y'",
+        ];
+        let mut g = Gen(0xdead_beef_cafe);
+        for _ in 0..20_000 {
+            let len = g.below(12);
+            let input: String = (0..len)
+                .map(|_| g.pick(&pieces))
+                .collect::<Vec<_>>()
+                .join("");
+            let _ = compile_str(&input, false);
+            let _ = compile_str(&input, true);
+        }
+    }
 }

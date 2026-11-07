@@ -280,6 +280,7 @@ pub(crate) async fn prepare(pool: &Pool, key: Option<&crate::secrets::SecretsKey
     if !applied.is_empty() {
         tracing::info!(?applied, "applied system migrations");
     }
+    crate::settings::upgrade_login_lockout(pool, key).await?;
     crate::collections::system::ensure_with(pool, key).await?;
     crate::collections::store::heal_views_with(pool, key).await?;
     Ok(superusers::count(pool).await? > 0)

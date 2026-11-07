@@ -30,6 +30,7 @@ file, and then the defaults.
 | `--encryption-key` | `SLONBASE_ENCRYPTION_KEY` | `server.encryption_key` | none (settings not encrypted) |
 | `--sql-console` | `SLONBASE_SQL_CONSOLE` | `server.sql_console` | off |
 | `--sql-console-writes` | `SLONBASE_SQL_CONSOLE_WRITES` | `server.sql_console_writes` | off (the console only reads) |
+| `--sql-console-role` | `SLONBASE_SQL_CONSOLE_ROLE` | `server.sql_console_role` | none (slonbase's own role) |
 | `--no-compression` | `SLONBASE_NO_COMPRESSION` | `server.compression` | on ([gzip for JSON](api.md#compression)) |
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
@@ -122,6 +123,18 @@ database too; see [logs](#logs).
   values); statements stop after 30 seconds, or 5 seconds waiting for a lock; queries are at most
   20,000 characters; two run at a time per instance. Each query gets a connection of its own,
   closed afterwards, so nothing it sets outlives it.
+- **A role of its own** (`--sql-console-role`, `SLONBASE_SQL_CONSOLE_ROLE`): the console's
+  statements run as this PostgreSQL role (`SET LOCAL ROLE`), so the console can have fewer
+  privileges than slonbase. slonbase's role must be a member of it. For a console that can only
+  read slonbase's data:
+
+  ```sql
+  CREATE ROLE slonbase_console NOLOGIN;
+  GRANT USAGE ON SCHEMA slonbase TO slonbase_console;
+  GRANT SELECT ON ALL TABLES IN SCHEMA slonbase TO slonbase_console;
+  ALTER DEFAULT PRIVILEGES IN SCHEMA slonbase GRANT SELECT ON TABLES TO slonbase_console;
+  GRANT slonbase_console TO slonbase;   -- slonbase's own role
+  ```
 - Collections are tables in the `slonbase` schema, which the console searches first:
   `SELECT * FROM tasks` works as written.
 - Results can be exported from the dashboard as Excel (`.xlsx`), CSV, TSV or JSON: the rows the
@@ -175,7 +188,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `rateLimits` | `enabled`, `rules` |
 | `trustedProxy` | `headers` carrying the client IP, `useLeftmostIP` |
 | `superuserIPs` | Addresses or ranges superusers may use |
-| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage`, `authEmailInterval` (seconds between auth emails to an account, 60), `loginLockout` (`attempts`, `minutes`) |
+| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage`, `authEmailInterval` (seconds between auth emails to an account, 60), `loginLockout` (`attempts` 10, `minutes` 15; `attempts: 0` turns it off) |
 | `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
@@ -187,10 +200,11 @@ templates) as PocketBase does, and slonbase's `{APP_LOGO}` (the logo, or the nam
 `{APP_LOGO_URL}`, `{ACCENT}` and `{RECORD:field}` (the recipient's fields, escaped; hidden
 fields stay empty).
 
-**Lockout.** With `security.loginLockout.attempts` above 0, an identity that fails that many
-password sign-ins from one address within `minutes` gets `429` until the window ends, even with
-the right password; a successful sign-in clears the count. It's counted in the database, so
-every instance shares it. `POST /api/settings/rate-limits/explain` (`{method, path, audience}`)
+**Lockout.** On by default since 2.4 (10 attempts in 15 minutes): an identity that fails
+`security.loginLockout.attempts` password sign-ins from one address within `minutes` gets `429`
+until the window ends, even with the right password; a successful sign-in clears the count. It's
+counted per identity *and* address, so someone elsewhere can't lock a user out. It's counted in
+the database, so every instance shares it. `attempts: 0` turns it off (Health then warns). `POST /api/settings/rate-limits/explain` (`{method, path, audience}`)
 says which rate-limit rule a request would meet.
 
 **CORS.** Pages on any site may call the API, as with PocketBase (`security.allowedOrigins` is

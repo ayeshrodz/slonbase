@@ -206,7 +206,7 @@ crate that depends on slonbase and runs its command line from your own `main`:
 
 ```toml
 [dependencies]
-slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v2.3.1" }
+slonbase = { git = "https://github.com/ayeshrodz/slonbase", tag = "v2.4.0" }
 axum = "0.8"
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

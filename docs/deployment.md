@@ -89,7 +89,7 @@ keep that ownership. A disk or bind mount owned by root doesn't: slonbase starts
 uploads fail with "Permission denied". `chown 65532:65532` the directory, or run the container as
 root, as the [platform setups](platforms.md) do. Its health check
 (`slonbase health`) fails while the server starts or can't reach the database. Pin a version tag
-(`ghcr.io/ayeshrodz/slonbase:2.3.1`) rather than `latest` in production.
+(`ghcr.io/ayeshrodz/slonbase:2.4.0`) rather than `latest` in production.
 
 ## PostgreSQL
 
@@ -193,10 +193,19 @@ the settings on every instance, and signs everyone out, since the signing key is
   transaction, at most 5,000 rows, a 30 second timeout) unless you also start slonbase with
   `--sql-console-writes`; leave that off in production, or give slonbase a role that isn't a
   PostgreSQL superuser. Creating or changing view collections also requires
-  it, because their queries run with the role's privileges.
+  it, because their queries run with the role's privileges. To give the console fewer
+  privileges than slonbase, set [`--sql-console-role`](configuration.md#server-configuration).
+- Connect with a role that owns slonbase's database, not a PostgreSQL superuser; Health warns
+  when it is one.
 - Review API rules: `null` allows superusers only, and `""` allows anyone.
 - Keep rate limits on (new installations start with them on), and turn them on for
-  installations from before 0.4.2.
+  installations from before 0.4.2. With several instances, they're counted in PostgreSQL; if
+  that fails, each instance counts its share of each limit until it works again, and Health
+  says so.
+- Keep the sign-in lockout on (on by default since 2.4).
+- Look at **Health**: its security checks flag a superuser database role, rate limits or the
+  lockout turned off, and an application URL without https.
+- Read the [threat model](security.md) for what slonbase protects and what it trusts.
 - Keep the config file private (`0600`, which the wizard sets), since it contains the database
   password.
 - Set an [encryption key](configuration.md#encrypting-the-settings) (`SLONBASE_ENCRYPTION_KEY`),

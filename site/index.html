@@ -391,7 +391,7 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
   <div class="wrap">
     <div class="hero-copy">
       <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-        <b id="pill-version">v2.3.1</b><span id="pill-title">now under the Apache 2.0 license</span><span class="arrow">→</span>
+        <b id="pill-version">v2.4.0</b><span id="pill-title">security hardening and safer defaults</span><span class="arrow">→</span>
       </a>
       <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
       <p class="lede">slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, authentication with roles, files, hooks and an admin dashboard for many projects, in one Rust binary. Every collection is a real table, and every server you add shares it.</p>
@@ -744,22 +744,18 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     </div>
     <div class="release reveal">
       <div class="rel-head">
-        <div class="ver" id="rel-version">v2.3.1</div>
+        <div class="ver" id="rel-version">v2.4.0</div>
         <div class="date" id="rel-date">November 7, 2026</div>
-        <p id="rel-summary">slonbase is now licensed under Apache 2.0, with a contributor agreement and a trademark policy. 2.3.0 before it tested several instances properly: behind a balancer, behind PgBouncer and with projects on other servers. Fixes for what the tests found, health checks for a fleet, sign out everywhere, and a scaling guide with the connection budget and the limits.</p>
+        <p id="rel-summary">Security hardening: the sign-in lockout on by default, rate limits that keep their total when the database fails, security checks in Health, a restricted role for the SQL console, and tests that hold every path to the same rules.</p>
         <a class="btn" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
       </div>
       <ul class="rel-list" id="rel-items">
-        <li>Apache 2.0 license, a CLA and a trademark policy</li>
-        <li>PgBouncer support with <code>database.listen_url</code>, and a sync health check</li>
-        <li>A connection budget check, and idle project pools released</li>
-        <li>Sign out everywhere, on every instance</li>
+        <li>Sign-in lockout on by default, and security checks in Health</li>
+        <li>An authorization test across every path to a record</li>
+        <li>Apache 2.0 license, a CLA and a trademark policy (2.3.1)</li>
+        <li>PgBouncer support and a scaling guide (2.3)</li>
+        <li>Sign out everywhere, on every instance (2.3)</li>
         <li>One-command install on Linux, and slonbase.com (2.2)</li>
-        <li>Faster releases: packages built once (2.1.3)</li>
-        <li>Layered surfaces and accent-coloured controls (2.1.2)</li>
-        <li>A dashboard that stays usable during bulk imports (2.1.1)</li>
-        <li>Lockout after failed sign-ins and a rate-limit tester (2.1)</li>
-        <li>Roles for superusers, API keys and an email designer (2.0)</li>
       </ul>
     </div>
   </div>

@@ -132,6 +132,11 @@ pub struct ServerConfig {
     /// the console then runs one read statement at a time, in a read-only transaction.
     #[serde(skip_serializing_if = "is_false")]
     pub sql_console_writes: bool,
+    /// Runs the SQL console's statements as this PostgreSQL role (`SET LOCAL ROLE`), so the
+    /// console can have fewer privileges than slonbase itself (none: slonbase's own role).
+    /// slonbase's role must be a member of it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sql_console_role: Option<String>,
     /// Gzips JSON answers for clients that take it (on by default; answers carrying tokens
     /// never are). Turn it off when bandwidth costs nothing, to save its CPU.
     #[serde(skip_serializing_if = "is_true")]
@@ -164,6 +169,7 @@ impl Default for ServerConfig {
             bind: DEFAULT_BIND.to_string(),
             sql_console: false,
             sql_console_writes: false,
+            sql_console_role: None,
             compression: true,
             metrics_bind: None,
             http_ca_file: None,
@@ -225,6 +231,7 @@ pub struct Overrides {
     pub encryption_key: Option<String>,
     pub sql_console: Option<bool>,
     pub sql_console_writes: Option<bool>,
+    pub sql_console_role: Option<String>,
     pub compression: Option<bool>,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
@@ -305,6 +312,16 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(enabled) = overrides.sql_console_writes {
         effective.server.sql_console_writes = enabled;
+    }
+    if let Some(role) = overrides.sql_console_role {
+        effective.server.sql_console_role = Some(role);
+    }
+    if let Some(role) = effective.server.sql_console_role.as_deref()
+        && (role.is_empty() || role.len() > 63)
+    {
+        anyhow::bail!(
+            "server.sql_console_role must be a PostgreSQL role name (1 to 63 characters)"
+        );
     }
     if let Some(enabled) = overrides.compression {
         effective.server.compression = enabled;

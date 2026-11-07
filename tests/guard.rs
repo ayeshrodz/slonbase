@@ -397,3 +397,103 @@ async fn rate_limits_are_shared_by_instances() {
     drop((first, second, core1, core2));
     tdb.drop_db().await;
 }
+
+/// The sign-in lockout is on for new installations, locks one identity from one address, and is
+/// switched on once for installations that had it off (migration 19).
+#[tokio::test]
+async fn lockout_is_on_by_default_and_upgraded() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    let auth = format!("Bearer {admin}");
+    let headers = [("authorization", auth.as_str())];
+    let (_, settings) = request(&app, "GET", "/api/settings", &headers, None).await;
+    assert_eq!(
+        settings["security"]["loginLockout"]["attempts"], 10,
+        "{settings}"
+    );
+
+    // ten wrong passwords lock the identity, even with the right one after
+    let sign_in = |password: &'static str| {
+        let app = app.clone();
+        async move {
+            request(
+                &app,
+                "POST",
+                "/api/collections/_superusers/auth-with-password",
+                &[],
+                Some(json!({ "identity": ADMIN_EMAIL, "password": password })),
+            )
+            .await
+            .0
+        }
+    };
+    for _ in 0..10 {
+        assert_eq!(sign_in("wrong-password").await, StatusCode::BAD_REQUEST);
+    }
+    assert_eq!(sign_in(ADMIN_PASSWORD).await, StatusCode::TOO_MANY_REQUESTS);
+
+    // an installation that had it off, before 2.4: switched on at the next start
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/settings",
+        &headers,
+        Some(json!({ "security": { "loginLockout": { "attempts": 0, "minutes": 15 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    tdb.pool()
+        .get()
+        .await
+        .unwrap()
+        .batch_execute(
+            "INSERT INTO _slonbase.params (key, value) VALUES ('upgrade_login_lockout', 'true')",
+        )
+        .await
+        .unwrap();
+    let (_config, path) = temp_config();
+    let second = new_app(&path, Some(tdb.url.clone()));
+    second.bootstrap().await.unwrap();
+    let core = second.core().unwrap();
+    assert_eq!(core.settings().security.login_lockout.attempts, 10);
+    let marker = tdb
+        .pool()
+        .get()
+        .await
+        .unwrap()
+        .query_opt(
+            "SELECT 1 FROM _slonbase.params WHERE key = 'upgrade_login_lockout'",
+            &[],
+        )
+        .await
+        .unwrap();
+    assert!(marker.is_none(), "the marker is removed");
+
+    // a deliberate 0 afterwards is kept: the upgrade runs once
+    let (_config, path) = temp_config();
+    let (status, res) = request(
+        &second,
+        "PATCH",
+        "/api/settings",
+        &headers,
+        Some(json!({ "security": { "loginLockout": { "attempts": 0, "minutes": 15 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let third = new_app(&path, Some(tdb.url.clone()));
+    third.bootstrap().await.unwrap();
+    assert_eq!(
+        third
+            .core()
+            .unwrap()
+            .settings()
+            .security
+            .login_lockout
+            .attempts,
+        0
+    );
+
+    tdb.drop_db().await;
+}

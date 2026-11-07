@@ -127,10 +127,14 @@ pub struct LoginLockout {
     pub minutes: u32,
 }
 
+/// The lockout's default: on since 2.4 (older installations are switched on once, see
+/// [`upgrade_login_lockout`]).
+pub const DEFAULT_LOCKOUT_ATTEMPTS: u32 = 10;
+
 impl Default for LoginLockout {
     fn default() -> Self {
         Self {
-            attempts: 0,
+            attempts: DEFAULT_LOCKOUT_ATTEMPTS,
             minutes: 15,
         }
     }
@@ -1261,6 +1265,55 @@ pub async fn mail_preview(
     Ok(Json(
         serde_json::json!({ "subject": subject, "html": html }),
     ))
+}
+
+/// Turns the sign-in lockout on for an installation that has it off, once: migration 19 leaves
+/// a marker, and this applies it and removes the marker (in one transaction, so a failure
+/// leaves the marker for the next start). The settings may be encrypted, which is why it isn't
+/// done in SQL.
+pub(crate) async fn upgrade_login_lockout(
+    pool: &deadpool_postgres::Pool,
+    key: Option<&crate::secrets::SecretsKey>,
+) -> anyhow::Result<()> {
+    let mut client = pool.get().await.map_err(crate::db::describe_pool_error)?;
+    let tx = client.transaction().await?;
+    let marker = tx
+        .query_opt(
+            "SELECT 1 FROM _slonbase.params WHERE key = 'upgrade_login_lockout' FOR UPDATE",
+            &[],
+        )
+        .await?;
+    if marker.is_none() {
+        return Ok(());
+    }
+    let stored = tx
+        .query_opt(
+            "SELECT 1 FROM _slonbase.params WHERE key = $1",
+            &[&PARAMS_KEY],
+        )
+        .await?
+        .is_some();
+    if stored {
+        let mut settings = Settings::load(&tx, key).await?;
+        if settings.security.login_lockout.attempts == 0 {
+            settings.security.login_lockout.attempts = DEFAULT_LOCKOUT_ATTEMPTS;
+            if !(1..=60).contains(&settings.security.login_lockout.minutes) {
+                settings.security.login_lockout.minutes = 15;
+            }
+            settings.save(&tx, key).await?;
+            tracing::info!(
+                "the sign-in lockout is now on ({DEFAULT_LOCKOUT_ATTEMPTS} failed sign-ins per identity and address in {} minutes); turn it off in Settings, Security",
+                settings.security.login_lockout.minutes
+            );
+        }
+    }
+    tx.execute(
+        "DELETE FROM _slonbase.params WHERE key = 'upgrade_login_lockout'",
+        &[],
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 #[cfg(test)]

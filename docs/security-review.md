@@ -7,11 +7,57 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [Defaults and degraded modes (2.4.0)](#defaults-and-degraded-modes-240): rate limits when the
+  database fails, the lockout default, the SQL console's privileges, and authorization tests.
 - [What 1.7 added (1.8.0)](#what-17-added-180): view previews, response compression and the
   outbox reader.
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## Defaults and degraded modes (2.4.0)
+
+Prompted by an outside review of the source, which found the design sound and asked for
+safer defaults, explicit degraded behaviour and more evidence for authorization.
+
+### 1. Rate limits weakened when the shared counters failed (medium)
+
+With several instances, rate limits are counted in PostgreSQL. When that failed, each instance
+counted on its own, so N instances allowed N times the limit, and only a debug log said so.
+Each instance now counts its share of the limit (the limit divided by the live instances,
+rounded up), logs a warning once a minute, and Health reports the failure for 15 minutes.
+Requests aren't refused outright: most limited endpoints need the database anyway, and refusing
+everything would turn a database blip into an outage. `src/guard.rs`, with a unit test of the
+shares.
+
+### 2. The sign-in lockout was off by default (medium)
+
+Rate limits count per address, so an account could be guessed at slowly from one address. The
+lockout is now on by default (10 failed sign-ins per identity and address in 15 minutes) and
+was switched on once for existing installations (migration 19, done in Rust because the
+settings may be encrypted). It's keyed on identity and address so that nobody elsewhere can
+lock a user out. `tests/guard.rs` (`lockout_is_on_by_default_and_upgraded`).
+
+### 3. The SQL console had slonbase's privileges (low)
+
+It's off by default, read-only by default and for superusers only, but it ran with the role
+slonbase connects as. `--sql-console-role` now runs it as a separate, restricted role
+(`SET LOCAL ROLE`), and Health warns when slonbase connects as a PostgreSQL superuser.
+
+### 4. Authorization had tests per case, not per path (evidence)
+
+`tests/authz_matrix.rs` now checks that list, view, counts, filters (through relations and
+`@collection`), forward and back `expand`, protected files, realtime, update, delete and batch
+agree with the same rules, for a guest and two users. `src/filter/compile.rs` compiles
+thousands of generated filters full of SQL and filter metacharacters and checks that a client's
+value only ever reaches PostgreSQL as a parameter, and 20,000 random inputs that the parser and
+compiler never panic.
+
+### Checked and kept
+
+- **A database lookup on every authenticated request.** It's what makes a password change,
+  a deletion or "sign out everywhere" end a token on every instance at once; a cache would
+  delay that. Kept, and documented in the [threat model](security.md).
 
 ## What 1.7 added (1.8.0)
 

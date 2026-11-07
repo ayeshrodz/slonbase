@@ -245,11 +245,18 @@ async fn run_on(
     let failed = |e: tokio_postgres::Error| query_error(&e, query, 0);
     // the limits are per transaction (`SET LOCAL`), so nothing is left on a connection that a
     // pooler in transaction mode hands to someone else
-    let limits = format!(
+    let mut limits = format!(
         "SET LOCAL search_path = slonbase, public; \
          SET LOCAL statement_timeout = '{STATEMENT_TIMEOUT_SECONDS}s'; \
          SET LOCAL lock_timeout = '{LOCK_TIMEOUT_SECONDS}s'"
     );
+    // a role with fewer privileges than slonbase's own, for the console only
+    if let Some(role) = core.sql_console_role.as_deref() {
+        limits.push_str(&format!(
+            "; SET LOCAL ROLE {}",
+            crate::filter::compile::quote_ident(role)
+        ));
+    }
     // one statement or several: PostgreSQL prepares only one (and the columns' types come with it)
     let prepared = {
         let tx = client

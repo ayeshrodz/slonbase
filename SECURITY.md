@@ -8,7 +8,10 @@ to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 2.1.x | ✅ |
+| 2.4.x | ✅ |
+| 2.3.x | ✅ until three months after 2.4.0 (February 7, 2027) |
+| 2.2.x | ✅ until three months after 2.3.0 (February 7, 2027) |
+| 2.1.x | ✅ until three months after 2.2.0 (February 6, 2027) |
 | 2.0.x | ✅ until three months after 2.1.0 (February 6, 2027) |
 | 1.11.x | ✅ until three months after 2.0.0 (February 6, 2027) |
 | 1.10.x | ✅ until three months after 1.11.0 (February 5, 2027) |
@@ -52,5 +55,19 @@ Out of scope:
   headers on a server reachable without the proxy;
 - denial of service through sheer request volume. Rate limits are available for that.
 
-For hardening advice, see the [security checklist](docs/deployment.md#security-checklist). The
-[authentication review](docs/security-review.md) lists what was checked and fixed.
+## Independent review
+
+Reviews of slonbase's security are very welcome, from a quick look at one area to a full
+audit. The [threat model](docs/security.md) says what slonbase protects, what it trusts and
+where the boundaries are, which is a good place to start. The parts most worth a challenge:
+
+- authorization across list, view, filters, `expand`, files, realtime and batch
+  (`src/records/access.rs`, `src/filter/`, checked by `tests/authz_matrix.rs`);
+- tokens and their revocation (`src/auth.rs`);
+- rate limits and the sign-in lockout with several instances (`src/guard.rs`);
+- file serving and uploads (`src/records/files.rs`, `src/storage.rs`).
+
+Findings go through the private report above. Each confirmed one is fixed with a test that keeps
+it fixed, listed in the [security reviews](docs/security-review.md), and credited to you.
+
+For hardening advice, see the [security checklist](docs/deployment.md#security-checklist).

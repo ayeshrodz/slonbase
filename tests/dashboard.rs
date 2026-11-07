@@ -629,3 +629,70 @@ async fn import_and_truncate() {
     drop(app);
     tdb.drop_db().await;
 }
+
+/// `server.sql_console_role`: the console's statements run as that role, with its privileges.
+#[tokio::test]
+async fn sql_console_runs_as_its_role() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (_first, token, _dir) = ready_app(&tdb).await;
+    let role = format!(
+        "console_{}",
+        tdb.url
+            .rsplit('/')
+            .next()
+            .unwrap_or("x")
+            .split('?')
+            .next()
+            .unwrap_or("x")
+    );
+    let role = role.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_");
+    let client = tdb.pool().get().await.unwrap();
+    client
+        .batch_execute(&format!(
+            "CREATE ROLE {role} NOLOGIN; GRANT {role} TO CURRENT_USER;
+             GRANT USAGE ON SCHEMA slonbase TO {role};"
+        ))
+        .await
+        .unwrap();
+    let (_dir2, config) = temp_config();
+    std::fs::write(
+        &config,
+        format!("[server]\nsql_console = true\nsql_console_role = \"{role}\"\n"),
+    )
+    .unwrap();
+    let app = new_app(&config, Some(tdb.url.clone()));
+    app.bootstrap().await.unwrap();
+
+    // it runs as the role
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(json!({ "query": "SELECT current_user" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["rows"][0][0], role);
+    // and has only its privileges: no SELECT was granted on the tables
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/sql",
+        Some(json!({ "query": "SELECT email FROM _superusers" })),
+    )
+    .await;
+    assert!(!status.is_success(), "{status}: {res}");
+    assert!(res.to_string().contains("permission denied"), "{res}");
+
+    drop(client);
+    tdb.drop_db().await;
+    admin_exec(
+        &std::env::var("SLONBASE_TEST_DATABASE_URL").unwrap(),
+        &format!("DROP ROLE IF EXISTS {role}"),
+    )
+    .await;
+}

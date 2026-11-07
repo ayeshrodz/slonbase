@@ -120,7 +120,13 @@ struct Window {
 #[derive(Default)]
 pub struct RateLimiter {
     windows: Mutex<HashMap<(String, IpAddr), Window>>,
+    /// When the shared counters last failed (seconds since the Unix epoch, 0: never).
+    degraded_at: std::sync::atomic::AtomicU64,
 }
+
+/// For how long after a failure of the shared counters Health reports the rate limits as
+/// degraded.
+pub const DEGRADED_REPORT_SECONDS: u64 = 15 * 60;
 
 impl RateLimiter {
     fn allow(&self, limiter: String, client: IpAddr, rule: &RateLimitRule) -> bool {
@@ -140,6 +146,24 @@ impl RateLimiter {
         }
         window.remaining -= 1;
         true
+    }
+
+    /// Seconds since the shared counters last failed, if they did in the last
+    /// [`DEGRADED_REPORT_SECONDS`].
+    pub fn degraded_for(&self) -> Option<u64> {
+        let at = self.degraded_at.load(std::sync::atomic::Ordering::Relaxed);
+        let now = unix_now();
+        (at > 0 && now.saturating_sub(at) < DEGRADED_REPORT_SECONDS).then(|| now.saturating_sub(at))
+    }
+
+    /// Records a failure of the shared counters; true when it's the first in a minute (so the
+    /// caller logs it).
+    fn mark_degraded(&self) -> bool {
+        let now = unix_now();
+        let before = self
+            .degraded_at
+            .swap(now, std::sync::atomic::Ordering::Relaxed);
+        now.saturating_sub(before) >= 60
     }
 
     /// Forgets all counters (when the rules change).
@@ -276,18 +300,49 @@ async fn shared_claim_mail(
 }
 
 /// Counts a request in its window: in memory while this instance is the only live one,
-/// in the database when instances share it, so the limits apply across them (in memory
-/// again if the database can't be reached).
+/// in the database when instances share it, so the limits apply across them. If the shared
+/// counters fail, each instance counts in memory against its share of the limit (the limit
+/// divided by the live instances, rounded up), so the instances together still allow about
+/// the configured number, and the failure is logged and shown in Health.
 async fn allow(core: &Core, limiter: String, ip: IpAddr, rule: &RateLimitRule) -> bool {
-    if core.realtime.other_instances() > 0 {
+    let others = core.realtime.other_instances();
+    if others > 0 {
         match shared_allow(core, &limiter, ip, rule).await {
             Ok(allowed) => return allowed,
             Err(err) => {
-                tracing::debug!(error = %format!("{err:#}"), "shared rate limit failed; counting here")
+                if core.rate_limiter.mark_degraded() {
+                    tracing::warn!(
+                        error = %format!("{err:#}"),
+                        instances = others + 1,
+                        "shared rate limits failed; each instance now counts its share of the limit"
+                    );
+                }
+                let share = RateLimitRule {
+                    max_requests: share_of(rule.max_requests, others + 1),
+                    ..rule.clone()
+                };
+                return core.rate_limiter.allow(limiter, ip, &share);
             }
         }
     }
     core.rate_limiter.allow(limiter, ip, rule)
+}
+
+/// One instance's share of a limit across `instances`: at least 1 (so requests can still pass),
+/// unless the limit itself is 0.
+fn share_of(max_requests: u32, instances: usize) -> u32 {
+    if max_requests == 0 {
+        return 0;
+    }
+    let n = u32::try_from(instances.max(1)).unwrap_or(u32::MAX);
+    max_requests.div_ceil(n).max(1)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 async fn shared_allow(
@@ -579,6 +634,20 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         }
     }
     next.run(request).await
+}
+
+#[cfg(test)]
+mod share_tests {
+    use super::share_of;
+
+    #[test]
+    fn shares_keep_the_total_and_never_reach_zero() {
+        assert_eq!(share_of(30, 3), 10);
+        assert_eq!(share_of(10, 3), 4);
+        assert_eq!(share_of(2, 5), 1);
+        assert_eq!(share_of(0, 3), 0);
+        assert_eq!(share_of(100, 0), 100);
+    }
 }
 
 #[cfg(test)]

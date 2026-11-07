@@ -109,6 +109,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "job_runs",
         sql: include_str!("../migrations/0018_job_runs.sql"),
     },
+    Migration {
+        version: 19,
+        name: "lockout_default",
+        sql: include_str!("../migrations/0019_lockout_default.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

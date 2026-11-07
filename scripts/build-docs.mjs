@@ -25,7 +25,7 @@ const SECTIONS = [
   { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
   { title: "Compare", pages: ["slonbase-and-pocketbase", "slonbase-vs-postgrest", "benchmarks"] },
-  { title: "Under the hood", pages: ["design", "security-review"] },
+  { title: "Under the hood", pages: ["design", "security", "security-review"] },
   { title: "Releases", pages: ["stability", "changelog"] },
 ];
 const SHORT = {
@@ -47,6 +47,7 @@ const SHORT = {
   projects: "Projects",
   "migrating-from-pocketbase": "From PocketBase",
   design: "Design",
+  security: "Threat model",
   "security-review": "Security review",
   stability: "Stability",
   changelog: "Changelog",
@@ -70,6 +71,7 @@ const BLURB = {
   projects: "Run several isolated backends from one slonbase installation, each with its own users, collections, settings and PostgreSQL database.",
   "migrating-from-pocketbase": "Move a PocketBase app to slonbase and PostgreSQL: import the data with password hashes, keep your hooks and SDKs, and what differs.",
   design: "How slonbase works inside, the decisions behind it and the roadmap: collections as tables, the filter compiler, realtime and scale-out.",
+  security: "What slonbase protects and trusts, how authorization, tokens, rate limits and the SQL console are enforced and tested, and how to check a deployment.",
   "security-review": "The security reviews of slonbase's authentication and request handling, the findings, and the fixes that followed.",
   stability: "What stays compatible between slonbase releases: the API, configuration, your data, hooks and migrations, under Semantic Versioning.",
   changelog: "Every slonbase release and what changed in it, with upgrade notes for each version.",
@@ -95,6 +97,7 @@ const SEO_TITLE = {
   migrations: "slonbase migrations: schema changes as code",
   stability: "slonbase stability promise and versioning",
   design: "How slonbase works: design notes and roadmap",
+  security: "slonbase threat model and security hardening",
   "security-review": "slonbase security reviews and fixes",
   changelog: "slonbase changelog: every release",
   projects: "Many backends in one installation: slonbase projects",

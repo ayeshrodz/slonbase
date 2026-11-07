@@ -96,13 +96,15 @@ pub async fn status(
     let connections = client
         .query_one(
             "SELECT count(*) FILTER (WHERE backend_type = 'client backend')::int8,
-                    (current_setting('max_connections')::int - current_setting('superuser_reserved_connections')::int)::int8
+                    (current_setting('max_connections')::int - current_setting('superuser_reserved_connections')::int)::int8,
+                    (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)
              FROM pg_stat_activity",
             &[],
         )
         .await
         .map_err(db_error)?;
     let (connections_used, connections_max): (i64, i64) = (connections.get(0), connections.get(1));
+    let role_is_superuser = connections.get::<_, Option<bool>>(2).unwrap_or(false);
     drop(client);
     let pool = core.pool.status();
     let in_use = pool.size.saturating_sub(pool.available);
@@ -330,6 +332,49 @@ pub async fn status(
             "Rate limits are off",
             "Nothing slows down password guessing or floods of requests.",
             "#/settings/security",
+        ));
+    }
+    if settings.rate_limits.enabled {
+        if let Some(ago) = core.rate_limiter.degraded_for() {
+            checks.push(check(
+                "rate-limits-degraded",
+                "warn",
+                "The shared rate limits failed recently",
+                format!(
+                    "{} minute(s) ago this instance couldn't count requests in the database, so it counted its share of each limit in memory. The limits still hold in total; check the database and the logs.",
+                    ago / 60
+                ),
+                "#/logs",
+            ));
+        }
+    }
+    if settings.security.login_lockout.attempts == 0 {
+        checks.push(check(
+            "login-lockout",
+            "warn",
+            "The sign-in lockout is off",
+            "Rate limits count requests per address, not per account. Turn the lockout on so an account can't be guessed at from one address.",
+            "#/settings/security",
+        ));
+    }
+    if app_url.starts_with("http://")
+        && !(app_url.contains("localhost") || app_url.contains("127.0.0.1"))
+    {
+        checks.push(check(
+            "app-url-https",
+            "warn",
+            "The application URL isn't https",
+            format!("Sign-ins and tokens travel to {app_url} unencrypted. Serve slonbase behind TLS and set an https URL."),
+            "#/settings/general",
+        ));
+    }
+    if role_is_superuser {
+        checks.push(check(
+            "database-role",
+            "warn",
+            "slonbase connects as a PostgreSQL superuser",
+            "A superuser can do anything on the server: read other databases, run programs. Connect with a role that owns slonbase's database instead (see the production guide).",
+            "",
         ));
     }
     if core.sql_console {
