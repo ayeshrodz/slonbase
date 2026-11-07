@@ -132,9 +132,26 @@ for (const c of collections.filter((c) => c.name.startsWith("up_"))) {
   }
 }
 const signedIn = await new PocketBase(url).collection("up_users").authWithPassword("ann@example.com", password);
+// a project, if this release has them (the oldest don't): its own superuser, collection and record
+let project = null;
+try {
+  await pb.send("/api/projects", {
+    method: "POST",
+    body: { name: "upproj", superuserEmail: "proj@example.com", superuserPassword: "project-password-1" },
+  });
+  const ppb = new PocketBase(`${url}/p/upproj`);
+  ppb.autoCancellation(false);
+  await ppb.collection("_superusers").authWithPassword("proj@example.com", "project-password-1");
+  await ppb.collections.create({ name: "proj_notes", listRule: "", viewRule: "", fields: [{ name: "text", type: "text" }] });
+  const note = await ppb.collection("proj_notes").create({ text: "kept across the upgrade" });
+  project = { name: "upproj", email: "proj@example.com", password: "project-password-1", noteId: note.id };
+} catch (err) {
+  console.log(`no project in this release (${err.status ?? err.message})`);
+}
 writeFileSync(
   process.argv[2],
   JSON.stringify({
+    project,
     collections,
     records,
     files,

@@ -137,3 +137,25 @@ test("backups of the upgraded data", async () => {
   const list = await pb.backups.getFullList();
   assert.ok(list.some((b) => b.key === "after-upgrade.zip"));
 });
+
+test("a project survives the upgrade", async (t) => {
+  if (!snapshot.project) return t.skip("the old release had no projects");
+  const { name, email, password, noteId } = snapshot.project;
+  const ppb = client();
+  ppb.baseURL = `${url}/p/${name}`;
+  await ppb.collection("_superusers").authWithPassword(email, password);
+  const note = await ppb.collection("proj_notes").getOne(noteId);
+  assert.equal(note.text, "kept across the upgrade");
+  // its own data stays its own
+  const mainNames = (await pb.collections.getFullList()).map((c) => c.name);
+  assert.ok(!mainNames.includes("proj_notes"), "the project's collection appeared in the main installation");
+  // and the main installation's superuser means nothing there
+  const foreign = client();
+  foreign.baseURL = `${url}/p/${name}`;
+  foreign.authStore.save(pb.authStore.token, pb.authStore.record);
+  await assert.rejects(() => foreign.collections.getFullList());
+  // the upgraded server lists it and can still write to it
+  const projects = await pb.send("/api/projects", {});
+  assert.ok(projects.items.some((p) => p.name === name && p.status === "ready"), "the project isn't listed as ready");
+  await ppb.collection("proj_notes").create({ text: "after" });
+});

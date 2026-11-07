@@ -83,10 +83,19 @@ It's off by default so that long migrations and index builds aren't cut.
   nothing: the old file is still served and no file is left behind.
 - **PostgreSQL 15 and 16** join 14 and 17 in the test matrix.
 
+- **OAuth2 providers:** a test walks every provider preset: unique plain names, https endpoints
+  (no code or token over plain HTTP), no credentials in a URL, and a user info URL unless the
+  provider carries the user in its ID token. The sign-in flows themselves already had tests per
+  provider family.
+- **Upgrades with a project:** the upgrade test (oldest release and previous release, to this
+  build) now creates a project when the old release has them, and checks after the upgrade that
+  its data and superuser survive, that it stays separate from the main installation, that the
+  main installation's token means nothing in it, and that it is listed as ready.
+
 ### Not yet checked
 
-The OAuth2 provider mappings and upgrades of projects and runtimes stay on the list for the next
-pass.
+Nothing is open from the two audits. Independent review (see the security policy) is the next
+source of findings.
 
 ## Defaults and degraded modes (2.4.0)
 

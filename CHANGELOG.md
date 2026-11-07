@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **More tests, no problem found:** every OAuth2 provider preset is well formed (https endpoints, no
+  credentials in URLs), and the upgrade test now carries a project across the upgrade and checks
+  its data, its superuser and its separation from the main installation.
+
 ## [2.5.1] - 2026-11-07
 
 ### Security

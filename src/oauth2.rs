@@ -1385,6 +1385,58 @@ pub async fn download(url: &str, trusted_hosts: &[String]) -> Option<Vec<u8>> {
 mod tests {
     use super::*;
 
+    /// Every preset is well formed: unique names, https endpoints (a token or a code must never
+    /// travel in the clear), no URL with credentials or whitespace, and a name that is a plain
+    /// identifier.
+    #[test]
+    fn every_provider_preset_is_well_formed() {
+        let mut seen = std::collections::HashSet::new();
+        for p in PRESETS {
+            assert!(seen.insert(p.name), "{} is listed twice", p.name);
+            assert!(
+                !p.name.is_empty()
+                    && p.name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_'),
+                "odd provider name {:?}",
+                p.name
+            );
+            assert!(!p.display_name.is_empty(), "{} has no display name", p.name);
+            for (what, url) in [
+                ("auth", p.auth_url),
+                ("token", p.token_url),
+                ("user info", p.user_info_url),
+            ] {
+                if url.is_empty() {
+                    // allowed only where the provider needs the operator's own URLs, or has no
+                    // user info endpoint (the id_token carries the user)
+                    assert!(
+                        p.kind.needs_urls() || (what == "user info" && p.kind == Kind::Apple),
+                        "{} has no {what} URL",
+                        p.name
+                    );
+                    continue;
+                }
+                assert!(
+                    url.starts_with("https://"),
+                    "{} {what} URL isn't https: {url}",
+                    p.name
+                );
+                assert!(
+                    !url.contains(char::is_whitespace)
+                        && !url["https://".len()..]
+                            .split('/')
+                            .next()
+                            .unwrap()
+                            .contains('@'),
+                    "{} {what} URL looks odd: {url}",
+                    p.name
+                );
+            }
+        }
+        assert!(seen.len() >= 30, "only {} providers", seen.len());
+    }
+
     #[test]
     fn auth_url_has_pkce_and_ends_with_redirect() {
         let provider = Provider::new(&OAuth2Provider {
