@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Writes THIRD-PARTY-LICENSES.md: the licenses of what slonbase ships inside its binary
 (the dashboard's libraries and fonts, in full) and the Rust crates it is built from (name,
-version, license and source of each). `--check` fails when the file is out of date, so CI
-notices a changed dependency.
+version, license and source of each). It isn't kept in the repository: packaging writes it
+from Cargo.lock (scripts/package.sh, the release image, the source Dockerfile), so it always
+matches the build and a dependency update needs no extra commit. `--check` compares an
+existing file with a fresh one.
 
     scripts/third-party.py           write the file
     scripts/third-party.py --check   compare it with a fresh one

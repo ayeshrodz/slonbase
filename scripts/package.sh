@@ -16,6 +16,9 @@ arch=$2
 version=$3
 root=$(pwd)
 
+# the third-party licenses of exactly what this build contains (from Cargo.lock)
+python3 scripts/third-party.py
+
 mkdir -p dist "dist/linux-$arch"
 cp "target/$target/release/slonbase" dist/slonbase
 

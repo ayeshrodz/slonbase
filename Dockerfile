@@ -2,12 +2,13 @@
 
 # Static (musl) build, so the final image needs nothing but the binary.
 FROM rust:1.98-alpine AS build
-RUN apk add --no-cache musl-dev
+RUN apk add --no-cache musl-dev python3
 WORKDIR /src
 COPY . .
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/src/target \
     cargo build --release --locked \
+    && python3 scripts/third-party.py \
     && cp target/release/slonbase /slonbase \
     && mkdir /data
 
