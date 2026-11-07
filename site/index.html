@@ -174,8 +174,9 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .install-line .p { color: var(--accent); user-select: none; }
 .install-line .caret { display: inline-block; width: 8px; height: 1.1em; vertical-align: -3px; background: var(--accent); margin-left: 2px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-.install-line button { height: 100%; align-self: stretch; padding: 0 16px; border: 0; border-left: 1px solid color-mix(in srgb, var(--code-bg), white 14%); background: transparent; color: var(--code-dim); font: 600 12px var(--mono); letter-spacing: .06em; cursor: pointer; text-transform: uppercase; }
-.install-line button:hover { color: #fff; background: rgba(255,255,255,.06); }
+.install-line button { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 104px; padding: 0 20px; border: 0; border-left: 1px solid color-mix(in srgb, var(--code-bg), white 14%); background: color-mix(in srgb, var(--accent), var(--code-bg) 62%); color: #fff; font: 600 12.5px var(--mono); letter-spacing: .06em; cursor: pointer; text-transform: uppercase; transition: background .15s; }
+.install-line button::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; }
+.install-line button:hover { background: color-mix(in srgb, var(--accent), var(--code-bg) 40%); }
 .under { color: var(--muted); font-size: 13.5px; margin: 12px 0 0; }
 
 /* the dashboard in an app window */
@@ -714,7 +715,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   </div>
 </section>
 
-<section id="faq">
+<section id="faq" class="alt">
   <div class="wrap">
     <div class="center reveal">
       <div class="eyebrow">Questions</div>
@@ -735,7 +736,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   </div>
 </section>
 
-<section id="release" class="alt">
+<section id="release">
   <div class="wrap">
     <div class="center reveal">
       <div class="eyebrow">What's new</div>
@@ -764,7 +765,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   </div>
 </section>
 
-<section id="install">
+<section id="install" class="alt">
   <div class="wrap">
     <div class="center reveal">
       <div class="eyebrow">Get started</div>

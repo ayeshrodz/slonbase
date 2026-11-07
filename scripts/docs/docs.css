@@ -152,7 +152,8 @@ kbd {
   display: flex;
   align-items: center;
   gap: 14px;
-  padding: 0 20px;
+  /* the bar's content lines up with the 1440px layout below it */
+  padding: 0 max(20px, calc((100% - 1440px) / 2 + 20px));
   background: color-mix(in srgb, var(--bg) 82%, transparent);
   backdrop-filter: saturate(1.4) blur(12px);
   -webkit-backdrop-filter: saturate(1.4) blur(12px);
