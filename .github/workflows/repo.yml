@@ -35,6 +35,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the sitemap's lastmod dates come from the history
       - name: Install tools
         run: |
           sudo apt-get update -q
@@ -97,3 +99,15 @@ jobs:
         with:
           # GitHub syncs the files for about 10 minutes at times; the default wait is 10
           timeout: 1800000
+      # tell Bing, Yandex and the other IndexNow engines which pages exist (Google reads the
+      # sitemap); a failure here never fails the deploy
+      - name: Tell search engines about the pages
+        continue-on-error: true
+        env:
+          SITE_URL: ${{ vars.SITE_URL || 'https://slonbase.com' }}
+        run: |
+          key=ba30c963bbaa1e478f0953e520f282c2
+          host="${SITE_URL#https://}"
+          urls=$(curl -fsS --retry 5 --retry-delay 10 "$SITE_URL/sitemap.xml" | grep -o '<loc>[^<]*' | sed 's/<loc>//' | sed 's/.*/"&"/' | paste -sd, -)
+          curl -fsS -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json; charset=utf-8' \
+            -d "{\"host\":\"$host\",\"key\":\"$key\",\"keyLocation\":\"$SITE_URL/$key.txt\",\"urlList\":[$urls]}"

@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { Marked } from "./vendor/marked.esm.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,13 +20,21 @@ const out = path.resolve(process.argv[2] || "site-out/docs");
 
 // the guides, in reading order
 const SECTIONS = [
-  { title: "Get started", pages: ["installation", "configuration", "deployment", "platforms"] },
+  { title: "About slonbase", pages: ["about", "features"] },
+  { title: "Get started", pages: ["quickstart", "installation", "configuration", "deployment", "platforms"] },
   { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
+  { title: "Compare", pages: ["slonbase-and-pocketbase", "slonbase-vs-postgrest", "benchmarks"] },
   { title: "Under the hood", pages: ["design", "security-review"] },
   { title: "Releases", pages: ["stability", "changelog"] },
 ];
 const SHORT = {
+  about: "About",
+  features: "Features",
+  quickstart: "Quickstart",
+  "slonbase-and-pocketbase": "vs PocketBase",
+  "slonbase-vs-postgrest": "vs PostgREST",
+  benchmarks: "Benchmarks",
   installation: "Installation",
   configuration: "Configuration",
   deployment: "Production",
@@ -41,19 +50,56 @@ const SHORT = {
   changelog: "Changelog",
 };
 const BLURB = {
-  installation: "Docker, packages and binaries, the first run and upgrades.",
-  configuration: "Server options, environment variables and application settings.",
-  deployment: "TLS, proxies, several instances, backups and monitoring.",
-  platforms: "Render, Railway, Fly.io, Coolify and Dokploy, step by step.",
-  api: "Collections, records, sign-in, filters and rules, files and realtime.",
-  extending: "JavaScript hooks and routes, cron jobs, and the Rust library.",
-  migrations: "Schema changes as code, applied on start.",
-  projects: "Several isolated backends in one installation.",
-  "migrating-from-pocketbase": "Moving an app over: data, hooks, migrations and SDKs.",
-  design: "How slonbase works inside, and the roadmap.",
-  "security-review": "The review of authentication, and what came of it.",
-  stability: "What stays compatible from one release to the next within 1.x.",
-  changelog: "Every release and what changed in it.",
+  about: "What slonbase is, who it is for, what it is not, and who builds it.",
+  features: "Everything it does: data and API, auth, realtime, files, dashboard, projects, scale and operations.",
+  quickstart: "From a bare Linux server to a working backend with an API, sign-in and realtime in five minutes.",
+  "slonbase-and-pocketbase": "What slonbase and PocketBase share, how they differ, and which to choose.",
+  "slonbase-vs-postgrest": "A whole backend platform against a lean REST layer, with measured differences.",
+  benchmarks: "Throughput, latency and footprint against PocketBase and PostgREST, with the method and caveats.",
+  installation: "Install slonbase on Linux with one command, or with Docker, .deb and .rpm packages or a plain binary, then do the first-run setup and upgrade.",
+  configuration: "Every slonbase server option, environment variable and application setting: database, storage, backups, mail, logs, rate limits and security.",
+  deployment: "Run slonbase in production: TLS and reverse proxies, several instances behind a load balancer, PostgreSQL tuning, backups and monitoring.",
+  platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy, step by step, with a PostgreSQL database for each.",
+  api: "The slonbase REST and realtime API: collections, records, sign-in, filters and rules, files, batch requests and realtime subscriptions.",
+  extending: "Extend slonbase with JavaScript hooks, routes and cron jobs, a query builder, and a Rust library API for embedding it in your own program.",
+  migrations: "Manage schema changes as code with slonbase migrations in JavaScript, each in a transaction, applied on start with automigrate.",
+  projects: "Run several isolated backends from one slonbase installation, each with its own users, collections, settings and PostgreSQL database.",
+  "migrating-from-pocketbase": "Move a PocketBase app to slonbase and PostgreSQL: import the data with password hashes, keep your hooks and SDKs, and what differs.",
+  design: "How slonbase works inside, the decisions behind it and the roadmap: collections as tables, the filter compiler, realtime and scale-out.",
+  "security-review": "The security reviews of slonbase's authentication and request handling, the findings, and the fixes that followed.",
+  stability: "What stays compatible between slonbase releases: the API, configuration, your data, hooks and migrations, under Semantic Versioning.",
+  changelog: "Every slonbase release and what changed in it, with upgrade notes for each version.",
+};
+
+// titles that say what the page is about, for search results (the others are "<title> · slonbase docs")
+const SEO_TITLE = {
+  about: "About slonbase: an open-source backend platform on PostgreSQL",
+  features: "slonbase features: API, auth, realtime, files and a dashboard on PostgreSQL",
+  quickstart: "Quickstart: a self-hosted backend on PostgreSQL in five minutes",
+  "slonbase-and-pocketbase": "slonbase and PocketBase: how they differ",
+  "slonbase-vs-postgrest": "slonbase vs PostgREST: a backend platform or a REST layer",
+  benchmarks: "slonbase benchmarks against PocketBase and PostgREST",
+  "migrating-from-pocketbase": "Migrate from PocketBase to PostgreSQL with slonbase",
+  installation: "Install slonbase: Linux, Docker, packages and binaries",
+  configuration: "slonbase configuration: options, environment variables and settings",
+  deployment: "Run slonbase in production: TLS, proxies, scaling and backups",
+  platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy",
+  api: "slonbase API reference: REST, filters, auth, files and realtime",
+  extending: "Extend slonbase with JavaScript hooks, routes, cron jobs and Rust",
+  migrations: "slonbase migrations: schema changes as code",
+  stability: "slonbase stability promise and versioning",
+  design: "How slonbase works: design notes and roadmap",
+  "security-review": "slonbase security reviews and fixes",
+  changelog: "slonbase changelog: every release",
+  projects: "Many backends in one installation: slonbase projects",
+};
+const SITE = (process.env.SITE_URL || "https://slonbase.com").replace(/\/$/, "");
+const lastModified = (file) => {
+  try {
+    const d = execFileSync("git", ["log", "-1", "--format=%cI", "--", file], { cwd: ROOT, stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (d) return d.slice(0, 10);
+  } catch {}
+  return new Date().toISOString().slice(0, 10);
 };
 
 const version = /^version = "([^"]+)"/m.exec(fs.readFileSync(path.join(ROOT, "Cargo.toml"), "utf8"))[1];
@@ -219,7 +265,21 @@ const ICON = {
   back: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19.5 12h-15M10 6.5 4.5 12l5.5 5.5"/></svg>',
 };
 
-function page({ slug, title, description, content, prefix, toc }) {
+function page({ slug, title, description, content, prefix, toc, seoTitle }) {
+  const url = `${SITE}/docs/${slug ? slug + "/" : ""}`;
+  const docTitle = seoTitle || `${title} · slonbase docs`;
+  const ld = [
+    { "@context": "https://schema.org", "@type": "BreadcrumbList", itemListElement: [
+      { "@type": "ListItem", position: 1, name: "slonbase", item: SITE + "/" },
+      { "@type": "ListItem", position: 2, name: "Docs", item: SITE + "/docs/" },
+      ...(slug ? [{ "@type": "ListItem", position: 3, name: SHORT[slug], item: url }] : []),
+    ] },
+    ...(slug ? [{ "@context": "https://schema.org", "@type": "TechArticle", headline: title, description, url, inLanguage: "en",
+      dateModified: lastModified(source(slug)),
+      author: { "@type": "Person", name: "Ayesh Rodrigo", url: "https://ayesh.dev/" },
+      publisher: { "@type": "Organization", name: "slonbase", url: SITE + "/", logo: { "@type": "ImageObject", url: SITE + "/assets/logo.svg" } },
+      mainEntityOfPage: url }] : []),
+  ];
   const nav = SECTIONS.map(
     (s) => `<div class="nav-group"><div class="nav-title">${escape(s.title)}</div>${s.pages
       .map((p) => `<a href="${prefix}${p}/"${p === slug ? ' class="on" aria-current="page"' : ""}>${escape(SHORT[p])}</a>`)
@@ -235,8 +295,19 @@ function page({ slug, title, description, content, prefix, toc }) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${escape(title)} · slonbase docs</title>
+<title>${escape(docTitle)}</title>
 <meta name="description" content="${escape(description)}">
+<link rel="canonical" href="${url}">
+${slug ? `<link rel="alternate" type="text/markdown" href="${SITE}/docs/${slug}.md">\n` : ""}<meta name="theme-color" content="#eff2f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+<meta property="og:type" content="${slug ? "article" : "website"}">
+<meta property="og:site_name" content="slonbase">
+<meta property="og:title" content="${escape(docTitle)}">
+<meta property="og:description" content="${escape(description)}">
+<meta property="og:url" content="${url}">
+<meta property="og:image" content="${SITE}/assets/social-preview.png">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>
 <link rel="icon" href="${prefix}../assets/logo.svg" type="image/svg+xml">
 <link rel="preload" href="${prefix}fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="${prefix}docs.css">
@@ -296,7 +367,7 @@ order.forEach((slug, i) => {
 </article>`;
   const dir = path.join(out, slug);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, "index.html"), page({ slug, title: r.title, description: BLURB[slug], content, prefix: "../", toc: r.toc }));
+  fs.writeFileSync(path.join(dir, "index.html"), page({ slug, title: r.title, description: BLURB[slug], content, prefix: "../", toc: r.toc, seoTitle: SEO_TITLE[slug] }));
   index.push({ t: r.title, u: `${slug}/`, h: "", x: r.intro.slice(0, 400), s: SHORT[slug] });
   for (const s of r.sections) index.push({ t: r.title, u: `${slug}/#${s.id}`, h: s.heading, x: s.text, s: SHORT[slug] });
 });
@@ -323,7 +394,73 @@ const home = `<div class="home">
   ${whatsNew}
   ${cards}
 </div>`;
-fs.writeFileSync(path.join(out, "index.html"), page({ slug: "", title: "Documentation", description: "The slonbase documentation.", content: home, prefix: "", toc: null }));
+fs.writeFileSync(path.join(out, "index.html"), page({ slug: "", title: "Documentation", description: "The slonbase documentation: install it, define collections, call the API, extend it with hooks and run it in production.", content: home, prefix: "", toc: null, seoTitle: "slonbase documentation: install, build, extend and run" }));
+
+// ------------------------------------------------------------------ for search engines and assistants
+
+// every guide as Markdown next to its page (/docs/api.md), with its links made absolute: assistants
+// read Markdown far better than styled HTML
+function absoluteLink(href, fromSlug) {
+  if (/^([a-z]+:|#|\/\/)/i.test(href)) return href;
+  const [file, hash] = href.split("#");
+  const base = fromSlug === "changelog" ? ROOT : path.join(ROOT, "docs");
+  const target = path.relative(ROOT, path.resolve(base, file));
+  const anchor = hash ? "#" + hash : "";
+  if (target === "CHANGELOG.md") return `${SITE}/docs/changelog.md${anchor}`;
+  const m = /^docs\/([\w-]+)\.md$/.exec(target);
+  if (m && order.includes(m[1])) return `${SITE}/docs/${m[1]}.md${anchor}`;
+  if (target.startsWith("docs/assets/")) return `${SITE}/assets/${target.slice("docs/assets/".length)}`;
+  const kind = fs.existsSync(path.join(ROOT, target)) && fs.statSync(path.join(ROOT, target)).isDirectory() ? "tree" : "blob";
+  return `${REPO}/${kind}/main/${target}${anchor}`;
+}
+const markdown = {};
+for (const slug of order) {
+  const md = fs.readFileSync(path.join(ROOT, source(slug)), "utf8").replace(/(\]\()([^)\s]+)(\))/g, (_, a, href, c) => a + absoluteLink(href, slug) + c);
+  markdown[slug] = md;
+  fs.writeFileSync(path.join(out, `${slug}.md`), md);
+}
+
+// the site's root files, when the docs are built into <site>/docs
+if (path.basename(out) === "docs") {
+  const root = path.dirname(out);
+  const urls = [
+    [`${SITE}/`, lastModified("site/index.html")],
+    [`${SITE}/docs/`, lastModified("scripts/build-docs.mjs")],
+    ...order.map((slug) => [`${SITE}/docs/${slug}/`, lastModified(source(slug))]),
+    [`${SITE}/packages/`, lastModified("scripts/build-repo.sh")],
+  ];
+  fs.writeFileSync(
+    path.join(root, "sitemap.xml"),
+    `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
+      .map(([loc, mod]) => `  <url><loc>${escape(loc)}</loc><lastmod>${mod}</lastmod></url>`)
+      .join("\n")}\n</urlset>\n`
+  );
+
+  const SUMMARY =
+    "slonbase is an open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard that manages many projects. It is self-hosted, MIT-licensed, scales across several instances on one database, and works with the PocketBase SDKs. It is an independent project (not a fork of PocketBase) built and maintained by Ayesh Rodrigo.";
+  const optional = new Set(["design", "security-review", "changelog"]);
+  const line = (slug) => `- [${SHORT[slug]}](${SITE}/docs/${slug}.md): ${BLURB[slug]}`;
+  const groups = SECTIONS.map((g) => ({ title: g.title, pages: g.pages.filter((p) => !optional.has(p)) })).filter((g) => g.pages.length);
+  const llms = `# slonbase
+
+> ${SUMMARY}
+
+Key facts: license MIT; written in Rust; needs PostgreSQL 14 or newer; Linux x86_64 and aarch64 (static binaries, .deb and .rpm packages, a Docker image); install with \`curl -fsSL ${SITE}/install.sh | sudo sh\`; current version ${version}. Website: ${SITE}/ . Source: ${REPO} .
+
+${groups.map((g) => `## ${g.title}\n\n${g.pages.map(line).join("\n")}`).join("\n\n")}
+
+## Optional
+
+${[...optional].map(line).join("\n")}
+- [Benchmark method and raw results](https://github.com/ayeshrodz/slonbase/tree/main/bench): scripts and the runs behind the numbers
+- [Source code](${REPO}): the repository, issues and releases
+`;
+  fs.writeFileSync(path.join(root, "llms.txt"), llms);
+  const full = order.filter((slug) => !optional.has(slug))
+    .map((slug) => `<!-- ${SITE}/docs/${slug}/ -->\n${markdown[slug]}`)
+    .join("\n\n---\n\n");
+  fs.writeFileSync(path.join(root, "llms-full.txt"), `# slonbase documentation\n\n> ${SUMMARY}\n\nThis file is the guides of ${SITE}/docs/ as one document (the design notes, the security review and the changelog are left out: see ${SITE}/llms.txt).\n\n---\n\n${full}\n`);
+}
 
 fs.writeFileSync(path.join(out, "search.json"), JSON.stringify(index));
 for (const f of ["docs.css", "docs.js"]) fs.copyFileSync(path.join(ROOT, "scripts/docs", f), path.join(out, f));

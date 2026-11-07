@@ -7,8 +7,9 @@
 
 <p align="center">
   <strong>Your whole backend, built on PostgreSQL.</strong><br>
-  An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files,
-  hooks and an admin dashboard. Every collection is a real PostgreSQL table.
+  slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, auth with
+  roles, files, hooks and an admin dashboard for many projects, in one Rust binary.
+  Every collection is a real PostgreSQL table.
 </p>
 
 <p align="center">
@@ -22,6 +23,7 @@
 
 <p align="center">
   <a href="https://slonbase.com/">Website</a> ·
+  <a href="https://slonbase.com/docs/features/">Features</a> ·
   <a href="#quick-start">Quick start</a> ·
   <a href="docs/installation.md">Install</a> ·
   <a href="docs/api.md">API</a> ·
@@ -37,34 +39,23 @@
   <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
 </p>
 
-## New in 2.1
+## New in 2.2
 
-- 🔒 **Lockout after failed sign-ins:** an account that fails too many password sign-ins from
-  one address is refused for a while, shared by every instance; and the interval between auth
-  emails is a setting.
-- 📎 **File settings:** the default file size and thumbnails on or off, with token lifetimes
-  in Settings.
-- 🧭 **A rate-limit tester** that says which rule a request meets.
-
-## New in 2.0
-
-- 🎛️ **Settings in which every setting does something:** named accents, the application's name
-  and logo in the browser tab, the sidebar, the sign-in page and emails, and a sign-in page you
-  can lay out, word and brand, per project.
-- 👥 **Roles and API keys:** owners, admins, developers and viewers, checked on every request,
-  and keys for scripts and CI with a role, an expiry date and IPs of their own.
-- ✉️ **An email designer:** a layout around every email and each template as HTML, with
-  placeholders and a live preview.
-- 🗓️ **A history of what ran:** every backup and cron job run, how long it took and how it
-  ended; backups marked encrypted or not. Plus CORS, maintenance, HTTPS only, and file storage
-  facts.
+- 🚀 **One command on a bare Linux server:** `curl -fsSL https://slonbase.com/install.sh | sudo sh`
+  installs PostgreSQL if needed, creates its role and database, installs slonbase and creates
+  your first superuser. The [installation guide](docs/installation.md) does every step by hand.
+- 🌐 **slonbase.com,** with a [tour of the dashboard](https://slonbase.com/), new
+  [benchmarks](bench/README.md) against PocketBase and PostgREST, and every
+  [feature](https://slonbase.com/docs/features/) in one list.
+- Before that: [settings in which every setting does something](CHANGELOG.md) (accents, your own
+  sign-in page and emails, roles and API keys, job history), sign-in lockout and a rate-limit tester.
 
 ## Why slonbase
 
 Define your data in a dashboard and get an API, auth, realtime and file storage right away,
-without writing a backend. slonbase gives you that in a single binary, and keeps your data in
-**PostgreSQL**, the database you can query, replicate, back up and scale with the tools you
-already trust.
+without writing a backend. slonbase gives you that in a single binary, runs as many isolated
+projects as you like from one dashboard, and keeps your data in **PostgreSQL**, the database you
+can query, replicate, back up and scale with the tools you already trust.
 
 - 🐘 **Real PostgreSQL tables.** Every collection is a table. Query it with SQL, join it in
   reports, replicate it, back it up with `pg_dump`, or run it on a managed service.
@@ -76,7 +67,9 @@ already trust.
 - 🧩 **Extend it your way.** Hooks, routes, cron jobs and a query builder in JavaScript files,
   no build step; or a Rust library API.
 - 🗂️ **Many projects, one server.** Host several isolated apps from one installation, each in a
-  database of its own.
+  database of its own, with a command center for all of them.
+- 🎛️ **A dashboard that is yours.** An SQL console, roles and API keys for your team, an email
+  designer and a sign-in page you lay out yourself, with your name, colours and logo.
 - 🚀 **Fast where it matters.** Written in Rust with tokio and axum; filters compile to
   parameterized SQL that uses your indexes ([benchmarks](bench/README.md)).
 - 📦 **One static binary.** A 10 MB download (22 MB on disk) with the dashboard built in. Install it with
@@ -122,15 +115,16 @@ already trust.
 </table>
 
 > [!NOTE]
-> **slonbase 1.0 is stable:** within 1.x, upgrades don't break the API, configuration, your data,
-> hooks or migrations (see [stability](docs/stability.md)). Back up before upgrading anyway, and
+> **slonbase is stable:** within a major version, upgrades don't break the API, configuration,
+> your data, hooks or migrations (see [stability](docs/stability.md)). Back up before upgrading anyway, and
 > bug reports are very welcome.
 
-## Coming from PocketBase?
+## Already using PocketBase?
 
-slonbase is inspired by [PocketBase](https://pocketbase.io), and it's an independent project,
-written from scratch in Rust, with its own design. Its API is compatible with PocketBase's, so you
-can bring an existing app along:
+slonbase is its own platform (an independent codebase, written from scratch in Rust for
+PostgreSQL), and its API stays compatible with [PocketBase](https://pocketbase.io)'s, the project
+that inspired it, so you can bring an existing app along. See also
+[how the two differ](https://slonbase.com/docs/slonbase-and-pocketbase/):
 
 - the PocketBase JavaScript and Dart SDKs work against slonbase as they are;
 - most `pb_hooks` and `pb_migrations` files run unchanged;

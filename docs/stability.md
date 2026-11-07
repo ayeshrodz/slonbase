@@ -1,7 +1,7 @@
 # Stability
 
 Since 1.0, slonbase follows [Semantic Versioning](https://semver.org/) for everything this page
-lists: within 1.x, an upgrade doesn't break what works. A breaking change waits for 2.0, and
+lists: within a major version, an upgrade doesn't break what works. A breaking change waits for the next major version, and
 the changelog lists it with what to do.
 
 Before 1.0 (0.x), a minor version could break things; each one's **Upgrading** section in the
@@ -20,13 +20,13 @@ keys (see [configuration](configuration.md)), and the application settings (`GET
 default that keeps the old behavior.
 
 **Your data.** Collections are PostgreSQL tables you own; slonbase changes them only when you
-change the collection. The `_slonbase` schema is migrated forward on start, by any later 1.x
-release. Files keep their storage layout, locally and in S3. A backup made by a 1.x release
-restores on any later 1.x release, encrypted ones included.
+change the collection. The `_slonbase` schema is migrated forward on start, by any later release
+of the same major version. Files keep their storage layout, locally and in S3. A backup made by a
+release restores on any later release of its major version, encrypted ones included.
 
 **JavaScript hooks and migrations.** The globals and hooks in [extending](extending.md#javascript-hooks)
 and [migrations](migrations.md), with their arguments and return values. Hooks and migrations
-written for 1.0 run on every 1.x release.
+written for 1.0 run on every later release of the same major version.
 
 **The Rust library.** The public API of the `slonbase` crate (see [extending](extending.md#rust)).
 The minimum supported Rust version can rise in a minor release, announced in the changelog.

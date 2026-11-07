@@ -3,18 +3,31 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>slonbase: your whole backend, built on PostgreSQL</title>
-<meta name="description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, with your data in real PostgreSQL tables.">
+<title>slonbase: open-source backend platform on PostgreSQL</title>
+<meta name="description" content="Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project dashboard. Self-hosted.">
+<link rel="canonical" href="https://slonbase.com/">
 <meta name="theme-color" content="#eff2f5" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
 <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.ico" sizes="48x48">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="site.webmanifest">
+<link rel="alternate" type="text/plain" href="https://slonbase.com/llms.txt" title="slonbase for language models">
 <link rel="preload" href="assets/fonts/ibm-plex-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
 <meta property="og:type" content="website">
-<meta property="og:title" content="slonbase: your whole backend, built on PostgreSQL">
-<meta property="og:description" content="An open-source backend in one Rust binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard, on PostgreSQL.">
+<meta property="og:site_name" content="slonbase">
+<meta property="og:title" content="slonbase: open-source backend platform on PostgreSQL">
+<meta property="og:description" content="Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project dashboard. Self-hosted.">
 <meta property="og:image" content="https://slonbase.com/assets/social-preview.png">
+<meta property="og:image:alt" content="The slonbase dashboard: a command center for projects, beside the line Your whole backend, built on PostgreSQL.">
 <meta property="og:url" content="https://slonbase.com/">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="slonbase: open-source backend platform on PostgreSQL">
+<meta name="twitter:description" content="Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project dashboard. Self-hosted.">
+<meta name="twitter:image" content="https://slonbase.com/assets/social-preview.png">
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "SoftwareApplication", "name": "slonbase", "alternateName": "slonbase backend platform", "description": "slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, authentication with roles, files, hooks and an admin dashboard for many projects, in one Rust binary. Every collection is a real table, and every server you add shares it.", "applicationCategory": "DeveloperApplication", "operatingSystem": "Linux", "license": "https://opensource.org/licenses/MIT", "url": "https://slonbase.com/", "downloadUrl": "https://github.com/ayeshrodz/slonbase/releases/latest", "installUrl": "https://slonbase.com/docs/installation/", "softwareHelp": "https://slonbase.com/docs/", "codeRepository": "https://github.com/ayeshrodz/slonbase", "programmingLanguage": "Rust", "image": "https://slonbase.com/assets/social-preview.png", "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}, "author": {"@type": "Person", "name": "Ayesh Rodrigo", "url": "https://ayesh.dev/", "sameAs": ["https://github.com/ayeshrodz"]}, "sameAs": ["https://github.com/ayeshrodz/slonbase", "https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"], "featureList": ["REST and realtime API", "Authentication with roles, OAuth2, one-time passwords and MFA", "File storage on disk or S3", "JavaScript hooks, cron jobs and a Rust library", "Admin dashboard with an SQL console", "Many isolated projects in one installation", "Several instances on one PostgreSQL database", "Compatible with the PocketBase SDKs"]}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "WebSite", "name": "slonbase", "url": "https://slonbase.com/", "description": "Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project dashboard. Self-hosted.", "inLanguage": "en"}</script>
+<script type="application/ld+json">{"@context": "https://schema.org", "@type": "FAQPage", "mainEntity": [{"@type": "Question", "name": "What is slonbase?", "acceptedAnswer": {"@type": "Answer", "text": "slonbase is an open-source backend platform on PostgreSQL. One Rust binary gives you a REST and realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard that manages many projects. Every collection is a real PostgreSQL table, and it is self-hosted under the MIT license."}}, {"@type": "Question", "name": "Is slonbase a PocketBase clone or fork?", "acceptedAnswer": {"@type": "Answer", "text": "No. slonbase is a separate codebase written from scratch in Rust for PostgreSQL, with its own dashboard and features such as many projects in one installation, roles and API keys, an SQL console and scale-out across instances. PocketBase inspired the idea, and slonbase keeps its API shape on purpose, so the PocketBase SDKs, hooks and data carry over."}}, {"@type": "Question", "name": "Do I need to install PostgreSQL myself?", "acceptedAnswer": {"@type": "Answer", "text": "slonbase needs PostgreSQL 14 or newer, which it does not bundle. On Debian, Ubuntu, Fedora and RHEL the one-command installer installs PostgreSQL if the machine has none, creates the database and role, and sets slonbase up. You can also point it at an existing or managed PostgreSQL."}}, {"@type": "Question", "name": "How does slonbase compare with PocketBase and PostgREST?", "acceptedAnswer": {"@type": "Answer", "text": "PocketBase is one Go binary with SQLite inside, and PostgREST is a lean REST layer over a PostgreSQL schema. slonbase is a whole backend platform on PostgreSQL. In the public benchmark on one 4-vCPU machine it served 4.9 times as many list requests per second as PocketBase and 2.1 times as many as PostgREST. Each comparison page lists what differs and when to choose which."}}, {"@type": "Question", "name": "Is slonbase ready for production?", "acceptedAnswer": {"@type": "Answer", "text": "slonbase follows Semantic Versioning with a written stability promise, is tested against the PocketBase SDKs, is upgraded in place from every release in continuous integration, and publishes its security reviews. As with any software that holds your data, back up before upgrading and test your own workload."}}, {"@type": "Question", "name": "How do I move from PocketBase?", "acceptedAnswer": {"@type": "Answer", "text": "Run slonbase import-pocketbase on your pb_data folder or a backup zip. It brings over collections, records with their password hashes, files and settings, and the PocketBase SDKs work against slonbase's API. The migration guide lists the few differences."}}, {"@type": "Question", "name": "Can one slonbase host several apps?", "acceptedAnswer": {"@type": "Answer", "text": "Yes. Projects are isolated installations inside one slonbase process, each with its own users, collections, settings and database, managed from a command center in the dashboard."}}, {"@type": "Question", "name": "What does it cost, and under which license?", "acceptedAnswer": {"@type": "Answer", "text": "slonbase is free and open source under the MIT license. You host it yourself, so your costs are your own server and PostgreSQL."}}]}</script>
 <style>
 /* IBM Plex Sans and JetBrains Mono (SIL Open Font License), as in the dashboard and the docs */
 @font-face { font-family: "IBM Plex Sans"; font-style: normal; font-display: swap; font-weight: 100 700; font-stretch: 75% 100%; src: url("assets/fonts/ibm-plex-sans-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
@@ -122,7 +135,7 @@ section.alt { background: var(--surface); border-block: 1px solid var(--line); }
 .btn .count { font: 600 12px var(--mono); padding: 2px 7px; border-radius: 99px; background: var(--hover, rgba(129,139,152,.16)); }
 
 /* nav */
-.nav { position: sticky; top: 0; z-index: 50; backdrop-filter: saturate(1.4) blur(14px); -webkit-backdrop-filter: saturate(1.4) blur(14px); background: color-mix(in srgb, var(--canvas), transparent 22%); border-bottom: 1px solid var(--line); }
+.nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); background: color-mix(in srgb, var(--canvas), transparent 22%); border-bottom: 1px solid var(--line); }
 .nav .wrap { display: flex; align-items: center; gap: 18px; height: 60px; }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 600; font-size: 19px; letter-spacing: -.01em; }
 .brand:hover { text-decoration: none; }
@@ -134,14 +147,15 @@ section.alt { background: var(--surface); border-block: 1px solid var(--line); }
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; min-width: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; font: 500 14px var(--font); }
 .icon-btn:hover { border-color: var(--accent); text-decoration: none; }
 @media (max-width: 860px) { .hide-sm { display: none !important; } }
+@media (max-width: 760px) { .orb { display: none; } }
 
 /* hero */
 .hero { position: relative; padding: 88px 0 0; overflow: hidden; isolation: isolate; }
 .hero::before { content: ""; position: absolute; inset: 0; z-index: -2; background:
+  radial-gradient(70% 60% at 50% 0%, transparent 20%, var(--canvas) 78%),
   linear-gradient(var(--line) 1px, transparent 1px) 0 0 / 56px 56px,
-  linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 56px 56px;
-  -webkit-mask-image: radial-gradient(70% 60% at 50% 0%, #000 20%, transparent 75%); mask-image: radial-gradient(70% 60% at 50% 0%, #000 20%, transparent 75%); opacity: .7; }
-.orb { position: absolute; z-index: -1; border-radius: 50%; filter: blur(70px); opacity: .9; pointer-events: none; }
+  linear-gradient(90deg, var(--line) 1px, transparent 1px) 0 0 / 56px 56px; }
+.orb { position: absolute; z-index: -1; border-radius: 50%; opacity: .9; pointer-events: none; will-change: transform; }
 .orb.a { width: 520px; height: 520px; left: -120px; top: -140px; background: radial-gradient(circle, var(--glow), transparent 70%); animation: drift 18s ease-in-out infinite alternate; }
 .orb.b { width: 460px; height: 460px; right: -100px; top: 40px; background: radial-gradient(circle, color-mix(in srgb, var(--pg), transparent 78%), transparent 70%); animation: drift 22s ease-in-out infinite alternate-reverse; }
 @keyframes drift { to { transform: translate(60px, 40px) scale(1.12); } }
@@ -172,7 +186,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .window-bar i:nth-child(1) { background: #ec6a5e; } .window-bar i:nth-child(2) { background: #f4be4f; } .window-bar i:nth-child(3) { background: #61c554; }
 .window-bar .url { margin: 0 auto; transform: translateX(-24px); font: 500 12px var(--mono); color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 38px; display: flex; align-items: center; gap: 8px; }
 .window-bar .url::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok), transparent 80%); animation: pulse 2.4s ease-in-out infinite; }
-@keyframes pulse { 50% { box-shadow: 0 0 0 6px transparent; } }
+@keyframes pulse { 50% { opacity: .45; } }
 .window video, .window img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; background: var(--canvas); }
 .stage::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -40px; height: 80px; background: radial-gradient(50% 100% at 50% 0%, var(--glow), transparent 70%); filter: blur(24px); z-index: -1; }
 .video-note { text-align: center; color: var(--muted); font-size: 13.5px; margin: 26px 0 0; }
@@ -319,6 +333,16 @@ footer { margin-top: 96px; padding: 56px 0 40px; border-top: 1px solid var(--lin
 .fineprint { margin: 36px 0 0; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line-2); padding-top: 20px; }
 @media (max-width: 760px) { .foot { grid-template-columns: 1fr 1fr; } }
 
+/* FAQ */
+.faq { max-width: 820px; margin: 48px auto 0; display: grid; gap: 10px; }
+.qa { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0 20px; transition: border-color .15s; }
+.qa[open] { border-color: color-mix(in srgb, var(--accent), var(--line) 55%); }
+.qa summary { cursor: pointer; list-style: none; padding: 16px 28px 16px 0; font-weight: 600; font-size: 16.5px; position: relative; }
+.qa summary::-webkit-details-marker { display: none; }
+.qa summary::after { content: "+"; position: absolute; right: 2px; top: 50%; transform: translateY(-50%); font: 500 22px var(--mono); color: var(--accent); transition: transform .2s; }
+.qa[open] summary::after { content: "\2212"; }
+.qa p { margin: 0 0 18px; color: var(--ink-3); }
+
 /* scroll reveal */
 .reveal { opacity: 0; transform: translateY(22px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); transition-delay: calc(var(--i, 0) * 70ms); }
 .reveal.in { opacity: 1; transform: none; }
@@ -366,7 +390,7 @@ footer { margin-top: 96px; padding: 56px 0 40px; border-top: 1px solid var(--lin
         <b id="pill-version">v2.2.0</b><span id="pill-title">slonbase.com, and an install from a bare server</span><span class="arrow">→</span>
       </a>
       <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
-      <p class="lede">Collections, a REST and realtime API, auth, files, hooks and an admin dashboard, in one Rust binary. Every collection is a real PostgreSQL table, and every server you add shares it.</p>
+      <p class="lede">slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, authentication with roles, files, hooks and an admin dashboard for many projects, in one Rust binary. Every collection is a real table, and every server you add shares it.</p>
       <div class="ctas">
         <a class="btn primary" href="#install">Get started</a>
         <a class="btn" href="https://github.com/ayeshrodz/slonbase">
@@ -384,7 +408,7 @@ footer { margin-top: 96px; padding: 56px 0 40px; border-top: 1px solid var(--lin
     <div class="stage reveal">
       <div class="window" id="window">
         <div class="window-bar"><i></i><i></i><i></i><span class="url">localhost:8090/_/</span></div>
-        <video id="tour" muted loop playsinline autoplay preload="metadata" poster="assets/tour-poster.jpg" aria-label="A short tour of the slonbase dashboard: records, schema, the SQL console, projects and settings">
+        <video id="tour" muted loop playsinline autoplay preload="none" poster="assets/tour-poster.jpg" aria-label="A short tour of the slonbase dashboard: records, schema, the SQL console, projects and settings">
           <source src="assets/tour.webm" type="video/webm">
           <source src="assets/tour.mp4" type="video/mp4">
         </video>
@@ -433,6 +457,21 @@ footer { margin-top: 96px; padding: 56px 0 40px; border-top: 1px solid var(--lin
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3>Operations built in</h3>
         <p>Rate limits, sign-in lockout, request logs, scheduled backups to S3 with a history, Prometheus metrics, projects on one server, roles and API keys, and upgrades tested from the first release.</p>
+      </div>
+      <div class="card reveal" style="--i:6">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5M3 17.5l9 5 9-5" opacity=".6"/></svg></div>
+        <h3>Many projects, one server</h3>
+        <p>Each project is an isolated installation with its own users, collections, settings and database, on one server or several, run from a command center that shows requests, errors and latency side by side.</p>
+      </div>
+      <div class="card reveal" style="--i:7">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+        <h3>An SQL console and designers</h3>
+        <p>Query your data in the dashboard (read-only unless you allow writes), and design your emails and your sign-in page with a live preview, with your name, colours and logo everywhere.</p>
+      </div>
+      <div class="card reveal" style="--i:8">
+        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.4-3.4 2.8-5.4 6-5.4s5.6 2 6 5.4M16 11l5 0M16 15l5 0"/></svg></div>
+        <h3>Roles and API keys</h3>
+        <p>Owner, Admin, Developer and Viewer roles for the people who run it, and API keys with a role, an expiry and allowed IPs for scripts and CI.</p>
       </div>
     </div>
   </div>
@@ -597,8 +636,8 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   <div class="wrap">
     <div class="center reveal">
       <div class="eyebrow">How it compares</div>
-      <h2>Inspired by PocketBase.<br>Built from scratch.</h2>
-      <p class="sub">PocketBase showed how good a backend in one binary can feel. slonbase is a new project, written in Rust for PostgreSQL, that keeps its API compatible, so your SDK code, hooks and migrations carry over. PostgREST is the other thing people reach for on PostgreSQL: a very lean REST layer with nothing else attached.</p>
+      <h2>Different tools,<br>different trade-offs.</h2>
+      <p class="sub">slonbase began with an idea from PocketBase and has grown into its own platform, built from scratch in Rust for PostgreSQL. It keeps the PocketBase SDK API, so existing apps, hooks and data carry over. PostgREST is the other thing people reach for on PostgreSQL: a very lean REST layer with nothing else attached. Read the full comparisons: <a href="docs/slonbase-and-pocketbase/">slonbase and PocketBase</a>, <a href="docs/slonbase-vs-postgrest/">slonbase vs PostgREST</a>.</p>
     </div>
         <div class="table-wrap reveal">
       <table class="cmp">
@@ -676,6 +715,26 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
         <li>Rate limits count across instances, cron jobs run once per schedule</li>
         <li>Prometheus metrics on a private port: requests, latency, pool use, realtime</li>
       </ul>
+    </div>
+  </div>
+</section>
+
+<section id="faq">
+  <div class="wrap">
+    <div class="center reveal">
+      <div class="eyebrow">Questions</div>
+      <h2>Frequently asked.</h2>
+      <p class="sub">The short answers. The full ones are in the <a href="docs/about/">about page</a>, the <a href="docs/features/">feature list</a> and the <a href="docs/">documentation</a>.</p>
+    </div>
+    <div class="faq">
+      <details class="qa reveal"><summary>What is slonbase?</summary><p>slonbase is an open-source backend platform on PostgreSQL. One Rust binary gives you a REST and realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard that manages many projects. Every collection is a real PostgreSQL table, and it is self-hosted under the MIT license.</p></details>
+      <details class="qa reveal"><summary>Is slonbase a PocketBase clone or fork?</summary><p>No. slonbase is a separate codebase written from scratch in Rust for PostgreSQL, with its own dashboard and features such as many projects in one installation, roles and API keys, an SQL console and scale-out across instances. PocketBase inspired the idea, and slonbase keeps its API shape on purpose, so the PocketBase SDKs, hooks and data carry over.</p></details>
+      <details class="qa reveal"><summary>Do I need to install PostgreSQL myself?</summary><p>slonbase needs PostgreSQL 14 or newer, which it does not bundle. On Debian, Ubuntu, Fedora and RHEL the one-command installer installs PostgreSQL if the machine has none, creates the database and role, and sets slonbase up. You can also point it at an existing or managed PostgreSQL.</p></details>
+      <details class="qa reveal"><summary>How does slonbase compare with PocketBase and PostgREST?</summary><p>PocketBase is one Go binary with SQLite inside, and PostgREST is a lean REST layer over a PostgreSQL schema. slonbase is a whole backend platform on PostgreSQL. In the public benchmark on one 4-vCPU machine it served 4.9 times as many list requests per second as PocketBase and 2.1 times as many as PostgREST. Each comparison page lists what differs and when to choose which.</p></details>
+      <details class="qa reveal"><summary>Is slonbase ready for production?</summary><p>slonbase follows Semantic Versioning with a written stability promise, is tested against the PocketBase SDKs, is upgraded in place from every release in continuous integration, and publishes its security reviews. As with any software that holds your data, back up before upgrading and test your own workload.</p></details>
+      <details class="qa reveal"><summary>How do I move from PocketBase?</summary><p>Run slonbase import-pocketbase on your pb_data folder or a backup zip. It brings over collections, records with their password hashes, files and settings, and the PocketBase SDKs work against slonbase's API. The migration guide lists the few differences.</p></details>
+      <details class="qa reveal"><summary>Can one slonbase host several apps?</summary><p>Yes. Projects are isolated installations inside one slonbase process, each with its own users, collections, settings and database, managed from a command center in the dashboard.</p></details>
+      <details class="qa reveal"><summary>What does it cost, and under which license?</summary><p>slonbase is free and open source under the MIT license. You host it yourself, so your costs are your own server and PostgreSQL.</p></details>
     </div>
   </div>
 </section>
@@ -771,6 +830,9 @@ slonbase serve</pre>
       </div>
       <div>
         <h4>Docs</h4>
+        <a href="docs/about/">About</a>
+        <a href="docs/features/">Features</a>
+        <a href="docs/quickstart/">Quickstart</a>
         <a href="docs/installation/">Installation</a>
         <a href="docs/api/">API</a>
         <a href="docs/extending/">Hooks</a>
@@ -904,7 +966,8 @@ slonbase serve</pre>
   // the tour video: plays while on screen, a poster with controls when motion is reduced
   var video = document.getElementById("tour");
   if (video) {
-    if (reduce) { video.removeAttribute("autoplay"); video.setAttribute("controls", ""); video.pause(); }
+    var small = window.matchMedia("(max-width: 760px)").matches || (navigator.connection && navigator.connection.saveData);
+    if (reduce || small) { video.removeAttribute("autoplay"); video.setAttribute("controls", ""); video.pause(); }
     else if ("IntersectionObserver" in window) {
       new IntersectionObserver(function (entries) {
         entries.forEach(function (e) { if (e.isIntersecting) { var p = video.play(); if (p && p.catch) p.catch(function () {}); } else video.pause(); });

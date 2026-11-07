@@ -37,25 +37,27 @@
 }
 
 :root {
-  --bg: #f5f3ee;
-  --bg-soft: #ece9e2;
-  --surface: #fffefc;
-  --ink: #1f1d19;
-  --ink-2: #3b3833;
-  --muted: #77726a;
-  --faint: #a7a197;
-  --line: #e6e2d9;
-  --line-2: #d8d3c8;
+  /* the dashboard's tokens (ui/app/app.css): a grey page, white cards, hairlines, one sage accent */
+  --bg: #eff2f5;
+  --bg-soft: #e7ebf0;
+  --surface: #ffffff;
+  --ink: #1f2328;
+  --ink-2: #31373d;
+  --muted: #59636e;
+  --faint: #5d6670;
+  --line: #e1e6eb;
+  --line-2: #d1d9e0;
   --accent: #4f7a6c;
-  --accent-soft: #e4ebe6;
+  --accent-text: color-mix(in srgb, var(--accent), var(--ink) 30%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 89%);
   --pg: #5f7593;
-  --hover: rgba(70, 58, 36, 0.05);
-  --code-bg: #1b1b19;
-  --code-ink: #edebe6;
+  --hover: rgba(129, 139, 152, 0.12);
+  --code-bg: #0d1117;
+  --code-ink: #e6edf3;
   --code-line: #ffffff14;
-  --inline-code: #ece9e2;
-  --shadow: 0 1px 2px rgba(60, 48, 28, 0.05), 0 12px 32px -14px rgba(60, 48, 28, 0.22);
-  --shadow-lg: 0 28px 70px -24px rgba(50, 40, 22, 0.32), 0 2px 8px rgba(50, 40, 22, 0.06);
+  --inline-code: #e7ebf0;
+  --shadow: 0 1px 2px rgba(31, 35, 40, 0.08), 0 12px 32px -14px rgba(140, 149, 159, 0.3);
+  --shadow-lg: 0 28px 70px -24px rgba(31, 35, 40, 0.35), 0 2px 8px rgba(31, 35, 40, 0.08);
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
@@ -64,21 +66,22 @@
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bg: #141413;
-  --bg-soft: #1a1a18;
-  --surface: #1b1b19;
-  --ink: #edebe6;
-  --ink-2: #d0cdc5;
-  --muted: #8f8b82;
-  --faint: #615e57;
-  --line: #2a2926;
-  --line-2: #37352f;
-  --accent: #8db3a5;
-  --accent-soft: #222b27;
-  --pg: #94a8c4;
-  --hover: rgba(240, 230, 210, 0.05);
-  --code-bg: #0f0f0e;
-  --inline-code: #242421;
+  --bg: #0b0f14;
+  --bg-soft: #080b10;
+  --surface: #161d28;
+  --ink: #f0f6fc;
+  --ink-2: #d1d9e0;
+  --muted: #9198a1;
+  --faint: #8b929b;
+  --line: #2a313c;
+  --line-2: #3d444d;
+  --accent: #6fc2a2;
+  --accent-text: color-mix(in srgb, var(--accent), white 8%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+  --pg: #8fb2e8;
+  --hover: rgba(101, 108, 118, 0.16);
+  --code-bg: #080b10;
+  --inline-code: #1f2733;
   --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 16px 40px -16px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 28px 70px -20px rgba(0, 0, 0, 0.8), 0 2px 8px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
@@ -350,7 +353,7 @@ kbd {
 .eyebrow {
   font-size: 13px;
   font-weight: 560;
-  color: var(--accent);
+  color: var(--accent-text);
   margin-bottom: 8px;
 }
 .doc h1,
@@ -408,7 +411,7 @@ kbd {
   opacity: 1;
 }
 .anchor:hover {
-  color: var(--accent);
+  color: var(--accent-text);
 }
 .doc p,
 .doc ul,
@@ -440,7 +443,7 @@ kbd {
   transition: text-decoration-color 0.2s, color 0.2s;
 }
 .doc a:hover {
-  color: var(--accent);
+  color: var(--accent-text);
   text-decoration-color: var(--accent);
 }
 .doc a.anchor {
@@ -539,7 +542,7 @@ kbd {
   tab-size: 2;
 }
 .code .c {
-  color: #77726a;
+  color: #8b949e;
   font-style: italic;
 }
 .code .s {
@@ -796,7 +799,7 @@ kbd {
 }
 .card:hover svg {
   transform: translateX(3px);
-  color: var(--accent);
+  color: var(--accent-text);
 }
 
 /* ------------------------------------------------------------------ search */

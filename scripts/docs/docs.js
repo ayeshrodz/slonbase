@@ -5,6 +5,9 @@
   var root = document.documentElement;
   var prefix = document.body.dataset.prefix || "";
 
+  // code and tables that scroll sideways can be reached from the keyboard
+  document.querySelectorAll(".code pre, .table").forEach(function (el) { el.setAttribute("tabindex", "0"); });
+
   // theme (shared with the project page)
   document.getElementById("theme").addEventListener("click", function () {
     var next = root.dataset.theme === "dark" ? "light" : "dark";

@@ -85,7 +85,9 @@ cat > "$out/packages/index.html" <<EOF
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>slonbase packages</title>
+<title>slonbase packages: signed apt and dnf repositories</title>
+<meta name="description" content="Signed apt and dnf repositories for slonbase, an open-source backend platform on PostgreSQL: install it on Debian, Ubuntu, Fedora, RHEL, Rocky or Alma and keep it updated with apt upgrade or dnf upgrade.">
+<link rel="canonical" href="$url/packages/">
 <style>
   :root { color-scheme: light dark; }
   body { font: 15px/1.6 system-ui, sans-serif; max-width: 760px; margin: 48px auto; padding: 0 16px; }

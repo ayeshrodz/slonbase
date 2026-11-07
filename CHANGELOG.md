@@ -8,7 +8,24 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **Easier to find, for search engines and for AI assistants:** a sitemap, a `robots.txt` that
+  welcomes search and AI crawlers, canonical addresses and Open Graph cards on every page,
+  structured data (software, FAQ, breadcrumbs, articles), a 404 page, `llms.txt` and
+  `llms-full.txt` with every guide also served as Markdown (`/docs/<page>.md`), and an IndexNow
+  ping on each deploy.
+- New guides: [About](docs/about.md), [Features](docs/features.md), a five-minute
+  [quickstart](docs/quickstart.md), [slonbase and PocketBase](docs/slonbase-and-pocketbase.md),
+  [slonbase vs PostgREST](docs/slonbase-vs-postgrest.md) and the [benchmarks](docs/benchmarks.md).
+
 ### Changed
+
+- **slonbase is described as what it is now:** a backend platform on PostgreSQL (many projects,
+  roles and API keys, an SQL console, designers, scale-out), compatible with the PocketBase SDKs,
+  not "PocketBase's API on PostgreSQL". The README, the site, the package descriptions and the
+  documentation lead with that.
+- The documentation site uses the dashboard's colours, and passes the accessibility checks.
 
 - **A new look for <https://slonbase.com>,** built from the dashboard's own colours, type and
   components, with a screencast of the real dashboard, every dashboard screen (the command
