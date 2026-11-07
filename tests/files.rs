@@ -601,3 +601,77 @@ async fn removed_file_fields() {
     drop(env.app);
     env.tdb.drop_db().await;
 }
+
+/// A hostile file name can't place a file outside the record's directory or change what is
+/// served: path parts are dropped and nothing is written outside the storage directory.
+#[tokio::test]
+async fn hostile_file_names_stay_inside_storage() {
+    let Some(env) = setup().await else { return };
+    let names = [
+        "../../../etc/evil.txt",
+        "..\\..\\evil.txt",
+        "/etc/passwd",
+        "a/b/c.txt",
+        "..",
+        "....//x",
+        "evil\u{0}.txt",
+        "x.txt\r\nSet-Cookie: a=b",
+        "%2e%2e%2fevil.txt",
+    ];
+    // a sentinel just outside the storage directory, that must never change
+    let storage = env.dir.path().to_path_buf();
+    let outside = storage.join("outside.txt");
+    std::fs::write(&outside, "untouched").unwrap();
+    let mut stored = Vec::new();
+    for name in names {
+        let (status, record) = env
+            .upload(
+                "POST",
+                "/api/collections/docs/records",
+                &[("title", "public")],
+                &[("files", name, b"payload")],
+            )
+            .await;
+        if !status.is_success() {
+            continue; // refusing the name is fine too
+        }
+        let Some(file) = record["files"][0].as_str().map(str::to_string) else {
+            continue; // a name with nothing left after cleaning stores no file
+        };
+        assert!(
+            !file.contains('/')
+                && !file.contains('\\')
+                && !file.contains("..")
+                && !file.contains('\r')
+                && !file.contains('\n')
+                && !file.contains('\0'),
+            "{name:?} was stored as {file:?}"
+        );
+        stored.push((record["id"].as_str().unwrap().to_string(), file));
+    }
+    assert!(
+        !stored.is_empty(),
+        "no hostile name was accepted at all: the test proves nothing"
+    );
+    for (id, file) in &stored {
+        let (status, headers, bytes) = env.get(&format!("/api/files/docs/{id}/{file}")).await;
+        assert_eq!(status, StatusCode::OK, "{file}");
+        assert_eq!(bytes, b"payload");
+        for (k, v) in headers.iter() {
+            assert!(
+                !v.to_str().unwrap_or_default().contains("Set-Cookie"),
+                "header {k} carries an injected line: {v:?}"
+            );
+        }
+        assert!(headers.get("set-cookie").is_none());
+    }
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "untouched");
+    // nothing was created beside the storage directory or above it by the uploads
+    for escaped in ["etc", "evil.txt", "passwd"] {
+        assert!(
+            !storage.join(escaped).exists(),
+            "{escaped} appeared in {storage:?}"
+        );
+    }
+    env.tdb.drop_db().await;
+}
