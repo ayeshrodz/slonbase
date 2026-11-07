@@ -13,6 +13,9 @@ text{font:500 13px "IBM Plex Sans",system-ui,sans-serif;fill:var(--ink)}
 .ln{stroke:var(--line);stroke-width:1.5;fill:none}
 .ac{stroke:var(--acc);stroke-width:1.6;fill:none}
 .pgl{stroke:var(--pg);stroke-width:1.6;fill:none}
+.ln,.pgl,.ac{stroke-dasharray:4 6;animation:flow 1.4s linear infinite}
+@keyframes flow{to{stroke-dashoffset:-20}}
+@media (prefers-reduced-motion:reduce){.ln,.pgl,.ac{animation:none}}
 .dash{stroke-dasharray:5 4}
 .ar{fill:var(--mute)}
 </style>'''
