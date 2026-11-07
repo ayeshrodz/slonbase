@@ -10,6 +10,10 @@ changes, listed in its **Upgrading** section.
 
 ### Security
 
+- **The in-memory rate limiter stays bounded under a flood of distinct clients.** Before, once
+  200,000 counters were all still running, every request rescanned the whole map (CPU) and new
+  clients kept being added (memory). Now it sweeps at most once a second and, while full, doesn't
+  track new clients (those already counted stay limited). Found by a test that hung.
 - **`trustedProxy.peers`:** the addresses (IPs or CIDR ranges) of the proxies allowed to set the
   forwarded-address headers. When it is set, a request from any other address has its headers
   ignored, so a client can't forge its address to dodge rate limits and lockouts; trusted hops are

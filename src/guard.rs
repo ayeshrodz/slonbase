@@ -122,6 +122,9 @@ pub struct RateLimiter {
     windows: Mutex<HashMap<(String, IpAddr), Window>>,
     /// When the shared counters last failed (seconds since the Unix epoch, 0: never).
     degraded_at: std::sync::atomic::AtomicU64,
+    /// When the full map was last swept (seconds since the Unix epoch), so a flood of distinct
+    /// clients costs one sweep a second, not one per request.
+    swept_at: std::sync::atomic::AtomicU64,
 }
 
 /// The most counters held in memory before the ended ones are dropped at once.
@@ -138,7 +141,15 @@ impl RateLimiter {
         // many distinct clients can't grow the map without bound between prunes: past the cap,
         // windows that ended are dropped first
         if windows.len() >= MAX_WINDOWS {
-            windows.retain(|_, w| now.duration_since(w.started).as_secs() < w.duration);
+            let t = unix_now();
+            if self.swept_at.swap(t, std::sync::atomic::Ordering::Relaxed) != t {
+                windows.retain(|_, w| now.duration_since(w.started).as_secs() < w.duration);
+            }
+            // still full of running windows: clients already counted stay limited, a new one
+            // isn't tracked until room frees up (memory and CPU stay bounded under a flood)
+            if windows.len() >= MAX_WINDOWS && !windows.contains_key(&(limiter.clone(), client)) {
+                return true;
+            }
         }
         let window = windows.entry((limiter, client)).or_insert(Window {
             started: now,
@@ -768,6 +779,22 @@ mod tests {
         assert!(limiter.allow("b".into(), ip, &r), "per limiter");
         limiter.reset();
         assert!(limiter.allow("a".into(), ip, &r));
+    }
+
+    #[test]
+    fn many_distinct_clients_cannot_grow_the_limiter_without_bound() {
+        // windows that are all still running can't be pruned: the map must still stay capped
+        let limiter = RateLimiter::default();
+        let r = RateLimitRule {
+            duration: 3600,
+            ..rule("/api/", "")
+        };
+        for n in 0..(MAX_WINDOWS as u32 * 2) {
+            let ip = IpAddr::from(std::net::Ipv4Addr::from(n));
+            limiter.allow("a".into(), ip, &r);
+        }
+        let held = limiter.windows.lock().unwrap().len();
+        assert!(held <= MAX_WINDOWS, "{held} counters held");
     }
 
     #[test]
