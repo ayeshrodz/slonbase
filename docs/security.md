@@ -58,6 +58,28 @@ allows any origin by default (as PocketBase), and can be narrowed.
 allowed too, and it can run as a separate, restricted PostgreSQL role
 (`--sql-console-role`). Hooks run with the server's privileges, by design.
 
+## Known limits
+
+Found by reviews, and what they mean in practice:
+
+- **Trusted proxy headers aren't tied to a peer address.** With `trustedProxy` set, slonbase
+  believes the headers it names from whoever connects. Set it only when slonbase can't be reached
+  except through your proxy (bind to a private address, firewall the port), as the checklist says.
+- **OIDC providers without a key set** (`jwksURL`) are trusted over HTTPS for the ID token's
+  signature and issuer. Use a provider with a key set.
+- **Backups aren't encrypted unless you set a key** (Health warns). Their files are read from the
+  storage while the database snapshot is taken, so a file uploaded or deleted during a backup can
+  be missing from it or extra in it; the database is consistent, the file set is that of a moment
+  just after.
+- **A restore commits the database, then swaps the files in.** The files are staged beside the
+  storage first, so only two renames on one file system follow the commit; a crash in between
+  leaves the new database with the old files, and the backup can be restored again.
+- **A first OAuth2 sign-in creates the record, marks it verified and links the provider in
+  separate steps.** A failure between them leaves a record without its link; the next sign-in
+  with the same verified email links it.
+- **Projects need `CREATEDB`** on the main installation's PostgreSQL role. Connect existing
+  databases instead (`databaseUrl`) if you want a role without it.
+
 ## What slonbase doesn't protect against
 
 - A compromised server, configuration file or PostgreSQL role: they hold the keys.

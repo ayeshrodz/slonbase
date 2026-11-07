@@ -986,6 +986,20 @@ pub async fn import(
             return Err(ApiError::invalid_data(failed, &errors));
         }
     };
+    // an import is a way of changing collections: a restricted dashboard role can't change the
+    // superusers collection with it, whatever it calls it (the guard saw only /collections/import)
+    if auth.role.is_some() {
+        let touches_superusers = items.iter().any(|item| {
+            item.get("id").and_then(Value::as_str) == Some(super::model::SUPERUSERS_COLLECTION_ID)
+                || item.get("name").and_then(Value::as_str)
+                    == Some(super::model::SUPERUSERS_COLLECTION_NAME)
+        });
+        if touches_superusers {
+            return Err(ApiError::forbidden(
+                "Your role doesn't allow changing the superusers collection.",
+            ));
+        }
+    }
     let request = request_info(&core, &auth, &Method::PUT, &query, &headers, Some(&body));
     request_hook(
         &core,

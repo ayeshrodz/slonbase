@@ -76,12 +76,19 @@ every superuser was before 2.0.
 | Role | May |
 |---|---|
 | owner | everything |
-| admin | everything but superusers and roles, restoring backups and deleting projects |
-| developer | read everything but backups' files; write collections, records and files; run cron jobs and the SQL console (when it only reads) |
+| admin | everything but superusers and roles, restoring backups, deleting projects and the SQL console |
+| developer | read everything but backups' files; write collections, records and files; run cron jobs |
 | viewer | read everything but backups' files |
 
 Every superuser may sign in, refresh their session and change their own password. A request
 the role doesn't allow gets `403`. There's always at least one owner.
+
+The role applies however a request is made: a collection's id means the same as its name, and
+each request inside a batch or an import is held to the role too (a batch that contains one the
+role forbids fails, and nothing in it is committed). **API keys** act for their superuser with at
+most their own role, and never change the credentials of that account or end its sessions: a
+read-only key can't take over the account it belongs to. The **SQL console** is for owners only,
+since it reads every table, password hashes and the signing secret included.
 
 ```sh
 # create a collection anyone can read and add to

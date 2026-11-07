@@ -110,7 +110,7 @@ fn usage(root: &Path, refresh: bool) -> Option<Usage> {
 
 /// Free and total bytes of the file system holding `path`.
 #[cfg(unix)]
-fn disk_space(path: &Path) -> Option<(u64, u64)> {
+pub(crate) fn disk_space(path: &Path) -> Option<(u64, u64)> {
     use std::os::unix::ffi::OsStrExt;
     let c = std::ffi::CString::new(path.as_os_str().as_bytes()).ok()?;
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
@@ -123,7 +123,7 @@ fn disk_space(path: &Path) -> Option<(u64, u64)> {
 }
 
 #[cfg(not(unix))]
-fn disk_space(_: &Path) -> Option<(u64, u64)> {
+pub(crate) fn disk_space(_: &Path) -> Option<(u64, u64)> {
     None
 }
 

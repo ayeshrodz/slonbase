@@ -100,8 +100,38 @@ fn superuser_action(rest: &str) -> bool {
         && !rest.starts_with("impersonate")
 }
 
+/// The path with a collection's id replaced by its name (`/api/collections/pbc_…/records` becomes
+/// `/api/collections/_superusers/records`), so that a role's rules, which are written for names,
+/// apply however the collection is addressed.
+pub fn canonical_path(path: &str, registry: &crate::collections::store::Registry) -> String {
+    const PREFIX: &str = "/api/collections/";
+    if let Some(rest) = path.strip_prefix(PREFIX) {
+        let (segment, tail) = match rest.split_once('/') {
+            Some((segment, tail)) => (segment, Some(tail)),
+            None => (rest, None),
+        };
+        if let Some(collection) = registry.get(segment) {
+            if collection.name != segment {
+                return match tail {
+                    Some(tail) => format!("{PREFIX}{}/{tail}", collection.name),
+                    None => format!("{PREFIX}{}", collection.name),
+                };
+            }
+        }
+    }
+    path.to_string()
+}
+
 /// Whether `role` may make a request (`method` and the installation's `path`).
-pub fn allowed(role: Role, method: &Method, path: &str, sql_writes: bool) -> bool {
+pub fn allowed(role: Role, method: &Method, path: &str) -> bool {
+    allowed_for(role, method, path, false)
+}
+
+/// [`allowed`], for a credential that may be an API key (`via_key`). A key acts for its superuser
+/// with at most its own role, so the things every superuser may do for themselves (changing their
+/// password, ending their sessions) are not its to do: a read-only key must not be able to take
+/// over the account it belongs to.
+pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bool {
     if role == Role::Owner {
         return true;
     }
@@ -114,14 +144,17 @@ pub fn allowed(role: Role, method: &Method, path: &str, sql_writes: bool) -> boo
         return !(backup_file && role < Role::Admin);
     }
     // what every superuser does for themselves
-    if let Some(rest) = path.strip_prefix("/api/collections/_superusers/") {
-        if superuser_action(rest) {
-            return true;
+    if !via_key {
+        if let Some(rest) = path.strip_prefix("/api/collections/_superusers/") {
+            if superuser_action(rest) {
+                return true;
+            }
         }
     }
     if path == "/api/realtime" || path == "/api/files/token" || path == "/api/team/me" {
         return true;
     }
+    // (a key reaches every other path only through its role below)
     match role {
         Role::Owner => true,
         Role::Viewer => false,
@@ -130,7 +163,6 @@ pub fn allowed(role: Role, method: &Method, path: &str, sql_writes: bool) -> boo
                 && !path.starts_with("/api/collections/_superusers")
                 && !path.contains("/impersonate/");
             data || path == "/api/batch"
-                || (path == "/api/sql" && !sql_writes)
                 || path.starts_with("/api/crons/")
                 || path == "/api/settings/mail/preview"
         }
@@ -140,7 +172,9 @@ pub fn allowed(role: Role, method: &Method, path: &str, sql_writes: bool) -> boo
             let owner_keys = false; // checked when the key is made
             let restore = path.starts_with("/api/backups/") && path.ends_with("/restore");
             let delete_project = *method == Method::DELETE && path.starts_with("/api/projects/");
-            !(superusers || roles || owner_keys || restore || delete_project)
+            // the console reads every table, the signing secret and password hashes included
+            let console = path == "/api/sql";
+            !(superusers || roles || owner_keys || restore || delete_project || console)
         }
     }
 }
@@ -496,7 +530,7 @@ mod tests {
 
     #[test]
     fn permissions() {
-        let can = |role, method: Method, path: &str| allowed(role, &method, path, false);
+        let can = |role, method: Method, path: &str| allowed(role, &method, path);
         for role in [Role::Viewer, Role::Developer, Role::Admin, Role::Owner] {
             assert!(can(role, Method::GET, "/api/collections"));
             assert!(can(role, Method::GET, "/api/settings"));
@@ -527,11 +561,10 @@ mod tests {
             Method::PATCH,
             "/api/collections/posts"
         ));
-        assert!(can(Role::Developer, Method::POST, "/api/sql"));
-        assert!(
-            !allowed(Role::Developer, &Method::POST, "/api/sql", true),
-            "writes: admins"
-        );
+        // the SQL console reads everything, the signing secret included: owners only
+        assert!(!can(Role::Developer, Method::POST, "/api/sql"));
+        assert!(!can(Role::Admin, Method::POST, "/api/sql"));
+        assert!(can(Role::Owner, Method::POST, "/api/sql"));
         assert!(can(Role::Developer, Method::POST, "/api/crons/report"));
         assert!(!can(Role::Developer, Method::PATCH, "/api/settings"));
         assert!(!can(Role::Developer, Method::POST, "/api/backups"));

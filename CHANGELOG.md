@@ -40,6 +40,17 @@ every path to the same rules.** Prompted by an outside review of the code.
 - **Generated filter tests:** thousands of filters full of SQL and filter metacharacters are
   compiled, checking that a client's value never reaches the SQL text, only parameters, and
   20,000 random inputs that the parser and compiler never panic.
+- **A restricted dashboard role could reach what it forbids by another route** (reported by two
+  outside reviews, reproduced with tests before fixing; see the
+  [security reviews](docs/security-review.md)). A developer could create a superuser (which
+  starts as an owner) through the superusers collection's *id* or through a *batch*; a read-only
+  *API key* could change its owner's password; an *import* could carry the superusers
+  collection; the *SQL console* was open to developers and admins, and reads every table.
+  Roles now apply to a collection however it is addressed, to every request in a batch and an
+  import, API keys can't change the account they belong to, and the SQL console is for owners.
+- Backups extract within the free disk space and a limit of entries, and a failed automatic
+  backup is retried; a restore stages the files before the database changes; CI runs on pull
+  requests and fails, rather than skips, without its database.
 - A [threat model](docs/security.md): what slonbase protects and trusts, how each boundary is
   enforced and tested, and how to check a deployment. `SECURITY.md` invites independent review.
 

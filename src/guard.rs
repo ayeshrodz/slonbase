@@ -124,6 +124,9 @@ pub struct RateLimiter {
     degraded_at: std::sync::atomic::AtomicU64,
 }
 
+/// The most counters held in memory before the ended ones are dropped at once.
+const MAX_WINDOWS: usize = 200_000;
+
 /// For how long after a failure of the shared counters Health reports the rate limits as
 /// degraded.
 pub const DEGRADED_REPORT_SECONDS: u64 = 15 * 60;
@@ -132,6 +135,11 @@ impl RateLimiter {
     fn allow(&self, limiter: String, client: IpAddr, rule: &RateLimitRule) -> bool {
         let now = Instant::now();
         let mut windows = self.windows.lock().expect("rate limiter lock");
+        // many distinct clients can't grow the map without bound between prunes: past the cap,
+        // windows that ended are dropped first
+        if windows.len() >= MAX_WINDOWS {
+            windows.retain(|_, w| now.duration_since(w.started).as_secs() < w.duration);
+        }
         let window = windows.entry((limiter, client)).or_insert(Window {
             started: now,
             remaining: rule.max_requests,
@@ -557,6 +565,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     if !limits.enabled && settings.superuser_ips.is_empty() && token.is_none() {
         return next.run(request).await;
     }
+    let via_key = token.as_deref().is_some_and(crate::roles::is_api_key);
     let mut auth = match token {
         Some(token) if crate::roles::is_api_key(&token) => {
             // file tokens would act for the key's superuser with their role, not the key's
@@ -576,6 +585,8 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         None => RequestAuth::default(),
     };
     let path = request.uri().path().to_string();
+    // roles are written for collection names: a collection's id means the same thing
+    let role_path = crate::roles::canonical_path(&path, &core.registry());
     // what the superuser's role allows (owners: everything)
     if let Some(su) = &auth.superuser {
         let role = auth
@@ -583,11 +594,11 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
             .unwrap_or_else(|| crate::roles::role_of(&core, su.id()));
         if role != crate::roles::Role::Owner {
             auth.role = Some(role);
-            let sql_writes = core.sql_console_writes;
             // their own password and email, whatever their role
-            let own = request.method() == Method::PATCH
-                && path == format!("/api/collections/_superusers/records/{}", su.id());
-            if !own && !crate::roles::allowed(role, request.method(), &path, sql_writes) {
+            let own = !via_key
+                && request.method() == Method::PATCH
+                && role_path == format!("/api/collections/_superusers/records/{}", su.id());
+            if !own && !crate::roles::allowed_for(role, request.method(), &role_path, via_key) {
                 return ApiError::forbidden(format!(
                     "Your role ({}) doesn't allow this.",
                     role.as_str()
@@ -597,7 +608,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         }
         // there's always an owner
         if request.method() == Method::DELETE {
-            if let Some(id) = path.strip_prefix("/api/collections/_superusers/records/") {
+            if let Some(id) = role_path.strip_prefix("/api/collections/_superusers/records/") {
                 if let Err(err) = crate::roles::check_delete(&core, id).await {
                     return err.into_response();
                 }

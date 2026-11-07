@@ -134,6 +134,17 @@ async fn every_path_agrees_with_the_rules() {
         return;
     };
     let (app, admin, _dir) = ready_app(&tdb).await;
+    // batch requests are off by default: without this, every batch below is refused for that
+    // reason alone, and says nothing about the rules
+    let (status, res) = send(
+        &app,
+        Some(&admin),
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
 
     // users see only themselves, and their emails are hidden
     let users = admin_post(

@@ -23,6 +23,12 @@ pub struct TestDb {
 impl TestDb {
     pub async fn create() -> Option<Self> {
         let Ok(admin_url) = std::env::var("SLONBASE_TEST_DATABASE_URL") else {
+            // CI sets this, so that a missing database fails the run instead of skipping the
+            // test and reporting success
+            assert!(
+                std::env::var("SLONBASE_REQUIRE_TEST_DATABASE").is_err(),
+                "SLONBASE_TEST_DATABASE_URL is not set, and SLONBASE_REQUIRE_TEST_DATABASE says the database tests must run"
+            );
             eprintln!("SLONBASE_TEST_DATABASE_URL not set, skipping");
             return None;
         };

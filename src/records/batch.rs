@@ -277,9 +277,30 @@ async fn run_batch(
     base_headers.remove(header::CONTENT_LENGTH);
     let mut requests = Vec::with_capacity(raw_requests.len());
     for (i, raw) in raw_requests.iter().enumerate() {
-        requests.push(
-            parse(i, raw, &mut uploads, &registry, &base_headers).map_err(|e| failed_at(i, e))?,
-        );
+        let request =
+            parse(i, raw, &mut uploads, &registry, &base_headers).map_err(|e| failed_at(i, e))?;
+        // a restricted dashboard role may do in a batch only what it may do directly (the
+        // guard saw the batch's own path, not these)
+        if let Some(role) = auth.role {
+            let path = match &request.action {
+                Action::Create | Action::Upsert => {
+                    format!("/api/collections/{}/records", request.collection.name)
+                }
+                Action::Update(id) | Action::Delete(id) => {
+                    format!("/api/collections/{}/records/{id}", request.collection.name)
+                }
+            };
+            if !crate::roles::allowed(role, &request.method, &path) {
+                return Err(failed_at(
+                    i,
+                    ApiError::forbidden(format!(
+                        "Your role ({}) doesn't allow this.",
+                        role.as_str()
+                    )),
+                ));
+            }
+        }
+        requests.push(request);
     }
 
     let (tx, effects, worker) = TxHandle::start(core);

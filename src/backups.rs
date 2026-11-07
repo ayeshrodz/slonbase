@@ -517,9 +517,29 @@ fn read_manifest(path: &Path) -> Result<Manifest, BackupError> {
     Ok(manifest)
 }
 
-/// Extracts the database files and the local files (`storage/`) into `dir`.
+/// The most entries a backup may hold.
+const MAX_ENTRIES: usize = 2_000_000;
+/// Free disk space left alone when extracting a backup.
+const EXTRACT_MARGIN: u64 = 256 << 20;
+
+/// Extracts the database files and the local files (`storage/`) into `dir`, to at most the
+/// free space of its file system (less a margin): a small, hostile archive that expands to
+/// terabytes is refused as it grows, before it fills the disk.
 fn extract(path: &Path, dir: &Path) -> Result<()> {
+    let budget = crate::storage_info::disk_space(dir)
+        .map(|(free, _)| free.saturating_sub(EXTRACT_MARGIN))
+        .unwrap_or(u64::MAX);
+    extract_within(path, dir, budget, MAX_ENTRIES)
+}
+
+/// [`extract`] with explicit limits on the bytes written (counted as they're written, not as the
+/// archive declares them) and on the number of entries.
+fn extract_within(path: &Path, dir: &Path, max_bytes: u64, max_entries: usize) -> Result<()> {
     let mut archive = zip::ZipArchive::new(std::fs::File::open(path)?)?;
+    if archive.len() > max_entries {
+        bail!("the backup has too many files ({})", archive.len());
+    }
+    let mut left = max_bytes;
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i)?;
         // rejects absolute paths and `..`
@@ -533,7 +553,17 @@ fn extract(path: &Path, dir: &Path) -> Result<()> {
         if let Some(parent) = target.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::io::copy(&mut entry, &mut std::fs::File::create(&target)?)?;
+        let written = std::io::copy(
+            &mut std::io::Read::take(&mut entry, left.saturating_add(1)),
+            &mut std::fs::File::create(&target)?,
+        )?;
+        if written > left {
+            bail!(
+                "the backup expands to more than the free disk space allows ({} MB)",
+                max_bytes >> 20
+            );
+        }
+        left -= written;
     }
     Ok(())
 }
@@ -623,14 +653,29 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
     .await
     .map_err(|e| BackupError::Other(e.into()))??;
 
-    restore_database(core, &manifest, &tmp.0)
-        .await
-        .map_err(|err| match err.downcast::<Unreadable>() {
+    // the restored files are put beside the storage directory first (copied if the temporary
+    // directory is on another file system), so that after the database is restored, which
+    // can't be undone, only two renames on one file system are left to do
+    let staged = if manifest.storage {
+        Some(
+            stage_local_files(core, &tmp.0.join("storage"))
+                .await
+                .map_err(BackupError::Other)?,
+        )
+    } else {
+        None
+    };
+    if let Err(err) = restore_database(core, &manifest, &tmp.0).await {
+        if let Some(staged) = &staged {
+            let _ = tokio::fs::remove_dir_all(staged).await;
+        }
+        return Err(match err.downcast::<Unreadable>() {
             Ok(Unreadable(message)) => BackupError::Invalid(message),
             Err(err) => BackupError::Other(err),
-        })?;
-    if manifest.storage {
-        replace_local_files(core, &tmp.0.join("storage"))
+        });
+    }
+    if let Some(staged) = staged {
+        swap_in_local_files(core, &staged)
             .await
             .map_err(BackupError::Other)?;
     }
@@ -781,14 +826,50 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
 }
 
 /// Swaps the local storage directory for the restored files.
-async fn replace_local_files(core: &Core, restored: &Path) -> Result<()> {
+/// Puts the restored files beside the storage directory (same file system), ready to be swapped
+/// in: renamed when possible, else copied.
+async fn stage_local_files(core: &Core, restored: &Path) -> Result<PathBuf> {
     let target = core.local_storage_path().to_path_buf();
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent).await?;
     }
+    let staged = target.with_file_name(format!(
+        ".{}-restoring-{}",
+        target
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("storage"),
+        crate::ids::random_id(8)
+    ));
     if !tokio::fs::try_exists(restored).await? {
-        tokio::fs::create_dir_all(restored).await?;
+        tokio::fs::create_dir_all(&staged).await?;
+        return Ok(staged);
     }
+    if tokio::fs::rename(restored, &staged).await.is_err() {
+        let (from, to) = (restored.to_path_buf(), staged.clone());
+        tokio::task::spawn_blocking(move || copy_dir(&from, &to))
+            .await
+            .map_err(anyhow::Error::from)??;
+    }
+    Ok(staged)
+}
+
+fn copy_dir(from: &Path, to: &Path) -> Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let (src, dst) = (entry.path(), to.join(entry.file_name()));
+        if entry.file_type()?.is_dir() {
+            copy_dir(&src, &dst)?;
+        } else if entry.file_type()?.is_file() {
+            std::fs::copy(&src, &dst)?;
+        }
+    }
+    Ok(())
+}
+
+async fn swap_in_local_files(core: &Core, restored: &Path) -> Result<()> {
+    let target = core.local_storage_path().to_path_buf();
     let old = target.with_file_name(format!(
         ".{}-before-restore-{}",
         target
@@ -857,8 +938,18 @@ pub async fn run_scheduled(core: &Arc<Core>) {
     }
     let core = core.clone();
     tokio::spawn(async move {
-        if let Err(err) = run_auto_backup_recorded(&core, "schedule").await {
-            tracing::error!(error = %err, "the automatic backup failed");
+        // the minute is claimed, so a failure would otherwise wait for the next scheduled time
+        // (a day, say): retry a few times with growing pauses
+        let mut trigger = "schedule";
+        for pause in [0u64, 60, 300, 900] {
+            if pause > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
+                trigger = "retry";
+            }
+            match run_auto_backup_recorded(&core, trigger).await {
+                Ok(()) => return,
+                Err(err) => tracing::error!(error = %err, "the automatic backup failed"),
+            }
         }
     });
 }
@@ -1174,5 +1265,38 @@ mod tests {
         ] {
             assert!(!valid_name(bad), "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod extract_tests {
+    use super::*;
+
+    fn zip_with(dir: &Path, entries: &[(&str, usize)]) -> std::path::PathBuf {
+        use std::io::Write;
+        let path = dir.join("test.zip");
+        let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, size) in entries {
+            zip.start_file(*name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(&vec![0u8; *size]).unwrap();
+        }
+        zip.finish().unwrap();
+        path
+    }
+
+    #[test]
+    fn extraction_stops_at_its_budget() {
+        let dir = tempfile::tempdir().unwrap();
+        // 4 MB of zeros compresses to a few KB: the archive is small, its content isn't
+        let archive = zip_with(dir.path(), &[("db/a", 4 << 20)]);
+        let out = dir.path().join("out");
+        assert!(extract_within(&archive, &out, 1 << 20, 10).is_err());
+        let out = dir.path().join("out2");
+        extract_within(&archive, &out, 8 << 20, 10).unwrap();
+        assert_eq!(std::fs::metadata(out.join("db/a")).unwrap().len(), 4 << 20);
+        // and the number of entries is limited
+        let many = zip_with(dir.path(), &[("db/a", 1), ("db/b", 1), ("db/c", 1)]);
+        assert!(extract_within(&many, &dir.path().join("out3"), u64::MAX, 2).is_err());
     }
 }

@@ -53,6 +53,36 @@ thousands of generated filters full of SQL and filter metacharacters and checks 
 value only ever reaches PostgreSQL as a parameter, and 20,000 random inputs that the parser and
 compiler never panic.
 
+### 5. A restricted dashboard role could reach what it forbids by another route (high)
+
+Two outside reviews of the source reported it; each case was reproduced with a test before it
+was fixed (`tests/roles_bypass.rs`, which failed first):
+
+- **Role rules matched URL text.** A developer could create a superuser (which starts as an
+  owner) with `POST /api/collections/pbc_3142635823/records`, the superusers collection's id,
+  while the same request by name was refused. Role decisions now use the collection's name
+  resolved from its id (`roles::canonical_path`).
+- **Batch requests skipped the role.** The guard saw `/api/batch`; the requests inside ran as the
+  superuser. Each request in a batch is now checked against the role before anything runs.
+- **Imports could carry the superusers collection**, which a developer or admin may not change
+  directly. Refused.
+- **An API key could take over its own owner.** A key acts for its superuser, and every
+  superuser may change their own password, so a read-only key could change its owner's password
+  or end their sessions. API keys no longer get the things a superuser may do for themselves.
+- **The SQL console was open to developers.** It reads every table, including password hashes
+  and the signing secret, so a developer with the console on could read what signs tokens. It's
+  owners only.
+
+### 6. Smaller findings fixed in the same pass
+
+- Backups extract to at most the free disk space (counted as bytes are written, not as the
+  archive declares them) and a bounded number of entries.
+- A failed automatic backup is retried (after 1, 5 and 15 minutes) instead of being skipped
+  until the next scheduled time.
+- A restore stages the restored files beside the storage before the database is restored.
+- The in-memory rate limiter drops ended windows past 200,000 counters.
+- CI runs on pull requests and fails, rather than skips, when the database isn't there.
+
 ### Checked and kept
 
 - **A database lookup on every authenticated request.** It's what makes a password change,
