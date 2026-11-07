@@ -1314,6 +1314,52 @@ mod extract_tests {
         path
     }
 
+    #[test]
+    fn extraction_stays_inside_its_directory() {
+        let base = std::env::temp_dir().join(format!("slonbase-slip-{}", crate::ids::random_id(8)));
+        for bad in [
+            "../evil.txt",
+            "db/../../evil.txt",
+            "/tmp/slonbase-abs-evil.txt",
+            "storage/../../evil.txt",
+        ] {
+            let work = base.join("work");
+            std::fs::create_dir_all(&work).unwrap();
+            let zip = zip_with(&base, &[(bad, 4)]);
+            let out = work.join("out");
+            std::fs::create_dir_all(&out).unwrap();
+            // refused, or skipped (an absolute name outside db/ and storage/): never written
+            let result = extract_within(&zip, &out, 1 << 20, 100);
+            if bad.contains("..") {
+                assert!(result.is_err(), "{bad} was accepted");
+            }
+            assert!(!base.join("evil.txt").exists() && !work.join("evil.txt").exists());
+            assert!(!std::path::Path::new("/tmp/slonbase-abs-evil.txt").exists());
+        }
+        // a symlink entry is written as a plain file holding the target, never as a link
+        {
+            use std::io::Write;
+            let path = base.join("link.zip");
+            let mut zip = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+            zip.add_symlink(
+                "storage/link",
+                "/etc/passwd",
+                zip::write::SimpleFileOptions::default(),
+            )
+            .unwrap();
+            zip.start_file("db/x", zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"x").unwrap();
+            zip.finish().unwrap();
+            let out = base.join("linkout");
+            std::fs::create_dir_all(&out).unwrap();
+            extract_within(&path, &out, 1 << 20, 100).unwrap();
+            let meta = std::fs::symlink_metadata(out.join("storage/link")).unwrap();
+            assert!(!meta.file_type().is_symlink(), "a symlink was created");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
     #[tokio::test]
     async fn a_failed_automatic_backup_is_retried() {
         assert_eq!(RETRY_PAUSES, [0, 60, 300, 900]);
