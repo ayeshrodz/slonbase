@@ -368,6 +368,15 @@ pub async fn status(
             "#/settings/general",
         ));
     }
+    if !settings.trusted_proxy.headers.is_empty() && settings.trusted_proxy.peers.is_empty() {
+        checks.push(check(
+            "trusted-proxy-peers",
+            "warn",
+            "Proxy headers are believed from any connection",
+            "trustedProxy.headers is set without trustedProxy.peers, so a client that reaches slonbase directly can forge its address (rate limits, IP allowlists and logs would believe it). List your proxies' addresses.",
+            "#/settings/security",
+        ));
+    }
     if role_is_superuser {
         checks.push(check(
             "database-role",

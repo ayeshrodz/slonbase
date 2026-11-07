@@ -288,8 +288,15 @@ Behind a reverse proxy, every request comes from the proxy's address. Set
 `trustedProxy.headers` (e.g. `["X-Forwarded-For"]` or `["X-Real-IP"]`) so logs, rate limits,
 auth alerts and `superuserIPs` see the client's address. By default the rightmost
 `X-Forwarded-For` address is used, the one your proxy added; `useLeftmostIP` takes the first
-one instead, which a client can forge unless every proxy in front overwrites the header. Only
-set these headers when slonbase can't be reached except through the proxy.
+one instead, which a client can forge unless every proxy in front overwrites the header.
+
+**`trustedProxy.peers`** (e.g. `["10.0.0.0/8", "192.168.1.5"]`) lists the proxies allowed to set
+those headers. With it, the headers are believed only on connections that come from one of those
+addresses, so a client that reaches slonbase directly can't forge its address by sending the
+header; and in a list of addresses, your proxies' own hops are skipped from the right, so the
+client is the first address that isn't one of them. Without it, the headers are believed from
+any connection, which is only safe when nothing but the proxy can reach slonbase (Health warns).
+Set it.
 
 `superuserIPs` (e.g. `["10.0.0.0/8", "203.0.113.7"]`): when set, superuser requests, superuser
 sign-in and the `_superusers` endpoints only work from those addresses.

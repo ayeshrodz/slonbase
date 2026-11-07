@@ -501,6 +501,12 @@ pub struct TrustedProxy {
     pub headers: Vec<String>,
     #[serde(rename = "useLeftmostIP")]
     pub use_leftmost_ip: bool,
+    /// The addresses or ranges of the proxies allowed to set those headers (`10.0.0.0/8`,
+    /// `192.168.1.5`). When there are some, the headers are believed only on connections from
+    /// them, and trusted proxies in a list are skipped from the right. Empty: the headers are
+    /// believed from any connection (only safe when nothing but the proxy can reach slonbase).
+    #[serde(default)]
+    pub peers: Vec<String>,
 }
 
 impl Settings {
@@ -733,6 +739,14 @@ fn validate(s: &Settings) -> Errors {
                     "Must be an IP address or a CIDR range.",
                 );
             }
+        }
+    }
+    for (i, peer) in s.trusted_proxy.peers.iter().enumerate() {
+        if crate::ip::Range::parse(peer).is_none() {
+            errors.invalid(
+                format!("trustedProxy.peers.{i}"),
+                "Must be an IP address or a CIDR range.",
+            );
         }
     }
     for (i, header) in s.trusted_proxy.headers.iter().enumerate() {

@@ -32,6 +32,11 @@ pub fn user_ip(
     remote: Option<IpAddr>,
     proxy: &TrustedProxy,
 ) -> Option<IpAddr> {
+    // with a list of proxies, only a connection from one of them may say who the client is: a
+    // client that reaches slonbase directly can't forge its address
+    if !proxy.peers.is_empty() && !remote.is_some_and(|ip| in_any(&proxy.peers, ip)) {
+        return remote;
+    }
     for name in &proxy.headers {
         // every line of the header, in order: some proxies (HAProxy's `option forwardfor`)
         // add their own line instead of appending to the client's
@@ -47,8 +52,14 @@ pub fn user_ip(
             .filter(|p| !p.is_empty());
         let picked = if proxy.use_leftmost_ip {
             parts.next()
-        } else {
+        } else if proxy.peers.is_empty() {
             parts.next_back()
+        } else {
+            // from the right, past the proxies we know: the first address that isn't one is the
+            // client (the proxy chain's own hops are not clients)
+            parts
+                .rev()
+                .find(|p| !parse_ip(p).is_some_and(|ip| in_any(&proxy.peers, ip)))
         };
         if let Some(ip) = picked.and_then(parse_ip) {
             return Some(ip);
@@ -275,6 +286,7 @@ mod tests {
         let mut proxy = TrustedProxy {
             headers: vec!["X-Forwarded-For".into()],
             use_leftmost_ip: false,
+            peers: vec![],
         };
         assert_eq!(
             user_ip(&headers, remote, &proxy),
@@ -303,6 +315,52 @@ mod tests {
         assert_eq!(
             user_ip(&headers, remote, &proxy),
             Some("2001:db8::1".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn headers_only_from_trusted_peers() {
+        let proxy = TrustedProxy {
+            headers: vec!["X-Forwarded-For".into()],
+            use_leftmost_ip: false,
+            peers: vec!["10.0.0.0/8".into(), "192.168.1.5".into()],
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("203.0.113.9, 198.51.100.7"),
+        );
+        // a connection from a listed proxy: its header is believed
+        let proxy_ip: Option<IpAddr> = Some("10.1.2.3".parse().unwrap());
+        assert_eq!(
+            user_ip(&headers, proxy_ip, &proxy),
+            Some("198.51.100.7".parse().unwrap())
+        );
+        // a client reaching slonbase directly, with a forged header: ignored
+        let direct: Option<IpAddr> = Some("203.0.113.50".parse().unwrap());
+        assert_eq!(user_ip(&headers, direct, &proxy), direct);
+        // an unknown peer address (no socket) isn't trusted either
+        assert_eq!(user_ip(&headers, None, &proxy), None);
+        // a chain of proxies: trusted hops are skipped from the right, the first other
+        // address is the client (a client can't make itself look like a proxy to escape it,
+        // and can't put a forged address to the right of the real one)
+        let mut chain = HeaderMap::new();
+        chain.insert(
+            "x-forwarded-for",
+            HeaderValue::from_static("6.6.6.6, 198.51.100.7, 10.9.9.9, 192.168.1.5"),
+        );
+        assert_eq!(
+            user_ip(&chain, proxy_ip, &proxy),
+            Some("198.51.100.7".parse().unwrap())
+        );
+        // without a list the headers are believed from anyone, as before (and Health warns)
+        let open = TrustedProxy {
+            peers: vec![],
+            ..proxy.clone()
+        };
+        assert_eq!(
+            user_ip(&headers, direct, &open),
+            Some("198.51.100.7".parse().unwrap())
         );
     }
 }

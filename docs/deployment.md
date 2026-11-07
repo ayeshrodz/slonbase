@@ -184,7 +184,8 @@ the settings on every instance, and signs everyone out, since the signing key is
 ## Security checklist
 
 - Serve over HTTPS, and keep slonbase on `127.0.0.1` or a private network.
-- Set `trustedProxy` when, and only when, every request goes through your proxy.
+- Set `trustedProxy` when every request goes through your proxy, and list the proxies'
+  addresses in `trustedProxy.peers`, so the headers are believed only from them.
 - Restrict superusers to known addresses with `superuserIPs`, and turn on MFA for the
   `_superusers` collection.
 - Leave the **SQL console** off unless you need it. It runs any SQL with the database role's

@@ -8,6 +8,13 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **`trustedProxy.peers`:** the addresses (IPs or CIDR ranges) of the proxies allowed to set the
+  forwarded-address headers. When it is set, a request from any other address has its headers
+  ignored, so a client can't forge its address to dodge rate limits and lockouts; trusted hops are
+  skipped from the right. Health warns when headers are trusted but no peers are listed.
+
 ## [2.4.0] - 2026-11-07
 
 **Security hardening: safer defaults, checks that say when a setup is weak, and tests that hold

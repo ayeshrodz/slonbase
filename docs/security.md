@@ -13,7 +13,7 @@ below, please [report it privately](https://github.com/ayeshrodz/slonbase/securi
 | **Superusers** | The installation's data, schema and settings, within their role (owner, admin, developer, viewer) | Other projects' data, unless they're superusers there too |
 | **Hooks and migrations** (JavaScript files on disk) | Everything the server can do | (They're your code: deploy them like code) |
 | **The PostgreSQL role** slonbase connects with | Its database | Should not be a PostgreSQL superuser |
-| **Your reverse proxy** | The client's address, but only when `trustedProxy` is set | Headers, when `trustedProxy` isn't set |
+| **Your reverse proxy** | The client's address, but only when `trustedProxy` is set (and, with `trustedProxy.peers`, only on connections from the listed addresses) | Headers, when `trustedProxy` isn't set or the connection isn't from a listed proxy |
 
 ## The boundaries, and what enforces them
 
@@ -62,9 +62,9 @@ allowed too, and it can run as a separate, restricted PostgreSQL role
 
 Found by reviews, and what they mean in practice:
 
-- **Trusted proxy headers aren't tied to a peer address.** With `trustedProxy` set, slonbase
-  believes the headers it names from whoever connects. Set it only when slonbase can't be reached
-  except through your proxy (bind to a private address, firewall the port), as the checklist says.
+- **Trusted proxy headers are believed from any connection unless you list your proxies.** Set
+  `trustedProxy.peers`; without it, slonbase believes the headers it names from whoever connects,
+  and Health warns.
 - **OIDC providers without a key set** (`jwksURL`) are trusted over HTTPS for the ID token's
   signature and issuer. Use a provider with a key set.
 - **Backups aren't encrypted unless you set a key** (Health warns). Their files are read from the

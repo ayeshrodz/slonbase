@@ -157,6 +157,10 @@ export function Security({ s }) {
       <${Field} label="Headers" help="e.g. X-Forwarded-For, CF-Connecting-IP — only set these behind a proxy you control">
         <${Input} class="mono" value=${(d.trustedProxy.headers || []).join(", ")} onInput=${(v) => s.set("trustedProxy.headers", list(v))} />
       </${Field}>
+      <${Field} label="Proxy addresses" help="IPs or ranges of your proxies, e.g. 10.0.0.0/8, 192.168.1.5. The headers are believed only from connections coming from these, so a client that reaches slonbase directly can't forge its address.">
+        <${Input} class="mono" value=${(d.trustedProxy.peers || []).join(", ")} onInput=${(v) => s.set("trustedProxy.peers", list(v))} />
+      </${Field}>
+      ${(d.trustedProxy.headers || []).length > 0 && !(d.trustedProxy.peers || []).length && html`<${Callout} kind="warn">The headers are believed from any connection. List your proxies' addresses above unless nothing but the proxy can reach slonbase.</${Callout}>`}
       <${Switch} checked=${d.trustedProxy.useLeftmostIP} onChange=${(v) => s.set("trustedProxy.useLeftmostIP", v)} label="Use the leftmost IP (the original client) instead of the rightmost" />
     </${Card}>
     <${Card} title="Batch requests" subtitle="Several record writes in one transaction" icon="layers" actions=${html`<${Switch} checked=${d.batch.enabled} onChange=${(v) => s.set("batch.enabled", v)} label=${d.batch.enabled ? "On" : "Off"} />`}>
