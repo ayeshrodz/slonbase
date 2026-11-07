@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # Static (musl) build, so the final image needs nothing but the binary.
-FROM rust:1.97-alpine AS build
+FROM rust:1.98-alpine AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src
 COPY . .
