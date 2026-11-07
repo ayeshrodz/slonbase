@@ -869,7 +869,13 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 }
 
 async fn swap_in_local_files(core: &Core, restored: &Path) -> Result<()> {
-    let target = core.local_storage_path().to_path_buf();
+    swap_dirs(core.local_storage_path(), restored).await
+}
+
+/// Replaces `target` with `restored` (same file system); if that fails the old directory is put
+/// back, so a failed restore never leaves the installation without its files.
+async fn swap_dirs(target: &Path, restored: &Path) -> Result<()> {
+    let target = target.to_path_buf();
     let old = target.with_file_name(format!(
         ".{}-before-restore-{}",
         target
@@ -899,6 +905,27 @@ async fn swap_in_local_files(core: &Core, restored: &Path) -> Result<()> {
 
 // ---------------------------------------------------------------------------
 // automatic backups
+
+/// Seconds to wait before each retry of a failed automatic backup (the first try is at once).
+const RETRY_PAUSES: [u64; 4] = [0, 60, 300, 900];
+
+/// Calls `attempt` ("schedule" the first time, "retry" after) until it succeeds, waiting the
+/// given seconds before each try; false if every try failed.
+async fn retry_pauses<F, Fut>(pauses: &[u64], mut attempt: F) -> bool
+where
+    F: FnMut(&'static str) -> Fut,
+    Fut: std::future::Future<Output = bool>,
+{
+    for (n, pause) in pauses.iter().enumerate() {
+        if *pause > 0 {
+            tokio::time::sleep(std::time::Duration::from_secs(*pause)).await;
+        }
+        if attempt(if n == 0 { "schedule" } else { "retry" }).await {
+            return true;
+        }
+    }
+    false
+}
 
 /// Runs the automatic backup if the `backups.cron` schedule fires this minute. Only one
 /// instance wins each minute (claimed in the params table).
@@ -940,17 +967,19 @@ pub async fn run_scheduled(core: &Arc<Core>) {
     tokio::spawn(async move {
         // the minute is claimed, so a failure would otherwise wait for the next scheduled time
         // (a day, say): retry a few times with growing pauses
-        let mut trigger = "schedule";
-        for pause in [0u64, 60, 300, 900] {
-            if pause > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(pause)).await;
-                trigger = "retry";
+        retry_pauses(&RETRY_PAUSES, |trigger| {
+            let core = core.clone();
+            async move {
+                match run_auto_backup_recorded(&core, trigger).await {
+                    Ok(()) => true,
+                    Err(err) => {
+                        tracing::error!(error = %err, "the automatic backup failed");
+                        false
+                    }
+                }
             }
-            match run_auto_backup_recorded(&core, trigger).await {
-                Ok(()) => return,
-                Err(err) => tracing::error!(error = %err, "the automatic backup failed"),
-            }
-        }
+        })
+        .await;
     });
 }
 
@@ -1283,6 +1312,56 @@ mod extract_tests {
         }
         zip.finish().unwrap();
         path
+    }
+
+    #[tokio::test]
+    async fn a_failed_automatic_backup_is_retried() {
+        assert_eq!(RETRY_PAUSES, [0, 60, 300, 900]);
+        let pauses = [0u64; 4];
+        let tries = std::sync::Mutex::new(Vec::new());
+        // fails twice, then works: three tries, the first one a "schedule"
+        let ok = retry_pauses(&pauses, |trigger| {
+            let n = {
+                let mut t = tries.lock().unwrap();
+                t.push(trigger);
+                t.len()
+            };
+            async move { n >= 3 }
+        })
+        .await;
+        assert!(ok);
+        assert_eq!(*tries.lock().unwrap(), ["schedule", "retry", "retry"]);
+        // always failing: gives up after every try was used
+        let n = std::sync::atomic::AtomicUsize::new(0);
+        let ok = retry_pauses(&pauses, |_| {
+            n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            async { false }
+        })
+        .await;
+        assert!(!ok);
+        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), pauses.len());
+    }
+
+    #[tokio::test]
+    async fn a_failed_swap_keeps_the_old_files() {
+        let dir = std::env::temp_dir().join(format!("slonbase-swap-{}", crate::ids::random_id(8)));
+        let (target, good, missing) = (dir.join("storage"), dir.join("new"), dir.join("nope"));
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("old.txt"), "old").unwrap();
+        std::fs::create_dir_all(&good).unwrap();
+        std::fs::write(good.join("new.txt"), "new").unwrap();
+        // the restored directory is gone (a failed rename): the old files must stay
+        assert!(swap_dirs(&target, &missing).await.is_err());
+        assert_eq!(
+            std::fs::read_to_string(target.join("old.txt")).unwrap(),
+            "old"
+        );
+        // and the normal case swaps them
+        swap_dirs(&target, &good).await.unwrap();
+        assert!(target.join("new.txt").exists() && !target.join("old.txt").exists());
+        let leftovers = std::fs::read_dir(&dir).unwrap().count();
+        assert_eq!(leftovers, 1, "no stray directories");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

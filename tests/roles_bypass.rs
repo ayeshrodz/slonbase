@@ -387,20 +387,26 @@ async fn only_owners_use_the_sql_console() {
     let developer = member(&app, &owner, "dev@example.com", "developer").await;
     let admin = member(&app, &owner, "lead@example.com", "admin").await;
     let viewer = member(&app, &owner, "viewer@example.com", "viewer").await;
+    // the console is off by default (which refuses everyone, so it proves nothing): a second
+    // instance on the same database has it on
+    let (_dir2, config) = temp_config();
+    std::fs::write(&config, "[server]\nsql_console = true\n").unwrap();
+    let app = new_app(&config, Some(tdb.url.clone()));
+    app.bootstrap().await.unwrap();
+    let query = json!({ "query": "SELECT 1 AS one" });
+    let (status, res) = as_(&app, &owner, "POST", "/api/sql", Some(query.clone())).await;
+    assert_eq!(status, StatusCode::OK, "the owner can use it: {res}");
     for (who, token) in [
         ("developer", &developer),
         ("admin", &admin),
         ("viewer", &viewer),
     ] {
-        let (status, res) = as_(
-            &app,
-            token,
-            "POST",
-            "/api/sql",
-            Some(json!({ "query": "SELECT value FROM _slonbase.params" })),
-        )
-        .await;
+        let (status, res) = as_(&app, token, "POST", "/api/sql", Some(query.clone())).await;
         assert_eq!(status, StatusCode::FORBIDDEN, "{who}: {res}");
+        assert!(
+            !res.to_string().contains("disabled"),
+            "{who} was refused by the role, not by the console being off: {res}"
+        );
     }
     tdb.drop_db().await;
 }
