@@ -78,8 +78,13 @@ Found by reviews, and what they mean in practice:
   storage first, so only two renames on one file system follow the commit; a crash in between
   leaves the new database with the old files, and the backup can be restored again.
 - **A first OAuth2 sign-in creates the record, marks it verified and links the provider in
-  separate steps.** A failure between them leaves a record without its link; the next sign-in
-  with the same verified email links it.
+  separate steps.** If linking fails (two sign-ins of the same new account racing), the record
+  made for it is removed again; a failure of the later steps (marking it verified) leaves a
+  record the next sign-in with the same verified email picks up.
+- **CORS allows every origin by default** (`*`, as PocketBase does). That is safe here because
+  tokens travel in the `Authorization` header, never in cookies, so a page on another origin
+  can't use a visitor's session. Limit it in Settings, Security, to the origins of your apps if
+  you want browsers to refuse the rest.
 - **Projects need `CREATEDB`** on the main installation's PostgreSQL role. Connect existing
   databases instead (`databaseUrl`) if you want a role without it.
 

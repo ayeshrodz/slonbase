@@ -8,8 +8,19 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-11-07
+
+Following up the two audits: an open realtime stream now ends with its session, every API route
+needs a deliberate role decision, and more tests that hold the line. See
+[the security reviews](docs/security-review.md#following-up-the-audits-250).
+
 ### Security
 
+- **A first OAuth2 sign-in that loses a race no longer leaves a record behind:** if linking the
+  provider fails after the record was created, the record is removed.
+- **Tests that hold the line, no problem found:** credentials of one installation (main, projects,
+  tokens, API keys) mean nothing in another; hostile upload file names stay inside storage;
+  backup extraction never writes outside its directory (zip-slip, absolute names, symlinks).
 - **An open realtime stream no longer outlives its session.** A client subscribes with its token once and keeps
   receiving events; ending that session (revoking its tokens, changing its password) or deleting
   the account didn't stop the stream until the client disconnected. Each delivery now checks that the

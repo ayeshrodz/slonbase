@@ -189,6 +189,7 @@ pub async fn auth_with_oauth2(
                 _ => Map::new(),
             };
             let (core, c) = (e.core.clone(), e.collection.clone());
+            let is_new_record = e.record.is_none();
             let values = match e.record.clone() {
                 Some(record) => {
                     let is_signed_in = signed_in.as_ref().is_some_and(|r| r.id() == record.id());
@@ -198,7 +199,24 @@ pub async fn auth_with_oauth2(
             };
             let record_id = str_of(&values, "id").to_string();
             if linked_to.as_deref() != Some(record_id.as_str()) {
-                link(&core, &c, &provider, &user, &record_id).await?;
+                if let Err(err) = link(&core, &c, &provider, &user, &record_id).await {
+                    // a record made for this sign-in must not outlive its failure (two
+                    // sign-ins of the same new account racing: the loser's record is removed)
+                    if is_new_record {
+                        if let Ok(client) = core.pool.get().await {
+                            let _ = client
+                                .execute(
+                                    &format!(
+                                        "DELETE FROM {} WHERE id = $1::text",
+                                        table_ref(&c.name)
+                                    ),
+                                    &[&record_id],
+                                )
+                                .await;
+                        }
+                    }
+                    return Err(err);
+                }
             }
 
             let record = AuthRecord {

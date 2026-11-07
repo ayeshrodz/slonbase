@@ -7,6 +7,8 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [Following up the audits (2.5.0)](#following-up-the-audits-250): open streams, route coverage,
+  isolation between installations, file names and archives.
 - [Defaults and degraded modes (2.4.0)](#defaults-and-degraded-modes-240): rate limits when the
   database fails, the lockout default, the SQL console's privileges, and authorization tests.
 - [What 1.7 added (1.8.0)](#what-17-added-180): view previews, response compression and the
@@ -14,6 +16,64 @@ To report a problem, see the [security policy](../SECURITY.md).
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## Following up the audits (2.5.0)
+
+Two outside audits (27 distinct findings between them) were worked through; the
+[advisory](https://github.com/ayeshrodz/slonbase/security/advisories/GHSA-8g53-r6rc-fm83) covers
+the role bypasses fixed in 2.4.0. This pass added tests first, then fixes where a test failed.
+
+### 1. An open realtime stream outlived its session (low)
+
+A client subscribes once with its token and keeps the stream. Revoking the account's tokens or
+deleting it didn't stop the stream: events the account could see kept arriving until it
+disconnected. `open_streams_follow_rights_changes` failed with the leaked event; each delivery now
+checks that the account still exists with the same token key, and closes the streams of those that
+don't. A tightened collection rule already stopped events at once (the test holds that too).
+
+### 2. Role rules had no completeness check (evidence)
+
+The role rules are path patterns, so a new route could be left out of them without a failing
+test. `POLICY` in `roles.rs` lists every API route with the lowest role that may use it; a test
+reads the routes registered in `server.rs` and fails for a route without an entry or for a
+changed answer. Checked by removing an entry and by loosening the console rule.
+
+### 3. Tests that passed for the wrong reason (evidence)
+
+The SQL console test expected 403, which a console that is switched off also returns, so it
+passed with the role check removed. It now runs with the console on and fails without the check.
+The batch checks had the same flaw and were fixed in 2.4.0. Both were verified by removing the
+protection they cover.
+
+### 4. A rate limiter that rescanned itself (low)
+
+With 200,000 counters all still running, every request rescanned the map and new clients kept
+being added. A test with 400,000 clients hung; the limiter now sweeps once a second and, while
+full, doesn't track new clients.
+
+### 5. A lost OAuth2 sign-in race left a record (low)
+
+If linking the provider failed after the record was created, the record stayed. It's now removed.
+Not reproduced by a test: the race needs two requests in the same instant, so this one is
+reasoned, not demonstrated.
+
+### Checked and found sound
+
+- **Isolation between installations:** the superuser tokens and API keys of the main installation
+  and two projects, against every installation (collections, superusers, project commands):
+  only the credential's own installation answers.
+- **Upload file names:** `../`, backslashes, absolute paths, NUL, CR/LF and encoded dots end up
+  inside the record's directory or are refused; nothing is written outside the storage directory.
+- **Backup archives:** entries with `..`, absolute names and symlinks never write outside the
+  extraction directory.
+- **CORS** allows every origin by default, which is safe here (tokens aren't cookies) and is
+  documented; **OIDC** without a key set trusts the token endpoint over TLS, also documented.
+
+### Not yet checked
+
+SQL views' resource use, an import with schema migrations, restoring a failed upload replacement,
+the OAuth2 provider mappings, upgrades of projects and runtimes, and PostgreSQL 15 and 16. They
+stay on the list for the next pass.
 
 ## Defaults and degraded modes (2.4.0)
 
