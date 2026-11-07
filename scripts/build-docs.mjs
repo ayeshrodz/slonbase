@@ -20,7 +20,7 @@ const out = path.resolve(process.argv[2] || "site-out/docs");
 
 // the guides, in reading order
 const SECTIONS = [
-  { title: "About slonbase", pages: ["about", "features"] },
+  { title: "About slonbase", pages: ["about", "features", "licensing"] },
   { title: "Get started", pages: ["quickstart", "installation", "configuration", "deployment", "scaling", "platforms"] },
   { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
@@ -31,6 +31,7 @@ const SECTIONS = [
 const SHORT = {
   about: "About",
   features: "Features",
+  licensing: "License",
   quickstart: "Quickstart",
   "slonbase-and-pocketbase": "vs PocketBase",
   "slonbase-vs-postgrest": "vs PostgREST",
@@ -52,6 +53,7 @@ const SHORT = {
 };
 const BLURB = {
   about: "What slonbase is, who it is for, what it is not, and who builds it.",
+  licensing: "slonbase is licensed under Apache 2.0: what you can do, the trademark policy, the contributor agreement and what stays free.",
   features: "Everything it does: data and API, auth, realtime, files, dashboard, projects, scale and operations.",
   quickstart: "From a bare Linux server to a working backend with an API, sign-in and realtime in five minutes.",
   "slonbase-and-pocketbase": "What slonbase and PocketBase share, how they differ, and which to choose.",
@@ -76,6 +78,7 @@ const BLURB = {
 // titles that say what the page is about, for search results (the others are "<title> · slonbase docs")
 const SEO_TITLE = {
   about: "About slonbase: an open-source backend platform on PostgreSQL",
+  licensing: "slonbase license: Apache 2.0, free to use, modify and host",
   features: "slonbase features: API, auth, realtime, files and a dashboard on PostgreSQL",
   quickstart: "Quickstart: a self-hosted backend on PostgreSQL in five minutes",
   "slonbase-and-pocketbase": "slonbase and PocketBase: how they differ",
@@ -440,7 +443,7 @@ if (path.basename(out) === "docs") {
   );
 
   const SUMMARY =
-    "slonbase is an open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard that manages many projects. It is self-hosted, MIT-licensed, scales across several instances on one database, and works with the PocketBase SDKs. It is an independent project (not a fork of PocketBase) built and maintained by Ayesh Rodrigo.";
+    "slonbase is an open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, authentication with roles, file storage, JavaScript hooks and an admin dashboard that manages many projects. It is self-hosted, Apache-2.0-licensed, scales across several instances on one database, and works with the PocketBase SDKs. It is an independent project (not a fork of PocketBase) built and maintained by Ayesh Rodrigo.";
   const optional = new Set(["design", "security-review", "changelog"]);
   const line = (slug) => `- [${SHORT[slug]}](${SITE}/docs/${slug}.md): ${BLURB[slug]}`;
   const groups = SECTIONS.map((g) => ({ title: g.title, pages: g.pages.filter((p) => !optional.has(p)) })).filter((g) => g.pages.length);
@@ -448,7 +451,7 @@ if (path.basename(out) === "docs") {
 
 > ${SUMMARY}
 
-Key facts: license MIT; written in Rust; needs PostgreSQL 14 or newer; Linux x86_64 and aarch64 (static binaries, .deb and .rpm packages, a Docker image); install with \`curl -fsSL ${SITE}/install.sh | sudo sh\`; current version ${version}. Website: ${SITE}/ . Source: ${REPO} .
+Key facts: license Apache-2.0; written in Rust; needs PostgreSQL 14 or newer; Linux x86_64 and aarch64 (static binaries, .deb and .rpm packages, a Docker image); install with \`curl -fsSL ${SITE}/install.sh | sudo sh\`; current version ${version}. Website: ${SITE}/ . Source: ${REPO} .
 
 ${groups.map((g) => `## ${g.title}\n\n${g.pages.map(line).join("\n")}`).join("\n\n")}
 

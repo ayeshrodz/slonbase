@@ -40,7 +40,7 @@ sign-in page, realtime for every change and scale-out across instances. The name
 ## Who builds it
 
 slonbase is built and maintained by [Ayesh Rodrigo](https://ayesh.dev/), a software engineer, as
-an independent open-source project under the MIT license. The source, issues and releases are on
+an independent open-source project under the [Apache License 2.0](licensing.md). The source, issues and releases are on
 [GitHub](https://github.com/ayeshrodz/slonbase). PocketBase is a separate project by Gani
 Georgiev; slonbase isn't affiliated with it.
 
@@ -48,7 +48,7 @@ Georgiev; slonbase isn't affiliated with it.
 
 | | |
 |---|---|
-| License | MIT |
+| License | Apache 2.0 ([details](licensing.md)) |
 | Written in | Rust (the dashboard in plain JavaScript, no build step) |
 | Database | PostgreSQL 14 or newer |
 | Platforms | Linux on x86_64 and aarch64 (static binaries, `.deb` and `.rpm` packages, a Docker image); other platforms from source |

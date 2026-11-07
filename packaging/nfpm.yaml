@@ -15,7 +15,7 @@ description: |
   bundled: point slonbase at a local or remote server from the first-run setup wizard.
 vendor: slonbase
 homepage: https://slonbase.com/
-license: MIT
+license: Apache-2.0
 
 overrides:
   deb:

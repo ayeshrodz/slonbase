@@ -18,7 +18,7 @@
   <a href="https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-slonbase-4f7a6c?logo=docker&logoColor=white"></a>
   <img alt="PostgreSQL 14+" src="https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-1.87%2B-b7410e?logo=rust&logoColor=white">
-  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-4f7a6c"></a>
+  <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-4f7a6c"></a>
 </p>
 
 <p align="center">
@@ -285,8 +285,16 @@ Please report security problems [privately](SECURITY.md).
 
 ## License
 
-[MIT](LICENSE). The dashboard vendors Preact (MIT) and htm (Apache-2.0); their licenses are in
+slonbase is licensed under the [Apache License 2.0](LICENSE): free to use, modify, host and sell
+services around, with an explicit patent grant. The name and logo are covered by the
+[trademark policy](TRADEMARKS.md). Releases up to 2.3.0 were MIT. Contributions are accepted
+under a short [CLA](CLA.md) (you keep your copyright). Everything released under Apache 2.0 stays
+under it; the maintainer may in future offer separately licensed commercial features or hosted
+services, which is what the CLA makes possible. See [license and contributing terms](docs/licensing.md).
+
+The dashboard vendors Preact (MIT) and htm (Apache-2.0); their licenses are in
 [ui/app/vendor](ui/app/vendor). It ships the IBM Plex Sans and JetBrains Mono fonts (SIL
-Open Font License 1.1); the licences are in [ui/app/fonts](ui/app/fonts).
-slonbase is an independent project inspired by PocketBase (also MIT). It is not affiliated
+Open Font License 1.1); the licences are in [ui/app/fonts](ui/app/fonts). All third-party
+notices are in [NOTICE](NOTICE).
+slonbase is an independent project inspired by PocketBase (MIT). It is not affiliated
 with or endorsed by PocketBase or its author, and it wouldn't exist without their work.

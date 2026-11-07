@@ -8,6 +8,28 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.3.1] - 2026-11-07
+
+**slonbase is now licensed under the Apache License 2.0.**
+
+### Changed
+
+- **License: Apache 2.0** (was MIT) for everything released from this version on, with an
+  explicit patent grant. Versions up to and including 2.3.0 were released under MIT and remain
+  available under it. The dependencies are all under permissive licenses. See
+  [license and contributing terms](docs/licensing.md).
+- **Contributions need a signed [CLA](CLA.md):** a bot asks on a first pull request. Contributors
+  keep their copyright; the agreement licenses their work under Apache 2.0 and lets the
+  maintainer license it under other terms in future. Everything released under Apache 2.0 stays
+  under it; the maintainer may one day offer separately licensed commercial features or hosted
+  services, which the CLA makes possible.
+
+### Added
+
+- [`NOTICE`](NOTICE) (third-party notices), a [trademark policy](TRADEMARKS.md) for the name and
+  logo, a [license guide](docs/licensing.md), and the license named in the package metadata, the
+  README, the site, `llms.txt` and the structured data.
+
 ## [2.3.0] - 2026-11-07
 
 **Several instances, tested properly.** Running slonbase as a fleet, behind a balancer, behind

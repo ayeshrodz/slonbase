@@ -1,0 +1,17 @@
+slonbase
+Copyright 2026 Ayesh Rodrigo
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+slonbase and its logo are trademarks of the maintainer (see TRADEMARKS.md).
+
+Versions of slonbase up to and including 2.3.0 were released under the MIT License.
+
+This product includes third-party software, each under its own license:
+
+- Preact and htm (the dashboard's UI library): MIT and Apache-2.0,
+  ui/app/vendor/LICENSE-preact, ui/app/vendor/LICENSE-htm
+- marked (the documentation site's Markdown parser): MIT, scripts/vendor/LICENSE-marked.md
+- IBM Plex Sans and JetBrains Mono (fonts): SIL Open Font License 1.1,
+  ui/app/fonts/LICENSE-ibm-plex-OFL.txt and ui/app/fonts/LICENSE-jetbrains-mono-OFL.txt
+- The Rust crates that slonbase is built from, under MIT, Apache-2.0, BSD, ISC, Zlib,
+  Unicode-3.0 and similar permissive licenses (see Cargo.lock and each crate's license).

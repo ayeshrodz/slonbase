@@ -33,7 +33,7 @@ of comments (`documentation`, `slogan`, `tags`, `logo`, `port`), and a logo.
    >
    > [slonbase](https://github.com/ayeshrodz/slonbase) is an open-source backend in one Rust
    > binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard,
-   > with the data in PostgreSQL tables. MIT licensed.
+   > with the data in PostgreSQL tables. Apache 2.0 licensed.
    >
    > The template runs the official image (`ghcr.io/ayeshrodz/slonbase`) with PostgreSQL 17.
    > Coolify generates the database credentials and a setup token; after deploying, open
@@ -59,7 +59,7 @@ Dokploy's templates are folders in [Dokploy/templates](https://github.com/Dokplo
    >
    > [slonbase](https://github.com/ayeshrodz/slonbase) is an open-source backend in one Rust
    > binary: collections, a REST and realtime API, auth, files, hooks and an admin dashboard,
-   > with the data in PostgreSQL tables. MIT licensed.
+   > with the data in PostgreSQL tables. Apache 2.0 licensed.
    >
    > The template runs the official image with PostgreSQL 17, generates the database password
    > and a setup token, and routes the domain to port 8090. After deploying, open

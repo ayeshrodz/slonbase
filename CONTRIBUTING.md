@@ -58,7 +58,12 @@ build step. See [ui/README.md](ui/README.md).
 
 Please follow the [code of conduct](CODE_OF_CONDUCT.md).
 
-By contributing, you agree that your contributions are licensed under the [MIT license](LICENSE).
+slonbase is licensed under the [Apache License 2.0](LICENSE). Before your first pull request is
+merged, you sign the [contributor license agreement](CLA.md): a bot comments on the pull request,
+and you reply with the sentence it shows. You keep your copyright; the agreement licenses your
+work to the project under Apache 2.0 and lets the maintainer license it under other terms in
+future (the project may one day offer separately licensed commercial features or hosted services).
+See [license and contributing terms](docs/licensing.md).
 
 ## Releases
 
