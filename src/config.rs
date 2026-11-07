@@ -191,6 +191,10 @@ pub struct DatabaseConfig {
     /// Only used for databases on the same server as `url`, never for a connected project.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub listen_url: Option<String>,
+    /// Seconds after which PostgreSQL ends a query of slonbase's connections (0: never). It
+    /// bounds a slow view or a heavy filter that would otherwise hold a pooled connection;
+    /// backups and restores are exempt.
+    pub statement_timeout: u64,
     /// Extra PEM CA bundle to trust for TLS connections (e.g. a managed provider's CA).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_file: Option<PathBuf>,
@@ -208,6 +212,7 @@ impl Default for DatabaseConfig {
             url: None,
             max_connections: DEFAULT_MAX_CONNECTIONS,
             listen_url: None,
+            statement_timeout: 0,
             ca_file: None,
             dbname: None,
             user: None,

@@ -85,6 +85,10 @@ Found by reviews, and what they mean in practice:
   tokens travel in the `Authorization` header, never in cookies, so a page on another origin
   can't use a visitor's session. Limit it in Settings, Security, to the origins of your apps if
   you want browsers to refuse the rest.
+- **No query time limit by default.** A view that is slow to read, or a heavy filter, runs until
+  it ends and holds a pooled connection meanwhile. Set `database.statement_timeout` (seconds) to
+  end such queries; backups and restores are exempt. It's off by default because a limit that is
+  too low would cut long migrations and index builds.
 - **Projects need `CREATEDB`** on the main installation's PostgreSQL role. Connect existing
   databases instead (`databaseUrl`) if you want a role without it.
 

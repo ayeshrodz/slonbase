@@ -22,6 +22,7 @@ file, and then the defaults.
 | `--http-ca-file` | `SLONBASE_HTTP_CA_FILE` | `server.http_ca_file` | none |
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
+| | | `database.statement_timeout` | `0` (seconds; 0: no limit) |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--database-listen-url` | `SLONBASE_DATABASE_LISTEN_URL` | `database.listen_url` | none (the listeners use `database.url`) |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
@@ -62,6 +63,7 @@ sql_console = false
 [database]
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"
 max_connections = 16
+# statement_timeout = 60   # seconds; ends a query that runs longer (backups are exempt)
 # ca_file = "/etc/ssl/certs/rds-global-bundle.pem"
 
 [storage]

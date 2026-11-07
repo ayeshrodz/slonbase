@@ -8,6 +8,17 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.5.1] - 2026-11-07
+
+### Security
+
+- **`database.statement_timeout`:** seconds after which PostgreSQL ends a query of slonbase's
+  connections (0, the default: never; backups and restores are exempt). A view that is slow to read
+  or a heavy filter no longer has to hold a pooled connection for as long as it runs.
+- **More tests, no problem found:** imports that change schemas (type changes, dropped columns,
+  invalid collections, dropped referenced collections) and failed replacements of uploaded files.
+  CI now runs the tests on PostgreSQL 14, 15, 16 and 17.
+
 ## [2.5.0] - 2026-11-07
 
 Following up the two audits: an open realtime stream now ends with its session, every API route

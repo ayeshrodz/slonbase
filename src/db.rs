@@ -49,6 +49,14 @@ pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
         Some(own) if !own.is_empty() => format!("{own} -c slonbase.notify=off"),
         _ => "-c slonbase.notify=off".to_string(),
     };
+    let options = if cfg.statement_timeout > 0 {
+        format!(
+            "{options} -c statement_timeout={}",
+            cfg.statement_timeout * 1000
+        )
+    } else {
+        options
+    };
     pg.options(&options);
     let tls = tls_connector(cfg.ca_file.as_deref())?;
     let manager = Manager::from_config(

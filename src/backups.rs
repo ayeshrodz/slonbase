@@ -288,6 +288,8 @@ async fn create_locked(core: &Core, name: &str, target: &Storage) -> Result<()> 
         .read_only(true)
         .start()
         .await?;
+    // a backup of a big table takes as long as it takes
+    tx.batch_execute("SET LOCAL statement_timeout = 0").await?;
     let migration: i32 = tx
         .query_one(
             "SELECT COALESCE(max(version), 0) FROM _slonbase.migrations",
@@ -700,6 +702,7 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         .await
         .map_err(crate::db::describe_pool_error)?;
     let tx = client.transaction().await?;
+    tx.batch_execute("SET LOCAL statement_timeout = 0").await?;
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
     // no realtime events for the restored rows (instances reload after it)

@@ -57,6 +57,13 @@ If linking the provider failed after the record was created, the record stayed. 
 Not reproduced by a test: the race needs two requests in the same instant, so this one is
 reasoned, not demonstrated.
 
+### 6. A slow view or query had no time limit (low)
+
+A view that takes long to read (a test used `pg_sleep`) ran for its whole duration, twice per list
+(the page and the count), holding pooled connections. New `database.statement_timeout` (seconds,
+off by default, backups exempt) ends it; the test took 40 s without it and 3 s with 1 s set.
+It's off by default so that long migrations and index builds aren't cut.
+
 ### Checked and found sound
 
 - **Isolation between installations:** the superuser tokens and API keys of the main installation
@@ -69,11 +76,17 @@ reasoned, not demonstrated.
 - **CORS** allows every origin by default, which is safe here (tokens aren't cookies) and is
   documented; **OIDC** without a key set trusts the token endpoint over TLS, also documented.
 
+- **Imports that change schemas:** a text column made a number, a dropped column, a good
+  collection beside a bad one, and a dropped referenced collection: never a 500, applied whole
+  or not at all, records stay readable.
+- **A failed replacement of an uploaded file** (too big, not an image, too many files) changes
+  nothing: the old file is still served and no file is left behind.
+- **PostgreSQL 15 and 16** join 14 and 17 in the test matrix.
+
 ### Not yet checked
 
-SQL views' resource use, an import with schema migrations, restoring a failed upload replacement,
-the OAuth2 provider mappings, upgrades of projects and runtimes, and PostgreSQL 15 and 16. They
-stay on the list for the next pass.
+The OAuth2 provider mappings and upgrades of projects and runtimes stay on the list for the next
+pass.
 
 ## Defaults and degraded modes (2.4.0)
 

@@ -675,3 +675,68 @@ async fn hostile_file_names_stay_inside_storage() {
     }
     env.tdb.drop_db().await;
 }
+
+/// A replacement that fails validation changes nothing: the record keeps its old file, which is
+/// still served, and no stray file is left behind.
+#[tokio::test]
+async fn a_failed_replacement_keeps_the_old_file() {
+    let Some(env) = setup().await else { return };
+    let image = png(10, 10);
+    let (status, record) = env
+        .upload(
+            "POST",
+            "/api/collections/docs/records",
+            &[("title", "public")],
+            &[("avatar", "keep.png", &image), ("files", "1.txt", b"1")],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    let id = record["id"].as_str().unwrap().to_string();
+    let avatar = record["avatar"].as_str().unwrap().to_string();
+    let uri = format!("/api/collections/docs/records/{id}");
+    let before = env.stored_files();
+
+    // too big, not an image, and too many files at once: each refused, with a valid change beside
+    for files in [
+        vec![(
+            "avatar",
+            "big.png",
+            [b"\x89PNG\r\n\x1a\n".as_slice(), &[0u8; 5000]].concat(),
+        )],
+        vec![("avatar", "fake.png", b"not an image".to_vec())],
+        vec![
+            ("files+", "a.txt", b"a".to_vec()),
+            ("files+", "b.txt", b"b".to_vec()),
+            ("files+", "c.txt", b"c".to_vec()),
+            ("files+", "d.txt", b"d".to_vec()),
+        ],
+    ] {
+        let refs: Vec<(&str, &str, &[u8])> = files
+            .iter()
+            .map(|(k, n, d)| (*k, *n, d.as_slice()))
+            .collect();
+        let (status, body) = env
+            .upload("PATCH", &uri, &[("title", "changed")], &refs)
+            .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+    // nothing changed: the title, the avatar, its file and the file set
+    let auth = env.auth();
+    let (status, now) = request(
+        &env.app,
+        "GET",
+        &uri,
+        &[("authorization", auth.as_str())],
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{now}");
+    assert_eq!(now["title"], "public", "a refused update changed the title");
+    assert_eq!(now["avatar"], avatar.as_str());
+    assert_eq!(now["files"].as_array().unwrap().len(), 1);
+    let (status, _, bytes) = env.get(&format!("/api/files/docs/{id}/{avatar}")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, image);
+    assert_eq!(env.stored_files(), before, "files were left behind or lost");
+    env.tdb.drop_db().await;
+}
