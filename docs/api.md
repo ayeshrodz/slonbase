@@ -30,6 +30,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `POST /api/collections/{collection}/request-password-reset`, `confirm-password-reset` | Password reset by email |
 | `POST /api/collections/{collection}/request-email-change`, `confirm-email-change` | Email change (signed in) |
 | `POST /api/collections/{collection}/impersonate/{id}` | A non-refreshable token for any record (superusers) |
+| `POST /api/collections/{collection}/records/{id}/revoke-tokens` | Signs a record out everywhere: gives it a new token key, so every token it holds stops working on every instance. The record itself, or a superuser (a superuser's own, or by another superuser) |
 | `GET/PATCH /api/settings` | Settings (superusers): app, SMTP, S3, backups, logs, batch, rate limits, trusted proxy, superuser IPs |
 | `POST /api/settings/test/email` | Send a test email of a template |
 | `POST /api/settings/test/s3` | Check the S3 settings by writing, reading and deleting a test file |

@@ -127,6 +127,17 @@ export function RecordEditor({ collection: c, recordId, onClose, onSaved, onDele
     }
   };
 
+  const revokeTokens = async () => {
+    const ok = await confirmDialog({ title: "Sign out everywhere?", message: "Every token this record has been issued stops working, on every instance.", confirm: "Sign out" });
+    if (!ok) return;
+    try {
+      await api.post(`/api/collections/${enc(c.name)}/records/${enc(recordId)}/revoke-tokens`, {});
+      toast("Signed out everywhere: its tokens no longer work.", "info");
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+
   const requestVerification = async () => {
     try {
       await api.post(`/api/collections/${enc(c.name)}/request-verification`, { email: record.email });
@@ -185,6 +196,7 @@ export function RecordEditor({ collection: c, recordId, onClose, onSaved, onDele
             },
             isAuth && "-",
             isAuth && { icon: "key", label: "Impersonate (copy token)", onClick: impersonate },
+            isAuth && { icon: "logout", label: "Sign out everywhere", onClick: revokeTokens },
             isAuth && !record?.verified && { icon: "mail", label: "Send verification email", onClick: requestVerification },
             isAuth && { icon: "lock", label: "Send password reset email", onClick: requestReset },
             "-",
