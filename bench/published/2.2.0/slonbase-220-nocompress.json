@@ -1,0 +1,157 @@
+{
+ "name": "slonbase-220-nocompress",
+ "version": "slonbase 2.2.0",
+ "duration": "10s",
+ "cpus": "4",
+ "runs": 3,
+ "note": "",
+ "footprint": {
+  "binaryBytes": 22317008,
+  "startupMs": 29,
+  "seedMs": 6064,
+  "idleRssKb": 34596,
+  "peakRssKb": 58524
+ },
+ "scenarios": [
+  {
+   "name": "health",
+   "concurrency": 32,
+   "rps": 46076.5843,
+   "p50": 0.7,
+   "p90": 1.2,
+   "p99": 2,
+   "failed": 0,
+   "runs": [
+    43657.2884,
+    46076.5843,
+    46725.5512
+   ]
+  },
+  {
+   "name": "view one record",
+   "concurrency": 32,
+   "rps": 19212.5935,
+   "p50": 1.6,
+   "p90": 2.3,
+   "p99": 4,
+   "failed": 0,
+   "runs": [
+    19005.7342,
+    19309.6914,
+    19212.5935
+   ]
+  },
+  {
+   "name": "view one record (1 client)",
+   "concurrency": 1,
+   "rps": 5382.9718,
+   "p50": 0.2,
+   "p90": 0.2,
+   "p99": 0.4,
+   "failed": 0,
+   "runs": [
+    5382.9718,
+    5371.2556,
+    5708.1684
+   ]
+  },
+  {
+   "name": "list 30",
+   "concurrency": 32,
+   "rps": 8320.7547,
+   "p50": 3.7,
+   "p90": 5.2,
+   "p99": 7.3,
+   "failed": 0,
+   "runs": [
+    8429.6729,
+    8084.4795,
+    8320.7547
+   ]
+  },
+  {
+   "name": "list 30, sorted",
+   "concurrency": 32,
+   "rps": 7380.1305,
+   "p50": 4.2,
+   "p90": 5.9,
+   "p99": 7.9,
+   "failed": 0,
+   "runs": [
+    7380.1305,
+    7483.2133,
+    7255.7785
+   ]
+  },
+  {
+   "name": "list 30, filtered",
+   "concurrency": 32,
+   "rps": 7167.5349,
+   "p50": 4.3,
+   "p90": 6.1,
+   "p99": 8.4,
+   "failed": 0,
+   "runs": [
+    7167.5349,
+    7012.4664,
+    7267.1057
+   ]
+  },
+  {
+   "name": "list 30, expand author",
+   "concurrency": 32,
+   "rps": 4036.6584,
+   "p50": 7.8,
+   "p90": 9.9,
+   "p99": 12.5,
+   "failed": 0,
+   "runs": [
+    4004.2162,
+    4036.6584,
+    4042.8399
+   ]
+  },
+  {
+   "name": "list 30, signed in",
+   "concurrency": 32,
+   "rps": 6672.3526,
+   "p50": 4.7,
+   "p90": 6.1,
+   "p99": 8,
+   "failed": 0,
+   "runs": [
+    6719.3402,
+    6672.3526,
+    6534.1644
+   ]
+  },
+  {
+   "name": "create record",
+   "concurrency": 32,
+   "rps": 7122.1423,
+   "p50": 4.3,
+   "p90": 5.9,
+   "p99": 8.8,
+   "failed": 0,
+   "runs": [
+    6921.5419,
+    7122.1423,
+    7129.3061
+   ]
+  },
+  {
+   "name": "sign in (bcrypt)",
+   "concurrency": 8,
+   "rps": 38.779,
+   "p50": 208,
+   "p90": 252.1,
+   "p99": 303.4,
+   "failed": 0,
+   "runs": [
+    39.8486,
+    38.779,
+    38.15
+   ]
+  }
+ ]
+}

@@ -2,7 +2,7 @@
 // with every run's throughput kept for the spread.
 import { readFileSync } from "node:fs";
 
-const [raw, name, version, duration, cpus, note] = process.argv.slice(2);
+const [raw, name, version, duration, cpus, note, footprint] = process.argv.slice(2);
 const rows = readFileSync(raw, "utf8").trim().split("\n").map((l) => JSON.parse(l));
 const median = (xs) => {
   const v = xs.filter((x) => x != null).sort((a, b) => a - b);
@@ -24,4 +24,4 @@ const scenarios = names.map((n) => {
     runs: runs.map((r) => r.rps),
   };
 });
-console.log(JSON.stringify({ name, version, duration, cpus, runs: rows.length / names.length, note: note || "", scenarios }, null, 1));
+console.log(JSON.stringify({ name, version, duration, cpus, runs: rows.length / names.length, note: note || "", footprint: footprint ? JSON.parse(footprint) : undefined, scenarios }, null, 1));

@@ -30,7 +30,7 @@
 </p>
 
 <p align="center">
-  <img alt="A client app creating and updating a task while the slonbase dashboard's grid updates live" src="docs/assets/demo.gif" width="900">
+  <img alt="A tour of the slonbase dashboard: signing in, the overview and a live records grid" src="docs/assets/demo.webp" width="900">
 </p>
 
 <p align="center">
@@ -79,7 +79,7 @@ already trust.
   database of its own.
 - 🚀 **Fast where it matters.** Written in Rust with tokio and axum; filters compile to
   parameterized SQL that uses your indexes ([benchmarks](bench/README.md)).
-- 📦 **One static binary.** An 8 MB download with the dashboard built in. Install it with
+- 📦 **One static binary.** A 10 MB download (22 MB on disk) with the dashboard built in. Install it with
   Docker, `.deb`/`.rpm` packages or a plain binary, and finish with a setup wizard.
 
 ## Features
@@ -252,25 +252,26 @@ The guides are also on the documentation site, with search:
 
 ## Performance
 
-Compared with PocketBase, on the same machine, the same data and the same HTTP workloads, with
-default settings ([method and full results](bench/README.md)):
+Compared with PocketBase and PostgREST, on the same machine, the same data and the same HTTP
+workloads, with default settings ([method and full results](bench/README.md)):
 
-| Scenario | slonbase 1.9 req/s | PocketBase req/s | p99 ms (slonbase / PocketBase) |
-|---|--:|--:|--:|
-| Health check | 34,782 | 30,569 | 2.8 / 5.8 |
-| View one record | 15,375 | 13,311 | 5.3 / 22.0 |
-| List 30 records | 6,604 | 1,678 | 9.7 / 69.5 |
-| List 30, filtered | 6,192 | 74 | 9.9 / 652.6 |
-| List 30, expand a relation | 3,240 | 1,123 | 16.0 / 101.9 |
-| Create a record | 5,304 (6,973 with async commit) | 4,277 | 12.0 / 41.6 |
+| Scenario | slonbase 2.2 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |
+|---|--:|--:|--:|--:|
+| Health check | 44,316 | 32,270 | 36,267 | 2.1 / 6.4 / 2.2 |
+| View one record | 19,965 | 11,484 | 5,197 | 3.7 / 23.4 / 14.4 |
+| List 30 records | 7,814 | 1,610 | 3,733 | 7.8 / 67.1 / 13.7 |
+| List 30, filtered | 7,100 | 105 | 3,315 | 8.2 / 439 / 15.4 |
+| List 30, expand a relation | 3,906 | 1,065 | n/a | 12.6 / 93.3 / n/a |
+| Create a record | 7,424 (8,722 with async commit) | 4,051 | 3,828 | 8.4 / 45.5 / 16.2 |
 
-1.9 shares its health check's database probe for a second, which puts it ahead of PocketBase
-there too, and writes single records straight from their row (1.13 times as fast as 1.8 with
-32 clients, in alternating runs). Writes are ahead of PocketBase with PostgreSQL's default
-durability, and further ahead when PostgreSQL makes the same trade-off as SQLite's default
-(`synchronous_commit = off`; see [why](docs/deployment.md#postgresql)). Lists are gzipped, a
-sixth of the bytes, which this loopback benchmark counts as CPU only
-([what changed](bench/README.md#what-changed-in-19)).
+32 clients, medians of three 10-second runs on a 4-vCPU VM. slonbase is ahead in every scenario
+measured, from 1.2 times PocketBase's throughput (sign-in, which bcrypt bounds) to 68 times (filtered
+lists, where PostgreSQL uses the index). PostgREST is a leaner program that does much less (no sign-in,
+files, realtime or dashboard): a 15 MB process against slonbase's 40 MB. Writes are ahead of PocketBase
+with PostgreSQL's default durability, and further ahead when PostgreSQL makes the same trade-off as
+SQLite's default (`synchronous_commit = off`; see [why](docs/deployment.md#postgresql)). Lists are
+gzipped, a sixth of the bytes, which this loopback benchmark counts as CPU only. The numbers come from
+one machine and will differ on yours: the [bench README](bench/README.md) has the caveats and the commands to repeat them.
 
 ## Contributing
 

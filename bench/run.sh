@@ -4,6 +4,10 @@
 #   bench/run.sh slonbase     needs DATABASE_URL (an empty database) and a release build
 #                             (target/release/slonbase, or SLONBASE_BIN)
 #   bench/run.sh pocketbase   needs POCKETBASE_BIN
+#   bench/run.sh postgrest    needs DATABASE_URL (an empty database), POSTGREST_BIN and
+#                             SLONBASE_BIN (slonbase creates and seeds the tables; PostgREST then
+#                             serves the same tables, as a plain table without slonbase's
+#                             realtime trigger on the write scenario's table)
 #
 # Results go to bench/results/<target>.json; bench/report.mjs compares them. The server (and
 # PostgreSQL, when PG_PIDS lists its processes) runs on SERVER_CPUS, the load generator (hey)
@@ -25,6 +29,9 @@ export BENCH_EMAIL="bench-admin@example.com"
 export BENCH_PASSWORD="bench-admin-password-1"
 work="$(pwd)/.run/${target}"
 rm -rf "$work" && mkdir -p "$work" results
+now_ms() { echo $(($(date +%s%N) / 1000000)); }
+rss_kb() { awk -v k="$2" '$1 == k":" {print $2}' "/proc/$1/status"; }
+seed=""
 
 case "$target" in
   slonbase)
@@ -32,14 +39,47 @@ case "$target" in
     : "${DATABASE_URL:?DATABASE_URL must point at an empty database}"
     common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-path "$work/backups" --hooks-dir "$work/hooks")
     "$bin" "${common[@]}" setup --database-url "$DATABASE_URL" --email "$BENCH_EMAIL" --password "$BENCH_PASSWORD" > "$work/setup.log" 2>&1
-    taskset -c "$server_cpus" "$bin" "${common[@]}" --bind "127.0.0.1:${port}" serve > "$work/server.log" 2>&1 &
+    started=$(now_ms)
+    taskset -c "$server_cpus" "$bin" "${common[@]}" ${SLONBASE_ARGS:-} --bind "127.0.0.1:${port}" serve > "$work/server.log" 2>&1 &
     version="slonbase $("$bin" --version | awk '{print $2}')"
     ;;
   pocketbase)
     bin="${POCKETBASE_BIN:?POCKETBASE_BIN must point at a pocketbase binary}"
     "$bin" superuser upsert "$BENCH_EMAIL" "$BENCH_PASSWORD" --dir "$work/pb_data" > "$work/setup.log" 2>&1
+    started=$(now_ms)
     taskset -c "$server_cpus" "$bin" serve --dir "$work/pb_data" --http "127.0.0.1:${port}" > "$work/server.log" 2>&1 &
     version="pocketbase $("$bin" --version | awk '{print $3}')"
+    ;;
+  postgrest)
+    bin="${POSTGREST_BIN:?POSTGREST_BIN must point at a postgrest binary}"
+    sb="${SLONBASE_BIN:?SLONBASE_BIN must point at a slonbase binary (it creates and seeds the tables)}"
+    : "${DATABASE_URL:?DATABASE_URL must point at an empty database}"
+    common=(--config "$work/slonbase.toml" --storage-path "$work/storage" --backups-path "$work/backups" --hooks-dir "$work/hooks")
+    "$sb" "${common[@]}" setup --database-url "$DATABASE_URL" --email "$BENCH_EMAIL" --password "$BENCH_PASSWORD" > "$work/setup.log" 2>&1
+    seed_port=$((port + 1))
+    "$sb" "${common[@]}" --bind "127.0.0.1:${seed_port}" serve > "$work/seeder.log" 2>&1 &
+    seeder=$!
+    for _ in $(seq 1 100); do curl -sf "http://127.0.0.1:${seed_port}/api/health" > /dev/null && break; sleep 0.2; done
+    echo "seeding the tables through slonbase..." >&2
+    seed_started=$(now_ms)
+    seed="$(BENCH_URL="http://127.0.0.1:${seed_port}" node seed.mjs)"
+    seed_ms=$(( $(now_ms) - seed_started ))
+    kill $seeder; wait $seeder 2>/dev/null || true
+    # PostgREST reads and writes the same tables as an anonymous role; the write scenario's
+    # table loses slonbase's realtime trigger (PostgREST has no realtime) and gets an id default
+    psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 <<'SQL' > /dev/null
+DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF; END $$;
+GRANT USAGE ON SCHEMA slonbase TO anon;
+GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA slonbase TO anon;
+DROP TRIGGER _slonbase_realtime ON slonbase.writes;
+ALTER TABLE slonbase.writes ALTER COLUMN id SET DEFAULT substr(md5(random()::text || clock_timestamp()::text), 1, 15);
+SQL
+    export PGRST_DB_URI="$DATABASE_URL" PGRST_DB_SCHEMAS=slonbase PGRST_DB_ANON_ROLE=anon \
+           PGRST_SERVER_HOST=127.0.0.1 PGRST_SERVER_PORT="$port" PGRST_DB_POOL=16 \
+           PGRST_ADMIN_SERVER_PORT=$((port + 2)) PGRST_LOG_LEVEL=error
+    started=$(now_ms)
+    taskset -c "$server_cpus" "$bin" > "$work/server.log" 2>&1 &
+    version="postgrest $("$bin" --version | awk '{print $2}')"
     ;;
   *)
     echo "unknown target: $target" >&2
@@ -50,10 +90,13 @@ server=$!
 trap 'kill $server 2>/dev/null || true; wait $server 2>/dev/null || true' EXIT
 for pid in ${PG_PIDS:-}; do taskset -a -cp "$server_cpus" "$pid" > /dev/null || true; done
 
-for _ in $(seq 1 100); do
-  curl -sf "${BENCH_URL}/api/health" > /dev/null && break
-  sleep 0.2
+health_url="${BENCH_URL}/api/health"
+[ "$target" = postgrest ] && health_url="http://127.0.0.1:$((port + 2))/live"
+for _ in $(seq 1 200); do
+  curl -sf "$health_url" > /dev/null && break
+  sleep 0.1
 done
+startup_ms=$(( $(now_ms) - started ))
 
 # a new slonbase installation has rate limits on, PocketBase's doesn't: compare like with like
 if [ "$target" = slonbase ]; then
@@ -73,8 +116,12 @@ if [ "$target" = slonbase ]; then
   ' "$BENCH_URL" "$BENCH_EMAIL" "$BENCH_PASSWORD"
 fi
 
-echo "seeding ${target}..." >&2
-seed="$(node seed.mjs)"
+if [ -z "$seed" ]; then
+  echo "seeding ${target}..." >&2
+  seed_started=$(now_ms)
+  seed="$(node seed.mjs)"
+  seed_ms=$(( $(now_ms) - seed_started ))
+fi
 post="$(node -e 'console.log(JSON.parse(process.argv[1]).post)' "$seed")"
 token="$(node -e 'console.log(JSON.parse(process.argv[1]).token)' "$seed")"
 
@@ -94,6 +141,22 @@ scenarios=(
   "sign in (bcrypt)|8|POST|${BENCH_URL}/api/collections/bench_users/auth-with-password|{\"identity\":\"bench@example.com\",\"password\":\"bench-password-1\"}|"
 )
 
+if [ "$target" = postgrest ]; then
+  pg="${BENCH_URL}"
+  # (no sign-in, expand or health on the API port: see bench/README.md)
+  scenarios=(
+    "health|32|GET|http://127.0.0.1:$((port + 2))/live||"
+    "view one record|32|GET|${pg}/posts?id=eq.${post}||"
+    "view one record (1 client)|1|GET|${pg}/posts?id=eq.${post}||"
+    "list 30|32|GET|${pg}/posts?limit=30||"
+    "list 30, sorted|32|GET|${pg}/posts?limit=30&order=views.desc||"
+    "list 30, filtered|32|GET|${pg}/posts?limit=30&views=gt.500&published=is.true||"
+    "create record|32|POST|${pg}/writes|{\"title\":\"bench\",\"body\":\"text\",\"views\":5,\"published\":true}|Prefer: return=minimal"
+  )
+fi
+
+idle_rss=$(rss_kb "$server" VmRSS)
+seed_peak_rss=$(rss_kb "$server" VmHWM)   # the high-water mark so far: seeding included
 raw="results/${name}.raw.jsonl"
 : > "$raw"
 for run in $(seq 1 "$runs"); do
@@ -106,7 +169,7 @@ for run in $(seq 1 "$runs"); do
     taskset -c "$load_cpus" "$hey" -z "$warmup" "${args[@]}" "$url" > /dev/null
     report="$(taskset -c "$load_cpus" "$hey" -z "$duration" "${args[@]}" "$url")"
     rps="$(awk '/Requests\/sec:/ {print $2}' <<< "$report")"
-    pct() { awk -v p="$1%" '$1 == p && $2 == "in" {printf "%.2f", $3 * 1000; found = 1} END {if (!found) printf "null"}' <<< "$report"; }
+    pct() { awk -v p="$1" '$1 ~ ("^" p "%+$") && $2 == "in" {printf "%.2f", $3 * 1000; found = 1} END {if (!found) printf "null"}' <<< "$report"; }
     ok="$(awk '/\[2[0-9][0-9]\]/ {n += $2} END {print n + 0}' <<< "$report")"
     bad="$(awk '/\[[1345][0-9][0-9]\]/ {n += $2} END {print n + 0}' <<< "$report")"
     errors="$(awk '/Error distribution:/ {e = 1; next} e && /\[[0-9]+\]/ {gsub(/[][]/, "", $1); n += $1} END {print n + 0}' <<< "$report")"
@@ -114,5 +177,8 @@ for run in $(seq 1 "$runs"); do
       "$label" "$conc" "${rps:-0}" "$(pct 50)" "$(pct 90)" "$(pct 99)" "$ok" "$((bad + ${errors:-0}))" >> "$raw"
   done
 done
-node aggregate.mjs "$raw" "$name" "$version" "$duration" "$(nproc)" "${BENCH_NOTE:-}" > "results/${name}.json"
+peak_rss=$(rss_kb "$server" VmHWM)
+footprint=$(printf '{"binaryBytes":%s,"startupMs":%s,"seedMs":%s,"idleRssKb":%s,"seedPeakRssKb":%s,"peakRssKb":%s}' \
+  "$(stat -c %s "$bin")" "$startup_ms" "${seed_ms:-0}" "${idle_rss:-0}" "${seed_peak_rss:-0}" "${peak_rss:-0}")
+node aggregate.mjs "$raw" "$name" "$version" "$duration" "$(nproc)" "${BENCH_NOTE:-}" "$footprint" > "results/${name}.json"
 echo "wrote results/${name}.json" >&2

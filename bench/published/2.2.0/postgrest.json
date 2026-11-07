@@ -1,0 +1,116 @@
+{
+ "name": "postgrest",
+ "version": "postgrest 16.5",
+ "duration": "10s",
+ "cpus": "4",
+ "runs": 3,
+ "note": "",
+ "footprint": {
+  "binaryBytes": 20506832,
+  "startupMs": 132,
+  "seedMs": 5507,
+  "idleRssKb": 15448,
+  "seedPeakRssKb": 15448,
+  "peakRssKb": 101580
+ },
+ "scenarios": [
+  {
+   "name": "health",
+   "concurrency": 32,
+   "rps": 36266.8101,
+   "p50": 0.9,
+   "p90": 1.5,
+   "p99": 2.2,
+   "failed": 0,
+   "runs": [
+    35601.5735,
+    37322.1671,
+    36266.8101
+   ]
+  },
+  {
+   "name": "view one record",
+   "concurrency": 32,
+   "rps": 5196.5422,
+   "p50": 6,
+   "p90": 8.2,
+   "p99": 14.4,
+   "failed": 0,
+   "runs": [
+    5287.5269,
+    5196.5422,
+    5090.6911
+   ]
+  },
+  {
+   "name": "view one record (1 client)",
+   "concurrency": 1,
+   "rps": 1725.9213,
+   "p50": 0.5,
+   "p90": 0.8,
+   "p99": 1.2,
+   "failed": 0,
+   "runs": [
+    1725.9213,
+    1748.6953,
+    1655.0785
+   ]
+  },
+  {
+   "name": "list 30",
+   "concurrency": 32,
+   "rps": 3733.4494,
+   "p50": 8.4,
+   "p90": 10.5,
+   "p99": 13.7,
+   "failed": 0,
+   "runs": [
+    3914.509,
+    3733.4494,
+    3640.2046
+   ]
+  },
+  {
+   "name": "list 30, sorted",
+   "concurrency": 32,
+   "rps": 3345.0263,
+   "p50": 9.4,
+   "p90": 11.7,
+   "p99": 14.4,
+   "failed": 0,
+   "runs": [
+    3345.0263,
+    3443.0982,
+    3286.7262
+   ]
+  },
+  {
+   "name": "list 30, filtered",
+   "concurrency": 32,
+   "rps": 3315.258,
+   "p50": 9.5,
+   "p90": 11.9,
+   "p99": 15.4,
+   "failed": 0,
+   "runs": [
+    3243.352,
+    3315.258,
+    3324.1071
+   ]
+  },
+  {
+   "name": "create record",
+   "concurrency": 32,
+   "rps": 3828.3208,
+   "p50": 8.1,
+   "p90": 10.5,
+   "p99": 16.2,
+   "failed": 0,
+   "runs": [
+    3856.2445,
+    3828.3208,
+    3785.0489
+   ]
+  }
+ ]
+}

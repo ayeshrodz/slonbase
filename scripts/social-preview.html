@@ -1,19 +1,30 @@
 <!doctype html><meta charset="utf-8">
 <!-- The social preview (docs/assets/social-preview.png): open at 1280×640 and take a screenshot,
-     e.g. with Playwright: page.setViewportSize({width: 1280, height: 640}). -->
+     e.g. with Playwright: page.setViewportSize({width: 1280, height: 640}). Colours are the
+     dashboard's (ui/app/app.css): a grey page, white cards, hairlines and the sage accent. -->
 <style>
 @font-face { font-family: U; font-weight: 100 800; src: url(../ui/app/fonts/ibm-plex-sans-latin.woff2) format("woff2"); }
-html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; background: #f5f5f3; font-family: U; color: #1b1b1e; }
-.left { position: absolute; left: 86px; top: 104px; }
-.brand { display: flex; align-items: center; gap: 30px; }
-.brand img { width: 78px; height: 78px; }
-.brand span { font-size: 86px; font-weight: 700; letter-spacing: -0.025em; line-height: 1; }
-.brand b { font-weight: 450; color: #8a8a92; }
-h1 { margin: 56px 0 0; font-size: 50px; line-height: 1.08; font-weight: 700; letter-spacing: -0.02em; }
-h1 em { font-style: normal; color: #336791; }
-.chips { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 38px; width: 520px; }
-.chips span { border: 1px solid #dcdcd6; background: #fff; border-radius: 999px; padding: 8px 18px; font-size: 21px; color: #3a3a40; }
-.shot { position: absolute; left: 660px; top: 70px; width: 760px; border-radius: 14px; border: 1px solid #e0e0da; box-shadow: 0 30px 80px -30px rgba(20,20,30,.35), 0 2px 8px rgba(20,20,30,.06); overflow: hidden; background: #fff; }
+@font-face { font-family: M; font-weight: 100 800; src: url(../ui/app/fonts/jetbrains-mono-latin.woff2) format("woff2"); }
+html, body { margin: 0; width: 1280px; height: 640px; overflow: hidden; background: #eff2f5; font-family: U; color: #1f2328; }
+body::before { content: ""; position: absolute; inset: 0; background:
+  linear-gradient(#e1e6eb 1px, transparent 1px) 0 0 / 56px 56px,
+  linear-gradient(90deg, #e1e6eb 1px, transparent 1px) 0 0 / 56px 56px;
+  -webkit-mask-image: radial-gradient(60% 80% at 30% 20%, #000 10%, transparent 80%); }
+body::after { content: ""; position: absolute; left: -160px; top: -200px; width: 640px; height: 640px; border-radius: 50%; background: radial-gradient(circle, rgba(79,122,108,.22), transparent 70%); }
+.left { position: absolute; left: 76px; top: 92px; z-index: 2; }
+.brand { display: flex; align-items: center; gap: 26px; }
+.brand img { width: 72px; height: 72px; }
+.brand span { font-size: 80px; font-weight: 700; letter-spacing: -0.03em; line-height: 1; }
+.brand b { font-weight: 700; color: #4f7a6c; }
+h1 { margin: 52px 0 0; font-size: 50px; line-height: 1.06; font-weight: 700; letter-spacing: -0.03em; }
+h1 em { font-style: normal; color: #5f7593; }
+.chips { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 36px; width: 500px; }
+.chips span { border: 1px solid #d1d9e0; background: #fff; border-radius: 6px; padding: 7px 14px; font: 600 15px M; letter-spacing: .04em; text-transform: uppercase; color: #31373d; }
+.chips span:first-child { background: #4f7a6c; border-color: #4f7a6c; color: #fff; }
+.shot { position: absolute; left: 640px; top: 76px; width: 780px; border-radius: 12px; border: 1px solid #d1d9e0; box-shadow: 0 40px 90px -30px rgba(31,35,40,.45), 0 2px 8px rgba(31,35,40,.08); overflow: hidden; background: #fff; z-index: 1; }
+.shot .bar { height: 30px; background: #e8ecf0; border-bottom: 1px solid #e1e6eb; display: flex; align-items: center; gap: 6px; padding: 0 12px; }
+.shot .bar i { width: 10px; height: 10px; border-radius: 50%; background: #d1d9e0; }
+.shot .bar i:nth-child(1) { background: #ec6a5e; } .shot .bar i:nth-child(2) { background: #f4be4f; } .shot .bar i:nth-child(3) { background: #61c554; }
 .shot img { display: block; width: 100%; }
 </style>
 <div class="left">
@@ -21,4 +32,4 @@ h1 em { font-style: normal; color: #336791; }
   <h1>Your whole backend,<br>built on <em>PostgreSQL.</em></h1>
   <div class="chips"><span>Rust</span><span>PostgreSQL 14+</span><span>Realtime</span><span>Auth</span><span>Files &amp; S3</span><span>Hooks</span></div>
 </div>
-<div class="shot"><img src="../docs/assets/screenshots/records-light.png"></div>
+<div class="shot"><div class="bar"><i></i><i></i><i></i></div><img src="../docs/assets/screenshots/projects-light.png"></div>

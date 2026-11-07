@@ -1,0 +1,1 @@
+a 4-vCPU cloud VM (Intel Xeon @ 2.10GHz, 15 GB, Ubuntu 24.04)

@@ -1,0 +1,21 @@
+{"name":"health","concurrency":32,"rps":35601.5735,"p50":0.90,"p90":1.50,"p99":2.30,"ok":356089,"failed":0}
+{"name":"view one record","concurrency":32,"rps":5287.5269,"p50":5.70,"p90":9.10,"p99":16.20,"ok":52917,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":1725.9213,"p50":0.50,"p90":0.80,"p99":1.30,"ok":17262,"failed":0}
+{"name":"list 30","concurrency":32,"rps":3914.5090,"p50":8.10,"p90":9.90,"p99":12.40,"ok":39175,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":3345.0263,"p50":9.40,"p90":11.70,"p99":14.80,"ok":33476,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":3243.3520,"p50":9.70,"p90":12.00,"p99":15.30,"ok":32462,"failed":0}
+{"name":"create record","concurrency":32,"rps":3856.2445,"p50":8.10,"p90":10.10,"p99":15.90,"ok":38595,"failed":0}
+{"name":"health","concurrency":32,"rps":37322.1671,"p50":0.80,"p90":1.50,"p99":1.90,"ok":373296,"failed":0}
+{"name":"view one record","concurrency":32,"rps":5196.5422,"p50":6.00,"p90":7.90,"p99":14.40,"ok":52004,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":1748.6953,"p50":0.50,"p90":0.80,"p99":1.10,"ok":17490,"failed":0}
+{"name":"list 30","concurrency":32,"rps":3733.4494,"p50":8.40,"p90":10.50,"p99":14.60,"ok":37382,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":3443.0982,"p50":9.20,"p90":11.20,"p99":14.30,"ok":34467,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":3315.2580,"p50":9.50,"p90":11.90,"p99":15.90,"ok":33186,"failed":0}
+{"name":"create record","concurrency":32,"rps":3828.3208,"p50":8.10,"p90":10.50,"p99":16.20,"ok":38306,"failed":0}
+{"name":"health","concurrency":32,"rps":36266.8101,"p50":0.90,"p90":1.50,"p99":2.20,"ok":362742,"failed":0}
+{"name":"view one record","concurrency":32,"rps":5090.6911,"p50":6.10,"p90":8.20,"p99":13.90,"ok":50937,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":1655.0785,"p50":0.60,"p90":0.80,"p99":1.20,"ok":16553,"failed":0}
+{"name":"list 30","concurrency":32,"rps":3640.2046,"p50":8.60,"p90":10.80,"p99":13.70,"ok":36438,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":3286.7262,"p50":9.60,"p90":11.80,"p99":14.40,"ok":32907,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":3324.1071,"p50":9.50,"p90":11.70,"p99":15.40,"ok":33270,"failed":0}
+{"name":"create record","concurrency":32,"rps":3785.0489,"p50":8.20,"p90":10.50,"p99":16.20,"ok":37894,"failed":0}

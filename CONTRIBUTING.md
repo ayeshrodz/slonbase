@@ -81,6 +81,11 @@ when the page or the docs change on `main`. CI doesn't build packages or the sou
 every push: the Release does, before it publishes anything, and the **Docker** workflow builds
 the image from source only when its inputs change.
 
+The screenshots in `docs/assets/screenshots/` and the tour video on the page come from
+`scripts/demo/run.sh` (it seeds a demo installation, takes the screenshots and records and encodes
+the tour; see the script's header for what it needs). The benchmark behind the page's numbers is in
+`bench/`.
+
 The documentation site is built from `docs/*.md` and `CHANGELOG.md` by
 `scripts/build-docs.mjs` (Node, no dependencies). To preview it, build it next to the page and
 serve the folder:

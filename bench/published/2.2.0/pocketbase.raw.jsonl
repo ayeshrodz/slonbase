@@ -1,0 +1,30 @@
+{"name":"health","concurrency":32,"rps":32270.3199,"p50":0.70,"p90":1.60,"p99":6.40,"ok":322796,"failed":0}
+{"name":"view one record","concurrency":32,"rps":11823.6117,"p50":1.40,"p90":5.80,"p99":22.20,"ok":118299,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":3188.3718,"p50":0.20,"p90":0.50,"p99":1.00,"ok":31888,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1609.5154,"p50":16.70,"p90":37.90,"p99":65.00,"ok":16128,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1501.4706,"p50":18.20,"p90":39.20,"p99":70.60,"ok":15041,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":99.1715,"p50":324.50,"p90":363.40,"p99":439.40,"ok":1008,"failed":0}
+{"name":"list 30, expand author","concurrency":32,"rps":1065.4550,"p50":25.70,"p90":54.40,"p99":93.30,"ok":10701,"failed":0}
+{"name":"list 30, signed in","concurrency":32,"rps":1447.0321,"p50":19.10,"p90":39.30,"p99":68.20,"ok":14507,"failed":0}
+{"name":"create record","concurrency":32,"rps":4051.1689,"p50":4.80,"p90":19.40,"p99":40.90,"ok":40534,"failed":0}
+{"name":"sign in (bcrypt)","concurrency":8,"rps":39.7713,"p50":199.90,"p90":243.60,"p99":285.80,"ok":403,"failed":0}
+{"name":"health","concurrency":32,"rps":31884.1515,"p50":0.70,"p90":1.70,"p99":6.60,"ok":318925,"failed":0}
+{"name":"view one record","concurrency":32,"rps":11363.9838,"p50":1.50,"p90":5.80,"p99":23.40,"ok":113681,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":3129.4545,"p50":0.20,"p90":0.50,"p99":1.00,"ok":31301,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1576.6899,"p50":16.90,"p90":38.90,"p99":67.50,"ok":15803,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1578.0643,"p50":17.20,"p90":37.00,"p99":68.20,"ok":15843,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":105.0947,"p50":302.10,"p90":333.60,"p99":404.40,"ok":1073,"failed":0}
+{"name":"list 30, expand author","concurrency":32,"rps":1062.4375,"p50":24.70,"p90":56.30,"p99":100.90,"ok":10656,"failed":0}
+{"name":"list 30, signed in","concurrency":32,"rps":1533.9728,"p50":17.70,"p90":38.30,"p99":67.30,"ok":15369,"failed":0}
+{"name":"create record","concurrency":32,"rps":4090.8117,"p50":4.60,"p90":18.80,"p99":45.50,"ok":40961,"failed":0}
+{"name":"sign in (bcrypt)","concurrency":8,"rps":33.3810,"p50":236.10,"p90":297.70,"p99":381.40,"ok":339,"failed":0}
+{"name":"health","concurrency":32,"rps":34549.2439,"p50":0.70,"p90":1.40,"p99":5.90,"ok":345637,"failed":0}
+{"name":"view one record","concurrency":32,"rps":11483.9272,"p50":1.40,"p90":5.50,"p99":23.60,"ok":114930,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":3225.0089,"p50":0.20,"p90":0.40,"p99":1.10,"ok":32257,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1681.5027,"p50":15.50,"p90":37.00,"p99":67.10,"ok":16853,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1643.9817,"p50":16.50,"p90":36.50,"p99":62.60,"ok":16487,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":106.6150,"p50":294.00,"p90":327.00,"p99":460.40,"ok":1086,"failed":0}
+{"name":"list 30, expand author","concurrency":32,"rps":1102.1439,"p50":24.30,"p90":54.10,"p99":91.40,"ok":11044,"failed":0}
+{"name":"list 30, signed in","concurrency":32,"rps":1575.7579,"p50":17.40,"p90":37.50,"p99":62.80,"ok":15789,"failed":0}
+{"name":"create record","concurrency":32,"rps":3956.0145,"p50":4.60,"p90":19.80,"p99":47.60,"ok":39592,"failed":0}
+{"name":"sign in (bcrypt)","concurrency":8,"rps":34.3426,"p50":225.80,"p90":293.10,"p99":388.70,"ok":349,"failed":0}

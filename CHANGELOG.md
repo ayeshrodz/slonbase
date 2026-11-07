@@ -8,6 +8,18 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **A new look for <https://slonbase.com>,** built from the dashboard's own colours, type and
+  components, with a screencast of the real dashboard, every dashboard screen (the command
+  center for projects, the SQL console, settings and the email designer included) and the
+  benchmark numbers of 2.2.
+- **Benchmarks of 2.2.0** against PocketBase 0.40.6 and PostgREST 16.5, with memory, binary size
+  and start-up time (`bench/`; the runs are kept in `bench/published/2.2.0`). The binary is 22 MB
+  on disk (10 MB to download), not the 8 MB the page said.
+- The dashboard screenshots are taken, and the tour recorded, by `scripts/demo/run.sh`, from a
+  seeded demo installation.
+
 ## [2.2.0] - 2026-11-07
 
 **slonbase.com, and an installation that starts from a bare server.**

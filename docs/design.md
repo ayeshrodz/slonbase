@@ -1191,7 +1191,7 @@ project's, in one transaction each.
   writes, rules, the unique index, expands, the view, cascades, realtime and backups work, and
   nothing is logged as an error once it's up. CI runs it from 0.1.0 (every system migration)
   and from the newest older release.
-- Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase and PocketBase,
+- Benchmarks (`bench/`): the same seeded data and HTTP workloads on slonbase, PocketBase and PostgREST,
   with the server and the load generator on separate CPUs; results and how to read them are in
   [bench/README.md](../bench/README.md).
 - Soak tests (`soak/`): sustained mixed traffic (reads, writes, uploads, token refreshes and
