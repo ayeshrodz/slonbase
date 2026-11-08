@@ -8,6 +8,17 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **A new set of controls in the dashboard.** Buttons, fields, selects, switches, segmented
+  controls and chips are rounder and softer, with a hairline ring, a faint sheen and a short press.
+  Checkboxes and radios use the tick of the project page: a soft accent fill with the mark drawn in,
+  in the table's select-all, the export picker and the role chooser alike. Light and dark use the
+  same shapes, and an installation's own accent colour still drives them.
+- **Fixed on Settings → Login screen:** the Background control was narrower than its buttons, so
+  "Image" stuck out of it; and the preview of the centered and minimal layouts showed a tiny card
+  on a large empty background, and now draws the card closer.
+
 - CI now runs the test suite on PostgreSQL 18 too (14 to 18), so "PostgreSQL 14 or newer" is
   tested on every major version, not only up to 17.
 

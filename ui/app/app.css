@@ -104,6 +104,10 @@
   --r-lg: 8px;
   --r-xl: 10px;
   --r-pill: 999px;
+  /* controls (buttons, fields, switches, segmented) are rounder than the surfaces they sit on */
+  --r-ctl: 10px;
+  --r-ctl-sm: 8px;
+  --r-ctl-lg: 12px;
 
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -523,74 +527,84 @@ table,
 
 /* ------------------------------------------------------------------ buttons */
 
-/* Buttons: flat and exact. A hairline, a 1px inner highlight on solid ones, a colour change on
-   hover and a darker press; no lifting, scaling or sheen. Labels in Plex at 500. */
+/* Buttons: soft, rounded and tactile. A hairline ring, a faint sheen from the top, a small shadow
+   in the button's own colour, and a press that sinks 1px. One set of variables per kind, so the
+   themes and an installation's accent only change colours. */
 .btn {
   --btn-bg: var(--surface);
   --btn-fg: var(--ink);
   --btn-line: var(--line-2);
-  --btn-hover: color-mix(in srgb, var(--btn-bg), var(--ink) 5%);
-  --btn-press: color-mix(in srgb, var(--btn-bg), var(--ink) 9%);
+  --btn-hover: color-mix(in srgb, var(--btn-bg), var(--ink) 4%);
+  --btn-press: color-mix(in srgb, var(--btn-bg), var(--ink) 8%);
+  --btn-sheen: rgba(255, 255, 255, 0.6);
+  --btn-shadow: rgba(31, 35, 40, 0.07);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: var(--r-sm);
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--btn-line);
-  background: var(--btn-bg);
+  background-color: var(--btn-bg);
+  background-image: linear-gradient(180deg, var(--btn-sheen), transparent 70%);
   color: var(--btn-fg);
-  box-shadow: 0 1px 0 rgba(31, 35, 40, 0.04);
+  box-shadow: 0 1px 2px var(--btn-shadow);
   font-family: var(--font);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-semibold);
   font-size: var(--text-sm);
-  letter-spacing: -0.003em;
+  letter-spacing: -0.004em;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
   position: relative;
-  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med) var(--ease), transform var(--t-fast);
 }
 .btn .icon {
-  opacity: 0.85;
+  opacity: 0.8;
 }
 .btn:hover {
-  background: var(--btn-hover);
+  background-color: var(--btn-hover);
   text-decoration: none;
 }
 .btn:active {
-  background: var(--btn-press);
+  background-color: var(--btn-press);
+  transform: translateY(1px);
+  box-shadow: none;
 }
 .btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
-.btn[disabled] {
+.btn[disabled],
+.btn.disabled {
   opacity: 0.5;
   pointer-events: none;
 }
 :root[data-theme="dark"] .btn {
   --btn-bg: #212830;
-  --btn-hover: #262c36;
-  --btn-press: #2a313c;
-  box-shadow: none;
+  --btn-hover: #2a313b;
+  --btn-press: #303845;
+  --btn-sheen: rgba(255, 255, 255, 0.05);
+  --btn-shadow: rgba(0, 0, 0, 0.3);
 }
 .btn.primary {
   --btn-bg: var(--primary);
   --btn-fg: var(--primary-ink);
-  --btn-line: color-mix(in srgb, var(--primary), black 14%);
-  --btn-hover: color-mix(in srgb, var(--primary), black 7%);
-  --btn-press: color-mix(in srgb, var(--primary), black 13%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 0 rgba(31, 35, 40, 0.06);
+  --btn-line: color-mix(in srgb, var(--primary), black 16%);
+  --btn-hover: color-mix(in srgb, var(--primary), white 9%);
+  --btn-press: color-mix(in srgb, var(--primary), black 8%);
+  --btn-sheen: rgba(255, 255, 255, 0.16);
+  --btn-shadow: color-mix(in srgb, var(--primary), transparent 55%);
 }
 :root[data-theme="dark"] .btn.primary {
   --btn-bg: var(--primary);
-  --btn-line: color-mix(in srgb, var(--accent), transparent 60%);
-  --btn-hover: color-mix(in srgb, var(--primary), var(--accent) 10%);
-  --btn-press: color-mix(in srgb, var(--primary), var(--accent) 16%);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  --btn-line: color-mix(in srgb, var(--accent), transparent 55%);
+  --btn-hover: color-mix(in srgb, var(--primary), var(--accent) 14%);
+  --btn-press: color-mix(in srgb, var(--primary), var(--accent) 6%);
+  --btn-sheen: rgba(255, 255, 255, 0.08);
+  --btn-shadow: rgba(0, 0, 0, 0.35);
 }
 .btn.primary .icon {
   opacity: 1;
@@ -600,28 +614,34 @@ table,
   --btn-line: transparent;
   --btn-hover: var(--hover);
   --btn-press: var(--press);
-  box-shadow: none;
+  --btn-sheen: transparent;
+  --btn-shadow: transparent;
   color: var(--ink-2);
 }
 :root[data-theme="dark"] .btn.ghost {
   --btn-bg: transparent;
   --btn-hover: var(--hover);
   --btn-press: var(--press);
+  --btn-sheen: transparent;
+  --btn-shadow: transparent;
 }
 .btn.danger {
   --btn-bg: var(--danger);
   --btn-fg: #fff;
-  --btn-line: color-mix(in srgb, var(--danger), black 14%);
-  --btn-hover: color-mix(in srgb, var(--danger), black 8%);
-  --btn-press: color-mix(in srgb, var(--danger), black 14%);
+  --btn-line: color-mix(in srgb, var(--danger), black 16%);
+  --btn-hover: color-mix(in srgb, var(--danger), white 8%);
+  --btn-press: color-mix(in srgb, var(--danger), black 10%);
+  --btn-sheen: rgba(255, 255, 255, 0.14);
+  --btn-shadow: color-mix(in srgb, var(--danger), transparent 60%);
 }
 :root[data-theme="dark"] .btn.danger {
-  /* GitHub's dark danger: the colour on its own text, solid only on hover */
+  /* the colour on its own text, solid only on hover */
   --btn-bg: #212830;
   --btn-fg: var(--danger);
   --btn-line: var(--line-2);
   --btn-hover: #b62324;
   --btn-press: #a40e26;
+  --btn-sheen: rgba(255, 255, 255, 0.04);
 }
 :root[data-theme="dark"] .btn.danger:hover {
   color: #fff;
@@ -632,44 +652,49 @@ table,
   --btn-line: transparent;
   --btn-hover: var(--danger-soft);
   --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
-  box-shadow: none;
+  --btn-sheen: transparent;
+  --btn-shadow: transparent;
   color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 :root[data-theme="dark"] .btn.danger-ghost {
   --btn-bg: transparent;
   --btn-hover: var(--danger-soft);
   --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
+  --btn-sheen: transparent;
+  --btn-shadow: transparent;
 }
 .btn.sm {
-  height: 28px;
-  padding: 0 10px;
+  height: 30px;
+  padding: 0 11px;
   font-size: var(--text-sm);
-  gap: 5px;
+  gap: 6px;
+  border-radius: var(--r-ctl-sm);
 }
 .btn.xs {
-  height: 24px;
-  padding: 0 8px;
+  height: 26px;
+  padding: 0 9px;
   font-size: var(--text-xs);
-  gap: 4px;
-  border-radius: var(--r-xs);
+  gap: 5px;
+  border-radius: 7px;
 }
 .btn.lg {
-  height: 38px;
-  padding: 0 16px;
+  height: 42px;
+  padding: 0 20px;
   font-size: var(--text-base);
+  border-radius: var(--r-ctl-lg);
 }
 .btn.block {
   width: 100%;
 }
 .btn.icon-only {
-  width: 32px;
+  width: 34px;
   padding: 0;
 }
 .btn.sm.icon-only {
-  width: 28px;
+  width: 30px;
 }
 .btn.xs.icon-only {
-  width: 24px;
+  width: 26px;
 }
 .btn .spinner {
   position: absolute;
@@ -690,14 +715,14 @@ table,
 .icon-btn {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: var(--r-sm);
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-ctl-sm);
   border: 0;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
-  transition: background-color var(--t-fast), color var(--t-fast);
+  transition: background-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med) var(--ease);
 }
 .icon-btn:hover {
   background: var(--hover);
@@ -707,12 +732,13 @@ table,
   background: var(--press);
 }
 .icon-btn:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .icon-btn.sm {
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
 }
 
 /* ------------------------------------------------------------------ forms */
@@ -746,14 +772,15 @@ table,
 
 .input {
   width: 100%;
-  min-height: 34px;
-  padding: 7px 10px;
-  border-radius: var(--r-sm);
+  min-height: 36px;
+  padding: 7px 12px;
+  border-radius: var(--r-ctl);
   border: 1px solid var(--line-2);
   background: var(--surface);
   color: var(--ink);
   outline: none;
-  transition: border-color var(--t-fast), box-shadow var(--t-med) var(--ease);
+  box-shadow: inset 0 1px 2px rgba(31, 35, 40, 0.05);
+  transition: border-color var(--t-fast), box-shadow var(--t-med) var(--ease), background-color var(--t-fast);
 }
 .input::placeholder {
   color: var(--faint);
@@ -765,6 +792,9 @@ table,
 .input:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ring);
+}
+:root[data-theme="dark"] .input {
+  box-shadow: none;
 }
 .input.invalid {
   border-color: var(--danger);
@@ -790,16 +820,17 @@ textarea.input.code,
 }
 select.input {
   appearance: none;
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9.5 6 6 6-6'/%3E%3C/svg%3E");
+  padding-right: 34px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9.5 6 6 6-6'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 10px center;
+  background-position: right 12px center;
 }
 
 .switch {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   cursor: pointer;
   user-select: none;
 }
@@ -810,103 +841,194 @@ select.input {
 }
 .switch .track {
   position: relative;
-  width: 32px;
-  height: 18px;
+  width: 38px;
+  height: 22px;
   border-radius: var(--r-pill);
-  background: var(--line-2);
-  transition: background var(--t-med);
+  background: color-mix(in srgb, var(--line-2), var(--ink) 14%);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
+  transition: background var(--t-med), box-shadow var(--t-med) var(--ease);
   flex: none;
 }
 .switch .knob {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: 14px;
-  height: 14px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
-  transition: transform var(--t-med) var(--ease-out);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
+  transition: transform var(--t-med) var(--ease-out), width var(--t-fast);
+}
+.switch:active .knob {
+  width: 22px;
 }
 .switch input:checked + .track {
   background: var(--accent);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 .switch input:checked + .track .knob {
-  transform: translateX(14px);
+  transform: translateX(16px);
+}
+.switch:active input:checked + .track .knob {
+  transform: translateX(12px);
 }
 .switch input:focus-visible + .track {
   box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.switch input:disabled + .track {
+  opacity: 0.5;
 }
 .switch .switch-label {
   font-weight: var(--w-book);
 }
 
+/* Checkboxes and radios: the tick of the project page, as a control. Round-cornered, a soft
+   accent fill when on, and the mark drawn in with a short pop. Native inputs and the custom
+   .check (the table's select-all) share it. */
+input[type="checkbox"]:not([role="switch"]),
+input[type="radio"],
 .check {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: var(--r-xs);
-  border: 1px solid var(--line-2);
-  background: var(--surface);
-  cursor: pointer;
-  transition: background var(--t-fast), border-color var(--t-fast);
-  color: #fff;
+  --box: 18px;
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-grid;
+  place-content: center;
   flex: none;
+  width: var(--box);
+  height: var(--box);
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid color-mix(in srgb, var(--line-2), var(--ink) 22%);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent-strong);
+  cursor: pointer;
+  transition: background-color var(--t-fast), border-color var(--t-fast), box-shadow var(--t-med) var(--ease);
 }
+input[type="radio"] {
+  border-radius: 50%;
+}
+input[type="checkbox"]:not([role="switch"]):hover,
+input[type="radio"]:hover,
 .check:hover {
-  border-color: var(--ink-3);
+  border-color: var(--accent);
+  background: var(--accent-soft);
 }
+input[type="checkbox"]:not([role="switch"]):checked,
+input[type="checkbox"]:not([role="switch"]):indeterminate,
+input[type="radio"]:checked,
 .check.on,
 .check.partial {
-  background: var(--accent);
+  background: var(--accent-soft);
   border-color: var(--accent);
 }
+input[type="checkbox"]:not([role="switch"])::after,
+input[type="radio"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  background: currentColor;
+  transform: scale(0);
+  transition: transform var(--t-med) var(--ease-out);
+  -webkit-mask: var(--mark) center / contain no-repeat;
+  mask: var(--mark) center / contain no-repeat;
+  --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+}
+input[type="checkbox"]:not([role="switch"]):indeterminate::after {
+  --mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='3.4' stroke-linecap='round'%3E%3Cpath d='M6 12h12'/%3E%3C/svg%3E");
+}
+input[type="radio"]::after {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  -webkit-mask: none;
+  mask: none;
+}
+input[type="checkbox"]:not([role="switch"]):checked::after,
+input[type="checkbox"]:not([role="switch"]):indeterminate::after,
+input[type="radio"]:checked::after {
+  transform: scale(1);
+}
+input[type="checkbox"]:not([role="switch"]):focus-visible,
+input[type="radio"]:focus-visible,
+.check:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+input[type="checkbox"]:not([role="switch"]):disabled,
+input[type="radio"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 .check .icon {
-  stroke-width: 3;
+  stroke-width: 3.4;
   opacity: 0;
-  transition: opacity var(--t-fast);
+  transform: scale(0.4);
+  transition: opacity var(--t-fast), transform var(--t-med) var(--ease-out);
 }
 .check.on .icon,
 .check.partial .icon {
   opacity: 1;
+  transform: none;
 }
 
 .seg {
   display: inline-flex;
-  padding: 2px;
+  padding: 3px;
   gap: 2px;
   background: var(--canvas-2);
   border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  border-radius: var(--r-ctl);
+  box-shadow: inset 0 1px 2px rgba(31, 35, 40, 0.05);
   position: relative;
+  /* as wide as its buttons, never narrower (a narrow column used to leave the last one outside) */
+  width: max-content;
+  max-width: 100%;
+}
+.seg > button {
+  flex: none;
+  white-space: nowrap;
+}
+:root[data-theme="dark"] .seg {
+  box-shadow: none;
 }
 .seg button {
   position: relative;
   z-index: 1;
   border: 0;
   background: transparent;
-  padding: 4px 11px;
-  border-radius: var(--r-sm);
+  padding: 5px 13px;
+  border-radius: var(--r-ctl-sm);
   font-size: var(--text-sm);
-  font-weight: var(--w-medium);
+  font-weight: var(--w-semibold);
   color: var(--muted);
   cursor: pointer;
   transition: color var(--t-med);
 }
+.seg button:hover {
+  color: var(--ink-2);
+}
 .seg button.on {
   color: var(--ink);
+}
+.seg button:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-ring);
 }
 .seg .seg-thumb {
   position: absolute;
   z-index: 0;
-  top: 2px;
-  bottom: 2px;
-  border-radius: var(--r-sm);
+  top: 3px;
+  bottom: 3px;
+  border-radius: var(--r-ctl-sm);
   background: var(--surface);
-  box-shadow: var(--shadow-1), 0 0 0 1px var(--line);
+  box-shadow: 0 1px 3px rgba(31, 35, 40, 0.14), 0 0 0 1px var(--line);
   transition: left 420ms var(--ease-glide), width 420ms var(--ease-glide);
+}
+:root[data-theme="dark"] .seg .seg-thumb {
+  background: #2a313b;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--line-2);
 }
 
 .chips {
@@ -918,9 +1040,9 @@ select.input {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 22px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--ink-2);
@@ -5526,11 +5648,12 @@ a.btn:hover {
   transform-origin: 0 0;
   pointer-events: none;
 }
+/* a form on its own is drawn closer: the card is most of what there is to see */
 .login-preview.layout-minimal .login-preview-scale,
 .login-preview.layout-centered .login-preview-scale {
-  width: 1100px;
-  height: 756px;
-  transform: scale(calc(var(--preview-scale, 0.42) * 1.1636));
+  width: 700px;
+  height: 481px;
+  transform: scale(calc(var(--preview-scale, 0.42) * 1.8286));
 }
 .preview-input {
   display: flex;
@@ -5665,12 +5788,17 @@ table.table tr.on td {
 .pick {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   cursor: pointer;
   min-width: 0;
+  transition: border-color var(--t-fast), background-color var(--t-fast), box-shadow var(--t-med) var(--ease);
+}
+.pick:hover {
+  border-color: var(--accent);
 }
 .pick > .ellipsis {
   flex: 1;
@@ -5678,6 +5806,12 @@ table.table tr.on td {
 .pick.on {
   border-color: var(--accent);
   background: var(--accent-soft);
+}
+.pick:focus-within {
+  box-shadow: 0 0 0 3px var(--accent-ring);
+}
+.pick input:focus-visible {
+  box-shadow: none;
 }
 .diff-line {
   display: flex;
@@ -5842,18 +5976,26 @@ table.table tr.on td {
   gap: 8px;
 }
 .role-option {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 2px 10px;
+  align-items: start;
+  padding: 11px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-ctl);
+  background: var(--surface);
   cursor: pointer;
+  transition: border-color var(--t-fast), background-color var(--t-fast), box-shadow var(--t-med) var(--ease);
+}
+.role-option:hover {
+  border-color: var(--accent);
 }
 .role-option input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
+  grid-row: 1 / span 2;
+  margin-top: 1px;
+}
+.role-option input:focus-visible {
+  box-shadow: none;
 }
 .role-option.on {
   border-color: var(--accent);
