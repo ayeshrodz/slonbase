@@ -32,17 +32,24 @@ curl -fsSL https://slonbase.com/install.sh | sudo sh
 ```
 
 (Prefer to read it first? `curl -fsSLO https://slonbase.com/install.sh`, look at it, then
-`sudo sh install.sh`. It is about 200 lines of shell.)
+`sudo sh install.sh`. It is about 250 lines of shell.)
+
+If it stops partway (a network failure, a typo in the email), run it again. The role it created
+and its generated password are kept in `/etc/slonbase/install.env` (readable by root only)
+until setup succeeds, and the rerun continues from there.
 
 It asks for the email of the first superuser, then:
 
-1. installs PostgreSQL from your distribution, if the machine has none, and checks it is 14 or
+1. adds the signed apt or dnf repository and installs the `slonbase` package, so that
+   `apt upgrade` and `dnf upgrade` keep it current (first, so that a failed download changes
+   nothing in PostgreSQL);
+2. installs PostgreSQL from your distribution, if the machine has none, and checks it is 14 or
    newer (on RHEL 8 and 9 it enables the `postgresql:16` module);
-2. creates a PostgreSQL role `slonbase` and an empty database `slonbase` owned by it, with a
+3. creates a PostgreSQL role `slonbase` and an empty database `slonbase` owned by it, with a
    generated password (it never changes an existing role's password or touches an existing
-   database; if the names are taken it stops and tells you how to choose others);
-3. adds the signed apt or dnf repository and installs the `slonbase` package, so that
-   `apt upgrade` and `dnf upgrade` keep it current;
+   database; if the names are taken it stops and tells you how to choose others). On Red Hat's
+   family it adds password logins on localhost for that role and database only, ahead of the
+   default `ident` lines, and keeps the original file as `pg_hba.conf.slonbase.bak`;
 4. creates the first superuser with a generated password, saves the database connection in
    `/etc/slonbase/config.toml` (readable only by the `slonbase` user) and starts the service;
 5. prints how to reach the dashboard, the email and the generated password (shown once).

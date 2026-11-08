@@ -6,7 +6,8 @@
 # It installs PostgreSQL when the machine has none, creates a role and a database for
 # slonbase, installs the signed slonbase package, and creates the first superuser. Every
 # step is printed. It never changes an existing role's password or touches an existing
-# database. Read it before running it: it is short, and the manual steps it automates are in
+# database. It can be run again after a failure: the role it created and its password are
+# kept in /etc/slonbase/install.env (root only) until setup succeeds, and a rerun reuses them. Read it before running it: it is short, and the manual steps it automates are in
 # https://slonbase.com/docs/installation/
 #
 # Settings (environment variables, all optional):
@@ -76,6 +77,29 @@ start_service() { # start_service <name>
     fi
 }
 
+# ------------------------------------------------------------------ slonbase
+# first, so that a failed download changes nothing in PostgreSQL
+say "Installing slonbase"
+if [ -n "${SLONBASE_PACKAGE:-}" ]; then
+    case $PM in
+        apt) apt-get install -y "$SLONBASE_PACKAGE" ;;
+        dnf) dnf install -y "$SLONBASE_PACKAGE" ;;
+    esac
+elif [ "$PM" = apt ]; then
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -q
+    apt-get install -y --no-install-recommends curl ca-certificates gnupg
+    curl -fsSL "$BASE_URL/slonbase.gpg" -o /usr/share/keyrings/slonbase.gpg
+    curl -fsSL "$BASE_URL/slonbase.list" -o /etc/apt/sources.list.d/slonbase.list
+    apt-get update -q
+    apt-get install -y --no-install-recommends slonbase
+else
+    curl -fsSL "$BASE_URL/slonbase.repo" -o /etc/yum.repos.d/slonbase.repo
+    dnf install -y slonbase
+fi
+command -v slonbase >/dev/null 2>&1 || die "the slonbase package did not install."
+note "$(slonbase --version)"
+
 # ------------------------------------------------------------------ PostgreSQL
 DATABASE_URL=${SLONBASE_DATABASE_URL:-}
 DB_PASSWORD=
@@ -128,53 +152,57 @@ else
     note "PostgreSQL server_version_num $version is running."
 
     say "Creating the database role and database"
-    if [ "$(pg -d postgres -c "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'")" = 1 ]; then
+    STATE=/etc/slonbase/install.env
+    role_exists=$(pg -d postgres -c "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'")
+    db_exists=$(pg -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'")
+    if [ -s "$STATE" ]; then
+        # an earlier run created them and stopped before setup finished: reuse its password
+        saved_user=$(sed -n 's/^DB_USER=//p' "$STATE")
+        saved_name=$(sed -n 's/^DB_NAME=//p' "$STATE")
+        DB_PASSWORD=$(sed -n 's/^DB_PASSWORD=//p' "$STATE")
+        if [ "$saved_user" != "$DB_USER" ] || [ "$saved_name" != "$DB_NAME" ] || [ -z "$DB_PASSWORD" ]; then
+            die "$STATE is from an install of role \"$saved_user\" and database \"$saved_name\". Run with SLONBASE_DB_USER=$saved_user SLONBASE_DB_NAME=$saved_name, or remove $STATE."
+        fi
+        note "Continuing an earlier install (the role's password is in $STATE)."
+    elif [ "$role_exists" = 1 ]; then
         die "the PostgreSQL role \"$DB_USER\" already exists, and its password is not mine to change. Use another name (SLONBASE_DB_USER=...), or point slonbase at your own database with SLONBASE_DATABASE_URL=postgres://user:pass@127.0.0.1:5432/dbname"
-    fi
-    if [ "$(pg -d postgres -c "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'")" = 1 ]; then
+    elif [ "$db_exists" = 1 ]; then
         die "the PostgreSQL database \"$DB_NAME\" already exists. Use another name (SLONBASE_DB_NAME=...), or point slonbase at it with SLONBASE_DATABASE_URL=..."
+    else
+        DB_PASSWORD=$(random_hex 24)
+        # written before the role exists, so the password survives whatever fails next
+        mkdir -p /etc/slonbase
+        ( umask 077 && printf 'DB_USER=%s\nDB_NAME=%s\nDB_PASSWORD=%s\n' "$DB_USER" "$DB_NAME" "$DB_PASSWORD" >"$STATE" )
     fi
-    DB_PASSWORD=$(random_hex 24)
-    pg -d postgres -c "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASSWORD'"
-    pg -d postgres -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\""
-    note "Role \"$DB_USER\" and database \"$DB_NAME\" created (a generated password, kept in $CONFIG)."
+    if [ "$role_exists" != 1 ]; then
+        pg -d postgres -c "CREATE ROLE \"$DB_USER\" LOGIN PASSWORD '$DB_PASSWORD'"
+    fi
+    if [ "$db_exists" != 1 ]; then
+        pg -d postgres -c "CREATE DATABASE \"$DB_NAME\" OWNER \"$DB_USER\""
+    fi
+    note "Role \"$DB_USER\" and database \"$DB_NAME\" are ready (a generated password, kept in $CONFIG)."
 
     # Red Hat's default pg_hba.conf has TCP logins on localhost use "ident", which has no
-    # password: switch those lines to scram-sha-256, as Debian does
+    # password. Rather than change those lines for everyone, put password rules for this role
+    # and database first (the first matching line wins)
     if [ "$PM" = dnf ]; then
         hba=$(pg -d postgres -c 'SHOW hba_file')
-        if grep -Eq '^host[[:space:]].*(127\.0\.0\.1/32|::1/128)[[:space:]]+ident' "$hba"; then
-            sed -E -i.slonbase.bak '/^host[[:space:]].*(127\.0\.0\.1\/32|::1\/128)[[:space:]]+ident/ s/ident[[:space:]]*$/scram-sha-256/' "$hba"
+        if ! grep -q "^host[[:space:]]\{1,\}${DB_NAME}[[:space:]]\{1,\}${DB_USER}[[:space:]]" "$hba"; then
+            cp -p "$hba" "$hba.slonbase.bak"
+            {
+                printf '# slonbase: password logins for its own role and database\n'
+                printf 'host %s %s 127.0.0.1/32 scram-sha-256\n' "$DB_NAME" "$DB_USER"
+                printf 'host %s %s ::1/128 scram-sha-256\n' "$DB_NAME" "$DB_USER"
+                cat "$hba.slonbase.bak"
+            } >"$hba"
             pg -d postgres -c 'SELECT pg_reload_conf()' >/dev/null
-            note "Local TCP logins now use passwords ($hba; the original is $hba.slonbase.bak)."
+            note "Password logins for \"$DB_USER\" on localhost added to $hba (the original is $hba.slonbase.bak)."
         fi
     fi
 
     port=$(pg -d postgres -c 'SHOW port')
     DATABASE_URL="postgres://$DB_USER:$DB_PASSWORD@127.0.0.1:$port/$DB_NAME?sslmode=disable"
 fi
-
-# ------------------------------------------------------------------ slonbase
-say "Installing slonbase"
-if [ -n "${SLONBASE_PACKAGE:-}" ]; then
-    case $PM in
-        apt) apt-get install -y "$SLONBASE_PACKAGE" ;;
-        dnf) dnf install -y "$SLONBASE_PACKAGE" ;;
-    esac
-elif [ "$PM" = apt ]; then
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update -q
-    apt-get install -y --no-install-recommends curl ca-certificates gnupg
-    curl -fsSL "$BASE_URL/slonbase.gpg" -o /usr/share/keyrings/slonbase.gpg
-    curl -fsSL "$BASE_URL/slonbase.list" -o /etc/apt/sources.list.d/slonbase.list
-    apt-get update -q
-    apt-get install -y --no-install-recommends slonbase
-else
-    curl -fsSL "$BASE_URL/slonbase.repo" -o /etc/yum.repos.d/slonbase.repo
-    dnf install -y slonbase
-fi
-command -v slonbase >/dev/null 2>&1 || die "the slonbase package did not install."
-note "$(slonbase --version)"
 
 # ------------------------------------------------------------------ first superuser
 EMAIL=${SLONBASE_EMAIL:-}
@@ -193,6 +221,8 @@ if [ -n "$EMAIL" ]; then
     fi
     run_as slonbase env RUST_LOG=warn SLONBASE_SUPERUSER_PASSWORD="$PASSWORD" \
         slonbase setup --config "$CONFIG" --database-url "$DATABASE_URL" --email "$EMAIL"
+    # the password is in the configuration now
+    rm -f /etc/slonbase/install.env
     if [ "$SYSTEMD" = yes ]; then
         systemctl start slonbase
         tries=0

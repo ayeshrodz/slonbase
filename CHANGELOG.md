@@ -15,6 +15,13 @@ changes, listed in its **Upgrading** section.
   with its license and source). A check runs before anything is published.
 - **The minimum Rust version is 1.88**, not 1.87: dependencies already needed it. CI now builds
   with the version `Cargo.toml` promises.
+- **The installer can be run again after a failure.** It installs the slonbase package before
+  creating anything in PostgreSQL, keeps the role's generated password in
+  `/etc/slonbase/install.env` (root only) until setup succeeds, and a rerun reuses the role
+  instead of stopping at "the role already exists". On Red Hat's family it adds password logins
+  for its own role and database only, instead of switching every localhost rule to passwords.
+  CI runs it in clean Ubuntu, Debian and Fedora containers: a failed package, a rerun after a
+  failed setup, an upgrade that keeps the configuration, and a service that starts.
 - The security policy supports 2.5.x and 2.4.x (until February 7, 2027); `SUPPORT.md`,
   `MAINTAINING.md`, `CODEOWNERS` and Dependabot configuration are new.
 

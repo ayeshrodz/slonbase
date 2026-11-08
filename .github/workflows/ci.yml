@@ -33,7 +33,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       # the installer people pipe into a root shell
-      - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh
+      - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh scripts/installer-test/run.sh
       # the other scripts (bash), warnings and errors
       - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh
       # the workflows themselves (expressions, permissions, shell in `run:`)
@@ -135,6 +135,50 @@ jobs:
           path: target/debug/slonbase
           retention-days: 1
           if-no-files-found: error
+
+  # site/install.sh in clean containers, with packages built from this commit: a failed package
+  # changes nothing, a rerun after a failure reuses the role it made, an upgrade keeps the
+  # configuration, and the service starts and signs in (scripts/installer-test/run.sh).
+  # The images are as new as the build machine, since the debug binary links its C library.
+  installer:
+    name: installer (${{ matrix.image }})
+    needs: build
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { image: "ubuntu:24.04", format: deb }
+          - { image: "debian:trixie", format: deb }
+          - { image: "fedora:42", format: rpm }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: slonbase-debug
+          path: ${{ runner.temp }}/slonbase
+      - name: Install nfpm
+        run: |
+          base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
+          tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
+          curl -fsSLO "$base/$tar"
+          curl -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          tar -xzf "$tar" nfpm
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+      - name: Package two versions of this build
+        run: |
+          mkdir -p target/x86_64-unknown-linux-musl/release
+          install -m 0755 "$RUNNER_TEMP/slonbase/slonbase" target/x86_64-unknown-linux-musl/release/slonbase
+          scripts/package.sh x86_64-unknown-linux-musl amd64 0.0.1
+          scripts/package.sh x86_64-unknown-linux-musl amd64 0.0.2
+      - name: Run the installer checks
+        run: |
+          if [ "${{ matrix.format }}" = deb ]; then
+            scripts/installer-test/run.sh "${{ matrix.image }}" dist/slonbase_0.0.1_amd64.deb dist/slonbase_0.0.2_amd64.deb
+          else
+            scripts/installer-test/run.sh "${{ matrix.image }}" dist/slonbase-0.0.1-1.x86_64.rpm dist/slonbase-0.0.2-1.x86_64.rpm
+          fi
 
   # the official PocketBase JavaScript SDK against slonbase, and against PocketBase itself
   # (which keeps the suite's expectations honest)
