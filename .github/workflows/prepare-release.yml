@@ -1,0 +1,98 @@
+# Opens the pull request that makes a release: Actions → Prepare release → Run workflow, with
+# the version. It runs scripts/prepare-release.py on the chosen branch (main, or an older line's
+# branch for a backport), refreshes Cargo.lock, pushes release/v<version> and opens a pull
+# request. Merging it is the release: CI passes on main, and the Release workflow tags and
+# publishes the version (see MAINTAINING.md).
+#
+# Pull requests opened with the workflow's token don't start other workflows, so this one starts
+# CI on the branch itself; its checks count for the pull request. Opening the pull request needs
+# Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests";
+# without it, the branch is pushed and the run's summary links to open the pull request by hand.
+name: Prepare release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to release, e.g. 2.5.2
+        required: true
+      base:
+        description: Branch to release from (main, or an older line's branch for a backport)
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prepare-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write        # to push the release branch
+      pull-requests: write   # to open the pull request
+      actions: write         # to start CI on it
+    env:
+      VERSION: ${{ inputs.version }}
+      BASE: ${{ inputs.base }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.base }}
+      - name: Check the version is free
+        run: |
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::$VERSION is not a version like 2.5.2"; exit 1 ;;
+          esac
+          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" > /dev/null; then
+            echo "::error::v$VERSION is already released"; exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/release/v$VERSION" > /dev/null; then
+            echo "::error::release/v$VERSION already exists: merge or close its pull request, delete the branch, and run this again"
+            exit 1
+          fi
+      - name: Prepare the release
+        run: python3 scripts/prepare-release.py "$VERSION" | tee prepared.txt
+      - name: Refresh Cargo.lock for the new version
+        run: cargo update --workspace
+      - name: Check what the release PR's CI will check
+        run: |
+          python3 scripts/supported-releases.py --check
+          scripts/release-notes.sh "$VERSION" > /dev/null
+      - name: Push the release branch
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/v$VERSION"
+          git add -A -- . ':!prepared.txt'
+          git commit -q -m "Release $VERSION"
+          git push -q origin "release/v$VERSION"
+      - name: Open the pull request
+        run: |
+          {
+            echo "Merging this releases **$VERSION**: when CI passes on \`$BASE\`, the Release workflow tags \`v$VERSION\`, publishes the packages, the image, the SBOM and attestations, and updates the apt and dnf repositories."
+            echo
+            echo "## What this changes"
+            echo
+            echo '```'
+            cat prepared.txt
+            echo '```'
+            echo
+            echo "## Before merging"
+            echo
+            echo "- Read the release notes: the \`## [$VERSION]\` section of \`CHANGELOG.md\` in this diff. Edit them on this branch if needed."
+            echo "- For the home page's highlight (\`site/index.html\`, \`pill-title\`, \`rel-summary\` and \`rel-items\`), edit it on this branch if this release deserves new wording; the version and date are already updated."
+            echo "- CI was started on this branch by the workflow; its checks show below."
+          } > body.md
+          if gh pr create --base "$BASE" --head "release/v$VERSION" --title "Release $VERSION" --body-file body.md; then
+            echo "Pull request opened: release/v$VERSION → $BASE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::couldn't open the pull request (Settings → Actions → General → Allow GitHub Actions to create and approve pull requests)"
+            echo "Open the pull request: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE...release/v$VERSION?expand=1" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Start CI on the release branch
+        run: gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "release/v$VERSION"

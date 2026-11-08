@@ -32,6 +32,10 @@ changes, listed in its **Upgrading** section.
   with versions, licenses and checksums), and GitHub-signed attestations of where every archive,
   package and the container image were built and what they contain. Check them with
   `gh attestation verify` (see [Verify a download](docs/installation.md#verify-a-download)).
+- **Releases are made with a pull request.** Actions → Prepare release opens "Release
+  <version>": the version in `Cargo.toml`, the changelog section and its compare links (missing
+  since 2.2.0, now rebuilt), the version pins in the docs and the home page, and, for a new
+  minor, the supported lines and SECURITY.md's table. Merging it releases.
 - **The package signing key is used by one job only.** The Package repositories workflow signs
   the apt and dnf repositories in a job of its own, in the `package-signing` environment, and
   builds the page and the docs in another job that has no secrets. It also refuses to sign with
