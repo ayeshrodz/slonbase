@@ -104,10 +104,10 @@
   --r-lg: 8px;
   --r-xl: 10px;
   --r-pill: 999px;
-  /* controls (buttons, fields, switches, segmented) are rounder than the surfaces they sit on */
-  --r-ctl: 10px;
-  --r-ctl-sm: 8px;
-  --r-ctl-lg: 12px;
+  /* controls (buttons, fields, switches, segmented): flat, 8px */
+  --r-ctl: 8px;
+  --r-ctl-sm: 7px;
+  --r-ctl-lg: 10px;
 
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -530,17 +530,15 @@ table,
 
 /* ------------------------------------------------------------------ buttons */
 
-/* Buttons: soft, rounded and tactile. A hairline ring, a faint sheen from the top, a small shadow
-   in the button's own colour, and a press that sinks 1px. One set of variables per kind, so the
-   themes and an installation's accent only change colours. */
+/* Buttons: flat. A solid fill, a hairline border, a colour change on hover and a darker press;
+   no gradient, shadow or bevel. One set of variables per kind, so the themes and an
+   installation's accent only change colours. */
 .btn {
   --btn-bg: var(--surface);
   --btn-fg: var(--ink);
   --btn-line: var(--line-2);
   --btn-hover: color-mix(in srgb, var(--btn-bg), var(--ink) 4%);
   --btn-press: color-mix(in srgb, var(--btn-bg), var(--ink) 8%);
-  --btn-sheen: rgba(255, 255, 255, 0.6);
-  --btn-shadow: rgba(31, 35, 40, 0.07);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -550,19 +548,17 @@ table,
   border-radius: var(--r-ctl);
   border: 1px solid var(--btn-line);
   background-color: var(--btn-bg);
-  background-image: linear-gradient(180deg, var(--btn-sheen), transparent 70%);
   color: var(--btn-fg);
-  box-shadow: 0 1px 2px var(--btn-shadow);
   font-family: var(--font);
-  font-weight: var(--w-semibold);
+  font-weight: var(--w-medium);
   font-size: var(--text-sm);
-  letter-spacing: -0.004em;
+  letter-spacing: -0.003em;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
   position: relative;
-  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med) var(--ease), transform var(--t-fast);
+  transition: background-color var(--t-fast), border-color var(--t-fast), color var(--t-fast), box-shadow var(--t-med) var(--ease);
 }
 .btn .icon {
   opacity: 0.8;
@@ -573,8 +569,6 @@ table,
 }
 .btn:active {
   background-color: var(--btn-press);
-  transform: translateY(1px);
-  box-shadow: none;
 }
 .btn:focus-visible {
   outline: none;
@@ -589,8 +583,6 @@ table,
   --btn-bg: #212830;
   --btn-hover: #2a313b;
   --btn-press: #303845;
-  --btn-sheen: rgba(255, 255, 255, 0.05);
-  --btn-shadow: rgba(0, 0, 0, 0.3);
 }
 .btn.primary {
   --btn-bg: var(--primary);
@@ -598,16 +590,12 @@ table,
   --btn-line: color-mix(in srgb, var(--primary), black 16%);
   --btn-hover: color-mix(in srgb, var(--primary), white 9%);
   --btn-press: color-mix(in srgb, var(--primary), black 8%);
-  --btn-sheen: rgba(255, 255, 255, 0.16);
-  --btn-shadow: color-mix(in srgb, var(--primary), transparent 55%);
 }
 :root[data-theme="dark"] .btn.primary {
   --btn-bg: var(--primary);
   --btn-line: color-mix(in srgb, var(--accent), transparent 55%);
   --btn-hover: color-mix(in srgb, var(--primary), var(--accent) 14%);
   --btn-press: color-mix(in srgb, var(--primary), var(--accent) 6%);
-  --btn-sheen: rgba(255, 255, 255, 0.08);
-  --btn-shadow: rgba(0, 0, 0, 0.35);
 }
 .btn.primary .icon {
   opacity: 1;
@@ -617,16 +605,12 @@ table,
   --btn-line: transparent;
   --btn-hover: var(--hover);
   --btn-press: var(--press);
-  --btn-sheen: transparent;
-  --btn-shadow: transparent;
   color: var(--ink-2);
 }
 :root[data-theme="dark"] .btn.ghost {
   --btn-bg: transparent;
   --btn-hover: var(--hover);
   --btn-press: var(--press);
-  --btn-sheen: transparent;
-  --btn-shadow: transparent;
 }
 .btn.danger {
   --btn-bg: var(--danger);
@@ -634,8 +618,6 @@ table,
   --btn-line: color-mix(in srgb, var(--danger), black 16%);
   --btn-hover: color-mix(in srgb, var(--danger), white 8%);
   --btn-press: color-mix(in srgb, var(--danger), black 10%);
-  --btn-sheen: rgba(255, 255, 255, 0.14);
-  --btn-shadow: color-mix(in srgb, var(--danger), transparent 60%);
 }
 :root[data-theme="dark"] .btn.danger {
   /* the colour on its own text, solid only on hover */
@@ -644,7 +626,6 @@ table,
   --btn-line: var(--line-2);
   --btn-hover: #b62324;
   --btn-press: #a40e26;
-  --btn-sheen: rgba(255, 255, 255, 0.04);
 }
 :root[data-theme="dark"] .btn.danger:hover {
   color: #fff;
@@ -655,16 +636,12 @@ table,
   --btn-line: transparent;
   --btn-hover: var(--danger-soft);
   --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
-  --btn-sheen: transparent;
-  --btn-shadow: transparent;
   color: color-mix(in srgb, var(--danger), var(--ink) var(--text-mix));
 }
 :root[data-theme="dark"] .btn.danger-ghost {
   --btn-bg: transparent;
   --btn-hover: var(--danger-soft);
   --btn-press: color-mix(in srgb, var(--danger), transparent 80%);
-  --btn-sheen: transparent;
-  --btn-shadow: transparent;
 }
 .btn.sm {
   height: 30px;
@@ -782,7 +759,6 @@ table,
   background: var(--surface);
   color: var(--ink);
   outline: none;
-  box-shadow: inset 0 1px 2px rgba(31, 35, 40, 0.05);
   transition: border-color var(--t-fast), box-shadow var(--t-med) var(--ease), background-color var(--t-fast);
 }
 .input::placeholder {
@@ -795,9 +771,6 @@ table,
 .input:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-ring);
-}
-:root[data-theme="dark"] .input {
-  box-shadow: none;
 }
 .input.invalid {
   border-color: var(--danger);
@@ -848,7 +821,6 @@ select.input {
   height: 22px;
   border-radius: var(--r-pill);
   background: color-mix(in srgb, var(--line-2), var(--ink) 14%);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.12);
   transition: background var(--t-med), box-shadow var(--t-med) var(--ease);
   flex: none;
 }
@@ -860,21 +832,13 @@ select.input {
   height: 18px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(0, 0, 0, 0.06);
-  transition: transform var(--t-med) var(--ease-out), width var(--t-fast);
-}
-.switch:active .knob {
-  width: 22px;
+  transition: transform var(--t-med) var(--ease-out);
 }
 .switch input:checked + .track {
   background: var(--accent);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
 }
 .switch input:checked + .track .knob {
   transform: translateX(16px);
-}
-.switch:active input:checked + .track .knob {
-  transform: translateX(12px);
 }
 .switch input:focus-visible + .track {
   box-shadow: 0 0 0 3px var(--accent-ring);
@@ -983,7 +947,6 @@ input[type="radio"]:disabled {
   background: var(--canvas-2);
   border: 1px solid var(--line);
   border-radius: var(--r-ctl);
-  box-shadow: inset 0 1px 2px rgba(31, 35, 40, 0.05);
   position: relative;
   /* as wide as its buttons, never narrower (a narrow column used to leave the last one outside) */
   width: max-content;
@@ -992,9 +955,6 @@ input[type="radio"]:disabled {
 .seg > button {
   flex: none;
   white-space: nowrap;
-}
-:root[data-theme="dark"] .seg {
-  box-shadow: none;
 }
 .seg button {
   position: relative;
@@ -1026,12 +986,12 @@ input[type="radio"]:disabled {
   bottom: 3px;
   border-radius: var(--r-ctl-sm);
   background: var(--surface);
-  box-shadow: 0 1px 3px rgba(31, 35, 40, 0.14), 0 0 0 1px var(--line);
+  box-shadow: 0 0 0 1px var(--line-2);
   transition: left 420ms var(--ease-glide), width 420ms var(--ease-glide);
 }
 :root[data-theme="dark"] .seg .seg-thumb {
   background: #2a313b;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 1px var(--line-2);
+  box-shadow: 0 0 0 1px var(--line-2);
 }
 
 .chips {
@@ -1043,9 +1003,9 @@ input[type="radio"]:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 24px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
   border: 1px solid var(--line-2);
   background: transparent;
   color: var(--ink-2);
