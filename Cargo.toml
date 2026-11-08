@@ -27,6 +27,8 @@ base64 = "0.23.1"
 bcrypt = "0.19.3"
 bytes = "1.12.1"
 chrono = { version = "0.4.45", default-features = false, features = ["std", "clock", "serde"] }
+# the IANA time zone database, built in: the release image is `FROM scratch`, with no system zoneinfo
+chrono-tz = { version = "0.10.4", default-features = false, features = ["std"] }
 clap = { version = "4.6.7", features = ["derive", "env"] }
 crc32fast = "1.5.2"
 deadpool-postgres = "0.14.2"

@@ -717,7 +717,12 @@ exports what it owns itself:
 - **Locking:** a backup or restore holds the instance's lock and a PostgreSQL session advisory
   lock, so only one runs across all instances; the health check reports `canBackup` to superusers
   like PocketBase.
-- **Schedule:** `backups.cron` is a 5-field cron expression in UTC, checked every 20 seconds.
+- **Schedule:** `backups.cron` is a 5-field cron expression read on the clocks of
+  `schedule.timezone` (UTC by default; an IANA name, with the time zone database built into the
+  binary, since the release image has no `/usr/share/zoneinfo`), checked every 20 seconds. At a
+  daylight saving change a job at a fixed hour runs once (right after the change if its time was
+  skipped, the first time if its hour is repeated, as Vixie cron does), and a job in every hour
+  keeps to the clock.
   Each scheduled minute is claimed with a conditional update of a params row, so one instance runs
   it. Automatic backups beyond `cronMaxKeep` are deleted, oldest first.
 - Downloads need a superuser file token (and an allowed IP); uploads are streamed to disk, have no

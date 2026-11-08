@@ -411,6 +411,107 @@ async fn automatic_backups() {
     tdb.drop_db().await;
 }
 
+/// The schedule is read on the clocks of `schedule.timezone` (UTC by default, as in PocketBase):
+/// `0 3 * * *` set on a machine in Auckland used to run at 16:00 there.
+#[tokio::test]
+async fn automatic_backups_follow_the_time_zone() {
+    use chrono::{Timelike, Utc};
+    use chrono_tz::Tz;
+
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let core = app.core().unwrap();
+
+    // UTC by default, so nothing moves for an installation that has set nothing
+    let (_, res) = admin(&app, &token, "GET", "/api/settings", None).await;
+    assert_eq!(res["schedule"]["timezone"], "UTC", "{res}");
+    // names that aren't a time zone are refused, and so is a very long one
+    for bad in [
+        "Mars/Olympus",
+        "auckland",
+        "NZST",
+        "../etc/passwd",
+        &"x".repeat(100),
+    ] {
+        let (status, res) = admin(
+            &app,
+            &token,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "schedule": { "timezone": bad } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {res}");
+        assert!(
+            res["data"]["schedule"]["timezone"].is_object(),
+            "{bad}: {res}"
+        );
+    }
+    let (_, res) = admin(&app, &token, "GET", "/api/settings", None).await;
+    assert_eq!(
+        res["schedule"]["timezone"], "UTC",
+        "a refused name changes nothing"
+    );
+
+    let in_auckland = |t: chrono::DateTime<Utc>| {
+        let local = t.with_timezone(&Tz::Pacific__Auckland);
+        format!("{} {} * * *", local.minute(), local.hour())
+    };
+    let set = |patch: Value| {
+        let (app, token) = (app.clone(), token.clone());
+        async move {
+            let (status, res) = admin(&app, &token, "PATCH", "/api/settings", Some(patch)).await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+        }
+    };
+
+    // a schedule for this minute on New Zealand's clocks, read as UTC (13 or 12 hours away), is
+    // not due
+    set(json!({ "backups": { "cron": in_auckland(Utc::now()), "cronMaxKeep": 5 } })).await;
+    slonbase::backups::run_scheduled(&core).await;
+    assert!(
+        backups(&app, &token).await.is_empty(),
+        "an Auckland time is not due on UTC's clocks"
+    );
+
+    // read in Auckland, it is: the minute can turn between the expression and the check, so
+    // the expression is made again
+    set(json!({ "schedule": { "timezone": "Pacific/Auckland" } })).await;
+    let mut ran = false;
+    for _ in 0..3 {
+        set(json!({ "backups": { "cron": in_auckland(Utc::now()) } })).await;
+        slonbase::backups::run_scheduled(&core).await;
+        // the backup runs in the background
+        for _ in 0..100 {
+            if !backups(&app, &token).await.is_empty() {
+                ran = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        if ran {
+            break;
+        }
+    }
+    assert!(ran, "the same schedule runs when it is read in Auckland");
+
+    // the next run shown is that clock time, in UTC like every date
+    set(json!({ "backups": { "cron": "0 3 * * *" } })).await;
+    let (_, crons) = admin(&app, &token, "GET", "/api/crons", None).await;
+    let job = &crons[0];
+    assert_eq!(job["timezone"], "Pacific/Auckland", "{job}");
+    let next =
+        chrono::DateTime::parse_from_rfc3339(&job["next"].as_str().unwrap().replace(' ', "T"))
+            .unwrap()
+            .with_timezone(&Tz::Pacific__Auckland);
+    assert_eq!((next.hour(), next.minute()), (3, 0), "{job}");
+
+    drop((app, core));
+    tdb.drop_db().await;
+}
+
 #[tokio::test]
 async fn backups_in_s3() {
     let Ok(endpoint) = std::env::var("SLONBASE_TEST_S3_ENDPOINT") else {

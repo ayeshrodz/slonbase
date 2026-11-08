@@ -4,17 +4,50 @@ import { html, useState, useEffect, useStore, cx } from "../../lib/core.js";
 import { api, enc, session, BASE } from "../../lib/api.js";
 import { app } from "../../lib/state.js";
 import { Icon } from "../../lib/icons.js";
-import { Button, IconButton, Field, Input, Select, Modal, SheetHead, Skeleton, Empty, Callout, toast, confirmDialog, CollectionGlyph } from "../../lib/ui.js";
+import { Button, IconButton, Field, Input, Select, Segmented, Modal, SheetHead, Skeleton, Empty, Callout, toast, confirmDialog, CollectionGlyph } from "../../lib/ui.js";
 import { formatDate, relativeTime } from "../../lib/format.js";
 import { branding } from "../../lib/branding.js";
 import { TokenLifetimes } from "./storage.js";
 import { Card } from "./shared.js";
 
 export const ROLES = [
-  { value: "owner", label: "Owner", description: "Everything, including the team and restoring backups" },
-  { value: "admin", label: "Admin", description: "Everything but the team, restores and deleting projects" },
-  { value: "developer", label: "Developer", description: "Collections, records, files, SQL (reading), cron jobs" },
+  { value: "owner", label: "Owner", description: "Everything, including the team, restores and the SQL console" },
+  { value: "admin", label: "Admin", description: "Runs the installation: settings, backups, projects and keys, but not the team, restores or the SQL console" },
+  { value: "developer", label: "Developer", description: "Builds on it: collections, records, files and cron jobs; the rest only to look at" },
   { value: "viewer", label: "Viewer", description: "Looks at everything, changes nothing" },
+];
+
+// What the table of roles says about each capability. Who has which is the server's: it asks the
+// function that enforces roles (GET /api/team → capabilities), so the table can't claim more or
+// less than is enforced; only the words are here.
+const CAPABILITIES = [
+  { group: "Look", items: [{ id: "view", label: "See everything", detail: "collections, records, files, logs and settings" }] },
+  {
+    group: "Build",
+    items: [
+      { id: "data", label: "Edit collections, records and files", detail: "API rules and batches included" },
+      { id: "crons", label: "Run cron jobs now" },
+    ],
+  },
+  {
+    group: "Operate",
+    items: [
+      { id: "settings", label: "Change settings and branding", detail: "mail, storage, security, logs" },
+      { id: "backups", label: "Create backups" },
+      { id: "backupFiles", label: "Download backup files" },
+      { id: "projects", label: "Create projects" },
+      { id: "keys", label: "Create API keys" },
+    ],
+  },
+  {
+    group: "Administer",
+    items: [
+      { id: "team", label: "Add superusers and change roles" },
+      { id: "restore", label: "Restore a backup" },
+      { id: "deleteProject", label: "Delete a project" },
+      { id: "sql", label: "Use the SQL console", detail: "reads every table, password hashes included" },
+    ],
+  },
 ];
 const RANK = { viewer: 0, developer: 1, admin: 2, owner: 3 };
 
@@ -28,6 +61,48 @@ export function useMyRole() {
       .catch(() => setRole("owner"));
   }, []);
   return role;
+}
+
+function RolesTable({ team, myRole }) {
+  // on a phone the four columns don't fit: one role at a time, picked above the table
+  const [pick, setPick] = useState(myRole || "owner");
+  if (!Array.isArray(team.capabilities)) return null;
+  const who = Object.fromEntries(team.capabilities.map((c) => [c.id, c.roles]));
+  const columns = [...ROLES].reverse(); // from the least to the most
+  const picked = ROLES.find((r) => r.value === pick) || ROLES[0];
+  return html`<${Card} title="What each role can do" subtitle="A superuser without a role is an owner" icon="shield">
+    <div class="perm-picker">
+      <${Segmented} value=${pick} onChange=${setPick} options=${columns.map((r) => ({ value: r.value, label: r.label }))} />
+      <div class="small muted">${picked.description}</div>
+    </div>
+    <div class="table-wrap"><table class="table perm-table" data-pick=${pick}>
+      <thead><tr>
+        <th scope="col"><span class="sr-only">What</span></th>
+        ${columns.map(
+          (r) => html`<th scope="col" class=${cx("perm-role", "r-" + r.value, myRole === r.value && "me")} title=${r.description}>
+            ${r.label}${myRole === r.value && html`<span class="perm-you">you</span>`}
+          </th>`
+        )}
+      </tr></thead>
+      <tbody>
+        ${CAPABILITIES.flatMap((g) => [
+          html`<tr class="perm-group" key=${g.group}><th scope="rowgroup" colspan=${columns.length + 1}>${g.group}</th></tr>`,
+          ...g.items.map(
+            (c) => html`<tr key=${c.id}>
+              <th scope="row">${c.label}${c.detail && html`<span class="perm-detail">${c.detail}</span>`}</th>
+              ${columns.map((r) => {
+                const yes = (who[c.id] || []).includes(r.value);
+                return html`<td class=${cx("perm-cell", "r-" + r.value, yes && "yes", myRole === r.value && "me")}>
+                  ${yes ? html`<${Icon} name="check" size=${16} />` : html`<span aria-hidden="true">–</span>`}
+                  <span class="sr-only">${yes ? "Yes" : "No"}</span>
+                </td>`;
+              })}
+            </tr>`
+          ),
+        ])}
+      </tbody>
+    </table></div>
+  </${Card}>`;
 }
 
 function RoleChip({ role }) {
@@ -205,9 +280,9 @@ export function Team() {
           )}
         </tbody>
       </table></div>
-      <div class="role-legend">${ROLES.map((r) => html`<div><${RoleChip} role=${r.value} /> <span class="small muted">${r.description}</span></div>`)}</div>
       ${!owner && myRole && html`<div class="small muted row"><${Icon} name="info" size=${14} /> Only owners add superusers and change roles.</div>`}
     </${Card}>
+    <${RolesTable} team=${team} myRole=${myRole} />
     <${Card}
       title="API keys"
       subtitle="For scripts, CI and servers: each acts for a superuser, with a role of its own"

@@ -938,7 +938,7 @@ pub async fn run_scheduled(core: &Arc<Core>) {
         return;
     };
     let now = chrono::Utc::now();
-    if !schedule.matches(&now) {
+    if !schedule.matches(&now, settings.timezone()) {
         return;
     }
     let minute = now.format("%Y-%m-%dT%H:%M").to_string();

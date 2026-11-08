@@ -8,6 +8,25 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+Schedules that can run on your own time zone, and a roles table that matches what is enforced.
+
+### Fixed
+
+- **Schedules can be read on your own clocks.** Cron expressions (the automatic backup and the
+  cron jobs of hooks) were always read in UTC, so `0 3 * * *` set on a machine in Auckland ran at
+  16:00 there. The new `schedule.timezone` setting (Settings → Backups → Time zone, with a button
+  for the browser's own zone) names the zone they are read in; it is **UTC until you change it,
+  so no existing schedule moves**. Daylight saving time is handled the way Vixie cron does: a
+  job at a fixed hour runs once when its time is skipped or repeated, and a job in every hour
+  keeps to the clock. The dashboard shows each next run in that zone and in UTC.
+- **The roles table in the dashboard was wrong about the SQL console.** Under Settings → Team it
+  said developers could read with it; it has been for owners only since 2.4.0. The table is now
+  computed by the server from the rules that enforce roles (`capabilities` in `GET /api/team`),
+  so it can't disagree with them, and shows what each role can do in one clear matrix (one role
+  at a time on a phone). The role pickers were also made readable on narrow screens.
+
+### Packaging and project
+
 - CI now runs the test suite on PostgreSQL 18 too (14 to 18), so "PostgreSQL 14 or newer" is
   tested on every major version, not only up to 17.
 

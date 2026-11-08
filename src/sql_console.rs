@@ -398,14 +398,16 @@ pub async fn crons(
         .await
         .map_err(ApiError::internal)?;
     let now = chrono::Utc::now();
+    let tz = core.settings().timezone();
     let describe = |id: &str, expression: &str, kind: &str, last: Option<Value>| {
         let next = crate::cron::Schedule::parse(expression)
-            .and_then(|s| s.next_after(&now))
+            .and_then(|s| s.next_after(&now, tz))
             .map(|t| crate::datetime::format(&t));
         json!({
             "id": id,
             "expression": expression,
             "description": crate::cron::Schedule::describe(expression),
+            "timezone": tz.name(),
             "next": next,
             "kind": kind,
             "lastRun": last,

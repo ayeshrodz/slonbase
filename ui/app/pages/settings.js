@@ -60,7 +60,7 @@ const GROUPS = [
   {
     label: "Operations",
     items: [
-      { id: "backups", label: "Backups", icon: "archive", sections: ["backups"] },
+      { id: "backups", label: "Backups", icon: "archive", sections: ["backups", "schedule"] },
       { id: "crons", label: "Cron jobs", icon: "clock" },
       { id: "logs", label: "Logs", icon: "logs", sections: ["logs"] },
     ],
