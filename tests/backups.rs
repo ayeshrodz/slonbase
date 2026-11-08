@@ -433,7 +433,7 @@ async fn automatic_backups_follow_the_time_zone() {
         " Pacific/Auckland",
         "Pacific/Auckland ",
         "UTC\0",
-        "System",
+        "system",
         "auckland",
         "NZST",
         "../etc/passwd",

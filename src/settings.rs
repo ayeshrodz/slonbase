@@ -374,9 +374,8 @@ impl S3 {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Schedule {
-    /// `UTC` (the default, what PocketBase uses), `system` (the time zone the server's operating
-    /// system is set to) or an IANA name (`Pacific/Auckland`). `0 3 * * *` runs at 03:00 on that
-    /// zone's clocks.
+    /// `UTC` (the default, what PocketBase uses) or an IANA name (`Pacific/Auckland`).
+    /// `0 3 * * *` runs at 03:00 on that zone's clocks.
     pub timezone: String,
 }
 
@@ -388,31 +387,10 @@ impl Default for Schedule {
     }
 }
 
-/// The time zone the operating system is set to: `TZ`, else `/etc/timezone`, else where
-/// `/etc/localtime` points. UTC when none says (a minimal container image has none).
-pub fn system_timezone() -> chrono_tz::Tz {
-    let from_env = std::env::var("TZ").ok();
-    let from_file = std::fs::read_to_string("/etc/timezone").ok();
-    let from_link = std::fs::read_link("/etc/localtime").ok().and_then(|p| {
-        p.to_str()
-            .and_then(|s| s.split("zoneinfo/").nth(1))
-            .map(String::from)
-    });
-    [from_env, from_file, from_link]
-        .into_iter()
-        .flatten()
-        .map(|n| n.trim().trim_start_matches(':').to_string())
-        .find_map(|n| n.parse().ok())
-        .unwrap_or(chrono_tz::Tz::UTC)
-}
-
-/// A time zone by its IANA name, `system` (the OS's zone) or empty (UTC); `None` when it isn't one.
+/// A time zone by its IANA name (empty: UTC); `None` when it isn't one.
 pub fn parse_timezone(name: &str) -> Option<chrono_tz::Tz> {
     if name.is_empty() {
         return Some(chrono_tz::Tz::UTC);
-    }
-    if name == "system" {
-        return Some(system_timezone());
     }
     if name.len() > 64 {
         return None;
@@ -767,7 +745,7 @@ fn validate(s: &Settings) -> Errors {
     if parse_timezone(&s.schedule.timezone).is_none() {
         errors.invalid(
             "schedule.timezone",
-            "Unknown time zone. Use UTC, system, or a name like Pacific/Auckland.",
+            "Unknown time zone. Use a name like Pacific/Auckland, or UTC.",
         );
     }
     if s.batch.enabled {
@@ -1397,17 +1375,6 @@ pub(crate) async fn upgrade_login_lockout(
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn system_time_zone_is_accepted_and_resolves() {
-        // the name `system` is valid, whatever the OS says, and resolves to some zone
-        assert!(super::parse_timezone("system").is_some());
-        assert!(super::parse_timezone("System").is_none());
-        assert!(super::parse_timezone("Pacific/Auckland ").is_none());
-        let mut s = super::Settings::default();
-        s.schedule.timezone = "system".into();
-        let _ = s.timezone();
-    }
-
     use super::*;
     use serde_json::json;
 
