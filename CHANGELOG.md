@@ -32,11 +32,12 @@ Schedules that can run on your own time zone, and a roles table that matches wha
 
 ### Changed
 
-- **A new set of controls in the dashboard.** Buttons, fields, selects, switches, segmented
-  controls and chips are rounder and softer, with a hairline ring, a faint sheen and a short press.
-  Checkboxes and radios use the tick of the project page: a soft accent fill with the mark drawn in,
-  in the table's select-all, the export picker and the role chooser alike. Light and dark use the
-  same shapes, and an installation's own accent colour still drives them.
+- **A new set of controls in the dashboard.** Buttons, fields, selects, switches and segmented
+  controls are flat and a little rounder, in the same muted palette: a solid fill and a hairline
+  border, no gradient or shadow. Checkboxes and radios use the tick of the project page: a soft
+  accent fill with the mark drawn in, in the table's select-all, the export picker and the role
+  chooser alike. Light and dark use the same shapes, and an installation's own accent colour
+  still drives them.
 - **Fixed on Settings → Login screen:** the Background control was narrower than its buttons, so
   "Image" stuck out of it; and the preview of the centered and minimal layouts showed a tiny card
   on a large empty background, and now draws the card closer.
