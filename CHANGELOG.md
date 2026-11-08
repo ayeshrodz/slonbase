@@ -12,6 +12,9 @@ Schedules that can run on your own time zone, and a roles table that matches wha
 
 ### Fixed
 
+- **Listing backups no longer fails (500) while a backup is being finished.** The list read the
+  size of a file that had just been renamed from its temporary name, and the request failed;
+  files that vanish while the folder is read are now skipped.
 - **Schedules can be read on your own clocks.** Cron expressions (the automatic backup and the
   cron jobs of hooks) were always read in UTC, so `0 3 * * *` set on a machine in Auckland ran at
   16:00 there. The new `schedule.timezone` setting (Settings → Backups → Time zone, with a button
