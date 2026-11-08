@@ -85,6 +85,7 @@ jobs:
             echo "## Before merging"
             echo
             echo "- Read the release notes: the \`## [$VERSION]\` section of \`CHANGELOG.md\` in this diff. Edit them on this branch if needed."
+            echo "- Keep a one-sentence summary as the section's first paragraph: the docs home page shows it next to the version (\"New in $VERSION\")."
             echo "- For the home page's highlight (\`site/index.html\`, \`pill-title\`, \`rel-summary\` and \`rel-items\`), edit it on this branch if this release deserves new wording; the version and date are already updated."
             echo "- CI was started on this branch by the workflow; its checks show below."
           } > body.md

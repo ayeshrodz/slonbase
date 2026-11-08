@@ -8,6 +8,10 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+**Safer releases and installs:** a software bill of materials and attestations with every
+release, an installer that can be run again after a failure, a signing key only one job can use,
+pinned workflow actions, and refreshed dependencies.
+
 ### Packaging and project
 
 - **Every archive, package and container image now carries `LICENSE`, `NOTICE` and
@@ -61,6 +65,8 @@ changes, listed in its **Upgrading** section.
   its data, its superuser and its separation from the main installation.
 
 ## [2.5.1] - 2026-11-07
+
+A query time limit for slow views and heavy filters, and tests on PostgreSQL 14 to 17.
 
 ### Security
 

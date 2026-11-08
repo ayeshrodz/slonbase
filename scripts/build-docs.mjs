@@ -387,10 +387,25 @@ const cards = SECTIONS.map(
     .map((p) => `<a class="card" href="${p}/"><b>${escape(SHORT[p])}</b><span>${escape(BLURB[p])}</span>${ICON.arrow}</a>`)
     .join("")}</div></section>`
 ).join("");
-// the latest release's lead line, from the changelog
-const latest = /^## \[(\d+\.\d+\.\d+)\][^\n]*\n+\*\*([^*]+)\*\*/m.exec(fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8"));
-const whatsNew = latest
-  ? `<a class="whats-new" href="changelog/"><b>New in ${escape(latest[1])}</b><span>${escape(latest[2].replace(/\.$/, ""))}</span>${ICON.arrow}</a>`
+// the newest release and its opening sentence, from the changelog (a section may open with a
+// summary paragraph, bold or not; without one, the banner still names the version)
+const changelog = fs.readFileSync(path.join(ROOT, "CHANGELOG.md"), "utf8");
+const newest = /^## \[(\d+\.\d+\.\d+)\][^\n]*\n+([\s\S]*?)(?=^## \[|^\[[^\]]+\]: |(?![\s\S]))/m.exec(changelog);
+let lead = "";
+if (newest) {
+  const first = newest[2].trim().split(/\n\s*\n/)[0] || "";
+  if (first && !/^(#|- |\* |\|)/.test(first)) {
+    lead = first
+      .replace(/\s+/g, " ")
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+      .replace(/[*`_]/g, "");
+    const bold = /^\*\*([^*]+)\*\*/.exec(first.replace(/\s+/g, " "));
+    lead = bold ? bold[1] : lead.split(/(?<=[.:!?])\s/)[0];
+    lead = lead.replace(/[.:]$/, "");
+  }
+}
+const whatsNew = newest
+  ? `<a class="whats-new" href="changelog/"><b>New in ${escape(newest[1])}</b><span>${escape(lead || "See what changed in this release")}</span>${ICON.arrow}</a>`
   : "";
 const home = `<div class="home">
   <div class="eyebrow">Documentation · v${escape(version)}</div>
