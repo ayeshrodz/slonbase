@@ -78,6 +78,9 @@ doesn't understand. Take a backup before upgrading, and restore it to go back.
 
 ## Security fixes
 
-The latest minor release gets security fixes, and the previous minor release gets them too for
-three months after the next one comes out. See [the security policy](../SECURITY.md)
+The latest minor release gets security fixes. Each earlier minor release keeps getting them
+until three months after the next minor release came out, however many releases follow in that
+time: 2.4 is supported until three months after 2.5.0, even if 2.6.0 comes out sooner. Fixes for
+an older line are released as patch versions of that line (2.4.2), never with new features.
+There are no long-term support releases. See [the security policy](../SECURITY.md)
 for reporting a vulnerability.
