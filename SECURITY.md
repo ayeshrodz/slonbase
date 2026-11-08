@@ -12,7 +12,9 @@ to the latest before reporting, if you can.
 | 2.4.x | ✅ until three months after 2.5.0 (February 7, 2027) |
 | 2.3.x and older | ❌ |
 
-When a new minor release comes out, the table above is updated in the same release.
+When a new minor release comes out, the table above is updated in the same release, and so is
+`packaging/supported-lines.txt`, which decides the versions the apt and dnf repositories keep
+(CI checks the two agree).
 
 ## Reporting a vulnerability
 

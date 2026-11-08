@@ -42,6 +42,8 @@ jobs:
       - run: python3 scripts/third-party.py
       # so can the release's SBOM, and the dashboard's vendored files are still the ones it lists
       - run: python3 scripts/sbom.py 0.0.0 /dev/null
+      # the release lines kept in the apt and dnf repositories agree with SECURITY.md
+      - run: scripts/supported-releases.py --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
