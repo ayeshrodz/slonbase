@@ -52,10 +52,12 @@ pub struct Settings {
     pub superuser_roles: std::collections::BTreeMap<String, String>,
     /// API keys (their hashes). Like the roles, only `/api/team` shows and changes them.
     pub api_keys: Vec<crate::roles::ApiKey>,
+    /// Cron jobs made in the dashboard. Only `/api/crons` shows and changes them.
+    pub cron_jobs: Vec<crate::cron_jobs::JobDef>,
 }
 
-/// Settings that only `/api/team` shows and changes.
-const PRIVATE_SECTIONS: &[&str] = &["superuserRoles", "apiKeys"];
+/// Settings that only `/api/team` (and `/api/crons`) show and change.
+const PRIVATE_SECTIONS: &[&str] = &["superuserRoles", "apiKeys", "cronJobs"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]

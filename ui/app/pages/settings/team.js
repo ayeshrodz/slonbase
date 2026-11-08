@@ -27,6 +27,7 @@ const CAPABILITIES = [
     items: [
       { id: "data", label: "Edit collections, records and files", detail: "API rules and batches included" },
       { id: "crons", label: "Run cron jobs now" },
+      { id: "cronJobs", label: "Make, change and delete cron jobs" },
     ],
   },
   {

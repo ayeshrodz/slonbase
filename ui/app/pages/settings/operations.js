@@ -1,12 +1,14 @@
 // Settings → Backups and Cron jobs: what's there, what runs when, and what ran (the jobs'
 // history, /api/jobs/runs).
-import { html, useState, useEffect, cx } from "../../lib/core.js";
+import { html, useState, useEffect, useStore, cx } from "../../lib/core.js";
 import { api, qs, enc, getFileToken, BASE } from "../../lib/api.js";
 import { Icon } from "../../lib/icons.js";
-import { Button, IconButton, Field, Input, Select, Switch, Skeleton, Empty, Segmented, toast, confirmDialog } from "../../lib/ui.js";
+import { Button, IconButton, Field, Input, Select, Switch, Skeleton, Empty, Segmented, Modal, SheetHead, Callout, toast, confirmDialog } from "../../lib/ui.js";
+import { app } from "../../lib/state.js";
 import { bytes, formatDate, formatDateIn, relativeTime, timeZones, browserTimeZone } from "../../lib/format.js";
 import { Card } from "./shared.js";
 import { S3Fields, TestS3 } from "./storage.js";
+import { useMyRole } from "./team.js";
 
 const ms = (n) => (n == null ? "—" : n < 1000 ? `${n} ms` : n < 60000 ? `${(n / 1000).toFixed(1)} s` : `${Math.round(n / 60000)} min`);
 
@@ -249,12 +251,112 @@ export function Backups({ s }) {
   </div>`;
 }
 
+
+// ---------------------------------------------------------------------------------------------
+// Cron jobs made here (not in a hook file): a schedule and a type of job with its settings.
+
+const SCHEDULES = [
+  ["Every 5 minutes", "*/5 * * * *"],
+  ["Hourly", "0 * * * *"],
+  ["Daily at 03:00", "0 3 * * *"],
+  ["Weekly (Sunday 03:00)", "0 3 * * 0"],
+];
+
+const JOB_TYPES = [{ value: "cleanup", label: "Clean up records" }];
+
+function JobEditor({ job, onClose, onDone }) {
+  const collections = useStore(app, (st) => st.collections) || [];
+  const choices = collections.filter((c) => !c.system && !String(c.name).startsWith("_") && c.type !== "view");
+  const c = (job && job.config) || {};
+  const [name, setName] = useState(job ? job.name : "");
+  const [expression, setExpression] = useState(job ? job.expression : "0 3 * * *");
+  const [type, setType] = useState(job ? job.type : "cleanup");
+  const [collection, setCollection] = useState(c.collection || (choices[0] && choices[0].name) || "");
+  const [filter, setFilter] = useState(c.filter || "");
+  const [days, setDays] = useState(c.olderThanDays ? String(c.olderThanDays) : "");
+  const [field, setField] = useState(c.field || "created");
+  const [maxRows, setMaxRows] = useState(c.maxRows ? String(c.maxRows) : "10000");
+  const [enabled, setEnabled] = useState(job ? job.enabled : true);
+  const [errors, setErrors] = useState({});
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const body = () => ({
+    id: job ? job.id : undefined,
+    name,
+    expression,
+    type,
+    enabled,
+    config: { collection, filter, field, olderThanDays: days.trim() ? Number(days) : null, maxRows: maxRows.trim() ? Number(maxRows) : null },
+  });
+  // what it would do, as it is being made (nothing is saved or run)
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      try {
+        setPreview(await api.post("/api/cron-preview", body()));
+        setErrors({});
+      } catch (err) {
+        setPreview(null);
+        setErrors(err.fieldErrors ? err.fieldErrors() : {});
+      }
+    }, 450);
+    return () => clearTimeout(t);
+  }, [name, expression, type, collection, filter, days, field, maxRows]);
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      if (job) await api.patch(`/api/crons/${enc(job.id)}`, body());
+      else await api.post("/api/crons", body());
+      toast(job ? "Saved." : "Job made.");
+      onDone();
+      onClose();
+    } catch (err) {
+      setErrors(err.fieldErrors ? err.fieldErrors() : {});
+      toast.error(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return html`<${Modal} onClose=${onClose} size="mid">
+    <${SheetHead} title=${job ? "Edit cron job" : "New cron job"} subtitle="Runs on a schedule, on one instance, and shows in the history below" onClose=${onClose} />
+    <form class="sheet-body stack" onSubmit=${submit}>
+      <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Delete old sessions”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
+      <${Field} label="Type"><${Segmented} value=${type} onChange=${setType} options=${JOB_TYPES} /></${Field}>
+      <${Field} label="Schedule" error=${errors.expression} help=${preview ? `${preview.description || "Custom schedule"}, on ${preview.timezone} time` : "minute hour day month weekday"}>
+        <${Input} class="mono" value=${expression} onInput=${setExpression} required />
+      </${Field}>
+      <div class="chips">
+        ${SCHEDULES.map(([label, value]) => html`<button type="button" class=${"chip selectable " + (expression === value ? "accent" : "outline")} onClick=${() => setExpression(value)}>${label}</button>`)}
+      </div>
+      ${type === "cleanup" &&
+      html`<div class="stack">
+        <${Field} label="Collection" error=${errors["config.collection"]} help="Its records are deleted, with their files and anything that cascades, as when you delete them yourself">
+          <${Select} value=${collection} onChange=${setCollection} options=${choices.map((x) => ({ value: x.name, label: x.name }))} />
+        </${Field}>
+        <div class="grid-2">
+          <${Field} label="Older than (days)" error=${errors["config.olderThanDays"]} help="Leave empty to go by the filter only"><${Input} type="number" min="1" value=${days} onInput=${setDays} /></${Field}>
+          <${Field} label="Age is read from" error=${errors["config.field"]} help="The collection needs that date field"><${Select} value=${field} onChange=${setField} options=${["created", "updated"]} /></${Field}>
+        </div>
+        <${Field} label="Filter" error=${errors["config.filter"]} help="Same syntax as API rules, e.g. status = 'expired'. Both are applied when you give both."><${Input} class="mono" value=${filter} onInput=${setFilter} placeholder="status = 'expired'" /></${Field}>
+        <${Field} label="At most this many records per run" error=${errors["config.maxRows"]}><${Input} type="number" min="1" max="100000" value=${maxRows} onInput=${setMaxRows} /></${Field}>
+        ${preview && preview.matching != null && html`<${Callout} kind=${preview.matching ? "warn" : "info"}>${preview.matching === 0 ? "No record matches now." : `${preview.matching} record${preview.matching === 1 ? "" : "s"} match now and would be deleted at the next run (at most ${maxRows || "10000"} per run).`}</${Callout}>`}
+      </div>`}
+      ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
+      <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
+        <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${job ? "Save" : "Make job"}</${Button}></div>
+    </form>
+  </${Modal}>`;
+}
+
 export function Crons() {
   const [jobs, setJobs] = useState(null);
   const [running, setRunning] = useState("");
   const [selected, setSelected] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [zone, setZone] = useState("UTC");
+  const [editing, setEditing] = useState(null);
+  const role = useMyRole();
+  const canMake = role === "admin" || role === "owner";
   const load = () =>
     api
       .get("/api/crons")
@@ -280,25 +382,37 @@ export function Crons() {
       setRunning("");
     }
   };
-  const label = (j) => (j.id === "__pbAutoBackup__" ? "Automatic backup" : j.id);
+  const remove = async (j) => {
+    if (!(await confirmDialog({ title: `Delete “${j.name}”?`, message: "It stops running. Its history stays until it ages out.", confirm: "Delete", danger: true }))) return;
+    try {
+      await api.delete(`/api/crons/${enc(j.id)}`);
+      toast("Deleted.");
+      if (selected === j.id) setSelected("");
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      toast.error(err);
+    }
+  };
+  const label = (j) => (j.id === "__pbAutoBackup__" ? "Automatic backup" : j.kind === "user" ? j.name : j.id);
   const historyOf = jobs && jobs.find((j) => j.id === selected);
   return html`<div class="stack loose">
-    <${Card} title="Cron jobs" subtitle=${`Scheduled jobs from hooks (cronAdd) and backups, on ${(jobs && jobs[0] && jobs[0].timezone) || zone} time`} icon="clock" actions=${html`<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
+    <${Card} title="Cron jobs" subtitle=${`Jobs made here, in hooks (cronAdd) and the backup, on ${(jobs && jobs[0] && jobs[0].timezone) || zone} time`} icon="clock" actions=${html`${canMake && html`<${Button} size="sm" variant="primary" icon="plus" onClick=${() => setEditing({})}>New job</${Button}>`}<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
       ${jobs === null
         ? html`<${Skeleton} height=${80} />`
         : jobs.length === 0
-        ? html`<${Empty} icon="clock" title="No cron jobs">Add them with <code>cronAdd()</code> in a hook file, or schedule backups.</${Empty}>`
+        ? html`<${Empty} icon="clock" title="No cron jobs">${canMake ? "Make one with New job, " : ""}add them with <code>cronAdd()</code> in a hook file, or schedule backups.</${Empty}>`
         : html`<div class="table-wrap"><table class="table crons-table">
             <thead><tr><th>Job</th><th>Schedule</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
             <tbody>
               ${jobs.map(
                 (j) => html`<tr key=${j.id} class=${cx({ on: selected === j.id })}>
-                  <td><b class="mono small">${label(j)}</b><div class="tiny muted">${j.kind === "backup" ? "Settings → Backups" : "hook"}</div></td>
+                  <td><b class=${j.kind === "user" ? "small" : "mono small"}>${label(j)}</b><div class="tiny muted">${j.kind === "backup" ? "Settings → Backups" : j.kind === "user" ? (j.enabled ? "made here" : "made here · off") : "hook"}</div></td>
                   <td><code>${j.expression}</code>${j.description && html`<div class="tiny muted">${j.description}</div>`}</td>
                   <td>${j.next ? html`<span class="small">${relativeTime(j.next)}</span><div class="tiny muted mono" title=${`${formatDateIn(j.next, "UTC")}`}>${formatDateIn(j.next, j.timezone || zone)}</div>` : html`<span class="muted">never</span>`}</td>
                   <td>${j.lastRun ? html`<${StatusChip} status=${j.lastRun.status} /><div class="tiny muted">${relativeTime(j.lastRun.started)} · ${ms(j.lastRun.durationMs)}</div>` : html`<span class="muted small">not yet</span>`}</td>
                   <td class="row tight end">
                     <${Button} size="sm" variant="ghost" icon="list" onClick=${() => setSelected(selected === j.id ? "" : j.id)}>History</${Button}>
+                    ${j.kind === "user" && canMake && html`<${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
                     <${Button} size="sm" icon="play" loading=${running === j.id} onClick=${() => run(j)}>Run now</${Button}>
                   </td>
                 </tr>`
@@ -307,6 +421,7 @@ export function Crons() {
           </table></div>`}
       <div class="small muted row"><${Icon} name="info" size=${14} /> Each job runs once per minute it's due, on one instance. Old logs are deleted every minute, too (Settings → Logs).</div>
     </${Card}>
+    ${editing && html`<${JobEditor} job=${editing.id ? editing : null} onClose=${() => setEditing(null)} onDone=${() => setRefresh((n) => n + 1)} />`}
     <${Card} title=${historyOf ? `History: ${label(historyOf)}` : "History"} subtitle=${historyOf ? "Its last runs" : "Every job's last runs; choose one above to see only its own"} icon="list">
       <${JobHistory}
         kind=${historyOf ? (historyOf.kind === "backup" ? "backup" : "cron") : undefined}

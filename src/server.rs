@@ -115,7 +115,11 @@ fn app_router(app: Arc<App>) -> Router {
             "/api/sql",
             get(crate::sql_console::info).post(crate::sql_console::run),
         )
-        .route("/api/crons", get(crate::sql_console::crons))
+        .route(
+            "/api/crons",
+            get(crate::sql_console::crons).post(crate::cron_jobs::create),
+        )
+        .route("/api/cron-preview", post(crate::cron_jobs::preview))
         .route("/api/jobs/runs", get(crate::jobs::runs))
         .route("/api/team", get(crate::roles::list))
         .route("/api/team/me", get(crate::roles::me))
@@ -128,7 +132,12 @@ fn app_router(app: Arc<App>) -> Router {
             "/api/team/keys/{id}",
             axum::routing::delete(crate::roles::delete_key),
         )
-        .route("/api/crons/{id}", post(crate::sql_console::run_cron))
+        .route(
+            "/api/crons/{id}",
+            post(crate::sql_console::run_cron)
+                .patch(crate::cron_jobs::update)
+                .delete(crate::cron_jobs::delete),
+        )
         .route(
             "/api/collections/meta/scaffolds",
             get(collections::api::scaffolds),
