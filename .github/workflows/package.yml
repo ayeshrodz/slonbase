@@ -48,8 +48,8 @@ jobs:
           base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
           tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
           mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
-          curl -fsSLO "$base/$tar"
-          curl -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSLO "$base/$tar"
+          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
           tar -xzf "$tar" nfpm
           echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
 
