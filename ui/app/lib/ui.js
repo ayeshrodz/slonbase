@@ -82,7 +82,7 @@ export function Select({ value, onChange, options, class: cls, ...rest }) {
 
 export function Switch({ checked, onChange, label, disabled }) {
   return html`<label class="switch" style=${disabled ? { opacity: 0.55, pointerEvents: "none" } : null}>
-    <input type="checkbox" checked=${!!checked} onChange=${(e) => onChange(e.target.checked)} disabled=${disabled} />
+    <input type="checkbox" role="switch" checked=${!!checked} onChange=${(e) => onChange(e.target.checked)} disabled=${disabled} />
     <span class="track"><span class="knob"></span></span>
     ${label && html`<span class="switch-label">${label}</span>`}
   </label>`;

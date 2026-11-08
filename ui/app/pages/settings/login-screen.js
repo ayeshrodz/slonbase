@@ -59,7 +59,7 @@ export function LoginScreen({ s }) {
         </${Field}>
         <div class="small muted">${l.layout === "split" ? "The form beside a panel showing what slonbase is." : l.layout === "centered" ? "The form in a card, on a background of your choice." : "The form alone, nothing around it."}</div>
         ${l.layout !== "split" &&
-        html`<div class="grid-2 enter">
+        html`<div class="stack enter">
           <${Field} label="Background">
             <${Segmented} value=${l.background} onChange=${(v) => set("background", v)} options=${BACKGROUNDS} />
           </${Field}>
