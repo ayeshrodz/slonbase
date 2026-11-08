@@ -58,6 +58,12 @@ allows any origin by default (as PocketBase), and can be narrowed.
 allowed too, and it can run as a separate, restricted PostgreSQL role
 (`--sql-console-role`). Hooks run with the server's privileges, by design.
 
+**Outbound calls.** The OAuth2 avatar download and the dashboard's *Call a URL* cron jobs only
+reach public addresses: every address a name resolves to must be public (no loopback, private,
+link-local or metadata address), the connection goes to the addresses just checked, and each
+redirect is checked the same way. Only admins and owners can make such a job; header values are
+stored with the other private settings and shown hidden.
+
 ## Known limits
 
 Past issues are listed, with their advisories, in the [security reviews](security-review.md) and in

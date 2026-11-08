@@ -396,3 +396,120 @@ async fn who_may_make_jobs() {
     drop(app);
     tdb.drop_db().await;
 }
+
+fn url_job(name: &str, url: &str) -> Value {
+    json!({
+        "name": name,
+        "expression": "*/5 * * * *",
+        "type": "http",
+        "config": {
+            "url": url,
+            "method": "POST",
+            "headers": { "Authorization": "Bearer s3cret" },
+            "body": "{\"ping\":true}",
+        },
+    })
+}
+
+#[tokio::test]
+async fn jobs_that_call_a_url() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+
+    // this server, private networks and the metadata address can't be called, nor odd URLs
+    for url in [
+        "http://127.0.0.1:8090/api/health",
+        "http://localhost/",
+        "http://10.1.2.3/hook",
+        "http://169.254.169.254/latest/meta-data/",
+        "http://[::1]/",
+        "file:///etc/passwd",
+        "https://user:pass@93.184.216.34/",
+        "not a url",
+    ] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/crons",
+            Some(url_job("ping", url)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{url}: {res}");
+        assert!(res["data"]["config"]["url"].is_object(), "{url}: {res}");
+    }
+    let mut odd = url_job("ping", "http://93.184.216.34/hook");
+    odd["config"]["method"] = json!("TRACE");
+    odd["config"]["timeoutSeconds"] = json!(600);
+    odd["config"]["headers"] = json!({ "Host": "x", "bad name": "y" });
+    let (status, res) = call(&app, &token, "POST", "/api/crons", Some(odd)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    for field in ["method", "timeoutSeconds", "headers"] {
+        assert!(res["data"]["config"][field].is_object(), "{field}: {res}");
+    }
+
+    // a public address is fine; the header's value is a secret: shown masked, kept on edit
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(url_job("ping", "http://93.184.216.34/hook")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let id = res["id"].as_str().unwrap().to_string();
+    assert_eq!(res["type"], "http");
+    assert_eq!(res["config"]["headers"]["Authorization"], "••••••••");
+    assert!(!res.to_string().contains("s3cret"), "{res}");
+
+    let (_, list) = call(&app, &token, "GET", "/api/crons", None).await;
+    assert!(!list.to_string().contains("s3cret"), "{list}");
+    let (_, settings) = call(&app, &token, "GET", "/api/settings", None).await;
+    assert!(!settings.to_string().contains("s3cret"), "{settings}");
+
+    // sending the mask back changes nothing; a new value replaces it
+    let core = app.core().unwrap();
+    let saved = |core: &slonbase::core::Core| {
+        core.settings().cron_jobs[0].config["headers"]["Authorization"].clone()
+    };
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": {
+            "url": "http://93.184.216.34/other",
+            "headers": { "Authorization": "••••••••" },
+        } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(saved(&core), "Bearer s3cret");
+    assert_eq!(
+        core.settings().cron_jobs[0].config["url"],
+        "http://93.184.216.34/other"
+    );
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": {
+            "url": "http://93.184.216.34/other",
+            "headers": { "Authorization": "Bearer new" },
+        } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(saved(&core), "Bearer new");
+
+    // running it now to a private address that got in some other way is refused at run time
+    // and recorded as failed (the guard is on the request, not only on saving)
+    let mut def = core.settings().cron_jobs[0].clone();
+    def.config["url"] = json!("http://127.0.0.1:1/");
+    let result = slonbase::cron_jobs::execute(&core, &def).await;
+    assert!(result.unwrap_err().contains("not a public address"));
+}
