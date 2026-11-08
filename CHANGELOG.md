@@ -47,6 +47,9 @@ changes, listed in its **Upgrading** section.
 - Dependencies refreshed within their current versions (47 crates, among them `zip` 9.4,
   `flate2`, `encoding_rs`, `rustix` and the ICU crates); `cargo audit` reports nothing.
 - The home page's binary install command no longer shows 2.2.0 when GitHub's API can't be reached.
+- Home page layout: the deployment-layout tabs fit their content and sit centered over the
+  diagram; on phones, the developer-experience section is centered like the others, and the
+  "Choose … when" comparison cards stack in one column instead of three squeezed ones.
 - The security policy supports 2.5.x and 2.4.x (until February 7, 2027); `SUPPORT.md`,
   `MAINTAINING.md`, `CODEOWNERS` and Dependabot configuration are new.
 

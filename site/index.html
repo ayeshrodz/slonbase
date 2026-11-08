@@ -215,6 +215,8 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .card p { color: var(--muted); font-size: 15px; margin: 10px 0 0; }
 @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 620px) { .grid { grid-template-columns: 1fr; } section { padding: 72px 0; } }
+/* the three "choose … when" cards read as one list once they can't sit side by side */
+@media (max-width: 960px) { .grid.choose { grid-template-columns: 1fr; } }
 
 /* bento (what's new) */
 .bento { display: grid; grid-template-columns: repeat(6, 1fr); gap: 16px; margin-top: 56px; }
@@ -231,7 +233,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 
 /* the tour */
 .shots { margin-top: 48px; }
-.shot-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px; margin: 0 auto 22px; max-width: max-content; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); scrollbar-width: thin; }
+.shot-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px; margin: 0 auto 22px; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); scrollbar-width: thin; }
 .shot-tabs button { flex: none; border: 0; background: transparent; color: var(--ink-3); font: 500 14px var(--font); padding: 8px 14px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
 .shot-tabs button:hover { color: var(--ink); background: rgba(129,139,152,.14); }
 .shot-tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1), 0 0 0 1px var(--line-2); }
@@ -244,7 +246,14 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 
 /* two columns */
 .split { display: grid; grid-template-columns: 1fr 1fr; gap: 64px; align-items: center; }
-@media (max-width: 960px) { .split { grid-template-columns: 1fr; gap: 40px; } }
+@media (max-width: 960px) {
+  .split { grid-template-columns: 1fr; gap: 40px; }
+  /* stacked, the text column reads like the other sections: centered heading, list kept left */
+  .split > :first-child { text-align: center; }
+  .split > :first-child .sub { margin-inline: auto; }
+  .split > :first-child .eyebrow::after { content: ""; width: 18px; height: 2px; background: var(--accent); border-radius: 2px; }
+  .split .checks { text-align: left; max-width: 560px; margin-inline: auto; }
+}
 .checks { list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 13px; }
 .checks li { position: relative; padding-left: 32px; color: var(--ink-3); }
 .checks li::before { content: ""; position: absolute; left: 0; top: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f7a6c' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 12px no-repeat; border: 1px solid color-mix(in srgb, var(--accent), transparent 70%); }
@@ -662,7 +671,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
         </tbody>
       </table>
     </div>
-    <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+    <div class="grid choose">
       <div class="card reveal" style="--i:0">
         <h3>Choose slonbase when</h3>
         <p>you want PocketBase's way of working on PostgreSQL: SQL access to your data, several instances, managed databases, replicas, and a bigger ceiling for lists and filters.</p>
