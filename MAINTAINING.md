@@ -25,11 +25,23 @@ came with this change, and the checklist at the end of this page).
 
 ## Releasing
 
-Maintainers release by:
+Maintainers release with a pull request:
 
-1. moving the "Unreleased" entries in `CHANGELOG.md` into a section for the new version;
-2. setting the version in `Cargo.toml`;
-3. pushing a `vX.Y.Z` tag.
+1. **Actions → Prepare release → Run workflow**, with the version (`2.5.2`; the branch is `main`,
+   or an older line's branch for a backport). It runs `scripts/prepare-release.py`, which
+   - sets the version in `Cargo.toml` (and `Cargo.lock`);
+   - turns the "Unreleased" entries of `CHANGELOG.md` into the version's section and rebuilds
+     the compare links (it refuses an empty section);
+   - for a release on the newest line, updates the version pins in the docs and the home page;
+   - for a new minor or major, adds its line to `packaging/supported-lines.txt`, gives the
+     previous line its end date (three months from now) and rewrites SECURITY.md's table;
+
+   then pushes `release/v<version>`, opens a "Release <version>" pull request and starts CI on
+   it. (Opening it needs Settings → Actions → General → "Allow GitHub Actions to create and
+   approve pull requests"; without it, the run's summary links to open it by hand.)
+2. Review the pull request: the release notes, and the home page's highlight text if the release
+   deserves new wording. Edit on the branch if needed.
+3. Merge it.
 
 Bumping the version on `main` is also a release: when CI passes on `main` and `Cargo.toml` has a
 version without a tag, the **Release** workflow tags that commit and releases it. It checks that

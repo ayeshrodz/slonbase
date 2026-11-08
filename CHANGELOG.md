@@ -32,6 +32,10 @@ changes, listed in its **Upgrading** section.
   with versions, licenses and checksums), and GitHub-signed attestations of where every archive,
   package and the container image were built and what they contain. Check them with
   `gh attestation verify` (see [Verify a download](docs/installation.md#verify-a-download)).
+- **Releases are made with a pull request.** Actions → Prepare release opens "Release
+  <version>": the version in `Cargo.toml`, the changelog section and its compare links (missing
+  since 2.2.0, now rebuilt), the version pins in the docs and the home page, and, for a new
+  minor, the supported lines and SECURITY.md's table. Merging it releases.
 - **Every GitHub Action the workflows use is pinned to a commit**, with its version in a comment
   (`actions/checkout@3d3c42e… # v7.0.1`), so a moved tag can't change what runs in CI or in a
   release. Dependabot keeps the pins current.
