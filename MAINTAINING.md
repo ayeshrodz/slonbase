@@ -119,6 +119,14 @@ same way (`git ls-remote https://github.com/<owner>/<repo> refs/tags/<version>` 
 commit). `dtolnay/rust-toolchain` is pinned to its `stable` branch's commit; the Rust version
 itself still comes from the `stable` channel when the job runs.
 
+## PocketBase in CI
+
+The compatibility, import and differential jobs download one PocketBase release
+(`POCKETBASE_VERSION` in `.github/workflows/ci.yml`, three jobs) and check it against
+`POCKETBASE_SHA256`, the zip's hash from that release's `checksums.txt`. When you change the
+version, change the hash with it (`sha256sum pocketbase_<version>_linux_amd64.zip`, compared
+with the release's `checksums.txt`).
+
 ## When a release fails halfway
 
 The release publishes in order: GitHub release and tag, then the container image, then the
