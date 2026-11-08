@@ -9,3 +9,4 @@
 /ui/test/.run
 # written at packaging time by scripts/third-party.py
 /THIRD-PARTY-LICENSES.md
+__pycache__/

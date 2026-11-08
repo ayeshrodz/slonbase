@@ -1,10 +1,11 @@
-# Builds the signed apt and dnf repositories from the newest releases' packages and publishes them
+# Builds the signed apt and dnf repositories from the supported releases' packages and publishes them
 # on GitHub Pages (https://slonbase.com/, the repository's custom domain), with the project's page (site/) at the
 # root and the documentation site (scripts/build-docs.mjs) at /docs/. The Release workflow starts
 # it after publishing a release; it also runs when the page or the docs change on the default
-# branch, and can be run by hand. Only the newest releases are kept in the repositories (the
-# Pages artifact is limited to 1 GB, and every version adds four packages); older packages stay
-# on their release pages.
+# branch, and can be run by hand. The repositories keep the newest three versions of every
+# release line still supported (packaging/supported-lines.txt, in step with SECURITY.md) and
+# always the newest release; the Pages artifact is limited to 1 GB, and every version adds four
+# packages. Older packages stay on their release pages.
 #
 # Three jobs, so the signing key is never in a job that runs the page or docs build:
 #   sign   - in the `package-signing` environment, the only job that sees REPO_GPG_PRIVATE_KEY:
@@ -47,18 +48,19 @@ jobs:
         run: |
           sudo apt-get update -q
           sudo apt-get install -yq --no-install-recommends apt-utils createrepo-c rpm
-      - name: Download the packages of the newest releases
+      - name: Download the packages of the supported releases
         env:
           GH_TOKEN: ${{ github.token }}
-          KEEP: "5"
         run: |
           mkdir pkgs
-          gh release list --repo "$GITHUB_REPOSITORY" --limit "$KEEP" --exclude-drafts --exclude-pre-releases \
-              --json tagName --jq '.[].tagName' |
+          gh release list --repo "$GITHUB_REPOSITORY" --limit 200 --exclude-drafts --exclude-pre-releases \
+              --json tagName --jq '.[].tagName' > releases.txt
+          scripts/supported-releases.py < releases.txt > keep.txt
+          echo "keeping: $(tr '\n' ' ' < keep.txt)"
           while read -r tag; do
               gh release download "$tag" --repo "$GITHUB_REPOSITORY" --dir pkgs \
                   --pattern '*.deb' --pattern '*.rpm'
-          done
+          done < keep.txt
           ls -l pkgs
       - name: Import the signing key
         id: key

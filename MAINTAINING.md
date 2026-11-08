@@ -40,8 +40,9 @@ dashboard's vendored files) and attests every file and the image (build provenan
 SBOM for the archives and packages; `gh attestation verify` checks them). When a vendored file
 in `ui/app/vendor/` or a font changes, update its entry in `scripts/sbom.py`; CI fails until
 then. Last, it starts the **Package repositories** workflow, which rebuilds the apt and dnf
-repositories from the five newest releases' packages (the Pages artifact is limited to 1 GB;
-older packages stay on their release pages) and publishes them on GitHub Pages at
+repositories from the packages of the supported releases: the newest three versions of each
+line in `packaging/supported-lines.txt`, and always the newest release (the Pages artifact is
+limited to 1 GB; older packages stay on their release pages) and publishes them on GitHub Pages at
 <https://slonbase.com>, with the project's page (`site/index.html` and `site/install.sh`, using
 the images in `docs/assets/`) at the root and the documentation site at `/docs/`. It also runs
 when the page or the docs change on `main`. CI doesn't build packages or the source image on

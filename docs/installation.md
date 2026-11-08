@@ -155,7 +155,8 @@ sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://slonbase.com/slonbase.
 sudo dnf install slonbase            # accept the signing key when asked
 ```
 
-The repositories carry the five newest versions. To install an older one, or a package file
+The repositories carry the newest three versions of every [supported release line](https://github.com/ayeshrodz/slonbase/blob/main/SECURITY.md#supported-versions)
+(today 2.5.x and 2.4.x). To install an older one, or a package file
 instead of the repository, download the `.deb` or `.rpm` for your architecture from the
 [releases page](https://github.com/ayeshrodz/slonbase/releases), check it against `SHA256SUMS`
 (`sha256sum --ignore-missing -c SHA256SUMS`, or see [Verify a download](#verify-a-download)) and install it with `sudo apt install ./slonbase_<version>_amd64.deb`

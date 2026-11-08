@@ -1,0 +1,9 @@
+# Release lines that get fixes, and so stay in the apt and dnf repositories (the Package
+# repositories workflow keeps the newest three versions of each). One line per minor version:
+#
+#   <major.minor>  <last day of support, YYYY-MM-DD, or "-" while it is the current line>
+#
+# Keep it in step with the table in SECURITY.md (CI checks that every line listed here is
+# marked supported there). The newest release is always kept, even before its line is added.
+2.5  -
+2.4  2027-02-07

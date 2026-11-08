@@ -22,6 +22,11 @@ changes, listed in its **Upgrading** section.
   for its own role and database only, instead of switching every localhost rule to passwords.
   CI runs it in clean Ubuntu, Debian and Fedora containers: a failed package, a rerun after a
   failed setup, an upgrade that keeps the configuration, and a service that starts.
+- **The apt and dnf repositories keep every supported line.** Instead of the five newest
+  versions, they keep the newest three of each line that still gets fixes (2.5.x, and 2.4.x
+  until February 7, 2027), so a 2.4 backport stays installable from the repositories however
+  many 2.5 releases follow. `packaging/supported-lines.txt` lists the lines; CI checks it agrees
+  with `SECURITY.md`.
 - **Releases carry a software bill of materials and attestations.** Each release publishes
   `slonbase-<version>.spdx.json` (SPDX 2.3: the Rust crates and bundled libraries in the binary,
   with versions, licenses and checksums), and GitHub-signed attestations of where every archive,
