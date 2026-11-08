@@ -1,6 +1,6 @@
 [package]
 name = "slonbase"
-version = "2.5.2"
+version = "2.5.3"
 edition = "2024"
 rust-version = "1.88"
 description = "Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project admin dashboard"
