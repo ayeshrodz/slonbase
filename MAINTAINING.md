@@ -98,6 +98,15 @@ The repositories need, once:
 The workflow can also be run by hand (Actions → Package repositories → Run workflow), for
 example after editing a release.
 
+## Workflow actions
+
+Every action in `.github/workflows/` is pinned to a full commit SHA with its version in a
+comment (`uses: actions/checkout@<sha> # v7.0.1`): a tag can be moved, a commit can't. Dependabot
+(weekly, grouped) updates the pin and the comment together. When you add an action, pin it the
+same way (`git ls-remote https://github.com/<owner>/<repo> refs/tags/<version>` gives the
+commit). `dtolnay/rust-toolchain` is pinned to its `stable` branch's commit; the Rust version
+itself still comes from the `stable` channel when the job runs.
+
 ## When a release fails halfway
 
 The release publishes in order: GitHub release and tag, then the container image, then the
