@@ -9,6 +9,6 @@
 ## Checklist
 
 - [ ] `cargo fmt --all --check` and `cargo clippy --all-targets --locked -- -D warnings` pass
-- [ ] I have signed the [CLA](../CLA.md) (a bot asks on your first pull request)
+- [ ] I have signed the [CLA](https://github.com/ayeshrodz/slonbase/blob/main/CLA.md) (a bot asks on your first pull request)
 - [ ] Tests cover the change
 - [ ] Docs and `CHANGELOG.md` ("Unreleased") are updated for user-visible changes
