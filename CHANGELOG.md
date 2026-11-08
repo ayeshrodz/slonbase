@@ -22,6 +22,11 @@ changes, listed in its **Upgrading** section.
   for its own role and database only, instead of switching every localhost rule to passwords.
   CI runs it in clean Ubuntu, Debian and Fedora containers: a failed package, a rerun after a
   failed setup, an upgrade that keeps the configuration, and a service that starts.
+- **The package signing key is used by one job only.** The Package repositories workflow signs
+  the apt and dnf repositories in a job of its own, in the `package-signing` environment, and
+  builds the page and the docs in another job that has no secrets. It also refuses to sign with
+  any key but the published one, so a wrong secret fails the run instead of breaking
+  `apt update` for everyone.
 - The security policy supports 2.5.x and 2.4.x (until February 7, 2027); `SUPPORT.md`,
   `MAINTAINING.md`, `CODEOWNERS` and Dependabot configuration are new.
 

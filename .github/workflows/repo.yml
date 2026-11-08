@@ -6,8 +6,13 @@
 # Pages artifact is limited to 1 GB, and every version adds four packages); older packages stay
 # on their release pages.
 #
-# Needs the REPO_GPG_PRIVATE_KEY secret (an armored signing key without a passphrase) and
-# Settings → Pages → Source: GitHub Actions. See MAINTAINING.md.
+# Three jobs, so the signing key is never in a job that runs the page or docs build:
+#   sign   - in the `package-signing` environment, the only job that sees REPO_GPG_PRIVATE_KEY:
+#            downloads the packages, checks the key's fingerprint, signs the repositories
+#   site   - no secrets: builds the project's page and the docs around the signed repositories
+#   deploy - publishes the result on GitHub Pages
+# Needs the REPO_GPG_PRIVATE_KEY secret in the `package-signing` environment (an armored signing
+# key without a passphrase) and Settings → Pages → Source: GitHub Actions. See MAINTAINING.md.
 name: Package repositories
 
 on:
@@ -31,12 +36,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  sign:
     runs-on: ubuntu-24.04
+    environment: package-signing
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0   # the sitemap's lastmod dates come from the history
+          persist-credentials: false
       - name: Install tools
         run: |
           sudo apt-get update -q
@@ -58,19 +64,50 @@ jobs:
         id: key
         env:
           KEY: ${{ secrets.REPO_GPG_PRIVATE_KEY }}
+          # the key users already trust (https://slonbase.com/slonbase.asc); a fork with its own
+          # key sets the repository variable REPO_KEY_FINGERPRINT
+          EXPECTED: ${{ vars.REPO_KEY_FINGERPRINT || '95697FA73AFBAC43E64962F1C7DF885C74BB3942' }}
         run: |
           if [ -z "$KEY" ]; then
-              echo "::error::the REPO_GPG_PRIVATE_KEY secret is not set (see MAINTAINING.md)"
+              echo "::error::the REPO_GPG_PRIVATE_KEY secret is not set in the package-signing environment (see MAINTAINING.md)"
               exit 1
           fi
           printf '%s\n' "$KEY" | gpg --batch --import
-          echo "fingerprint=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')" >> "$GITHUB_OUTPUT"
-      - name: Build the repositories
+          fpr=$(gpg --with-colons --list-secret-keys | awk -F: '/^fpr/ {print $10; exit}')
+          echo "signing key: $fpr"
+          if [ "$fpr" != "$EXPECTED" ]; then
+              echo "::error::the signing key is $fpr, not $EXPECTED: users' apt and dnf would reject the repositories. Put the right key in the secret, or, for a new key, set REPO_KEY_FINGERPRINT and tell users to import it again"
+              exit 1
+          fi
+          echo "fingerprint=$fpr" >> "$GITHUB_OUTPUT"
+      - name: Build and sign the repositories
         env:
           # the repository variable SITE_URL overrides the address (a fork, say)
           SITE_URL: ${{ vars.SITE_URL || 'https://slonbase.com' }}
         run: |
-          scripts/build-repo.sh pkgs site-out "${{ steps.key.outputs.fingerprint }}" "$SITE_URL"
+          scripts/build-repo.sh pkgs repos "${{ steps.key.outputs.fingerprint }}" "$SITE_URL"
+      - name: Forget the key
+        if: always()
+        run: rm -rf ~/.gnupg
+      - uses: actions/upload-artifact@v7
+        with:
+          name: signed-repositories
+          path: repos
+          retention-days: 1
+          if-no-files-found: error
+
+  site:
+    needs: sign
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0   # the sitemap's lastmod dates come from the history
+          persist-credentials: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: signed-repositories
+          path: site-out
       - name: Add the project's page
         run: |
           cp -r site/. site-out/
@@ -85,7 +122,7 @@ jobs:
           path: site-out
 
   deploy:
-    needs: build
+    needs: site
     runs-on: ubuntu-24.04
     permissions:
       pages: write
