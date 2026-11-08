@@ -245,7 +245,13 @@ impl Storage {
                 };
                 while let Some(entry) = entries.next_entry().await? {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    let meta = entry.metadata().await?;
+                    // a file written under a temporary name and renamed (a backup being made)
+                    // can be gone by now: it isn't listed, and the listing doesn't fail
+                    let meta = match entry.metadata().await {
+                        Ok(meta) => meta,
+                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                        Err(e) => return Err(e.into()),
+                    };
                     if !meta.is_file() || !valid_part(&name) {
                         continue;
                     }
@@ -351,6 +357,32 @@ pub(crate) fn file_chunks<R: tokio::io::AsyncRead + Unpin + Send>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file renamed or removed while the folder is listed (a backup being finished) is skipped,
+    /// not an error.
+    #[tokio::test]
+    async fn listing_survives_files_that_come_and_go() {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::local(dir.path());
+        let path = dir.path().to_path_buf();
+        let churn = tokio::spawn(async move {
+            for i in 0..400 {
+                let tmp = path.join(format!(".tmp-{i}"));
+                tokio::fs::write(&tmp, b"x").await.unwrap();
+                tokio::fs::rename(&tmp, path.join(format!("b{i}.zip")))
+                    .await
+                    .unwrap();
+                tokio::fs::remove_file(path.join(format!("b{i}.zip")))
+                    .await
+                    .unwrap();
+            }
+        });
+        while !churn.is_finished() {
+            storage.list_root().await.unwrap();
+            tokio::task::yield_now().await;
+        }
+        churn.await.unwrap();
+    }
 
     #[tokio::test]
     async fn roundtrip_and_safety() {
