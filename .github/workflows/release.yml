@@ -9,6 +9,9 @@
 # A tag or a manual run releases only a commit CI has passed on. A version with a suffix
 # (2.6.0-rc.1) is a GitHub pre-release and never the latest. The image is a job of its own, so
 # a failure there is re-run without repeating the release (see MAINTAINING.md).
+# Every published file, the image included, gets a build provenance attestation (which workflow,
+# commit and run built it), and the archives and packages an SBOM attestation; the SBOM
+# (scripts/sbom.py, SPDX) is published with them. `gh attestation verify` checks them.
 name: Release
 
 on:
@@ -103,6 +106,8 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      id-token: write       # to sign the attestations
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -112,8 +117,26 @@ jobs:
           pattern: dist-*
           path: dist
           merge-multiple: true
+      - name: Software bill of materials
+        run: python3 scripts/sbom.py "${{ needs.verify.outputs.version }}" "dist/slonbase-${{ needs.verify.outputs.version }}.spdx.json"
       - name: Checksums
-        run: cd dist && sha256sum ./*.deb ./*.rpm ./*.tar.gz | sed 's| \./| |' > SHA256SUMS
+        run: cd dist && sha256sum ./*.deb ./*.rpm ./*.tar.gz ./*.spdx.json | sed 's| \./| |' > SHA256SUMS
+      - name: Attest where the files were built
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+            dist/*.spdx.json
+      - name: Attest what they contain
+        uses: actions/attest@v4
+        with:
+          subject-path: |
+            dist/*.deb
+            dist/*.rpm
+            dist/*.tar.gz
+          sbom-path: dist/slonbase-${{ needs.verify.outputs.version }}.spdx.json
       - name: Release notes
         env:
           VERSION: ${{ needs.verify.outputs.version }}
@@ -128,7 +151,9 @@ jobs:
             echo "- Fedora/RHEL: \`slonbase-${VERSION}-1.x86_64.rpm\` / \`.aarch64.rpm\`"
             echo "- Binaries: \`slonbase-${VERSION}-linux-{amd64,arm64}.tar.gz\`"
             echo
-            echo "Verify downloads with \`sha256sum --ignore-missing -c SHA256SUMS\`. See the [installation guide](https://github.com/${{ github.repository }}/blob/v$VERSION/docs/installation.md)."
+            echo "- Software bill of materials (SPDX): \`slonbase-${VERSION}.spdx.json\`"
+            echo
+            echo "Verify downloads with \`sha256sum --ignore-missing -c SHA256SUMS\`, and that GitHub Actions built them from this repository with \`gh attestation verify <file> --repo ${{ github.repository }}\`. See the [installation guide](https://github.com/${{ github.repository }}/blob/v$VERSION/docs/installation.md)."
           } > release-notes.md
 
       # creates the tag on that commit when it doesn't exist yet
@@ -140,6 +165,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.spdx.json
             dist/SHA256SUMS
           body_path: release-notes.md
           prerelease: ${{ needs.verify.outputs.prerelease == 'true' }}
@@ -153,6 +179,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write       # to sign the attestation
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
@@ -171,6 +199,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish the image
+        id: image
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -180,6 +209,13 @@ jobs:
           tags: |
             ghcr.io/${{ github.repository }}:${{ needs.verify.outputs.version }}
             ${{ needs.verify.outputs.latest == 'true' && format('ghcr.io/{0}:latest', github.repository) || '' }}
+      # stored next to the image too, so `gh attestation verify oci://...` and registries see it
+      - name: Attest where the image was built
+        uses: actions/attest@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
 
   # Updates the apt and dnf repositories. Started with a dispatch on the default branch, since
   # workflows don't trigger on releases made with GITHUB_TOKEN, and GitHub Pages deploys only

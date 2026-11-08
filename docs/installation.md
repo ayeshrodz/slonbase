@@ -158,7 +158,7 @@ sudo dnf install slonbase            # accept the signing key when asked
 The repositories carry the five newest versions. To install an older one, or a package file
 instead of the repository, download the `.deb` or `.rpm` for your architecture from the
 [releases page](https://github.com/ayeshrodz/slonbase/releases), check it against `SHA256SUMS`
-(`sha256sum --ignore-missing -c SHA256SUMS`) and install it with `sudo apt install ./slonbase_<version>_amd64.deb`
+(`sha256sum --ignore-missing -c SHA256SUMS`, or see [Verify a download](#verify-a-download)) and install it with `sudo apt install ./slonbase_<version>_amd64.deb`
 or `sudo dnf install ./slonbase-<version>-1.x86_64.rpm`.
 
 The package installs a hardened systemd service and starts it, in **setup mode** (nothing is
@@ -316,6 +316,33 @@ sudo journalctl -u slonbase -n 50                      # its log
 Then open <http://127.0.0.1:8090/_/> (through the SSH tunnel if the server is remote) and sign
 in with the superuser's email and password. The overview shows the installation; **Health** in
 the sidebar checks the database, storage and settings.
+
+## Verify a download
+
+Every release lists the SHA-256 of each file in `SHA256SUMS`:
+
+```sh
+sha256sum --ignore-missing -c SHA256SUMS
+```
+
+Releases after 2.5.1 also carry **attestations**, signed by GitHub, that say which workflow,
+commit and run built each file, and a **software bill of materials**
+(`slonbase-<version>.spdx.json`, SPDX 2.3): every Rust crate and bundled library in the binary,
+with its version, license and checksum, for vulnerability scanners. With the
+[GitHub CLI](https://cli.github.com/):
+
+```sh
+# this file was built by slonbase's release workflow, from this repository
+gh attestation verify slonbase_<version>_amd64.deb --repo ayeshrodz/slonbase
+# the same for the container image
+gh attestation verify oci://ghcr.io/ayeshrodz/slonbase:<version> --repo ayeshrodz/slonbase
+# the SBOM attached to a file
+gh attestation verify slonbase_<version>_amd64.deb --repo ayeshrodz/slonbase \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
+The apt and dnf repositories are signed with the key published at
+<https://slonbase.com/slonbase.asc> (fingerprint `9569 7FA7 3AFB AC43 E649 62F1 C7DF 885C 74BB 3942`).
 
 ## Troubleshooting
 

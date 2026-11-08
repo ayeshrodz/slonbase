@@ -35,7 +35,11 @@ Bumping the version on `main` is also a release: when CI passes on `main` and `C
 version without a tag, the **Release** workflow tags that commit and releases it. It checks that
 the changelog has the version's section, builds the packages once (amd64 and arm64), publishes
 the GitHub release, with those notes, and the Docker image (built from the packages' binaries).
-Last, it starts the **Package repositories** workflow, which rebuilds the apt and dnf
+With the packages it publishes an SBOM (`scripts/sbom.py`: SPDX, from `Cargo.lock` and the
+dashboard's vendored files) and attests every file and the image (build provenance, and the
+SBOM for the archives and packages; `gh attestation verify` checks them). When a vendored file
+in `ui/app/vendor/` or a font changes, update its entry in `scripts/sbom.py`; CI fails until
+then. Last, it starts the **Package repositories** workflow, which rebuilds the apt and dnf
 repositories from the five newest releases' packages (the Pages artifact is limited to 1 GB;
 older packages stay on their release pages) and publishes them on GitHub Pages at
 <https://slonbase.com>, with the project's page (`site/index.html` and `site/install.sh`, using
