@@ -468,7 +468,7 @@ impl Hooks {
         let schedule = crate::cron::Schedule::parse(expression)
             .ok_or_else(|| anyhow::anyhow!("invalid cron expression {expression:?}"))?;
         anyhow::ensure!(
-            !id.is_empty() && !id.starts_with("__"),
+            !id.is_empty() && !id.starts_with("__") && !id.starts_with(crate::cron_jobs::ID_PREFIX),
             "invalid cron job id {id:?}"
         );
         // re-adding a job replaces it (like PocketBase)
@@ -630,7 +630,8 @@ pub(crate) struct Change {
 
 /// Runs the custom cron jobs whose schedule fires this minute. Only one instance runs
 /// each job each minute (claimed in the params table).
-pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
+#[doc(hidden)]
+pub async fn run_scheduled_crons(core: &Arc<Core>) {
     let now = chrono::Utc::now();
     let minute = now.format("%Y-%m-%dT%H:%M").to_string();
     let tz = core.settings().timezone();
@@ -640,22 +641,7 @@ pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
         .iter()
         .filter(|j| j.schedule.matches(&now, tz))
     {
-        let claimed = async {
-            let client = core
-                .pool
-                .get()
-                .await
-                .map_err(crate::db::describe_pool_error)?;
-            let rows = client
-                .execute(
-                    "INSERT INTO _slonbase.params (key, value) VALUES ($1, to_jsonb($2::text))
-                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()
-                     WHERE _slonbase.params.value <> EXCLUDED.value",
-                    &[&format!("cron_last:{}", job.id), &minute],
-                )
-                .await?;
-            anyhow::Ok(rows == 1)
-        };
+        let claimed = claim_minute(core, &job.id, &minute);
         match claimed.await {
             Ok(true) => {}
             Ok(false) => continue,
@@ -667,6 +653,26 @@ pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
         let (core, run, id) = (core.clone(), job.run.clone(), job.id.clone());
         tokio::spawn(run_cron_recorded(core, id, run, "schedule"));
     }
+    crate::cron_jobs::run_scheduled(core, now, &minute, tz).await;
+}
+
+/// Claims `minute` for the job `id`: true for the one instance that gets it, so each job runs once
+/// a minute across instances (the claim is a conditional upsert in the params table).
+pub(crate) async fn claim_minute(core: &Arc<Core>, id: &str, minute: &str) -> anyhow::Result<bool> {
+    let client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let rows = client
+        .execute(
+            "INSERT INTO _slonbase.params (key, value) VALUES ($1, to_jsonb($2::text))
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()
+             WHERE _slonbase.params.value <> EXCLUDED.value",
+            &[&format!("cron_last:{id}"), &minute],
+        )
+        .await?;
+    Ok(rows == 1)
 }
 
 /// Runs a cron job, recorded in the jobs' history.

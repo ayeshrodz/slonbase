@@ -162,7 +162,7 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
                 && !path.starts_with("/api/collections/_superusers")
                 && !path.contains("/impersonate/");
             data || path == "/api/batch"
-                || path.starts_with("/api/crons/")
+                || (*method == Method::POST && path.starts_with("/api/crons/"))
                 || path == "/api/settings/mail/preview"
         }
         Role::Admin => {
@@ -183,10 +183,11 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
 /// the function that enforces roles, so the table can't say something the guard doesn't do.
 /// (The wording is the dashboard's, `ui/app/pages/settings/team.js`, keyed by these ids.)
 pub fn capabilities() -> Vec<Value> {
-    let table: [(&str, Method, &str); 12] = [
+    let table: [(&str, Method, &str); 13] = [
         ("view", Method::GET, "/api/collections"),
         ("data", Method::POST, "/api/collections/posts/records"),
         ("crons", Method::POST, "/api/crons/report"),
+        ("cronJobs", Method::POST, "/api/crons"),
         ("settings", Method::PATCH, "/api/settings"),
         ("backups", Method::POST, "/api/backups"),
         ("projects", Method::POST, "/api/projects"),
@@ -288,7 +289,7 @@ fn require_role(
     Ok((me, role))
 }
 
-async fn save_settings(
+pub(crate) async fn save_settings(
     core: &Arc<Core>,
     settings: crate::settings::Settings,
 ) -> Result<(), ApiError> {
@@ -584,17 +585,24 @@ mod tests {
         }
         // what only looks at the settings is not the developer's to change; admins run the
         // installation, owners hold the keys to it
-        for id in ["settings", "backups", "backupFiles", "projects", "keys"] {
+        for id in [
+            "settings",
+            "backups",
+            "backupFiles",
+            "projects",
+            "keys",
+            "cronJobs",
+        ] {
             assert_eq!(by_id(id), from_admin, "{id}");
         }
         for id in ["restore", "deleteProject", "team", "sql"] {
             assert_eq!(by_id(id), owner_only, "{id}");
         }
-        // 12 capabilities, each only once
+        // 13 capabilities, each only once
         let mut ids: Vec<_> = capabilities().iter().map(|c| c["id"].clone()).collect();
         ids.sort_by_key(|v| v.to_string());
         ids.dedup();
-        assert_eq!(ids.len(), 12);
+        assert_eq!(ids.len(), 13);
     }
 
     #[test]
@@ -851,6 +859,10 @@ mod tests {
             Some(Role::Developer),
         ),
         ("POST", "/api/crons/{id}", Some(Role::Developer)),
+        ("PATCH", "/api/crons/{id}", Some(Role::Admin)),
+        ("DELETE", "/api/crons/{id}", Some(Role::Admin)),
+        ("POST", "/api/crons", Some(Role::Admin)),
+        ("POST", "/api/cron-preview", Some(Role::Admin)),
         ("POST", "/api/files/token", Some(Role::Viewer)),
         ("POST", "/api/oauth2-redirect", Some(Role::Admin)),
         ("POST", "/api/projects", Some(Role::Admin)),

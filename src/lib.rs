@@ -31,6 +31,7 @@ pub mod config;
 pub mod core;
 pub mod count_cache;
 pub mod cron;
+pub mod cron_jobs;
 pub mod datetime;
 pub mod db;
 pub mod error;

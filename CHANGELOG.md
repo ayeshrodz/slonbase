@@ -8,6 +8,21 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+You can make cron jobs in the dashboard now: Settings → Cron jobs → New job.
+
+### Added
+
+- **Cron jobs made in the dashboard.** Until now Settings → Cron jobs only listed the backup and
+  the jobs a hook file registers with `cronAdd()` (as in PocketBase). Admins and owners can now
+  make a job there, with a schedule (in the time zone of Settings → Backups) and a type. The
+  first type is **Clean up records**: delete the records of a collection that match a filter
+  (the API rules' syntax) and/or are older than some days, at most so many per run, with their
+  files and cascades as when you delete them yourself. The editor shows the schedule in words,
+  the next runs and how many records match right now. Jobs run once a minute they're due, on
+  one instance, never twice at once, with a time limit, and their runs and results (how many
+  were deleted) are in the history like the others. Developers can still run any job now. The
+  API is `POST /api/crons`, `PATCH`/`DELETE /api/crons/{id}` and `POST /api/cron-preview`.
+
 ## [2.5.3] - 2026-11-08
 
 Schedules that can run on your own time zone, and a roles table that matches what is enforced.

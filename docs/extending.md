@@ -72,7 +72,7 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onBootstrap` | Once the app is ready |
 | `routerAdd(method, path, handler, ...middlewares)` | A custom route. Middlewares: `$apis.requireAuth(...collections)`, `requireSuperuserAuth()`, `requireSuperuserOrOwnerAuth(param)`, `requireGuestOnly()`. |
 | `routerUse(handler)` | Middleware around every request; `e.next()` continues |
-| `cronAdd(id, expression, fn)`, `cronRemove(id)` | Scheduled jobs, read on the clocks of the `schedule.timezone` setting (UTC by default; Settings → Backups → Time zone). They run on one instance per minute and show in the dashboard. |
+| `cronAdd(id, expression, fn)`, `cronRemove(id)` | Scheduled jobs, read on the clocks of the `schedule.timezone` setting (UTC by default; Settings → Backups → Time zone). They run on one instance per minute and show in the dashboard. For a plain chore, such as deleting old records, you can make the job in Settings → Cron jobs instead, with no hook file; `cronAdd` is for anything that needs code. |
 
 Record and file hooks take collection names (or ids) after the handler to limit them to
 those collections.

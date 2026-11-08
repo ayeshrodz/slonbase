@@ -47,7 +47,9 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `POST /api/sql` | The SQL console (when enabled): `{"query", "maxRows"?}` |
 | `GET/DELETE /api/logs`, `GET /api/logs/{id}`, `GET /api/logs/stats` | Logs (filter, sort, per-hour stats), superusers |
 | `GET/POST /api/backups`, `POST /api/backups/upload`, `GET/DELETE /api/backups/{key}`, `POST /api/backups/{key}/restore` | Backups (download with a superuser file token) |
-| `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (hooks' and the automatic backup), with their schedule in words, next run and last run |
+| `GET /api/crons`, `POST /api/crons/{id}` | Scheduled jobs (hooks', the automatic backup and the ones made in the dashboard), with their schedule in words, next run and last run; the second runs one now |
+| `POST /api/crons`, `PATCH /api/crons/{id}`, `DELETE /api/crons/{id}` | Make, change and delete a cron job of the dashboard: `{name, expression, type, enabled, config}` (`type` `cleanup`: `config` has `collection`, `filter`, `olderThanDays`, `field`, `maxRows`). Admins and owners; their ids start with `user:` |
+| `POST /api/cron-preview` | Checks a job without saving it: its schedule in words, the next runs and, for a cleanup, how many records match now |
 | `GET /api/jobs/runs` | What backups and cron jobs did (`kind`, `job`, `status`, `limit`), superusers |
 | `GET /api/settings/storage`, `POST /api/settings/storage/clear-thumbs` | Where files are, the free space and what uploads take; delete generated thumbnails |
 | `POST /api/settings/rate-limits/explain` | Which rate-limit rule a request meets (`{method, path, audience}`), superusers |

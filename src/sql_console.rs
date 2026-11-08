@@ -431,6 +431,9 @@ pub async fn crons(
             last.remove(&job.id),
         ));
     }
+    for job in &core.settings().cron_jobs {
+        jobs.push(crate::cron_jobs::listed(job, tz, now, last.remove(&job.id)));
+    }
     Ok(Json(Value::Array(jobs)))
 }
 
@@ -447,6 +450,14 @@ pub async fn run_cron(
         // in the background, like PocketBase
         let (run, core) = (job.run.clone(), core.clone());
         tokio::spawn(crate::hooks::run_cron_recorded(core, id, run, "manual"));
+        return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
+    }
+    if let Some(def) = core.settings().cron_jobs.iter().find(|j| j.id == id) {
+        tokio::spawn(crate::cron_jobs::run_recorded(
+            core.clone(),
+            def.clone(),
+            "manual",
+        ));
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
     }
     if id != AUTO_BACKUP_JOB || core.settings().backups.cron.trim().is_empty() {
