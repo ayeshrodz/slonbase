@@ -8,6 +8,9 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+- CI now runs the test suite on PostgreSQL 18 too (14 to 18), so "PostgreSQL 14 or newer" is
+  tested on every major version, not only up to 17.
+
 ## [2.5.2] - 2026-11-08
 
 **Safer releases and installs:** a software bill of materials and attestations with every

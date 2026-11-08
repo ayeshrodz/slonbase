@@ -78,8 +78,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # oldest supported and newest
-        postgres: ["14", "15", "16", "17"]
+        # every major version the docs promise: 14 (the oldest) up to the newest
+        postgres: ["14", "15", "16", "17", "18"]
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}-alpine
