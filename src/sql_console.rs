@@ -36,11 +36,11 @@ const DEFAULT_ROWS: usize = 1000;
 const MAX_ROWS: usize = 5000;
 /// The most bytes of values a result holds; past it, the rows stop there (`truncated`).
 const MAX_RESULT_BYTES: usize = 16 << 20;
-const MAX_QUERY_LENGTH: usize = 20_000;
+pub(crate) const MAX_QUERY_LENGTH: usize = 20_000;
 const STATEMENT_TIMEOUT_SECONDS: u32 = 30;
 const LOCK_TIMEOUT_SECONDS: u32 = 5;
 /// Statements the read-only console runs.
-const READ_KEYWORDS: &[&str] = &["SELECT", "WITH", "SHOW", "EXPLAIN", "VALUES", "TABLE"];
+pub(crate) const READ_KEYWORDS: &[&str] = &["SELECT", "WITH", "SHOW", "EXPLAIN", "VALUES", "TABLE"];
 /// Reads whose rows come through a cursor (`SHOW` and `EXPLAIN` can't be declared as one, and
 /// answer a few rows anyway).
 const CURSOR_KEYWORDS: &[&str] = &["SELECT", "WITH", "VALUES", "TABLE"];
@@ -72,7 +72,7 @@ pub async fn info(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json
 }
 
 /// The first keyword of a statement, upper-cased, after leading spaces, comments and brackets.
-fn first_keyword(sql: &str) -> String {
+pub(crate) fn first_keyword(sql: &str) -> String {
     let mut rest = sql;
     loop {
         rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == '(');
@@ -205,8 +205,24 @@ pub async fn run(
         .get("maxRows")
         .and_then(Value::as_u64)
         .map_or(DEFAULT_ROWS, |n| (n as usize).clamp(1, MAX_ROWS));
+    execute(&core, &query, max_rows).await.map(Json)
+}
+
+/// Runs a statement under the console's policy: the console must be on, a read-only console
+/// runs reads only, the statement runs as the console's role, with its time limits, and at most
+/// two at a time. Also used by the dashboard's SQL cron jobs, so they can do what the console
+/// can and nothing more.
+pub(crate) async fn execute(
+    core: &crate::core::Core,
+    query: &str,
+    max_rows: usize,
+) -> Result<Value, ApiError> {
+    if !core.sql_console {
+        return Err(disabled());
+    }
+    let query = query.trim();
     let writes = core.sql_console_writes;
-    let keyword = first_keyword(&query);
+    let keyword = first_keyword(query);
     let is_read = READ_KEYWORDS.contains(&keyword.as_str());
     if !writes && !is_read {
         return Err(ApiError::forbidden(format!(
@@ -227,11 +243,11 @@ pub async fn run(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    let outcome = run_on(&mut client, &core, &query, &keyword, writes, max_rows).await;
+    let outcome = run_on(&mut client, core, query, &keyword, writes, max_rows).await;
     // the query may have changed the session (SET, temporary tables): close the connection
     // rather than hand it to another request
     let _ = deadpool_postgres::Object::take(client);
-    outcome.map(Json)
+    outcome
 }
 
 async fn run_on(
