@@ -40,6 +40,8 @@ jobs:
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       # the third-party license list (written at packaging time, from Cargo.lock) can be generated
       - run: python3 scripts/third-party.py
+      # so can the release's SBOM, and the dashboard's vendored files are still the ones it lists
+      - run: python3 scripts/sbom.py 0.0.0 /dev/null
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
