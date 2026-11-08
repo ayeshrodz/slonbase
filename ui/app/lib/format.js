@@ -14,6 +14,36 @@ export function formatDate(value, withTime = true) {
   return d.toLocaleString(undefined, opts);
 }
 
+// A date as the clocks of a time zone show it ("Nov 9, 2026, 03:00 GMT+13"); the browser's own
+// zone when the name isn't one it knows.
+export function formatDateIn(value, timeZone) {
+  const d = parseDate(value);
+  if (!d) return "";
+  try {
+    return d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", timeZone, timeZoneName: "short" });
+  } catch {
+    return formatDate(value);
+  }
+}
+
+// The time zone names the browser knows (UTC first), and the browser's own.
+export function timeZones() {
+  let names = [];
+  try {
+    names = Intl.supportedValuesOf("timeZone");
+  } catch {
+    names = ["Africa/Cairo", "America/Chicago", "America/Los_Angeles", "America/New_York", "America/Sao_Paulo", "Asia/Dubai", "Asia/Kolkata", "Asia/Shanghai", "Asia/Tokyo", "Australia/Sydney", "Europe/Berlin", "Europe/London", "Pacific/Auckland"];
+  }
+  return ["UTC", ...names.filter((n) => n !== "UTC")];
+}
+export const browserTimeZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+};
+
 export function relativeTime(value) {
   const d = parseDate(value);
   if (!d) return "";

@@ -194,6 +194,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
+| `schedule` | slonbase's: `timezone`: `UTC` (default, as in PocketBase) or an IANA name (`Pacific/Auckland`) that cron expressions are read in, for the automatic backups and the cron jobs of hooks |
 
 Roles and API keys are kept with the settings but only `/api/team` shows and changes them.
 
@@ -318,8 +319,13 @@ all of that in one transaction, on every instance. It also restores the installa
 key, so tokens issued after the backup stop working.
 
 Backups are kept in `--backups-path`, or in an S3 bucket (`backups.s3`). `backups.cron`
-(e.g. `0 3 * * *`, UTC) creates them automatically, and `backups.cronMaxKeep` limits how many are
-kept. See [deployment](deployment.md#backups) for how they fit with PostgreSQL's own backups.
+(e.g. `0 3 * * *`) creates them automatically, and `backups.cronMaxKeep` limits how many are
+kept. A schedule is read on the clocks of the time zone in `schedule.timezone` (Settings →
+Backups → Time zone): UTC until you change it, so `0 3 * * *` runs at 03:00 UTC, which is
+16:00 in Auckland in the southern summer; set `Pacific/Auckland` for 03:00 there, daylight saving
+time included. A fixed time that the clocks skip (02:30 when they go forward) runs once, right
+after the change, and one they repeat (02:30 when they go back) runs once, the first time;
+jobs in every hour, such as `*/10 * * * *`, keep to the clock. See [deployment](deployment.md#backups) for how they fit with PostgreSQL's own backups.
 
 **Encryption.** With a backups encryption key (`SLONBASE_BACKUPS_ENCRYPTION_KEY`, at least 12
 characters), new backups are encrypted (AES-256-GCM, with a key derived from the passphrase), so

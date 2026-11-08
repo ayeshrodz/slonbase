@@ -6,9 +6,8 @@
 //!   before 2.0, and as in PocketBase).
 //! - **Admin**: everything but managing superusers and their roles, restoring backups and
 //!   deleting projects.
-//! - **Developer**: collections, records, files, the SQL console (reading, or writing when the
-//!   server allows it and they're admins), running cron jobs; settings, backups and branding
-//!   only to look at.
+//! - **Developer**: collections, records, files and running cron jobs; settings, backups and
+//!   branding only to look at. (The SQL console is for owners only.)
 //! - **Viewer**: looks at everything (no backups to download), changes nothing.
 //!
 //! The check is one place, [`allowed`], run by the request guard for every request by a
@@ -179,6 +178,38 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
     }
 }
 
+/// What the dashboard's table of roles shows: each capability, with a request that stands for
+/// it, and the roles whose requests the guard lets through. It is computed with [`allowed`],
+/// the function that enforces roles, so the table can't say something the guard doesn't do.
+/// (The wording is the dashboard's, `ui/app/pages/settings/team.js`, keyed by these ids.)
+pub fn capabilities() -> Vec<Value> {
+    let table: [(&str, Method, &str); 12] = [
+        ("view", Method::GET, "/api/collections"),
+        ("data", Method::POST, "/api/collections/posts/records"),
+        ("crons", Method::POST, "/api/crons/report"),
+        ("settings", Method::PATCH, "/api/settings"),
+        ("backups", Method::POST, "/api/backups"),
+        ("projects", Method::POST, "/api/projects"),
+        ("keys", Method::POST, "/api/team/keys"),
+        ("restore", Method::POST, "/api/backups/x.zip/restore"),
+        ("deleteProject", Method::DELETE, "/api/projects/x"),
+        ("team", Method::PATCH, "/api/team/members/x"),
+        ("sql", Method::POST, "/api/sql"),
+        ("backupFiles", Method::GET, "/api/backups/x.zip"),
+    ];
+    table
+        .iter()
+        .map(|(id, method, path)| {
+            let roles: Vec<&str> = [Role::Viewer, Role::Developer, Role::Admin, Role::Owner]
+                .into_iter()
+                .filter(|role| allowed(*role, method, path))
+                .map(Role::as_str)
+                .collect();
+            json!({ "id": id, "roles": roles })
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // API keys
 
@@ -334,6 +365,7 @@ pub async fn list(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json
     Ok(Json(json!({
         "members": members,
         "apiKeys": settings.api_keys.iter().map(key_json).collect::<Vec<_>>(),
+        "capabilities": capabilities(),
     })))
 }
 
@@ -527,6 +559,43 @@ pub async fn delete_key(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The table the dashboard shows (Settings → Team): who may do what, as the guard enforces it.
+    #[test]
+    fn the_roles_table_matches_the_guard() {
+        let by_id = |id: &str| -> Vec<String> {
+            capabilities()
+                .into_iter()
+                .find(|c| c["id"] == id)
+                .unwrap_or_else(|| panic!("no capability {id}"))["roles"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| r.as_str().unwrap().to_string())
+                .collect()
+        };
+        let all = ["viewer", "developer", "admin", "owner"];
+        let from_developer = ["developer", "admin", "owner"];
+        let from_admin = ["admin", "owner"];
+        let owner_only = ["owner"];
+        assert_eq!(by_id("view"), all);
+        for id in ["data", "crons"] {
+            assert_eq!(by_id(id), from_developer, "{id}");
+        }
+        // what only looks at the settings is not the developer's to change; admins run the
+        // installation, owners hold the keys to it
+        for id in ["settings", "backups", "backupFiles", "projects", "keys"] {
+            assert_eq!(by_id(id), from_admin, "{id}");
+        }
+        for id in ["restore", "deleteProject", "team", "sql"] {
+            assert_eq!(by_id(id), owner_only, "{id}");
+        }
+        // 12 capabilities, each only once
+        let mut ids: Vec<_> = capabilities().iter().map(|c| c["id"].clone()).collect();
+        ids.sort_by_key(|v| v.to_string());
+        ids.dedup();
+        assert_eq!(ids.len(), 12);
+    }
 
     #[test]
     fn permissions() {

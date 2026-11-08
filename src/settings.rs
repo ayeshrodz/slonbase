@@ -29,6 +29,9 @@ pub struct Settings {
     /// File storage in an S3 bucket instead of the local storage directory.
     pub s3: S3,
     pub backups: Backups,
+    /// The time zone cron expressions are read in, for the automatic backups and the cron jobs of
+    /// hooks (a slonbase setting; PocketBase always uses UTC).
+    pub schedule: Schedule,
     pub logs: Logs,
     pub batch: Batch,
     pub rate_limits: RateLimits,
@@ -370,6 +373,40 @@ impl S3 {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
+pub struct Schedule {
+    /// `UTC` (the default, what PocketBase uses) or an IANA name (`Pacific/Auckland`).
+    /// `0 3 * * *` runs at 03:00 on that zone's clocks.
+    pub timezone: String,
+}
+
+impl Default for Schedule {
+    fn default() -> Self {
+        Self {
+            timezone: "UTC".into(),
+        }
+    }
+}
+
+/// A time zone by its IANA name (empty: UTC); `None` when it isn't one.
+pub fn parse_timezone(name: &str) -> Option<chrono_tz::Tz> {
+    if name.is_empty() {
+        return Some(chrono_tz::Tz::UTC);
+    }
+    if name.len() > 64 {
+        return None;
+    }
+    name.parse().ok()
+}
+
+impl Settings {
+    /// The time zone schedules are read in (UTC when the setting isn't a valid name).
+    pub fn timezone(&self) -> chrono_tz::Tz {
+        parse_timezone(&self.schedule.timezone).unwrap_or(chrono_tz::Tz::UTC)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
 pub struct Backups {
     /// Automatic backups schedule (cron expression, empty: none).
     pub cron: String,
@@ -704,6 +741,12 @@ fn validate(s: &Settings) -> Errors {
     if !s.backups.cron.trim().is_empty() && crate::cron::Schedule::parse(&s.backups.cron).is_none()
     {
         errors.invalid("backups.cron", "Invalid cron expression.");
+    }
+    if parse_timezone(&s.schedule.timezone).is_none() {
+        errors.invalid(
+            "schedule.timezone",
+            "Unknown time zone. Use a name like Pacific/Auckland, or UTC.",
+        );
     }
     if s.batch.enabled {
         if s.batch.max_requests == 0 {

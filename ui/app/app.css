@@ -384,6 +384,9 @@ table,
   overflow: hidden;
   clip: rect(0 0 0 0);
 }
+.span-all {
+  grid-column: 1 / -1;
+}
 .grid-2 {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5701,6 +5704,14 @@ table.table th {
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
+table.table td select.input {
+  min-width: 118px;
+}
+.tz-select {
+  width: auto;
+  min-width: 260px;
+  max-width: 100%;
+}
 table.table td {
   padding: 9px 12px;
   border-top: 1px solid var(--line);
@@ -6004,10 +6015,96 @@ table.table tr.on td {
 .role-option:focus-within {
   box-shadow: 0 0 0 3px var(--accent-ring);
 }
-.role-legend {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 6px 16px;
+/* the table of roles: what each can do, ticks in the columns that can, your own role's column
+   tinted */
+.perm-table thead th.perm-role {
+  text-align: center;
+  min-width: 84px;
+}
+.perm-you {
+  display: block;
+  margin-top: 1px;
+  font-size: 9.5px;
+  letter-spacing: 0.1em;
+  color: var(--ink-3);
+}
+.perm-table tbody th[scope="row"] {
+  padding: 9px 12px;
+  text-align: left;
+  font: inherit;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--ink);
+  background: transparent;
+  border-top: 1px solid var(--line);
+  white-space: normal;
+}
+.perm-table .perm-group th {
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  border-bottom: 0;
+}
+.perm-table tbody tr.perm-group:first-child th {
+  border-top: 0;
+}
+.perm-detail {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--muted);
+}
+.perm-cell {
+  text-align: center;
+  vertical-align: middle;
+  color: var(--faint);
+}
+.perm-cell.yes {
+  color: color-mix(in srgb, var(--accent), var(--ink) var(--text-mix));
+}
+.perm-cell .icon {
+  vertical-align: -3px;
+}
+.perm-picker {
+  display: none;
+  margin-bottom: 12px;
+}
+.perm-picker .small {
+  margin-top: 6px;
+}
+/* a phone shows one role's column, the one picked above the table */
+@media (max-width: 720px) {
+  .perm-picker {
+    display: block;
+  }
+  .perm-table thead th.perm-role .perm-you {
+    display: none;
+  }
+  .perm-table[data-pick="viewer"] .r-developer,
+  .perm-table[data-pick="viewer"] .r-admin,
+  .perm-table[data-pick="viewer"] .r-owner,
+  .perm-table[data-pick="developer"] .r-viewer,
+  .perm-table[data-pick="developer"] .r-admin,
+  .perm-table[data-pick="developer"] .r-owner,
+  .perm-table[data-pick="admin"] .r-viewer,
+  .perm-table[data-pick="admin"] .r-developer,
+  .perm-table[data-pick="admin"] .r-owner,
+  .perm-table[data-pick="owner"] .r-viewer,
+  .perm-table[data-pick="owner"] .r-developer,
+  .perm-table[data-pick="owner"] .r-admin {
+    display: none;
+  }
+  .perm-table thead th.perm-role {
+    min-width: 72px;
+  }
+}
+.perm-table td.me {
+  background: var(--accent-soft);
+}
+.perm-table thead th.me {
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--canvas-2);
+  color: var(--ink);
 }
 .key-secret {
   padding: 8px 10px;
