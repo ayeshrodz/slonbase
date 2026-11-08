@@ -8,6 +8,8 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.5.2] - 2026-11-08
+
 **Safer releases and installs:** a software bill of materials and attestations with every
 release, an installer that can be run again after a failure, a signing key only one job can use,
 pinned workflow actions, and refreshed dependencies.
@@ -1555,7 +1557,16 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.1.2...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.5.2...HEAD
+[2.5.2]: https://github.com/ayeshrodz/slonbase/compare/v2.5.1...v2.5.2
+[2.5.1]: https://github.com/ayeshrodz/slonbase/compare/v2.5.0...v2.5.1
+[2.5.0]: https://github.com/ayeshrodz/slonbase/compare/v2.4.1...v2.5.0
+[2.4.1]: https://github.com/ayeshrodz/slonbase/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/ayeshrodz/slonbase/compare/v2.3.1...v2.4.0
+[2.3.1]: https://github.com/ayeshrodz/slonbase/compare/v2.3.0...v2.3.1
+[2.3.0]: https://github.com/ayeshrodz/slonbase/compare/v2.2.0...v2.3.0
+[2.2.0]: https://github.com/ayeshrodz/slonbase/compare/v2.1.3...v2.2.0
+[2.1.3]: https://github.com/ayeshrodz/slonbase/compare/v2.1.2...v2.1.3
 [2.1.2]: https://github.com/ayeshrodz/slonbase/compare/v2.1.1...v2.1.2
 [2.1.1]: https://github.com/ayeshrodz/slonbase/compare/v2.1.0...v2.1.1
 [2.1.0]: https://github.com/ayeshrodz/slonbase/compare/v2.0.0...v2.1.0
@@ -1573,7 +1584,7 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
 [1.3.1]: https://github.com/ayeshrodz/slonbase/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/ayeshrodz/slonbase/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/ayeshrodz/slonbase/compare/v1.1.0...v1.2.0
-[1.1.0]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.1.0
+[1.1.0]: https://github.com/ayeshrodz/slonbase/compare/v1.0.2...v1.1.0
 [1.0.2]: https://github.com/ayeshrodz/slonbase/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/ayeshrodz/slonbase/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/ayeshrodz/slonbase/compare/v0.8.0...v1.0.0
