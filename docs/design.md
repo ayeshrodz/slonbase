@@ -339,8 +339,8 @@ the unlogged `_slonbase.oauth2_names` table (migration 13), and the sign-in with
 takes it. It's in PostgreSQL rather than memory because the redirect and the sign-in may reach
 different instances. The client secret Apple wants is a signed JWT: see the generator below.
 
-**Not yet:** VK, whose email comes with the token response rather than its user API. `oidc`
-covers the providers that speak OpenID Connect.
+VK came in 1.9: its email comes with the token response rather than its user API, so the
+token response is kept for the user step. `oidc` covers the providers that speak OpenID Connect.
 
 ### Phase 3: realtime and multi-instance sync
 
