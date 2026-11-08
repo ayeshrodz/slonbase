@@ -54,7 +54,7 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `POST /api/settings/mail/preview` | An email as it would be sent, with sample values (`{collection, template}` and/or `{subject, body, layout}`) |
 | `GET/POST /api/branding/assets`, `PATCH/DELETE /api/branding/assets/{id}` | The installation's images (superusers; upload as multipart `file`) |
 | `GET /api/branding/assets/{id}` | An image, for anyone (sign-in pages and emails show them) |
-| `GET /api/team`, `GET /api/team/me`, `PATCH /api/team/members/{id}` | Superusers and their roles (owners change roles) |
+| `GET /api/team`, `GET /api/team/me`, `PATCH /api/team/members/{id}` | Superusers and their roles (owners change roles); `GET /api/team` also lists `capabilities`, which roles may do what, as the rules below enforce it |
 | `POST /api/team/keys`, `DELETE /api/team/keys/{id}` | API keys (the key is in the answer, once) |
 | `POST /api/batch` | Several record creates, updates, upserts (`PUT`) and deletes in one transaction (enable `batch` in the settings) |
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |

@@ -449,7 +449,8 @@ pub struct Hooks {
 }
 
 impl Hooks {
-    /// Adds a cron job (`minute hour day month weekday`, in UTC). The id must be unique.
+    /// Adds a cron job (`minute hour day month weekday`, read in the `schedule.timezone` setting,
+    /// UTC by default). The id must be unique.
     pub fn cron<F, Fut>(&mut self, id: &str, expression: &str, f: F) -> anyhow::Result<()>
     where
         F: Fn(Arc<Core>) -> Fut + Send + Sync + 'static,
@@ -632,7 +633,13 @@ pub(crate) struct Change {
 pub(crate) async fn run_scheduled_crons(core: &Arc<Core>) {
     let now = chrono::Utc::now();
     let minute = now.format("%Y-%m-%dT%H:%M").to_string();
-    for job in core.hooks.crons.iter().filter(|j| j.schedule.matches(&now)) {
+    let tz = core.settings().timezone();
+    for job in core
+        .hooks
+        .crons
+        .iter()
+        .filter(|j| j.schedule.matches(&now, tz))
+    {
         let claimed = async {
             let client = core
                 .pool
