@@ -2,8 +2,9 @@
 
 ## Supported versions
 
-The latest minor release gets security fixes, and the previous minor release gets them for three
-months after the next one comes out (see [stability](docs/stability.md#security-fixes)). Upgrade
+The latest minor release gets security fixes, and each earlier minor release keeps getting them
+until three months after the next one came out, however many releases follow in that time (see
+[stability](docs/stability.md#security-fixes)). There are no long-term support releases. Upgrade
 to the latest before reporting, if you can.
 
 | Version | Supported |

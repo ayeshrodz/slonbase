@@ -36,11 +36,21 @@ changes, listed in its **Upgrading** section.
   <version>": the version in `Cargo.toml`, the changelog section and its compare links (missing
   since 2.2.0, now rebuilt), the version pins in the docs and the home page, and, for a new
   minor, the supported lines and SECURITY.md's table. Merging it releases.
+- **Every GitHub Action the workflows use is pinned to a commit**, with its version in a comment
+  (`actions/checkout@3d3c42e… # v7.0.1`), so a moved tag can't change what runs in CI or in a
+  release. Dependabot keeps the pins current.
 - **The package signing key is used by one job only.** The Package repositories workflow signs
   the apt and dnf repositories in a job of its own, in the `package-signing` environment, and
   builds the page and the docs in another job that has no secrets. It also refuses to sign with
   any key but the published one, so a wrong secret fails the run instead of breaking
   `apt update` for everyone.
+- **The support policy says what happens when minors come quickly:** each minor release keeps
+  getting security fixes until three months after the next one came out, however many follow
+  (2.4 until February 7, 2027, even if 2.6 comes sooner); fixes for an older line ship as its
+  patch versions, never with features; there are no long-term support releases.
+- Dependencies refreshed within their current versions (47 crates, among them `zip` 9.4,
+  `flate2`, `encoding_rs`, `rustix` and the ICU crates); `cargo audit` reports nothing.
+- The home page's binary install command no longer shows 2.2.0 when GitHub's API can't be reached.
 - The security policy supports 2.5.x and 2.4.x (until February 7, 2027); `SUPPORT.md`,
   `MAINTAINING.md`, `CODEOWNERS` and Dependabot configuration are new.
 
