@@ -15,8 +15,8 @@ Schedules that can run on your own time zone, and a roles table that matches wha
 - **Schedules can be read on your own clocks.** Cron expressions (the automatic backup and the
   cron jobs of hooks) were always read in UTC, so `0 3 * * *` set on a machine in Auckland ran at
   16:00 there. The new `schedule.timezone` setting (Settings → Backups → Time zone, with a button
-  for the browser's own zone) names the zone they are read in; it is **UTC until you change it,
-  so no existing schedule moves**. Daylight saving time is handled the way Vixie cron does: a
+  for the browser's own zone) is `UTC` (the default, so **no existing schedule moves**), `system` (the time zone the
+  server's operating system is set to, so its own clock and daylight saving rule) or a named zone. Daylight saving time is handled the way Vixie cron does: a
   job at a fixed hour runs once when its time is skipped or repeated, and a job in every hour
   keeps to the clock. The dashboard shows each next run in that zone and in UTC.
 - **The roles table in the dashboard was wrong about the SQL console.** Under Settings → Team it

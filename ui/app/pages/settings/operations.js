@@ -63,15 +63,17 @@ export function JobHistory({ kind, job, refreshKey, empty = "Nothing has run yet
 // When the automatic backup runs next, on the clocks of the saved time zone (and in UTC, which
 // every date in the API is in)
 function NextRun({ cron, zone }) {
-  const [next, setNext] = useState(null);
+  const [job, setJob] = useState(null);
   useEffect(() => {
     api
       .get("/api/crons")
-      .then((jobs) => setNext((jobs.find((j) => j.id === "__pbAutoBackup__") || {}).next || null))
-      .catch(() => setNext(null));
+      .then((jobs) => setJob(jobs.find((j) => j.id === "__pbAutoBackup__") || null))
+      .catch(() => setJob(null));
   }, [cron, zone]);
-  if (!cron || !next) return null;
-  return html`<span class="small muted row wrap tight"><${Icon} name="clock" size=${13} /> Next: <b>${formatDateIn(next, zone)}</b> (${relativeTime(next)})${zone !== "UTC" && html` <span class="tiny" title="UTC, which every date in the API is in">= ${formatDateIn(next, "UTC")}</span>`}</span>`;
+  if (!cron || !job || !job.next) return null;
+  const next = job.next;
+  const at = job.timezone || "UTC"; // the server's answer: "system" is already the OS's zone
+  return html`<span class="small muted row wrap tight"><${Icon} name="clock" size=${13} /> Next: <b>${formatDateIn(next, at)}</b> (${relativeTime(next)})${at !== "UTC" && html` <span class="tiny" title="UTC, which every date in the API is in">= ${formatDateIn(next, "UTC")}</span>`}</span>`;
 }
 
 // The time zone the schedule is read in (backups and the cron jobs of hooks): 03:00 means 03:00
@@ -79,10 +81,10 @@ function NextRun({ cron, zone }) {
 function TimeZoneField({ s }) {
   const zone = s.draft.schedule.timezone;
   const mine = browserTimeZone();
-  const names = timeZones();
-  if (!names.includes(zone)) names.push(zone);
+  const names = [{ value: "UTC", label: "UTC (default)" }, { value: "system", label: "System: the server's own time zone" }, ...timeZones().filter((n) => n !== "UTC")];
+  if (!names.some((o) => o.value === zone)) names.push(zone);
   return html`<div class="span-all">
-    <${Field} label="Time zone" error=${s.errors["schedule.timezone"]} help="The schedule above, and the cron jobs of your hooks, are read on this zone's clocks, daylight saving included. UTC is the default.">
+    <${Field} label="Time zone" error=${s.errors["schedule.timezone"]} help="The schedule above, and the cron jobs of your hooks, are read on this zone's clocks. UTC is the default; System follows the time zone the server's operating system is set to (a container is usually UTC), so daylight saving needs no handling here.">
       <div class="row wrap tight">
         <${Select} class="tz-select" aria-label="Time zone" value=${zone} onChange=${(v) => s.set("schedule.timezone", v)} options=${names} />
         ${zone !== mine && html`<button type="button" class="chip selectable outline" onClick=${() => s.set("schedule.timezone", mine)}>Use this device's: ${mine}</button>`}
@@ -224,7 +226,7 @@ export function Backups({ s }) {
             )}
           </div>`}
     </${Card}>
-    <${Card} title="Schedule" subtitle=${`Automatic backups (cron syntax, on ${d.schedule.timezone} time)`} icon="clock" actions=${html`<${NextRun} cron=${s.saved.backups.cron} zone=${s.saved.schedule.timezone} />`}>
+    <${Card} title="Schedule" subtitle=${`Automatic backups (cron syntax, on ${d.schedule.timezone === "system" ? "the server's" : d.schedule.timezone} time)`} icon="clock" actions=${html`<${NextRun} cron=${s.saved.backups.cron} zone=${s.saved.schedule.timezone} />`}>
       <div class="grid-2">
         <${Field} label="Schedule" error=${s.errors["backups.cron"]} help=${`e.g. 0 3 * * * for every day at 03:00 ${d.schedule.timezone === "UTC" ? "UTC" : "(" + d.schedule.timezone + ")"} — empty turns it off`}>
           <${Input} class="mono" value=${d.backups.cron} onInput=${(v) => s.set("backups.cron", v)} placeholder="0 3 * * *" />
@@ -281,7 +283,7 @@ export function Crons() {
   const label = (j) => (j.id === "__pbAutoBackup__" ? "Automatic backup" : j.id);
   const historyOf = jobs && jobs.find((j) => j.id === selected);
   return html`<div class="stack loose">
-    <${Card} title="Cron jobs" subtitle=${`Scheduled jobs from hooks (cronAdd) and backups, on ${zone} time`} icon="clock" actions=${html`<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
+    <${Card} title="Cron jobs" subtitle=${`Scheduled jobs from hooks (cronAdd) and backups, on ${(jobs && jobs[0] && jobs[0].timezone) || zone} time`} icon="clock" actions=${html`<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
       ${jobs === null
         ? html`<${Skeleton} height=${80} />`
         : jobs.length === 0

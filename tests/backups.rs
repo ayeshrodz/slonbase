@@ -430,6 +430,10 @@ async fn automatic_backups_follow_the_time_zone() {
     // names that aren't a time zone are refused, and so is a very long one
     for bad in [
         "Mars/Olympus",
+        " Pacific/Auckland",
+        "Pacific/Auckland ",
+        "UTC\0",
+        "System",
         "auckland",
         "NZST",
         "../etc/passwd",
