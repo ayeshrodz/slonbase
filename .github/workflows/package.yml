@@ -43,15 +43,22 @@ jobs:
       - uses: taiki-e/install-action@3a3daafd3b7f23b8f65d9f5ba2db203fb59b79e2 # v2.90.2
         with:
           tool: cross
+      - id: nfpmcache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/nfpm
+          key: nfpm-2.46.3
       - name: Install nfpm
+        if: steps.nfpmcache.outputs.cache-hit != 'true'
         run: |
           base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
           tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
           mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
-          curl -fsSLO "$base/$tar"
-          curl -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$tar"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
           tar -xzf "$tar" nfpm
-          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+      - name: Use nfpm
+        run: echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
 
       - name: Build
         run: cross build --release --locked --target ${{ matrix.target }}

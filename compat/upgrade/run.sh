@@ -26,7 +26,7 @@ if [ "$from" = previous ]; then
   # the newest release older than this build (releases are listed newest first)
   auth=()
   [ -n "${GH_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $GH_TOKEN")
-  from="$(curl -fsSL "${auth[@]}" "https://api.github.com/repos/ayeshrodz/slonbase/releases?per_page=100" \
+  from="$(curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "${auth[@]}" "https://api.github.com/repos/ayeshrodz/slonbase/releases?per_page=100" \
     | node -e '
       const current = process.argv[1].split(".").map(Number);
       const older = (v) => { for (let i = 0; i < 3; i++) if (v[i] !== current[i]) return v[i] < current[i]; return false; };
@@ -45,8 +45,8 @@ rm -rf "$work" && mkdir -p "$work/old"
 old="${SLONBASE_FROM_BIN:-}"
 if [ -z "$old" ]; then
   tarball="slonbase-${from}-linux-amd64.tar.gz"
-  (cd "$work/old" && curl -fsSLO "$repo/releases/download/v$from/$tarball" \
-    && curl -fsSL "$repo/releases/download/v$from/SHA256SUMS" | grep " $tarball\$" | sha256sum -c - > /dev/null \
+  (cd "$work/old" && curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$repo/releases/download/v$from/$tarball" \
+    && curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$repo/releases/download/v$from/SHA256SUMS" | grep " $tarball\$" | sha256sum -c - > /dev/null \
     && tar xzf "$tarball")
   old="$work/old/slonbase"
 fi

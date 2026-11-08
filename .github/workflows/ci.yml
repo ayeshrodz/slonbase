@@ -161,15 +161,22 @@ jobs:
         with:
           name: slonbase-debug
           path: ${{ runner.temp }}/slonbase
+      - id: nfpmcache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/nfpm
+          key: nfpm-2.46.3
       - name: Install nfpm
+        if: steps.nfpmcache.outputs.cache-hit != 'true'
         run: |
           base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
           tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
           mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
-          curl -fsSLO "$base/$tar"
-          curl -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$tar"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
           tar -xzf "$tar" nfpm
-          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+      - name: Use nfpm
+        run: echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
       - name: Package two versions of this build
         run: |
           mkdir -p target/x86_64-unknown-linux-musl/release
@@ -209,6 +216,8 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
       POCKETBASE_VERSION: "0.40.5"
+      # the zip's SHA-256, from that release's checksums.txt (update with the version)
+      POCKETBASE_SHA256: "1dbea1b01eb3dfe64953513859d01e759c96650c4e3264fa4eecd54b769382e4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -228,16 +237,24 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/slonbase/slonbase"
           echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
-      - if: matrix.target == 'pocketbase'
-        name: Download PocketBase
+      - id: pbcache
+        if: matrix.target == 'pocketbase'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/pocketbase
+          key: pocketbase-${{ env.POCKETBASE_VERSION }}-${{ env.POCKETBASE_SHA256 }}
+      - name: Download PocketBase
+        if: matrix.target == 'pocketbase' && steps.pbcache.outputs.cache-hit != 'true'
         run: |
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl -fsSLO "$base/$zip"
-          curl -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          echo "${POCKETBASE_SHA256}  $zip" | sha256sum -c -
           unzip -q "$zip" pocketbase
-          echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
+      - name: Use PocketBase
+        if: matrix.target == 'pocketbase'
+        run: echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/run.sh ${{ matrix.target }}
 
   # PocketBase and slonbase side by side: the same requests, their answers compared as JSON,
@@ -261,6 +278,8 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
       POCKETBASE_VERSION: "0.40.5"
+      # the zip's SHA-256, from that release's checksums.txt (update with the version)
+      POCKETBASE_SHA256: "1dbea1b01eb3dfe64953513859d01e759c96650c4e3264fa4eecd54b769382e4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -274,15 +293,22 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/slonbase/slonbase"
           echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
+      - id: pbcache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/pocketbase
+          key: pocketbase-${{ env.POCKETBASE_VERSION }}-${{ env.POCKETBASE_SHA256 }}
       - name: Download PocketBase
+        if: steps.pbcache.outputs.cache-hit != 'true'
         run: |
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl -fsSLO "$base/$zip"
-          curl -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          echo "${POCKETBASE_SHA256}  $zip" | sha256sum -c -
           unzip -q "$zip" pocketbase
-          echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
+      - name: Use PocketBase
+        run: echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/diff/run.sh
 
   # the dashboard: accessibility (axe, WCAG 2 AA) and screenshots against the baselines
@@ -351,6 +377,8 @@ jobs:
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
       POCKETBASE_VERSION: "0.40.5"
+      # the zip's SHA-256, from that release's checksums.txt (update with the version)
+      POCKETBASE_SHA256: "1dbea1b01eb3dfe64953513859d01e759c96650c4e3264fa4eecd54b769382e4"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -368,15 +396,22 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/slonbase/slonbase"
           echo "SLONBASE_BIN=$RUNNER_TEMP/slonbase/slonbase" >> "$GITHUB_ENV"
+      - id: pbcache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/pocketbase
+          key: pocketbase-${{ env.POCKETBASE_VERSION }}-${{ env.POCKETBASE_SHA256 }}
       - name: Download PocketBase
+        if: steps.pbcache.outputs.cache-hit != 'true'
         run: |
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl -fsSLO "$base/$zip"
-          curl -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          echo "${POCKETBASE_SHA256}  $zip" | sha256sum -c -
           unzip -q "$zip" pocketbase
-          echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
+      - name: Use PocketBase
+        run: echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/import/run.sh
       - name: compat/import/run.sh, with PocketBase's settings encrypted
         run: |
