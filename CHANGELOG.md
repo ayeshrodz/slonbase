@@ -10,6 +10,11 @@ changes, listed in its **Upgrading** section.
 
 You can make cron jobs in the dashboard now: Settings → Cron jobs → New job.
 
+### Fixed
+
+- Saving a *Call a URL* cron job gives up on a name server that doesn't answer after 5 seconds
+  instead of holding the request.
+
 ### Added
 
 - **Cron jobs made in the dashboard.** Until now Settings → Cron jobs only listed the backup and
