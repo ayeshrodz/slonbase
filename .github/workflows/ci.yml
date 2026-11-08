@@ -166,8 +166,8 @@ jobs:
           base="https://github.com/goreleaser/nfpm/releases/download/v2.46.3"
           tar="nfpm_2.46.3_Linux_x86_64.tar.gz"
           mkdir -p "$RUNNER_TEMP/nfpm" && cd "$RUNNER_TEMP/nfpm"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSLO "$base/$tar"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$tar"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $tar\$" | sha256sum -c -
           tar -xzf "$tar" nfpm
           echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
       - name: Package two versions of this build
@@ -234,8 +234,8 @@ jobs:
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSLO "$base/$zip"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
           unzip -q "$zip" pocketbase
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/run.sh ${{ matrix.target }}
@@ -279,8 +279,8 @@ jobs:
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSLO "$base/$zip"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
           unzip -q "$zip" pocketbase
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/diff/run.sh
@@ -373,8 +373,8 @@ jobs:
           base="https://github.com/pocketbase/pocketbase/releases/download/v${POCKETBASE_VERSION}"
           zip="pocketbase_${POCKETBASE_VERSION}_linux_amd64.zip"
           mkdir -p "$HOME/pocketbase" && cd "$HOME/pocketbase"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSLO "$base/$zip"
-          curl --retry 5 --retry-delay 8 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSLO "$base/$zip"
+          curl --retry 12 --retry-delay 15 --retry-max-time 240 --retry-all-errors -fsSL "$base/checksums.txt" | grep " $zip\$" | sha256sum -c -
           unzip -q "$zip" pocketbase
           echo "POCKETBASE_BIN=$HOME/pocketbase/pocketbase" >> "$GITHUB_ENV"
       - run: compat/import/run.sh
