@@ -63,15 +63,21 @@ in `SECTIONS` at the top of the script.
 
 The repositories need, once:
 
-1. a signing key without a passphrase, kept in the `REPO_GPG_PRIVATE_KEY` secret:
+1. a signing key without a passphrase, kept as the `REPO_GPG_PRIVATE_KEY` secret of the
+   `package-signing` environment (Settings → Environments), not as a repository secret: only the
+   workflow's `sign` job runs in that environment, so the page and docs build never see the key.
+   Limit the environment's deployment branches to `main`.
 
    ```sh
    gpg --batch --passphrase '' --quick-gen-key "slonbase packages <you@example.com>" rsa4096 sign never
-   gpg --armor --export-secret-keys "slonbase packages" | gh secret set REPO_GPG_PRIVATE_KEY
+   gpg --armor --export-secret-keys "slonbase packages" | gh secret set REPO_GPG_PRIVATE_KEY --env package-signing
    ```
 
    Keep a copy of the key somewhere safe. A new key means every user has to download the
-   public key again.
+   public key again. The workflow refuses any key but the one users trust (fingerprint
+   `95697FA73AFBAC43E64962F1C7DF885C74BB3942`, published at https://slonbase.com/slonbase.asc);
+   after a deliberate key change, or in a fork, set the repository variable
+   `REPO_KEY_FINGERPRINT` to the new fingerprint.
 2. Settings → Pages → Source: **GitHub Actions**.
 3. The custom domain, once: Settings → Pages → Custom domain `slonbase.com`, then **Enforce
    HTTPS** when the certificate is ready. At the registrar (Namecheap, with its default
