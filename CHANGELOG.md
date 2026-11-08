@@ -32,6 +32,9 @@ changes, listed in its **Upgrading** section.
   with versions, licenses and checksums), and GitHub-signed attestations of where every archive,
   package and the container image were built and what they contain. Check them with
   `gh attestation verify` (see [Verify a download](docs/installation.md#verify-a-download)).
+- **Every GitHub Action the workflows use is pinned to a commit**, with its version in a comment
+  (`actions/checkout@3d3c42e… # v7.0.1`), so a moved tag can't change what runs in CI or in a
+  release. Dependabot keeps the pins current.
 - **The package signing key is used by one job only.** The Package repositories workflow signs
   the apt and dnf repositories in a job of its own, in the `package-signing` environment, and
   builds the page and the docs in another job that has no secrets. It also refuses to sign with
