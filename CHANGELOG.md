@@ -17,6 +17,10 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Start a cron job from an example.** The New job form has a row of examples that fill it in:
+  delete records older than 30 days, ping a URL every 5 minutes (with two retries), a weekly
+  email reminder, and (for owners, with the SQL console on) `ANALYZE` every Sunday. Nothing is
+  saved until you press Make job.
 - **Pause all cron jobs.** A "Pause all" switch on the Cron jobs page (setting
   `schedule.pauseJobs`, so every instance follows it) stops the jobs made in the dashboard from
   running on their schedule, for a maintenance window. "Run now" still works, a banner says
