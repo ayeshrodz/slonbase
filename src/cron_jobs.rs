@@ -50,6 +50,22 @@ const MAX_RETRIES: i64 = 5;
 const DEFAULT_RETRY_DELAY: i64 = 30;
 const MAX_RETRY_WAIT: Duration = Duration::from_secs(300);
 
+/// Who hears about a job's failures (and when it works again).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Notify {
+    /// Up to 10 addresses, mailed through the mail settings.
+    pub emails: Vec<String>,
+    /// A public URL that gets a JSON `POST` (a secret, like a header value: shown masked).
+    pub webhook: String,
+}
+
+impl Notify {
+    fn is_empty(&self) -> bool {
+        self.emails.is_empty() && self.webhook.is_empty()
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct JobDef {
@@ -65,6 +81,7 @@ pub struct JobDef {
     pub retries: i64,
     /// The wait before the first retry; each next one waits twice as long (at most 5 minutes).
     pub retry_delay_seconds: i64,
+    pub notify: Notify,
     pub created: String,
     pub updated: String,
 }
@@ -131,6 +148,7 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
     if def.retries > 0 && !(1..=300).contains(&def.retry_delay_seconds) {
         errors.invalid("retryDelaySeconds", "Between 1 and 300 seconds.");
     }
+    validate_notify(core, &def.notify, &mut errors).await;
     if !TYPES.contains(&def.kind.as_str()) {
         errors.invalid("type", "Choose a type of job.");
         return errors;
@@ -168,11 +186,12 @@ fn plain_line(s: &str) -> bool {
     !s.chars().any(char::is_control)
 }
 
-fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
-    let to = recipients(config);
+/// One to 10 plausible addresses, none with a control character (no header injection).
+fn check_addresses(to: &[String]) -> Result<(), String> {
     if to.is_empty() || to.len() > 10 {
-        errors.invalid("config.to", "One to 10 email addresses.");
-    } else if let Some(bad) = to.iter().find(|a| {
+        return Err("One to 10 email addresses.".into());
+    }
+    match to.iter().find(|a| {
         a.len() > 254
             || !plain_line(a)
             || a.matches('@').count() != 1
@@ -180,7 +199,32 @@ fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
             || a.ends_with('@')
             || !a.rsplit('@').next().is_some_and(|d| d.contains('.'))
     }) {
-        errors.invalid("config.to", format!("{bad:?} is not an email address."));
+        Some(bad) => Err(format!("{bad:?} is not an email address.")),
+        None => Ok(()),
+    }
+}
+
+async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors) {
+    if !notify.emails.is_empty() {
+        if let Err(message) = check_addresses(&notify.emails) {
+            errors.invalid("notify.emails", message);
+        } else if !core.settings().smtp.enabled {
+            errors.invalid(
+                "notify.emails",
+                "Email isn't set up: turn on SMTP in Settings → Mail first.",
+            );
+        }
+    }
+    if !notify.webhook.is_empty() {
+        if let Err(message) = crate::http::check_target(&notify.webhook).await {
+            errors.invalid("notify.webhook", message);
+        }
+    }
+}
+
+fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+    if let Err(message) = check_addresses(&recipients(config)) {
+        errors.invalid("config.to", message);
     }
     let subject = text(config, "subject").trim();
     if subject.is_empty() || subject.chars().count() > 200 || !plain_line(subject) {
@@ -566,13 +610,18 @@ pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
         tracing::warn!(job = %def.id, "a cron job is still running: not started again");
         return;
     }
+    // how the run before this one ended, to tell the first failure of a streak from the rest
+    let before = match def.notify.is_empty() {
+        true => None,
+        false => last_finished(&core, &def.id).await,
+    };
     let record = crate::jobs::start(&core, crate::jobs::CRON, &def.id, trigger).await;
     let retries = def.retries.clamp(0, MAX_RETRIES) as u32;
     let delay = match def.retry_delay_seconds {
         0 => DEFAULT_RETRY_DELAY,
         d => d,
     };
-    let (result, _) = with_retries(
+    let (result, tries) = with_retries(
         retries,
         |n| backoff(delay, n),
         || async {
@@ -589,7 +638,126 @@ pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
     if let Err(detail) = &result {
         tracing::error!(job = %def.id, error = %detail, "a cron job failed");
     }
+    let event = (trigger == "schedule")
+        .then(|| notice(before.as_deref(), result.is_ok()))
+        .flatten();
+    let error = result.as_ref().err().cloned().unwrap_or_default();
     record.finish(result).await;
+    if let Some(event) = event {
+        send_notices(&core, &def, event, &error, tries).await;
+    }
+}
+
+/// What a job's last finished run came to: `ok`, `error` or nothing yet.
+async fn last_finished(core: &Core, id: &str) -> Option<String> {
+    let client = core.pool.get().await.ok()?;
+    client
+        .query_opt(
+            "SELECT status FROM _slonbase.job_runs
+             WHERE kind = $1 AND job = $2 AND status IN ('ok', 'error')
+             ORDER BY started DESC, id DESC LIMIT 1",
+            &[&crate::jobs::CRON, &id],
+        )
+        .await
+        .ok()
+        .flatten()
+        .map(|row| row.get::<_, String>(0))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Notice {
+    Failed,
+    Recovered,
+}
+
+/// When to tell: the first failure after a success (or the first run ever), and the first
+/// success after a failure; a job that keeps failing doesn't send a message a minute.
+fn notice(before: Option<&str>, ok: bool) -> Option<Notice> {
+    match (before, ok) {
+        (Some("error"), true) => Some(Notice::Recovered),
+        (Some("error"), false) => None,
+        (_, false) => Some(Notice::Failed),
+        (_, true) => None,
+    }
+}
+
+/// The subject and the text of the email.
+fn notice_text(def: &JobDef, event: Notice, error: &str, tries: u32, at: &str) -> (String, String) {
+    let (subject, line) = match event {
+        Notice::Failed => (
+            format!("Cron job failed: {}", def.name),
+            format!("The job \"{}\" failed.", def.name),
+        ),
+        Notice::Recovered => (
+            format!("Cron job recovered: {}", def.name),
+            format!(
+                "The job \"{}\" ran successfully again after failing.",
+                def.name
+            ),
+        ),
+    };
+    let mut body = format!("{line}\nWhen: {at}\n");
+    if event == Notice::Failed {
+        body.push_str(&format!("Tries: {tries}\nError: {error}\n"));
+    }
+    (subject, body)
+}
+
+/// The JSON the webhook gets.
+fn notice_json(def: &JobDef, event: Notice, error: &str, tries: u32, at: &str) -> Value {
+    json!({
+        "event": match event { Notice::Failed => "cron.failed", Notice::Recovered => "cron.recovered" },
+        "job": { "id": def.id, "name": def.name },
+        "error": if event == Notice::Failed { error } else { "" },
+        "attempts": tries,
+        "at": at,
+    })
+}
+
+/// Tells the job's people. A notice that can't be sent is logged and changes nothing about the
+/// run: it is never retried and never makes the job fail.
+async fn send_notices(core: &Arc<Core>, def: &JobDef, event: Notice, error: &str, tries: u32) {
+    let at = crate::datetime::format(&chrono::Utc::now());
+    if !def.notify.emails.is_empty() {
+        if core.settings().smtp.enabled {
+            let (subject, body) = notice_text(def, event, error, tries, &at);
+            let html = escape(&body).replace('\n', "<br>");
+            for address in &def.notify.emails {
+                let sent = core
+                    .send_mail_now(crate::mail::Message {
+                        to: address.clone(),
+                        subject: subject.clone(),
+                        html: html.clone(),
+                    })
+                    .await;
+                if let Err(err) = sent {
+                    tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to mail a cron job's notice");
+                }
+            }
+        } else {
+            tracing::warn!(job = %def.id, "email is off: a cron job's notice was not sent");
+        }
+    }
+    if !def.notify.webhook.is_empty() {
+        let body = notice_json(def, event, error, tries, &at).to_string();
+        let sent = crate::http::guarded(
+            "POST",
+            &def.notify.webhook,
+            &[("content-type".to_string(), "application/json".to_string())],
+            Some(&body),
+            Duration::from_secs(10),
+        )
+        .await;
+        match sent {
+            Ok(reply) if !(200..300).contains(&reply.status) => {
+                tracing::warn!(job = %def.id, status = reply.status, "a cron job's webhook answered with an error");
+            }
+            Err(err) => {
+                tracing::warn!(job = %def.id, error = %err, "failed to call a cron job's webhook");
+            }
+            Ok(_) => {}
+        }
+    }
 }
 
 /// Runs the dashboard jobs due this minute; one instance runs each (claimed like hook jobs).
@@ -640,6 +808,10 @@ pub(crate) fn listed(
         "kind": "user",
         "type": def.kind,
         "config": masked(def),
+        "notify": {
+            "emails": def.notify.emails,
+            "webhook": if def.notify.webhook.is_empty() { "" } else { MASK },
+        },
         "retries": def.retries,
         "retryDelaySeconds": if def.retries > 0 { def.retry_delay_seconds.max(1) } else { DEFAULT_RETRY_DELAY },
         "lastRun": last,
@@ -659,8 +831,11 @@ fn masked(def: &JobDef) -> Value {
     config
 }
 
-/// A header sent back as the mask keeps its saved value.
+/// A header (or the webhook) sent back as the mask keeps its saved value.
 fn unmask(def: &mut JobDef, saved: &JobDef) {
+    if def.notify.webhook == MASK {
+        def.notify.webhook = saved.notify.webhook.clone();
+    }
     if def.kind != "http" {
         return;
     }
@@ -701,6 +876,17 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
     }
     if let Some(v) = body.get("retryDelaySeconds").and_then(whole) {
         def.retry_delay_seconds = v;
+    }
+    if let Some(n) = body.get("notify").and_then(Value::as_object) {
+        def.notify = Notify {
+            emails: recipients(&json!({ "to": n.get("emails").cloned().unwrap_or_default() })),
+            webhook: n
+                .get("webhook")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        };
     }
     def
 }
@@ -929,6 +1115,53 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_first_failure_of_a_streak_and_the_recovery_are_told() {
+        assert_eq!(
+            notice(None, false),
+            Some(Notice::Failed),
+            "the first run ever"
+        );
+        assert_eq!(notice(Some("ok"), false), Some(Notice::Failed));
+        assert_eq!(notice(Some("error"), false), None, "still failing: quiet");
+        assert_eq!(notice(Some("error"), true), Some(Notice::Recovered));
+        assert_eq!(notice(Some("ok"), true), None);
+        assert_eq!(notice(None, true), None);
+    }
+
+    #[test]
+    fn the_notices_say_what_happened() {
+        let def = JobDef {
+            id: "user:abc".into(),
+            name: "Nightly sync".into(),
+            ..Default::default()
+        };
+        let (subject, body) = notice_text(
+            &def,
+            Notice::Failed,
+            "The server answered 500.",
+            3,
+            "2026-11-09 03:00:00.000Z",
+        );
+        assert_eq!(subject, "Cron job failed: Nightly sync");
+        assert!(body.contains("The server answered 500.") && body.contains("Tries: 3"));
+        let (subject, body) = notice_text(&def, Notice::Recovered, "", 1, "x");
+        assert_eq!(subject, "Cron job recovered: Nightly sync");
+        assert!(!body.contains("Error"));
+
+        let json = notice_json(&def, Notice::Failed, "boom", 2, "t");
+        assert_eq!(json["event"], "cron.failed");
+        assert_eq!(json["job"]["id"], "user:abc");
+        assert_eq!(
+            (json["error"].as_str(), json["attempts"].as_i64()),
+            (Some("boom"), Some(2))
+        );
+        assert_eq!(
+            notice_json(&def, Notice::Recovered, "old", 1, "t")["event"],
+            "cron.recovered"
+        );
+    }
 
     use std::sync::atomic::{AtomicU32, Ordering};
 
