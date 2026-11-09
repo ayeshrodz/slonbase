@@ -292,11 +292,12 @@ const headerObject = (text) => {
   return out;
 };
 
-function JobEditor({ job, onClose, onDone }) {
+function JobEditor({ job, copyOf, onClose, onDone }) {
+  const editing = !!job && !copyOf; // a copy starts from a job but makes a new one
   const collections = useStore(app, (st) => st.collections) || [];
   const choices = collections.filter((c) => !c.system && !String(c.name).startsWith("_") && c.type !== "view");
   const c = (job && job.config) || {};
-  const [name, setName] = useState(job ? job.name : "");
+  const [name, setName] = useState(job ? (copyOf ? `Copy of ${job.name}`.slice(0, 60) : job.name) : "");
   const [expression, setExpression] = useState(job ? job.expression : "0 3 * * *");
   const [type, setType] = useState(job ? job.type : "cleanup");
   const [collection, setCollection] = useState(c.collection || (choices[0] && choices[0].name) || "");
@@ -330,7 +331,8 @@ function JobEditor({ job, onClose, onDone }) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const body = () => ({
-    id: job ? job.id : undefined,
+    id: editing ? job.id : undefined,
+    copyOf: copyOf || undefined,
     name,
     expression,
     type,
@@ -364,9 +366,9 @@ function JobEditor({ job, onClose, onDone }) {
     e.preventDefault();
     setBusy(true);
     try {
-      if (job) await api.patch(`/api/crons/${enc(job.id)}`, body());
+      if (editing) await api.patch(`/api/crons/${enc(job.id)}`, body());
       else await api.post("/api/crons", body());
-      toast(job ? "Saved." : "Job made.");
+      toast(editing ? "Saved." : "Job made.");
       onDone();
       onClose();
     } catch (err) {
@@ -377,7 +379,7 @@ function JobEditor({ job, onClose, onDone }) {
     }
   };
   return html`<${Modal} onClose=${onClose} size="mid">
-    <${SheetHead} title=${job ? "Edit cron job" : "New cron job"} subtitle="Runs on a schedule, on one instance, and shows in the history below" onClose=${onClose} />
+    <${SheetHead} title=${editing ? "Edit cron job" : copyOf ? "Copy cron job" : "New cron job"} subtitle="Runs on a schedule, on one instance, and shows in the history below" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
       <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Delete old sessions”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
       <${Field} label="Type"><${Segmented} value=${type} onChange=${setType} options=${types} /></${Field}>
@@ -432,7 +434,7 @@ function JobEditor({ job, onClose, onDone }) {
       <${Field} label="Tell me when it fails (webhook)" error=${errors["notify.webhook"]} help="A public URL that gets a JSON POST (event, job, error). Saved URLs are hidden; leave it as it is to keep it."><${Input} class="mono" value=${notifyHook} onInput=${setNotifyHook} placeholder="https://hooks.example.com/…" /></${Field}>
       ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
-        <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${job ? "Save" : "Make job"}</${Button}></div>
+        <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${editing ? "Save" : "Make job"}</${Button}></div>
     </form>
   </${Modal}>`;
 }
@@ -471,6 +473,15 @@ export function Crons() {
       setRunning("");
     }
   };
+  const toggle = async (j, on) => {
+    try {
+      await api.patch(`/api/crons/${enc(j.id)}`, { enabled: on });
+      setRefresh((n) => n + 1);
+    } catch (err) {
+      toast.error(err);
+      setRefresh((n) => n + 1);
+    }
+  };
   const remove = async (j) => {
     if (!(await confirmDialog({ title: `Delete “${j.name}”?`, message: "It stops running. Its history stays until it ages out.", confirm: "Delete", danger: true }))) return;
     try {
@@ -500,8 +511,8 @@ export function Crons() {
                   <td>${j.next ? html`<span class="small">${relativeTime(j.next)}</span><div class="tiny muted mono" title=${`${formatDateIn(j.next, "UTC")}`}>${formatDateIn(j.next, j.timezone || zone)}</div>` : html`<span class="muted">never</span>`}</td>
                   <td>${j.lastRun ? html`<${StatusChip} status=${j.lastRun.status} /><div class="tiny muted">${relativeTime(j.lastRun.started)} · ${ms(j.lastRun.durationMs)}</div>` : html`<span class="muted small">not yet</span>`}</td>
                   <td class="row tight end">
-                    <${Button} size="sm" variant="ghost" icon="list" onClick=${() => setSelected(selected === j.id ? "" : j.id)}>History</${Button}>
-                    ${j.kind === "user" && canMake && (j.type !== "sql" || role === "owner") && html`<${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
+                    <${IconButton} icon="list" label="History" size="sm" onClick=${() => setSelected(selected === j.id ? "" : j.id)} />
+                    ${j.kind === "user" && canMake && (j.type !== "sql" || role === "owner") && html`<${Switch} checked=${j.enabled} onChange=${(on) => toggle(j, on)} ariaLabel=${`${j.name} is ${j.enabled ? "on" : "off"}`} /><${IconButton} icon="copy" label="Duplicate" size="sm" onClick=${() => setEditing({ ...j, copyOf: j.id })} /><${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
                     <${Button} size="sm" icon="play" loading=${running === j.id} onClick=${() => run(j)}>Run now</${Button}>
                   </td>
                 </tr>`
@@ -510,7 +521,7 @@ export function Crons() {
           </table></div>`}
       <div class="small muted row"><${Icon} name="info" size=${14} /> Each job runs once per minute it's due, on one instance. Old logs are deleted every minute, too (Settings → Logs).</div>
     </${Card}>
-    ${editing && html`<${JobEditor} job=${editing.id ? editing : null} onClose=${() => setEditing(null)} onDone=${() => setRefresh((n) => n + 1)} />`}
+    ${editing && html`<${JobEditor} job=${editing.id ? editing : null} copyOf=${editing.copyOf || ""} onClose=${() => setEditing(null)} onDone=${() => setRefresh((n) => n + 1)} />`}
     <${Card} title=${historyOf ? `History: ${label(historyOf)}` : "History"} subtitle=${historyOf ? "Its last runs" : "Every job's last runs; choose one above to see only its own"} icon="list">
       <${JobHistory}
         kind=${historyOf ? (historyOf.kind === "backup" ? "backup" : "cron") : undefined}

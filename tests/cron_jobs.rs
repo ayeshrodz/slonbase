@@ -481,16 +481,33 @@ async fn jobs_that_call_a_url() {
         "PATCH",
         &format!("/api/crons/{id}"),
         Some(json!({ "config": {
-            "url": "http://93.184.216.34/other",
+            "url": "http://93.184.216.34/hook",
             "headers": { "Authorization": "••••••••" },
         } })),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
     assert_eq!(saved(&core), "Bearer s3cret");
+
+    // a saved header only goes to the address it was saved with: pointing the job somewhere
+    // else with the mask is refused, with a typed value it is fine
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": {
+            "url": "http://93.184.216.34/other",
+            "headers": { "Authorization": "••••••••" },
+        } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["config"]["headers"].is_object(), "{res}");
+    assert_eq!(saved(&core), "Bearer s3cret");
     assert_eq!(
         core.settings().cron_jobs[0].config["url"],
-        "http://93.184.216.34/other"
+        "http://93.184.216.34/hook"
     );
     let (status, _) = call(
         &app,
@@ -988,4 +1005,144 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
         "{:?}",
         mails()
     );
+}
+
+#[tokio::test]
+async fn jobs_are_switched_off_and_copied_from_the_list() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "events", "fields": [{ "name": "title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // a copy keeps the secrets of its original (the form only has them masked)
+    let (status, original) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(url_job("Ping", "http://93.184.216.34/hook")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{original}");
+    let from = original["id"].as_str().unwrap().to_string();
+    let copy = |name: &str, url: &str, header: &str| {
+        let mut body = url_job(name, url);
+        body["config"]["headers"] = json!({ "Authorization": header });
+        body["copyOf"] = json!(from);
+        body
+    };
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(copy("Ping (copy)", "http://93.184.216.34/hook", "••••••••")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_ne!(res["id"], original["id"]);
+    let core = app.core().unwrap();
+    let jobs = core.settings().cron_jobs.clone();
+    assert_eq!(jobs.len(), 2);
+    assert_eq!(jobs[1].config["headers"]["Authorization"], "Bearer s3cret");
+    assert!(!res.to_string().contains("s3cret"), "{res}");
+    // the preview of the form does the same
+    let (status, _) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/cron-preview",
+        Some(copy("Ping (3)", "http://93.184.216.34/hook", "••••••••")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    // ...but the secret doesn't follow the copy to another address, and an unknown original
+    // is not found
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(copy("Elsewhere", "http://93.184.216.35/hook", "••••••••")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["config"]["headers"].is_object(), "{res}");
+    let (status, _) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(copy(
+            "Elsewhere",
+            "http://93.184.216.35/hook",
+            "Bearer mine",
+        )),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let mut lost = copy("Lost", "http://93.184.216.34/hook", "x");
+    lost["copyOf"] = json!("user:nope");
+    let (status, _) = call(&app, &token, "POST", "/api/crons", Some(lost)).await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
+    // switching off needs nothing else to be right; switching on checks the job again
+    let (status, cleanup_job) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(cleanup("Old events", "title ~ 'old'")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{cleanup_job}");
+    let id = cleanup_job["id"].as_str().unwrap().to_string();
+    let (status, res) = call(&app, &token, "GET", "/api/collections", None).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let events = res["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|c| c["name"] == "events")
+        .unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let (status, res) = call(
+        &app,
+        &token,
+        "DELETE",
+        &format!("/api/collections/{events}"),
+        None,
+    )
+    .await;
+    assert!(status.is_success(), "{status} {res}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["enabled"], false);
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "enabled": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "its collection is gone");
 }
