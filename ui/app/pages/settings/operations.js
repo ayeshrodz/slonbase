@@ -19,7 +19,18 @@ export function StatusChip({ status }) {
 }
 
 // the latest runs of a kind of job (or of one job)
-export function JobHistory({ kind, job, refreshKey, empty = "Nothing has run yet." }) {
+// What a run did, in a few words, from the result a job type recorded
+function runSummary(meta) {
+  if (!meta) return "";
+  const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
+  if (meta.deleted != null) return `Deleted ${n(meta.deleted, "record", "records")}${meta.collection ? ` from ${meta.collection}` : ""}`;
+  if (meta.sent != null) return `Sent ${n(meta.sent, "email", "emails")}`;
+  if (meta.status != null) return `HTTP ${meta.status}`;
+  if (meta.rows != null) return `${n(meta.rows, "row", "rows")}${meta.affectedRows ? `, ${meta.affectedRows} changed` : ""}`;
+  return "";
+}
+
+export function JobHistory({ kind, job, refreshKey, names = {}, empty = "Nothing has run yet." }) {
   const [data, setData] = useState(null);
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState(null);
@@ -47,11 +58,12 @@ export function JobHistory({ kind, job, refreshKey, empty = "Nothing has run yet
             ${data.items.map(
               (r) => html`<tr key=${r.id} class=${cx({ "row-error": r.status === "error" })} onClick=${() => setOpen(open === r.id ? null : r.id)}>
                 <td title=${formatDate(r.started)}><span class="mono small">${formatDate(r.started)}</span><div class="tiny muted">${relativeTime(r.started)}</div></td>
-                <td class="mono small">${r.kind === "backup" ? (r.job === "auto" ? "automatic backup" : "backup") : r.job}</td>
+                <td class="mono small">${r.kind === "backup" ? (r.job === "auto" ? "automatic backup" : "backup") : names[r.job] || r.job}</td>
                 <td><span class="chip outline">${r.trigger === "schedule" ? "scheduled" : r.trigger}</span></td>
                 <td><${StatusChip} status=${r.status} /></td>
                 <td class="num mono small">${ms(r.durationMs)}</td>
                 <td class="small">
+                  ${runSummary(r.meta) && html`<span>${runSummary(r.meta)}</span>`}
                   ${r.meta && r.meta.key && html`<span class="mono">${r.meta.key}</span> · ${bytes(r.meta.size || 0)} ${r.meta.encrypted ? html`· <${Icon} name="lock" size=${12} /> encrypted` : r.meta.encrypted === false ? "· not encrypted" : ""}`}
                   ${r.status === "error" && html`<div class=${cx("run-detail", { open: open === r.id })}>${r.detail}</div>`}
                 </td>
@@ -491,6 +503,7 @@ export function Crons() {
         kind=${historyOf ? (historyOf.kind === "backup" ? "backup" : "cron") : undefined}
         job=${historyOf ? (historyOf.kind === "backup" ? "auto" : historyOf.id) : undefined}
         refreshKey=${refresh}
+        names=${Object.fromEntries((jobs || []).filter((j) => j.kind === "user").map((j) => [j.id, j.name]))}
       />
     </${Card}>
   </div>`;

@@ -8,6 +8,13 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **Cron job history shows names and what a run did.** The History table listed a job's id
+  (`user:a1b2c3…`) and left Details empty for the jobs made in the dashboard. It now shows the
+  job's name and a summary of the run: records deleted, emails sent, the HTTP status, rows read
+  or changed.
+
 ## [2.6.0] - 2026-11-09
 
 You can make cron jobs in the dashboard now: Settings → Cron jobs → New job.
