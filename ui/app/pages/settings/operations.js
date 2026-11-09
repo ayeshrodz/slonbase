@@ -281,6 +281,13 @@ const JOB_TYPES = [
   { value: "sql", label: "Run SQL" },
 ];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+// Ready-made starting points for a new job: they fill the form, nothing is saved until "Make job"
+const TEMPLATES = [
+  { id: "cleanup", label: "Delete expired records", fill: { name: "Delete old records", type: "cleanup", expression: "0 3 * * *", days: "30", field: "created", filter: "", maxRows: "10000" } },
+  { id: "ping", label: "Ping a URL every 5 minutes", fill: { name: "Ping a URL", type: "http", expression: "*/5 * * * *", method: "GET", url: "https://example.com/health", retries: "2", retryDelay: "30" } },
+  { id: "mail", label: "Weekly email reminder", fill: { name: "Weekly reminder", type: "mail", expression: "0 8 * * 1", subject: "Weekly reminder", mailBody: "A reminder for this week." } },
+  { id: "sql", label: "Refresh planner statistics", owner: true, fill: { name: "Refresh statistics", type: "sql", expression: "0 3 * * 0", statement: "ANALYZE" } },
+];
 // headers are edited as lines of "Name: value"; saved values come back masked and stay as they are
 const headerLines = (h) => Object.entries(h || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
 const headerObject = (text) => {
@@ -322,6 +329,34 @@ function JobEditor({ job, copyOf, onClose, onDone }) {
     if (role === "owner") api.get("/api/sql").then((i) => setSqlOn(!!i.enabled)).catch(() => setSqlOn(false));
   }, [role]);
   const types = JOB_TYPES.filter((t) => t.value !== "sql" || role === "owner");
+  const templates = TEMPLATES.filter((t) => !t.owner || (role === "owner" && sqlOn));
+  const start = (t) => {
+    const f = t.fill;
+    setName(f.name);
+    setType(f.type);
+    setExpression(f.expression);
+    if (f.days != null) {
+      setDays(f.days);
+      setField(f.field);
+      setFilter(f.filter);
+      setMaxRows(f.maxRows);
+    }
+    if (f.url != null) {
+      setMethod(f.method);
+      setUrl(f.url);
+      setHeaders("");
+      setPayload("");
+    }
+    // every example starts from the same defaults, so one doesn't leave its settings in the next
+    setRetries(f.retries || "0");
+    setRetryDelay(f.retryDelay || "30");
+    if (f.subject != null) {
+      setSubject(f.subject);
+      setMailBody(f.mailBody);
+      setMailTo("");
+    }
+    if (f.statement != null) setStatement(f.statement);
+  };
   const [retries, setRetries] = useState(job ? String(job.retries || 0) : "0");
   const [retryDelay, setRetryDelay] = useState(job && job.retries ? String(job.retryDelaySeconds) : "30");
   const [notifyEmails, setNotifyEmails] = useState(job && job.notify ? job.notify.emails.join(", ") : "");
@@ -381,6 +416,7 @@ function JobEditor({ job, copyOf, onClose, onDone }) {
   return html`<${Modal} onClose=${onClose} size="mid">
     <${SheetHead} title=${editing ? "Edit cron job" : copyOf ? "Copy cron job" : "New cron job"} subtitle="Runs on a schedule, on one instance, and shows in the history below" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
+      ${!job && html`<div class="stack tight"><span class="small muted">Start from an example</span><div class="chips">${templates.map((t) => html`<button type="button" class="chip selectable outline" onClick=${() => start(t)}>${t.label}</button>`)}</div></div>`}
       <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Delete old sessions”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
       <${Field} label="Type"><${Segmented} value=${type} onChange=${setType} options=${types} /></${Field}>
       <${Field} label="Schedule" error=${errors.expression} help=${preview ? `${preview.description || "Custom schedule"}, on ${preview.timezone} time` : "minute hour day month weekday"}>
