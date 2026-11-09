@@ -14,6 +14,9 @@
 //! older than some days) and `http` (call a URL: a webhook, a health ping; through the guarded
 //! request of `http.rs`, so never to this server or a private network). Header values are
 //! secrets: the API shows them masked and keeps the saved value when the mask comes back.
+//! `mail` sends an email (through the mail settings) and `sql` runs a statement under exactly
+//! the SQL console's policy (console on, writes only when allowed, its role and limits); a job of
+//! type `sql` can only be made or changed by an owner, since it can read and change anything.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -35,7 +38,7 @@ use crate::validation::Errors;
 /// The prefix of every dashboard job's id.
 pub const ID_PREFIX: &str = "user:";
 const MAX_JOBS: usize = 50;
-const TYPES: &[&str] = &["cleanup", "http"];
+const TYPES: &[&str] = &["cleanup", "http", "mail", "sql"];
 /// What the API shows instead of a saved header value.
 pub const MASK: &str = "••••••••";
 const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -122,8 +125,84 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
         validate_cleanup(core, &def.config, &mut errors).await;
     } else if def.kind == "http" {
         validate_http(&def.config, &mut errors).await;
+    } else if def.kind == "mail" {
+        validate_mail(core, &def.config, &mut errors);
+    } else if def.kind == "sql" {
+        validate_sql(core, &def.config, &mut errors);
     }
     errors
+}
+
+/// The addresses of a `mail` job (a list, or one text with commas, spaces or lines between).
+fn recipients(config: &Value) -> Vec<String> {
+    let raw: Vec<String> = match config.get("to") {
+        Some(Value::Array(a)) => a
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect(),
+        Some(Value::String(s)) => vec![s.clone()],
+        _ => vec![],
+    };
+    raw.iter()
+        .flat_map(|s| s.split([',', ';', '\n', ' ']))
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn plain_line(s: &str) -> bool {
+    !s.chars().any(char::is_control)
+}
+
+fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+    let to = recipients(config);
+    if to.is_empty() || to.len() > 10 {
+        errors.invalid("config.to", "One to 10 email addresses.");
+    } else if let Some(bad) = to.iter().find(|a| {
+        a.len() > 254
+            || !plain_line(a)
+            || a.matches('@').count() != 1
+            || a.starts_with('@')
+            || a.ends_with('@')
+            || !a.rsplit('@').next().is_some_and(|d| d.contains('.'))
+    }) {
+        errors.invalid("config.to", format!("{bad:?} is not an email address."));
+    }
+    let subject = text(config, "subject").trim();
+    if subject.is_empty() || subject.chars().count() > 200 || !plain_line(subject) {
+        errors.invalid("config.subject", "1 to 200 characters, on one line.");
+    }
+    if text(config, "body").chars().count() > 20_000 {
+        errors.invalid("config.body", "At most 20 000 characters.");
+    }
+    if !core.settings().smtp.enabled {
+        errors.invalid(
+            "config.to",
+            "Email isn't set up: turn on SMTP in Settings → Mail first.",
+        );
+    }
+}
+
+fn validate_sql(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+    let statement = text(config, "statement").trim();
+    if !core.sql_console {
+        errors.invalid(
+            "config.statement",
+            "SQL jobs need the SQL console: start slonbase with --sql-console.",
+        );
+    } else if statement.is_empty()
+        || statement.chars().count() > crate::sql_console::MAX_QUERY_LENGTH
+    {
+        errors.invalid("config.statement", "1 to 20 000 characters.");
+    } else if !core.sql_console_writes
+        && !crate::sql_console::READ_KEYWORDS
+            .contains(&crate::sql_console::first_keyword(statement).as_str())
+    {
+        errors.invalid(
+            "config.statement",
+            "The SQL console is read-only, so is this job: start slonbase with --sql-console-writes to change data.",
+        );
+    }
 }
 
 /// The headers of an `http` job as (name, value) pairs.
@@ -263,8 +342,48 @@ pub async fn execute(core: &Arc<Core>, def: &JobDef) -> Result<Value, String> {
     match def.kind.as_str() {
         "cleanup" => cleanup(core, &def.config).await,
         "http" => call_url(&def.config).await,
+        "mail" => send_mail(core, &def.config).await,
+        "sql" => run_sql(core, &def.config).await,
         other => Err(format!("Unknown type of job: {other}.")),
     }
+}
+
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
+    if !core.settings().smtp.enabled {
+        return Err("Email isn't set up: turn on SMTP in Settings → Mail.".into());
+    }
+    let to = recipients(config);
+    let html = escape(text(config, "body")).replace('\n', "<br>");
+    let mut sent = 0;
+    for address in &to {
+        core.send_mail_now(crate::mail::Message {
+            to: address.clone(),
+            subject: text(config, "subject").trim().to_string(),
+            html: html.clone(),
+        })
+        .await
+        .map_err(|e| format!("Sending to {address} failed: {e}"))?;
+        sent += 1;
+    }
+    Ok(json!({ "sent": sent }))
+}
+
+async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
+    let result = crate::sql_console::execute(core, text(config, "statement"), 100)
+        .await
+        .map_err(failure)?;
+    // what it did, not what it read: rows may hold anything
+    Ok(json!({
+        "affectedRows": result["affectedRows"],
+        "rows": result["rows"].as_array().map_or(0, Vec::len),
+        "readOnly": result["readOnly"],
+    }))
 }
 
 async fn call_url(config: &Value) -> Result<Value, String> {
@@ -469,6 +588,13 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
     def
 }
 
+/// Jobs of type `sql` can read and change anything the console can: owners only.
+fn owner_only(core: &Core, auth: &RequestAuth) -> Result<(), ApiError> {
+    crate::roles::require_role(core, auth, crate::roles::Role::Owner)
+        .map(|_| ())
+        .map_err(|_| ApiError::forbidden("Only owners can make or change SQL jobs."))
+}
+
 fn invalid(errors: &Errors) -> ApiError {
     ApiError::invalid_data(
         "An error occurred while validating the submitted data.",
@@ -497,6 +623,9 @@ pub async fn create(
             ..Default::default()
         },
     );
+    if def.kind == "sql" {
+        owner_only(&core, &auth)?;
+    }
     let mut errors = validate(&core, &def, &settings.cron_jobs).await;
     if settings.cron_jobs.len() >= MAX_JOBS {
         errors.invalid("name", "An installation has at most 50 jobs made here.");
@@ -544,6 +673,12 @@ fn normalized(def: &JobDef) -> Value {
             }
             out
         }
+        "mail" => json!({
+            "to": recipients(c),
+            "subject": text(c, "subject").trim(),
+            "body": text(c, "body"),
+        }),
+        "sql" => json!({ "statement": text(c, "statement").trim() }),
         _ => c.clone(),
     }
 }
@@ -564,6 +699,9 @@ pub async fn update(
     let saved = settings.cron_jobs[pos].clone();
     let mut def = read(&body, saved.clone());
     unmask(&mut def, &saved);
+    if saved.kind == "sql" || def.kind == "sql" {
+        owner_only(&core, &auth)?;
+    }
     def.id = id;
     let errors = validate(&core, &def, &settings.cron_jobs).await;
     if !errors.is_empty() {

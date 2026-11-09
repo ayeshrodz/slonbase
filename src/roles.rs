@@ -273,7 +273,7 @@ pub async fn authenticate_key(
 // ---------------------------------------------------------------------------
 // the API
 
-fn require_role(
+pub(crate) fn require_role(
     core: &Core,
     auth: &RequestAuth,
     min: Role,
