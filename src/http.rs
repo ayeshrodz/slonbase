@@ -106,6 +106,23 @@ pub async fn check_target(url: &str) -> Result<(), String> {
     target(&url, false).await.map(|_| ())
 }
 
+/// The reasons a request is refused before anything is sent; retrying can't change them.
+const REFUSALS: &[&str] = &[
+    "Only http and https",
+    "Leave the user name",
+    "The URL has no host",
+    "The URL has no port",
+    "is not a public address",
+    "Not a valid URL",
+    "Unknown method",
+];
+
+/// Whether an error from [`guarded`] is a refusal (a bad or forbidden address) rather than a
+/// failure of the call itself (a timeout, a refused connection, a DNS hiccup).
+pub fn refused(message: &str) -> bool {
+    REFUSALS.iter().any(|r| message.contains(r))
+}
+
 async fn target(
     url: &reqwest::Url,
     allow_private: bool,
@@ -241,6 +258,23 @@ mod tests {
             String::from_utf8_lossy(&buf[..n]).into_owned()
         });
         (port, task)
+    }
+
+    #[tokio::test]
+    async fn refusals_are_told_from_failures_of_the_call() {
+        for url in [
+            "http://127.0.0.1/",
+            "ftp://example.com/",
+            "http://u:p@example.com/",
+            "nope",
+        ] {
+            let err = guarded("GET", url, &[], None, Duration::from_secs(5))
+                .await
+                .unwrap_err();
+            assert!(refused(&err), "{url}: {err}");
+        }
+        assert!(!refused("The request failed: connection refused."));
+        assert!(!refused("Looking up example.com took too long."));
     }
 
     #[tokio::test]

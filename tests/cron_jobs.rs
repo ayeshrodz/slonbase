@@ -734,3 +734,101 @@ async fn jobs_that_run_sql() {
     let (status, _) = call(&app, &admin, "DELETE", &format!("/api/crons/{id}"), None).await;
     assert_eq!(status, StatusCode::NO_CONTENT);
 }
+
+#[tokio::test]
+async fn failed_runs_are_tried_again_with_a_wait() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let job = |retries: Value, delay: Value| {
+        json!({
+            "name": "Always fails", "expression": "0 * * * *", "type": "sql",
+            "config": { "statement": "SELECT 1/0" },
+            "retries": retries, "retryDelaySeconds": delay,
+        })
+    };
+
+    // the bounds
+    for (retries, delay, field) in [
+        (json!(6), json!(30), "retries"),
+        (json!(-1), json!(30), "retries"),
+        (json!(2), json!(0), "retryDelaySeconds"),
+        (json!(2), json!(301), "retryDelaySeconds"),
+    ] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/crons",
+            Some(job(retries, delay)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{field}: {res}");
+        assert!(res["data"][field].is_object(), "{field}: {res}");
+    }
+
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(job(json!(1), json!(1))),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(
+        (res["retries"].as_i64(), res["retryDelaySeconds"].as_i64()),
+        (Some(1), Some(1))
+    );
+    let id = res["id"].as_str().unwrap().to_string();
+
+    // run now: it fails, waits a second, fails again, and the history says it tried twice
+    let started = std::time::Instant::now();
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let run = last_run(&app, &token, &id).await;
+    assert_eq!(run["status"], "error", "{run}");
+    assert!(
+        run["detail"].as_str().unwrap().contains("after 2 attempts"),
+        "{run}"
+    );
+    assert!(
+        started.elapsed() >= Duration::from_secs(1),
+        "it waited before the retry"
+    );
+
+    // no retries: one attempt, and the plain message
+    let (_, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "retries": 0 })),
+    )
+    .await;
+    assert_eq!(res["retries"], 0);
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        eventually(async || {
+            let (_, res) = call(
+                &app,
+                &token,
+                "GET",
+                &format!("/api/jobs/runs?kind=cron&job={id}"),
+                None,
+            )
+            .await;
+            res["items"][0]["status"] == "error"
+                && !res["items"][0]["detail"]
+                    .as_str()
+                    .unwrap_or("")
+                    .contains("attempts")
+                && res["total"] == 2
+        })
+        .await,
+        "a second run, with one attempt"
+    );
+}

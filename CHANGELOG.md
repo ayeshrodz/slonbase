@@ -8,6 +8,15 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **Cron jobs made in the dashboard can retry.** A job can be set to try again up to 5 times when
+  a run fails, waiting longer each time (the first wait is yours, 1 to 300 seconds; each next one
+  is twice as long, at most 5 minutes). All tries are one run in the history, which says how many
+  were made (`meta.attempts`, "after 3 attempts" in the failure). A failure that retrying can't
+  fix, such as email not being set up, the SQL console being off or a refused address, isn't
+  retried. The API fields are `retries` and `retryDelaySeconds`.
+
 ### Changed
 
 - **Cron job history shows names and what a run did.** The History table listed a job's id

@@ -18,6 +18,7 @@
 //! the SQL console's policy (console on, writes only when allowed, its role and limits); a job of
 //! type `sql` can only be made or changed by an owner, since it can read and change anything.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -45,6 +46,9 @@ const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
 /// A run that takes longer is stopped and recorded as failed.
 const RUN_LIMIT: Duration = Duration::from_secs(300);
 const DEFAULT_MAX_ROWS: i64 = 10_000;
+const MAX_RETRIES: i64 = 5;
+const DEFAULT_RETRY_DELAY: i64 = 30;
+const MAX_RETRY_WAIT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -57,6 +61,10 @@ pub struct JobDef {
     #[serde(rename = "type")]
     pub kind: String,
     pub config: Value,
+    /// How many times a failed run is tried again (0 to 5).
+    pub retries: i64,
+    /// The wait before the first retry; each next one waits twice as long (at most 5 minutes).
+    pub retry_delay_seconds: i64,
     pub created: String,
     pub updated: String,
 }
@@ -116,6 +124,12 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
             "expression",
             "Not a cron expression: minute hour day month weekday, e.g. 0 3 * * *.",
         );
+    }
+    if !(0..=MAX_RETRIES).contains(&def.retries) {
+        errors.invalid("retries", "Between 0 and 5 retries.");
+    }
+    if def.retries > 0 && !(1..=300).contains(&def.retry_delay_seconds) {
+        errors.invalid("retryDelaySeconds", "Between 1 and 300 seconds.");
     }
     if !TYPES.contains(&def.kind.as_str()) {
         errors.invalid("type", "Choose a type of job.");
@@ -337,14 +351,87 @@ fn failure(err: crate::error::ApiError) -> String {
     err.details.as_deref().unwrap_or(&err.message).to_string()
 }
 
-/// Runs a job's work and returns what to record about it.
-pub async fn execute(core: &Arc<Core>, def: &JobDef) -> Result<Value, String> {
+/// Why an attempt failed, and whether trying again could help (a missing setting or a refused
+/// address won't fix itself; a timeout or a busy database might).
+#[derive(Debug)]
+pub(crate) struct Fail {
+    pub message: String,
+    pub retry: bool,
+}
+
+impl From<String> for Fail {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            retry: true,
+        }
+    }
+}
+
+impl Fail {
+    fn fatal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            retry: false,
+        }
+    }
+}
+
+/// One attempt at a job's work.
+async fn attempt(core: &Arc<Core>, def: &JobDef) -> Result<Value, Fail> {
     match def.kind.as_str() {
-        "cleanup" => cleanup(core, &def.config).await,
+        "cleanup" => cleanup(core, &def.config).await.map_err(Fail::from),
         "http" => call_url(&def.config).await,
         "mail" => send_mail(core, &def.config).await,
         "sql" => run_sql(core, &def.config).await,
-        other => Err(format!("Unknown type of job: {other}.")),
+        other => Err(Fail::fatal(format!("Unknown type of job: {other}."))),
+    }
+}
+
+/// Runs a job's work once and returns what to record about it.
+pub async fn execute(core: &Arc<Core>, def: &JobDef) -> Result<Value, String> {
+    attempt(core, def).await.map_err(|f| f.message)
+}
+
+/// The wait before retry number `n` (1 is the first): the job's delay, doubled each time.
+fn backoff(delay_seconds: i64, n: u32) -> Duration {
+    let first = Duration::from_secs(delay_seconds.max(1) as u64);
+    first
+        .saturating_mul(1u32 << (n - 1).min(16))
+        .min(MAX_RETRY_WAIT)
+}
+
+/// Tries `work` up to `1 + retries` times, waiting `wait(n)` before retry `n` and stopping at a
+/// failure that retrying can't fix. Returns the outcome and how many attempts were made.
+async fn with_retries<F, Fut>(
+    retries: u32,
+    wait: impl Fn(u32) -> Duration,
+    mut work: F,
+) -> (Result<Value, String>, u32)
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<Value, Fail>>,
+{
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        match work().await {
+            Ok(mut meta) => {
+                if tries > 1 {
+                    meta["attempts"] = tries.into();
+                }
+                return (Ok(meta), tries);
+            }
+            Err(fail) if fail.retry && tries <= retries => tokio::time::sleep(wait(tries)).await,
+            Err(fail) => {
+                let message = if tries > 1 {
+                    format!("{} (after {tries} attempts)", fail.message)
+                } else {
+                    fail.message
+                };
+                return (Err(message), tries);
+            }
+        }
     }
 }
 
@@ -354,9 +441,11 @@ fn escape(s: &str) -> String {
         .replace('>', "&gt;")
 }
 
-async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
+async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, Fail> {
     if !core.settings().smtp.enabled {
-        return Err("Email isn't set up: turn on SMTP in Settings → Mail.".into());
+        return Err(Fail::fatal(
+            "Email isn't set up: turn on SMTP in Settings → Mail.",
+        ));
     }
     let to = recipients(config);
     let html = escape(text(config, "body")).replace('\n', "<br>");
@@ -368,16 +457,20 @@ async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
             html: html.clone(),
         })
         .await
-        .map_err(|e| format!("Sending to {address} failed: {e}"))?;
+        .map_err(|e| Fail::from(format!("Sending to {address} failed: {e}")))?;
         sent += 1;
     }
     Ok(json!({ "sent": sent }))
 }
 
-async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
+async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, Fail> {
     let result = crate::sql_console::execute(core, text(config, "statement"), 100)
         .await
-        .map_err(failure)?;
+        .map_err(|e| Fail {
+            // the console is off or read-only for this statement: that won't change by itself
+            retry: e.status != StatusCode::FORBIDDEN,
+            message: failure(e),
+        })?;
     // what it did, not what it read: rows may hold anything
     Ok(json!({
         "affectedRows": result["affectedRows"],
@@ -386,7 +479,7 @@ async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
     }))
 }
 
-async fn call_url(config: &Value) -> Result<Value, String> {
+async fn call_url(config: &Value) -> Result<Value, Fail> {
     let method = match text(config, "method") {
         "" => "GET",
         m => m,
@@ -401,13 +494,17 @@ async fn call_url(config: &Value) -> Result<Value, String> {
         body,
         timeout,
     )
-    .await?;
+    .await
+    .map_err(|message| Fail {
+        retry: !crate::http::refused(&message),
+        message,
+    })?;
     let ok = match number(config, "expectStatus") {
         Some(want) => i64::from(reply.status) == want,
         None => (200..300).contains(&reply.status),
     };
     if !ok {
-        return Err(format!("The server answered {}.", reply.status));
+        return Err(Fail::from(format!("The server answered {}.", reply.status)));
     }
     Ok(json!({ "status": reply.status, "response": reply.excerpt }))
 }
@@ -470,13 +567,25 @@ pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
         return;
     }
     let record = crate::jobs::start(&core, crate::jobs::CRON, &def.id, trigger).await;
-    let result = match tokio::time::timeout(RUN_LIMIT, execute(&core, &def)).await {
-        Ok(result) => result,
-        Err(_) => Err(format!(
-            "Stopped after {} minutes.",
-            RUN_LIMIT.as_secs() / 60
-        )),
+    let retries = def.retries.clamp(0, MAX_RETRIES) as u32;
+    let delay = match def.retry_delay_seconds {
+        0 => DEFAULT_RETRY_DELAY,
+        d => d,
     };
+    let (result, _) = with_retries(
+        retries,
+        |n| backoff(delay, n),
+        || async {
+            match tokio::time::timeout(RUN_LIMIT, attempt(&core, &def)).await {
+                Ok(result) => result,
+                Err(_) => Err(Fail::from(format!(
+                    "Stopped after {} minutes.",
+                    RUN_LIMIT.as_secs() / 60
+                ))),
+            }
+        },
+    )
+    .await;
     if let Err(detail) = &result {
         tracing::error!(job = %def.id, error = %detail, "a cron job failed");
     }
@@ -531,6 +640,8 @@ pub(crate) fn listed(
         "kind": "user",
         "type": def.kind,
         "config": masked(def),
+        "retries": def.retries,
+        "retryDelaySeconds": if def.retries > 0 { def.retry_delay_seconds.max(1) } else { DEFAULT_RETRY_DELAY },
         "lastRun": last,
     })
 }
@@ -585,7 +696,19 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
     if let Some(v) = body.get("config").filter(|v| v.is_object()) {
         def.config = v.clone();
     }
+    if let Some(v) = body.get("retries").and_then(whole) {
+        def.retries = v;
+    }
+    if let Some(v) = body.get("retryDelaySeconds").and_then(whole) {
+        def.retry_delay_seconds = v;
+    }
     def
+}
+
+/// A whole number sent as a number or as text.
+fn whole(v: &Value) -> Option<i64> {
+    v.as_i64()
+        .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
 /// Jobs of type `sql` can read and change anything the console can: owners only.
@@ -806,6 +929,63 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn quick(_: u32) -> Duration {
+        Duration::from_millis(1)
+    }
+
+    #[tokio::test]
+    async fn a_failing_job_is_tried_again_and_the_attempts_are_counted() {
+        let calls = AtomicU32::new(0);
+        let (result, tries) = with_retries(3, quick, || async {
+            if calls.fetch_add(1, Ordering::SeqCst) < 2 {
+                Err(Fail::from("busy".to_string()))
+            } else {
+                Ok(json!({ "sent": 1 }))
+            }
+        })
+        .await;
+        assert_eq!(tries, 3);
+        let meta = result.unwrap();
+        assert_eq!(meta["attempts"], 3);
+        assert_eq!(meta["sent"], 1);
+
+        // no retries configured: one attempt, no `attempts` in the result
+        let (result, tries) = with_retries(0, quick, || async { Ok(json!({})) }).await;
+        assert_eq!(tries, 1);
+        assert!(result.unwrap().get("attempts").is_none());
+    }
+
+    #[tokio::test]
+    async fn retries_run_out_and_a_failure_that_cant_change_is_not_retried() {
+        let calls = AtomicU32::new(0);
+        let (result, tries) = with_retries(2, quick, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Fail::from("down".to_string()))
+        })
+        .await;
+        assert_eq!((tries, calls.load(Ordering::SeqCst)), (3, 3));
+        assert_eq!(result.unwrap_err(), "down (after 3 attempts)");
+
+        let calls = AtomicU32::new(0);
+        let (result, tries) = with_retries(5, quick, || async {
+            calls.fetch_add(1, Ordering::SeqCst);
+            Err(Fail::fatal("Email isn't set up."))
+        })
+        .await;
+        assert_eq!((tries, calls.load(Ordering::SeqCst)), (1, 1));
+        assert_eq!(result.unwrap_err(), "Email isn't set up.");
+    }
+
+    #[test]
+    fn the_wait_doubles_and_stops_at_five_minutes() {
+        let secs = |n| backoff(30, n).as_secs();
+        assert_eq!([secs(1), secs(2), secs(3), secs(4)], [30, 60, 120, 240]);
+        assert_eq!([secs(5), secs(6), secs(40)], [300, 300, 300]);
+        assert_eq!(backoff(0, 1).as_secs(), 1);
+    }
 
     #[test]
     fn the_cleanup_filter_combines_the_filter_and_the_age() {
