@@ -831,18 +831,21 @@ fn masked(def: &JobDef) -> Value {
     config
 }
 
-/// A header (or the webhook) sent back as the mask keeps its saved value.
-fn unmask(def: &mut JobDef, saved: &JobDef) {
+/// A header (or the webhook) sent back as the mask keeps its saved value. A saved header never
+/// travels to another address: when the URL changes, the values have to be typed again.
+fn unmask(def: &mut JobDef, saved: &JobDef) -> Result<(), String> {
     if def.notify.webhook == MASK {
         def.notify.webhook = saved.notify.webhook.clone();
     }
     if def.kind != "http" {
-        return;
+        return Ok(());
     }
     let was = headers_of(&saved.config);
+    let mut kept = false;
     if let Some(h) = def.config.get_mut("headers").and_then(Value::as_object_mut) {
         for (name, value) in h.iter_mut() {
             if value.as_str() == Some(MASK) {
+                kept = true;
                 *value = json!(
                     was.iter()
                         .find(|(k, _)| k.eq_ignore_ascii_case(name))
@@ -852,6 +855,11 @@ fn unmask(def: &mut JobDef, saved: &JobDef) {
             }
         }
     }
+    if kept && saved.kind == "http" && text(&def.config, "url").trim() != text(&saved.config, "url")
+    {
+        return Err("The URL changed: type the header values again, saved ones only go to the address they were saved with.".into());
+    }
+    Ok(())
 }
 
 fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
@@ -935,7 +943,18 @@ pub async fn create(
     if def.kind == "sql" {
         owner_only(&core, &auth)?;
     }
+    // a copy keeps the secrets of the job it was made from (the form only has them masked)
+    let kept = match body.get("copyOf").and_then(Value::as_str) {
+        Some(from) => match settings.cron_jobs.iter().find(|j| j.id == from) {
+            Some(source) => unmask(&mut def, source),
+            None => return Err(ApiError::not_found()),
+        },
+        None => Ok(()),
+    };
     let mut errors = validate(&core, &def, &settings.cron_jobs).await;
+    if let Err(message) = kept {
+        errors.invalid("config.headers", message);
+    }
     if settings.cron_jobs.len() >= MAX_JOBS {
         errors.invalid("name", "An installation has at most 50 jobs made here.");
     }
@@ -1007,12 +1026,21 @@ pub async fn update(
     };
     let saved = settings.cron_jobs[pos].clone();
     let mut def = read(&body, saved.clone());
-    unmask(&mut def, &saved);
+    let kept = unmask(&mut def, &saved);
     if saved.kind == "sql" || def.kind == "sql" {
         owner_only(&core, &auth)?;
     }
     def.id = id;
-    let errors = validate(&core, &def, &settings.cron_jobs).await;
+    // switching a job off must always work, whatever else about it has gone stale
+    let only_off = body.len() == 1 && body.get("enabled") == Some(&json!(false));
+    let mut errors = if only_off {
+        Errors::new()
+    } else {
+        validate(&core, &def, &settings.cron_jobs).await
+    };
+    if let Err(message) = kept {
+        errors.invalid("config.headers", message);
+    }
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
@@ -1078,10 +1106,18 @@ pub async fn preview(
         },
     );
     let others = core.settings().cron_jobs.clone();
-    if let Some(saved) = others.iter().find(|j| j.id == def.id) {
-        unmask(&mut def, saved);
+    let from = match body.get("copyOf").and_then(Value::as_str) {
+        Some(from) => from,
+        None => def.id.as_str(),
+    };
+    let kept = match others.iter().find(|j| j.id == from) {
+        Some(saved) => unmask(&mut def, saved),
+        None => Ok(()),
+    };
+    let mut errors = validate(&core, &def, &others).await;
+    if let Err(message) = kept {
+        errors.invalid("config.headers", message);
     }
-    let errors = validate(&core, &def, &others).await;
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }

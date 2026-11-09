@@ -8,8 +8,20 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **A saved header value no longer follows a job to another address.** Editing a *Call a URL*
+  job keeps its saved header values (shown hidden), but if the URL changes you now have to type
+  the values again, so re-pointing a job can't send a saved `Authorization` header elsewhere.
+  The same applies to a copy.
+
 ### Added
 
+- **Switch a cron job on or off, or duplicate it, from the list.** Each job made in the dashboard
+  has an On/Off switch in the Cron jobs table (switching off always works, whatever else about
+  the job has changed; switching on checks it again) and a Duplicate button that opens the
+  editor with a copy ("Copy of …"), keeping the saved header values and webhook of the original
+  (`copyOf` in `POST /api/crons`).
 - **Cron jobs can tell you when they fail.** Set an email list (up to 10 addresses, through the
   mail settings) and/or a webhook (a public URL that gets a JSON `POST` with `event`, `job`,
   `error`, `attempts` and `at`) on a job. You get one message when it starts failing, after its
