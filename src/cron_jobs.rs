@@ -768,6 +768,10 @@ pub(crate) async fn run_scheduled(
     tz: chrono_tz::Tz,
 ) {
     let settings = core.settings();
+    // paused: nothing is claimed either, so resuming within the minute still runs what is due
+    if settings.schedule.pause_jobs {
+        return;
+    }
     for def in settings.cron_jobs.iter().filter(|d| d.enabled) {
         let due =
             crate::cron::Schedule::parse(&def.expression).is_some_and(|s| s.matches(&now, tz));

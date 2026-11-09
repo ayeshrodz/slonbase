@@ -194,7 +194,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
-| `schedule` | slonbase's: `timezone`: `UTC` (default, as in PocketBase) or an IANA name (`Pacific/Auckland`) that cron expressions are read in, for the automatic backups and the cron jobs of hooks |
+| `schedule` | slonbase's: `timezone`: `UTC` (default, as in PocketBase) or an IANA name (`Pacific/Auckland`) that cron expressions are read in, for the automatic backups and the cron jobs of hooks; `pauseJobs` (default `false`): `true` stops the cron jobs made in the dashboard from running on their schedule ("Run now" still works; hook jobs and the backup are not affected) |
 
 Roles and API keys are kept with the settings but only `/api/team` shows and changes them.
 

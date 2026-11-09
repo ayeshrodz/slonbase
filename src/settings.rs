@@ -379,12 +379,16 @@ pub struct Schedule {
     /// `UTC` (the default, what PocketBase uses) or an IANA name (`Pacific/Auckland`).
     /// `0 3 * * *` runs at 03:00 on that zone's clocks.
     pub timezone: String,
+    /// While true, the jobs made in the dashboard don't run on their schedule (for a
+    /// maintenance window). "Run now" still works; hook jobs and the backup are not affected.
+    pub pause_jobs: bool,
 }
 
 impl Default for Schedule {
     fn default() -> Self {
         Self {
             timezone: "UTC".into(),
+            pause_jobs: false,
         }
     }
 }

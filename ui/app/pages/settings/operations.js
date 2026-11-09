@@ -445,6 +445,7 @@ export function Crons() {
   const [selected, setSelected] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [zone, setZone] = useState("UTC");
+  const [paused, setPaused] = useState(false);
   const [editing, setEditing] = useState(null);
   const role = useMyRole();
   const canMake = role === "admin" || role === "owner";
@@ -457,7 +458,10 @@ export function Crons() {
     load();
     api
       .get("/api/settings")
-      .then((st) => setZone((st.schedule && st.schedule.timezone) || "UTC"))
+      .then((st) => {
+        setZone((st.schedule && st.schedule.timezone) || "UTC");
+        setPaused(!!(st.schedule && st.schedule.pauseJobs));
+      })
       .catch(() => {});
   }, [refresh]);
   const run = async (j) => {
@@ -471,6 +475,16 @@ export function Crons() {
       toast.error(err);
     } finally {
       setRunning("");
+    }
+  };
+  // stops every job made here from running on its schedule (a maintenance window)
+  const pause = async (on) => {
+    try {
+      await api.patch("/api/settings", { schedule: { pauseJobs: on } });
+      setPaused(on);
+      toast(on ? "Jobs paused." : "Jobs resumed.");
+    } catch (err) {
+      toast.error(err);
     }
   };
   const toggle = async (j, on) => {
@@ -496,7 +510,8 @@ export function Crons() {
   const label = (j) => (j.id === "__pbAutoBackup__" ? "Automatic backup" : j.kind === "user" ? j.name : j.id);
   const historyOf = jobs && jobs.find((j) => j.id === selected);
   return html`<div class="stack loose">
-    <${Card} title="Cron jobs" subtitle=${`Jobs made here, in hooks (cronAdd) and the backup, on ${(jobs && jobs[0] && jobs[0].timezone) || zone} time`} icon="clock" actions=${html`${canMake && html`<${Button} size="sm" variant="primary" icon="plus" onClick=${() => setEditing({})}>New job</${Button}>`}<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
+    <${Card} title="Cron jobs" subtitle=${`Jobs made here, in hooks (cronAdd) and the backup, on ${(jobs && jobs[0] && jobs[0].timezone) || zone} time`} icon="clock" actions=${html`${canMake && html`<${Switch} checked=${paused} onChange=${pause} label="Pause all" />`}${canMake && html`<${Button} size="sm" variant="primary" icon="plus" onClick=${() => setEditing({})}>New job</${Button}>`}<a class="small" href="#/settings/backups">Time zone</a><${IconButton} icon="refresh" label="Refresh" onClick=${() => setRefresh((n) => n + 1)} />`}>
+      ${paused && html`<${Callout} kind="warn">Jobs made here are paused: none runs on its schedule until you turn this off. Run now still works. Jobs from hook files and the automatic backup are not affected.</${Callout}>`}
       ${jobs === null
         ? html`<${Skeleton} height=${80} />`
         : jobs.length === 0
