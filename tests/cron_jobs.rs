@@ -513,3 +513,224 @@ async fn jobs_that_call_a_url() {
     let result = slonbase::cron_jobs::execute(&core, &def).await;
     assert!(result.unwrap_err().contains("not a public address"));
 }
+
+async fn last_run(app: &Arc<App>, token: &str, id: &str) -> Value {
+    let query = format!("/api/jobs/runs?kind=cron&job={id}");
+    let mut run = Value::Null;
+    assert!(
+        eventually(async || {
+            let (_, res) = call(app, token, "GET", &query, None).await;
+            run = res["items"][0].clone();
+            run["status"].is_string() && run["status"] != "running"
+        })
+        .await,
+        "the run is recorded"
+    );
+    run
+}
+
+#[tokio::test]
+async fn jobs_that_send_email() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let mailer = Arc::new(slonbase::mail::MemoryMailer::default());
+    app.core().unwrap().set_mailer(mailer.clone());
+    let job = |to: Value, subject: &str| {
+        json!({
+            "name": "Daily note",
+            "expression": "0 8 * * *",
+            "type": "mail",
+            "config": { "to": to, "subject": subject, "body": "Hello <b>team</b>\nsecond line" },
+        })
+    };
+
+    // email has to be set up first
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(job(json!("ops@example.com"), "Hi")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["config"]["to"].is_object(), "{res}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "smtp": { "enabled": true, "host": "mail.acme.test", "port": 2525 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    for (to, subject, field) in [
+        (json!([]), "Hi", "to"),
+        (json!("not-an-address"), "Hi", "to"),
+        (json!("a@b.co\nBcc: x@y.co"), "Hi", "to"),
+        (json!("ops@example.com"), "", "subject"),
+        (
+            json!("ops@example.com"),
+            "Hi\nBcc: evil@example.com",
+            "subject",
+        ),
+        (
+            json!(
+                (0..11)
+                    .map(|i| format!("u{i}@example.com"))
+                    .collect::<Vec<_>>()
+            ),
+            "Hi",
+            "to",
+        ),
+    ] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/crons",
+            Some(job(to.clone(), subject)),
+        )
+        .await;
+        // (a newline between addresses is a separator, so that one stays valid but harmless)
+        if to == json!("a@b.co\nBcc: x@y.co") {
+            assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+            continue;
+        }
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{field}: {res}");
+        assert!(res["data"]["config"][field].is_object(), "{field}: {res}");
+    }
+
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(job(json!("ops@example.com, dev@example.com"), "Morning")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let id = res["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        res["config"]["to"],
+        json!(["ops@example.com", "dev@example.com"])
+    );
+
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let run = last_run(&app, &token, &id).await;
+    assert_eq!(run["status"], "ok", "{run}");
+    assert_eq!(run["meta"]["sent"], 2, "{run}");
+    let sent = mailer.sent.lock().unwrap().clone();
+    let tos: Vec<_> = sent.iter().map(|m| m.to.as_str()).collect();
+    assert_eq!(tos, ["ops@example.com", "dev@example.com"]);
+    assert_eq!(sent[0].subject, "Morning");
+    // the text is text: markup is shown as typed, lines are kept
+    assert_eq!(sent[0].html, "Hello &lt;b&gt;team&lt;/b&gt;<br>second line");
+}
+
+#[tokio::test]
+async fn jobs_that_run_sql() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // without the console there are no SQL jobs
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let sql = |name: &str, statement: &str| {
+        json!({ "name": name, "expression": "0 * * * *", "type": "sql",
+                "config": { "statement": statement } })
+    };
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(sql("n", "SELECT 1")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["config"]["statement"].is_object(), "{res}");
+    drop(app);
+
+    let tdb2 = TestDb::create().await.unwrap();
+    let (app, token, _dir) =
+        ready_app_configured(&tdb2, Default::default(), |o| o.sql_console = Some(true)).await;
+    // a read-only console: reads only, and what it refuses at save time is refused here too
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(sql("w", "DELETE FROM x")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    let (status, res) = call(&app, &token, "POST", "/api/crons", Some(sql("e", " "))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(sql("Count", "SELECT count(*) AS n FROM _slonbase.job_runs")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let id = res["id"].as_str().unwrap().to_string();
+
+    // owners only: an admin (a key of that role) can neither make nor change one, may delete it
+    let (_, key) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/team/keys",
+        Some(json!({ "name": "admin", "role": "admin" })),
+    )
+    .await;
+    let admin = key["key"].as_str().unwrap().to_string();
+    let (status, res) = call(
+        &app,
+        &admin,
+        "POST",
+        "/api/crons",
+        Some(sql("Mine", "SELECT 1")),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{res}");
+    let (status, _) = call(
+        &app,
+        &admin,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": { "statement": "SELECT 2" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = call(
+        &app,
+        &admin,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "type": "http", "config": { "url": "http://93.184.216.34/" } })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "turning it into another type is a change too"
+    );
+
+    // it runs, and the history keeps what it did, not what it read
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let run = last_run(&app, &token, &id).await;
+    assert_eq!(run["status"], "ok", "{run}");
+    assert_eq!(run["meta"]["rows"], 1, "{run}");
+    assert_eq!(run["meta"]["readOnly"], true, "{run}");
+
+    let (status, _) = call(&app, &admin, "DELETE", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
