@@ -5,5 +5,6 @@
 #
 # Keep it in step with the table in SECURITY.md (CI checks that every line listed here is
 # marked supported there). The newest release is always kept, even before its line is added.
-2.5  -
+2.6  -
+2.5  2027-02-09
 2.4  2027-02-07
