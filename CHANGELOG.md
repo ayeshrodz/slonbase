@@ -17,6 +17,11 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Pause all cron jobs.** A "Pause all" switch on the Cron jobs page (setting
+  `schedule.pauseJobs`, so every instance follows it) stops the jobs made in the dashboard from
+  running on their schedule, for a maintenance window. "Run now" still works, a banner says
+  they are paused, and jobs registered in hook files and the automatic backup are not affected.
+  Resuming within the same minute still runs what is due.
 - **Switch a cron job on or off, or duplicate it, from the list.** Each job made in the dashboard
   has an On/Off switch in the Cron jobs table (switching off always works, whatever else about
   the job has changed; switching on checks it again) and a Duplicate button that opens the

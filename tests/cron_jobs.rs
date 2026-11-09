@@ -1146,3 +1146,81 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "its collection is gone");
 }
+
+#[tokio::test]
+async fn paused_jobs_dont_run_on_their_schedule_but_can_be_run_by_hand() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let core = app.core().unwrap();
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "events", "fields": [{ "name": "title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    for title in ["old a", "old b"] {
+        add(&app, &token, title).await;
+    }
+    let mut body = cleanup("Every minute", "title ~ 'old'");
+    body["expression"] = "* * * * *".into();
+    let (status, job) = call(&app, &token, "POST", "/api/crons", Some(body)).await;
+    assert_eq!(status, StatusCode::OK, "{job}");
+    let id = job["id"].as_str().unwrap().to_string();
+
+    // paused (a setting, so it is shared by every instance)
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "schedule": { "pauseJobs": true } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["schedule"]["pauseJobs"], true, "{res}");
+    assert_eq!(
+        res["schedule"]["timezone"], "UTC",
+        "the time zone is untouched"
+    );
+    slonbase::hooks::run_scheduled_crons(&core).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    assert_eq!(records(&app, &token).await, 2, "nothing ran");
+    let (_, runs) = call(&app, &token, "GET", "/api/jobs/runs?kind=cron", None).await;
+    assert_eq!(runs["total"], 0, "{runs}");
+
+    // "Run now" still works while paused
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        eventually(async || records(&app, &token).await == 0).await,
+        "run by hand"
+    );
+    for title in ["old c"] {
+        add(&app, &token, title).await;
+    }
+
+    // resumed within the same minute: what is due runs, because pausing claimed nothing
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "schedule": { "pauseJobs": false } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    slonbase::hooks::run_scheduled_crons(&core).await;
+    assert!(
+        eventually(async || records(&app, &token).await == 0).await,
+        "it runs again once resumed"
+    );
+
+    // the time zone setting alone doesn't turn the pause off, and the default is not paused
+    let (_, settings) = call(&app, &token, "GET", "/api/settings", None).await;
+    assert_eq!(settings["schedule"]["pauseJobs"], false, "{settings}");
+}
