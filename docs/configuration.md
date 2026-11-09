@@ -319,8 +319,9 @@ all of that in one transaction, on every instance. It also restores the installa
 key, so tokens issued after the backup stop working.
 
 Backups are kept in `--backups-path`, or in an S3 bucket (`backups.s3`). `backups.cron`
-(e.g. `0 3 * * *`) creates them automatically, and `backups.cronMaxKeep` limits how many are
-kept. A schedule is read on the clocks of the time zone in `schedule.timezone` (Settings →
+(e.g. `0 3 * * *`) creates them automatically, and `backups.cronMaxKeep` limits how many automatic backups are
+kept (the oldest are deleted after each automatic backup, and at once when you lower the number;
+manual backups are never deleted). A schedule is read on the clocks of the time zone in `schedule.timezone` (Settings →
 Backups → Time zone): UTC until you change it, so `0 3 * * *` runs at 03:00 UTC, which is
 16:00 in Auckland in the southern summer; set `Pacific/Auckland` for 03:00 there, daylight saving
 time included. A fixed time that the clocks skip (02:30 when they go forward) runs once, right

@@ -1012,6 +1012,11 @@ pub(crate) async fn apply_patch(
     core: &Arc<Core>,
     body: Map<String, Value>,
 ) -> Result<Settings, ApiError> {
+    // changing how many automatic backups to keep applies at once, not at the next backup
+    let keep_changed = body
+        .get("backups")
+        .and_then(|b| b.get("cronMaxKeep"))
+        .is_some();
     let settings = prepare_patch(&core.settings(), body)?;
     let client = core
         .pool
@@ -1028,6 +1033,14 @@ pub(crate) async fn apply_patch(
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(settings.clone());
     reloaded(core);
+    if keep_changed {
+        let core = core.clone();
+        tokio::spawn(async move {
+            if let Err(err) = crate::backups::prune_automatic(&core).await {
+                tracing::warn!(error = %err, "failed to delete the automatic backups beyond the new limit");
+            }
+        });
+    }
     Ok(settings)
 }
 

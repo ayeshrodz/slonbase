@@ -8,6 +8,14 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Lowering "Keep" for automatic backups now removes the extra ones at once.** The limit
+  (`backups.cronMaxKeep`) was only applied after the next automatic backup, so lowering it from 4
+  to 2 left four backups until the next night's run. It is now applied when you save the new
+  number. Only automatic backups are counted and deleted; manual ones are never touched (the
+  setting's text says so now), so "keep 3" can show 3 automatic backups next to your manual ones.
+
 ## [2.6.1] - 2026-11-09
 
 ### Security
