@@ -511,7 +511,7 @@ export function Crons() {
                   <td>${j.next ? html`<span class="small">${relativeTime(j.next)}</span><div class="tiny muted mono" title=${`${formatDateIn(j.next, "UTC")}`}>${formatDateIn(j.next, j.timezone || zone)}</div>` : html`<span class="muted">never</span>`}</td>
                   <td>${j.lastRun ? html`<${StatusChip} status=${j.lastRun.status} /><div class="tiny muted">${relativeTime(j.lastRun.started)} · ${ms(j.lastRun.durationMs)}</div>` : html`<span class="muted small">not yet</span>`}</td>
                   <td class="row tight end">
-                    <${Button} size="sm" variant="ghost" icon="list" onClick=${() => setSelected(selected === j.id ? "" : j.id)}>History</${Button}>
+                    <${IconButton} icon="list" label="History" size="sm" onClick=${() => setSelected(selected === j.id ? "" : j.id)} />
                     ${j.kind === "user" && canMake && (j.type !== "sql" || role === "owner") && html`<${Switch} checked=${j.enabled} onChange=${(on) => toggle(j, on)} ariaLabel=${`${j.name} is ${j.enabled ? "on" : "off"}`} /><${IconButton} icon="copy" label="Duplicate" size="sm" onClick=${() => setEditing({ ...j, copyOf: j.id })} /><${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
                     <${Button} size="sm" icon="play" loading=${running === j.id} onClick=${() => run(j)}>Run now</${Button}>
                   </td>
