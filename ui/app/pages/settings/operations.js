@@ -321,6 +321,8 @@ function JobEditor({ job, onClose, onDone }) {
     if (role === "owner") api.get("/api/sql").then((i) => setSqlOn(!!i.enabled)).catch(() => setSqlOn(false));
   }, [role]);
   const types = JOB_TYPES.filter((t) => t.value !== "sql" || role === "owner");
+  const [retries, setRetries] = useState(job ? String(job.retries || 0) : "0");
+  const [retryDelay, setRetryDelay] = useState(job && job.retries ? String(job.retryDelaySeconds) : "30");
   const [enabled, setEnabled] = useState(job ? job.enabled : true);
   const [errors, setErrors] = useState({});
   const [preview, setPreview] = useState(null);
@@ -331,6 +333,8 @@ function JobEditor({ job, onClose, onDone }) {
     expression,
     type,
     enabled,
+    retries: Number(retries),
+    retryDelaySeconds: retryDelay.trim() ? Number(retryDelay) : null,
     config:
       type === "mail"
         ? { to: mailTo, subject, body: mailBody }
@@ -352,7 +356,7 @@ function JobEditor({ job, onClose, onDone }) {
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect, mailTo, subject, mailBody, statement]);
+  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect, mailTo, subject, mailBody, statement, retries, retryDelay]);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -417,6 +421,10 @@ function JobEditor({ job, onClose, onDone }) {
         ${sqlOn === false && html`<${Callout} kind="warn">The SQL console is off on this server. Start slonbase with <code>--sql-console</code> to save SQL jobs.</${Callout}>`}
         <${Field} label="Statement" error=${errors["config.statement"]} help="Runs as the SQL console does: with its role and time limits, and it can only change data when the console allows writes. Only owners can make these."><textarea class="input mono" rows="6" value=${statement} onInput=${(e) => setStatement(e.target.value)} placeholder="DELETE FROM slonbase.sessions WHERE expires < now()"></textarea></${Field}>
       </div>`}
+      <div class="grid-2">
+        <${Field} label="If it fails, try again" error=${errors.retries} help="Waits longer each time"><${Select} value=${retries} onChange=${setRetries} options=${[0, 1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n === 0 ? "Don't retry" : `${n} time${n === 1 ? "" : "s"}` }))} /></${Field}>
+        ${Number(retries) > 0 && html`<${Field} label="First retry after (seconds)" error=${errors.retryDelaySeconds} help="Then twice as long, at most 5 minutes"><${Input} type="number" min="1" max="300" value=${retryDelay} onInput=${setRetryDelay} /></${Field}>`}
+      </div>
       ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
         <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${job ? "Save" : "Make job"}</${Button}></div>
