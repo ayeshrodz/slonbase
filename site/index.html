@@ -400,7 +400,7 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
   <div class="wrap">
     <div class="hero-copy">
       <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-        <b id="pill-version">v2.6.0</b><span id="pill-title">safer releases and installs</span><span class="arrow">→</span>
+        <b id="pill-version">v2.6.1</b><span id="pill-title">safer releases and installs</span><span class="arrow">→</span>
       </a>
       <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
       <p class="lede">slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, authentication with roles, files, hooks and an admin dashboard for many projects, in one Rust binary. Every collection is a real table, and every server you add shares it.</p>
@@ -753,7 +753,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     </div>
     <div class="release reveal">
       <div class="rel-head">
-        <div class="ver" id="rel-version">v2.6.0</div>
+        <div class="ver" id="rel-version">v2.6.1</div>
         <div class="date" id="rel-date">November 9, 2026</div>
         <p id="rel-summary">Safer releases and installs: a software bill of materials and attestations with every release, an installer that can be run again after a failure, a signing key only one job can use, pinned workflow actions, and refreshed dependencies</p>
         <a class="btn" id="rel-link" href="https://github.com/ayeshrodz/slonbase/releases/latest">Release notes →</a>
@@ -804,8 +804,8 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden>sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://slonbase.com/slonbase.repo
 sudo dnf install slonbase
 sudo journalctl -u slonbase | grep "setup?token"</pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.6.0/slonbase-2.6.0-linux-amd64.tar.gz
-tar xzf slonbase-2.6.0-linux-amd64.tar.gz
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.6.1/slonbase-2.6.1-linux-amd64.tar.gz
+tar xzf slonbase-2.6.1-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
