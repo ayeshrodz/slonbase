@@ -323,6 +323,8 @@ function JobEditor({ job, onClose, onDone }) {
   const types = JOB_TYPES.filter((t) => t.value !== "sql" || role === "owner");
   const [retries, setRetries] = useState(job ? String(job.retries || 0) : "0");
   const [retryDelay, setRetryDelay] = useState(job && job.retries ? String(job.retryDelaySeconds) : "30");
+  const [notifyEmails, setNotifyEmails] = useState(job && job.notify ? job.notify.emails.join(", ") : "");
+  const [notifyHook, setNotifyHook] = useState(job && job.notify ? job.notify.webhook : "");
   const [enabled, setEnabled] = useState(job ? job.enabled : true);
   const [errors, setErrors] = useState({});
   const [preview, setPreview] = useState(null);
@@ -333,6 +335,7 @@ function JobEditor({ job, onClose, onDone }) {
     expression,
     type,
     enabled,
+    notify: { emails: notifyEmails, webhook: notifyHook.trim() },
     retries: Number(retries),
     retryDelaySeconds: retryDelay.trim() ? Number(retryDelay) : null,
     config:
@@ -356,7 +359,7 @@ function JobEditor({ job, onClose, onDone }) {
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect, mailTo, subject, mailBody, statement, retries, retryDelay]);
+  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect, mailTo, subject, mailBody, statement, retries, retryDelay, notifyEmails, notifyHook]);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -425,6 +428,8 @@ function JobEditor({ job, onClose, onDone }) {
         <${Field} label="If it fails, try again" error=${errors.retries} help="Waits longer each time"><${Select} value=${retries} onChange=${setRetries} options=${[0, 1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: n === 0 ? "Don't retry" : `${n} time${n === 1 ? "" : "s"}` }))} /></${Field}>
         ${Number(retries) > 0 && html`<${Field} label="First retry after (seconds)" error=${errors.retryDelaySeconds} help="Then twice as long, at most 5 minutes"><${Input} type="number" min="1" max="300" value=${retryDelay} onInput=${setRetryDelay} /></${Field}>`}
       </div>
+      <${Field} label="Tell me when it fails (email)" error=${errors["notify.emails"]} help="Up to 10 addresses, through Settings → Mail. One message when it starts failing, one when it works again."><${Input} value=${notifyEmails} onInput=${setNotifyEmails} placeholder="ops@example.com" /></${Field}>
+      <${Field} label="Tell me when it fails (webhook)" error=${errors["notify.webhook"]} help="A public URL that gets a JSON POST (event, job, error). Saved URLs are hidden; leave it as it is to keep it."><${Input} class="mono" value=${notifyHook} onInput=${setNotifyHook} placeholder="https://hooks.example.com/…" /></${Field}>
       ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
         <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${job ? "Save" : "Make job"}</${Button}></div>

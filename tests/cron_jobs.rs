@@ -832,3 +832,160 @@ async fn failed_runs_are_tried_again_with_a_wait() {
         "a second run, with one attempt"
     );
 }
+
+#[tokio::test]
+async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let core = app.core().unwrap();
+    let mailer = Arc::new(slonbase::mail::MemoryMailer::default());
+    core.set_mailer(mailer.clone());
+    let job = |statement: &str, notify: Value| {
+        json!({
+            "name": "Nightly check", "expression": "0 * * * *", "type": "sql",
+            "config": { "statement": statement }, "notify": notify,
+        })
+    };
+
+    // email has to be on, the addresses plausible, the webhook public
+    let notify = json!({ "emails": ["ops@example.com"] });
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(job("SELECT 1/0", notify.clone())),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["notify"]["emails"].is_object(), "{res}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "smtp": { "enabled": true, "host": "mail.acme.test", "port": 2525 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    for (bad, field) in [
+        (json!({ "emails": ["nope"] }), "emails"),
+        (json!({ "emails": ["a@b.co\nBcc: x@y.co"] }), "emails"),
+        (
+            json!({ "webhook": "http://127.0.0.1:9000/hook" }),
+            "webhook",
+        ),
+        (json!({ "webhook": "http://169.254.169.254/" }), "webhook"),
+        (json!({ "webhook": "file:///etc/passwd" }), "webhook"),
+    ] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/crons",
+            Some(job("SELECT 1/0", bad.clone())),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{bad}: {res}");
+        assert!(res["data"]["notify"][field].is_object(), "{bad}: {res}");
+    }
+
+    // a webhook is a secret: shown hidden, and kept when the mask comes back
+    let notify = json!({ "emails": ["ops@example.com", "dev@example.com"], "webhook": "http://93.184.216.34/hooks/T0K3N" });
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(job("SELECT 1/0", notify)),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(res["notify"]["webhook"], "••••••••");
+    assert!(!res.to_string().contains("T0K3N"), "{res}");
+    let id = res["id"].as_str().unwrap().to_string();
+    let (_, list) = call(&app, &token, "GET", "/api/crons", None).await;
+    assert!(!list.to_string().contains("T0K3N"), "{list}");
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "notify": { "emails": ["ops@example.com"], "webhook": "••••••••" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        core.settings().cron_jobs[0].notify.webhook,
+        "http://93.184.216.34/hooks/T0K3N"
+    );
+    // no webhook from here on: the runs below must not call a real address
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "notify": { "emails": ["ops@example.com"], "webhook": "" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(core.settings().cron_jobs[0].notify.webhook, "");
+    let run = |def: slonbase::cron_jobs::JobDef, trigger: &'static str| {
+        let core = core.clone();
+        async move { slonbase::cron_jobs::run_recorded(core, def, trigger).await }
+    };
+    let mails = || mailer.sent.lock().unwrap().clone();
+
+    // the first failure tells; the next ones, and a run started by hand, stay quiet
+    run(core.settings().cron_jobs[0].clone(), "schedule").await;
+    assert_eq!(mails().len(), 1, "{:?}", mails());
+    assert_eq!(mails()[0].subject, "Cron job failed: Nightly check");
+    assert!(
+        mails()[0].html.contains("division by zero"),
+        "{}",
+        mails()[0].html
+    );
+    run(core.settings().cron_jobs[0].clone(), "schedule").await;
+    run(core.settings().cron_jobs[0].clone(), "manual").await;
+    assert_eq!(
+        mails().len(),
+        1,
+        "a job that keeps failing sends one message"
+    );
+
+    // it works again: one message, then quiet
+    let (status, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": { "statement": "SELECT 1" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    run(core.settings().cron_jobs[0].clone(), "schedule").await;
+    assert_eq!(mails().len(), 2);
+    assert_eq!(mails()[1].subject, "Cron job recovered: Nightly check");
+    run(core.settings().cron_jobs[0].clone(), "schedule").await;
+    assert_eq!(mails().len(), 2);
+
+    // and a new streak tells again
+    let (_, _) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "config": { "statement": "SELECT 1/0" } })),
+    )
+    .await;
+    run(core.settings().cron_jobs[0].clone(), "schedule").await;
+    assert_eq!(mails().len(), 3);
+    assert!(
+        mails().iter().all(|m| m.to == "ops@example.com"),
+        "{:?}",
+        mails()
+    );
+}

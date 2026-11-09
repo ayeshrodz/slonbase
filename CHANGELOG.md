@@ -10,6 +10,13 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Cron jobs can tell you when they fail.** Set an email list (up to 10 addresses, through the
+  mail settings) and/or a webhook (a public URL that gets a JSON `POST` with `event`, `job`,
+  `error`, `attempts` and `at`) on a job. You get one message when it starts failing, after its
+  retries, and one when it works again, not one every minute while it keeps failing. Runs you
+  start with "Run now" don't send anything. A notice that can't be sent never fails the job. The
+  webhook URL is treated like a header value: shown hidden after saving and kept when you edit
+  the job. The API field is `notify` (`emails`, `webhook`).
 - **Cron jobs made in the dashboard can retry.** A job can be set to try again up to 5 times when
   a run fails, waiting longer each time (the first wait is yours, 1 to 300 seconds; each next one
   is twice as long, at most 5 minutes). All tries are one run in the history, which says how many
