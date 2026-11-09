@@ -29,6 +29,12 @@ You can make cron jobs in the dashboard now: Settings → Cron jobs → New job.
   addresses are refused when you save and again when it runs (every redirect is checked too, and
   a redirect to another host drops the headers). Header values (an `Authorization` token) are
   shown hidden after saving and kept when you edit the job.
+- **Cron job types: Send an email and Run SQL.** *Send an email* sends a plain-text message to up
+  to 10 addresses through the mail settings (SMTP has to be on; the editor says so otherwise).
+  *Run SQL* runs a statement under exactly the SQL console's policy: the console must be on
+  (`--sql-console`), it only changes data when writes are allowed (`--sql-console-writes`), and it
+  runs as the console's role with its time limits. SQL jobs can only be made or changed by
+  owners; the history records what a run did (rows, rows affected), not the rows it read.
 
 ## [2.5.3] - 2026-11-08
 

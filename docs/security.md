@@ -56,7 +56,9 @@ allows any origin by default (as PocketBase), and can be narrowed.
 
 **Superuser tools.** The SQL console is off by default; when on, it only reads unless writes are
 allowed too, and it can run as a separate, restricted PostgreSQL role
-(`--sql-console-role`). Hooks run with the server's privileges, by design.
+(`--sql-console-role`). Hooks run with the server's privileges, by design. A dashboard cron job
+of type *Run SQL* is the console on a schedule: owners only, only with the console on, writes only
+when the console allows them, as the console's role and with its limits.
 
 **Outbound calls.** The OAuth2 avatar download and the dashboard's *Call a URL* cron jobs only
 reach public addresses: every address a name resolves to must be public (no loopback, private,

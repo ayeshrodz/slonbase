@@ -265,6 +265,8 @@ const SCHEDULES = [
 const JOB_TYPES = [
   { value: "cleanup", label: "Clean up records" },
   { value: "http", label: "Call a URL" },
+  { value: "mail", label: "Send an email" },
+  { value: "sql", label: "Run SQL" },
 ];
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 // headers are edited as lines of "Name: value"; saved values come back masked and stay as they are
@@ -296,6 +298,17 @@ function JobEditor({ job, onClose, onDone }) {
   const [payload, setPayload] = useState(c.body || "");
   const [timeout, setTimeoutSeconds] = useState(c.timeoutSeconds ? String(c.timeoutSeconds) : "30");
   const [expect, setExpect] = useState(c.expectStatus ? String(c.expectStatus) : "");
+  const [mailTo, setMailTo] = useState(Array.isArray(c.to) ? c.to.join(", ") : c.to || "");
+  const [subject, setSubject] = useState(c.subject || "");
+  const [mailBody, setMailBody] = useState(c.body || "");
+  const [statement, setStatement] = useState(c.statement || "");
+  const [sqlOn, setSqlOn] = useState(null);
+  const role = useMyRole();
+  // SQL jobs are for owners, and only when the server runs the SQL console
+  useEffect(() => {
+    if (role === "owner") api.get("/api/sql").then((i) => setSqlOn(!!i.enabled)).catch(() => setSqlOn(false));
+  }, [role]);
+  const types = JOB_TYPES.filter((t) => t.value !== "sql" || role === "owner");
   const [enabled, setEnabled] = useState(job ? job.enabled : true);
   const [errors, setErrors] = useState({});
   const [preview, setPreview] = useState(null);
@@ -307,7 +320,11 @@ function JobEditor({ job, onClose, onDone }) {
     type,
     enabled,
     config:
-      type === "http"
+      type === "mail"
+        ? { to: mailTo, subject, body: mailBody }
+        : type === "sql"
+        ? { statement }
+        : type === "http"
         ? { url, method, headers: headerObject(headers), body: payload, timeoutSeconds: timeout.trim() ? Number(timeout) : null, expectStatus: expect.trim() ? Number(expect) : null }
         : { collection, filter, field, olderThanDays: days.trim() ? Number(days) : null, maxRows: maxRows.trim() ? Number(maxRows) : null },
   });
@@ -323,7 +340,7 @@ function JobEditor({ job, onClose, onDone }) {
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect]);
+  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect, mailTo, subject, mailBody, statement]);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -344,7 +361,7 @@ function JobEditor({ job, onClose, onDone }) {
     <${SheetHead} title=${job ? "Edit cron job" : "New cron job"} subtitle="Runs on a schedule, on one instance, and shows in the history below" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
       <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Delete old sessions”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
-      <${Field} label="Type"><${Segmented} value=${type} onChange=${setType} options=${JOB_TYPES} /></${Field}>
+      <${Field} label="Type"><${Segmented} value=${type} onChange=${setType} options=${types} /></${Field}>
       <${Field} label="Schedule" error=${errors.expression} help=${preview ? `${preview.description || "Custom schedule"}, on ${preview.timezone} time` : "minute hour day month weekday"}>
         <${Input} class="mono" value=${expression} onInput=${setExpression} required />
       </${Field}>
@@ -376,6 +393,17 @@ function JobEditor({ job, onClose, onDone }) {
           <${Field} label="Time limit (seconds)" error=${errors["config.timeoutSeconds"]}><${Input} type="number" min="1" max="60" value=${timeout} onInput=${setTimeoutSeconds} /></${Field}>
           <${Field} label="Counts as success" error=${errors["config.expectStatus"]} help="A status code; empty means any 2xx"><${Input} type="number" min="100" max="599" value=${expect} onInput=${setExpect} placeholder="2xx" /></${Field}>
         </div>
+      </div>`}
+      ${type === "mail" &&
+      html`<div class="stack">
+        <${Field} label="To" error=${errors["config.to"]} help="Up to 10 addresses, separated by commas. Sent through Settings → Mail."><${Input} value=${mailTo} onInput=${setMailTo} placeholder="ops@example.com, dev@example.com" /></${Field}>
+        <${Field} label="Subject" error=${errors["config.subject"]}><${Input} value=${subject} onInput=${setSubject} maxlength="200" /></${Field}>
+        <${Field} label="Message" error=${errors["config.body"]} help="Plain text"><textarea class="input" rows="5" value=${mailBody} onInput=${(e) => setMailBody(e.target.value)}></textarea></${Field}>
+      </div>`}
+      ${type === "sql" &&
+      html`<div class="stack">
+        ${sqlOn === false && html`<${Callout} kind="warn">The SQL console is off on this server. Start slonbase with <code>--sql-console</code> to save SQL jobs.</${Callout}>`}
+        <${Field} label="Statement" error=${errors["config.statement"]} help="Runs as the SQL console does: with its role and time limits, and it can only change data when the console allows writes. Only owners can make these."><textarea class="input mono" rows="6" value=${statement} onInput=${(e) => setStatement(e.target.value)} placeholder="DELETE FROM slonbase.sessions WHERE expires < now()"></textarea></${Field}>
       </div>`}
       ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
@@ -448,7 +476,7 @@ export function Crons() {
                   <td>${j.lastRun ? html`<${StatusChip} status=${j.lastRun.status} /><div class="tiny muted">${relativeTime(j.lastRun.started)} · ${ms(j.lastRun.durationMs)}</div>` : html`<span class="muted small">not yet</span>`}</td>
                   <td class="row tight end">
                     <${Button} size="sm" variant="ghost" icon="list" onClick=${() => setSelected(selected === j.id ? "" : j.id)}>History</${Button}>
-                    ${j.kind === "user" && canMake && html`<${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
+                    ${j.kind === "user" && canMake && (j.type !== "sql" || role === "owner") && html`<${IconButton} icon="edit" label="Edit" size="sm" onClick=${() => setEditing(j)} /><${IconButton} icon="trash" label="Delete" size="sm" onClick=${() => remove(j)} />`}
                     <${Button} size="sm" icon="play" loading=${running === j.id} onClick=${() => run(j)}>Run now</${Button}>
                   </td>
                 </tr>`
