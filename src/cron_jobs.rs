@@ -11,7 +11,9 @@
 //!   now is for developers too, as for every job.
 //!
 //! Types today: `cleanup` (delete the records of a collection that match a filter and/or are
-//! older than some days).
+//! older than some days) and `http` (call a URL: a webhook, a health ping; through the guarded
+//! request of `http.rs`, so never to this server or a private network). Header values are
+//! secrets: the API shows them masked and keeps the saved value when the mask comes back.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -33,7 +35,10 @@ use crate::validation::Errors;
 /// The prefix of every dashboard job's id.
 pub const ID_PREFIX: &str = "user:";
 const MAX_JOBS: usize = 50;
-const TYPES: &[&str] = &["cleanup"];
+const TYPES: &[&str] = &["cleanup", "http"];
+/// What the API shows instead of a saved header value.
+pub const MASK: &str = "••••••••";
+const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
 /// A run that takes longer is stopped and recorded as failed.
 const RUN_LIMIT: Duration = Duration::from_secs(300);
 const DEFAULT_MAX_ROWS: i64 = 10_000;
@@ -115,8 +120,77 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
     }
     if def.kind == "cleanup" {
         validate_cleanup(core, &def.config, &mut errors).await;
+    } else if def.kind == "http" {
+        validate_http(&def.config, &mut errors).await;
     }
     errors
+}
+
+/// The headers of an `http` job as (name, value) pairs.
+fn headers_of(config: &Value) -> Vec<(String, String)> {
+    config
+        .get("headers")
+        .and_then(Value::as_object)
+        .map(|h| {
+            h.iter()
+                .map(|(k, v)| {
+                    (
+                        k.trim().to_string(),
+                        v.as_str().unwrap_or_default().to_string(),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn validate_http(config: &Value, errors: &mut Errors) {
+    match crate::http::check_target(text(config, "url").trim()).await {
+        Ok(()) => {}
+        Err(message) => errors.invalid("config.url", &message),
+    }
+    let method = match text(config, "method") {
+        "" => "GET",
+        m => m,
+    };
+    if !METHODS.contains(&method) {
+        errors.invalid("config.method", "Use GET, POST, PUT, PATCH or DELETE.");
+    }
+    if let Some(h) = config.get("headers")
+        && !h.is_object()
+    {
+        errors.invalid("config.headers", "Headers are name and value pairs.");
+    }
+    let headers = headers_of(config);
+    if headers.len() > 20 {
+        errors.invalid("config.headers", "At most 20 headers.");
+    }
+    for (name, value) in &headers {
+        let lower = name.to_ascii_lowercase();
+        if reqwest::header::HeaderName::from_bytes(name.as_bytes()).is_err()
+            || reqwest::header::HeaderValue::from_str(value).is_err()
+            || value.len() > 2000
+        {
+            errors.invalid("config.headers", format!("{name:?} is not a valid header."));
+        } else if ["host", "content-length", "transfer-encoding", "connection"]
+            .contains(&lower.as_str())
+        {
+            errors.invalid("config.headers", format!("{name} is set by the server."));
+        }
+    }
+    if text(config, "body").len() > 20_000 {
+        errors.invalid("config.body", "At most 20 000 characters.");
+    }
+    if let Some(t) = number(config, "timeoutSeconds")
+        && !(1..=60).contains(&t)
+    {
+        errors.invalid("config.timeoutSeconds", "Between 1 and 60 seconds.");
+    }
+    if let Some(s) = number(config, "expectStatus")
+        && !(100..=599).contains(&s)
+    {
+        errors.invalid("config.expectStatus", "A status code such as 200.");
+    }
 }
 
 async fn validate_cleanup(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
@@ -188,8 +262,35 @@ fn failure(err: crate::error::ApiError) -> String {
 pub async fn execute(core: &Arc<Core>, def: &JobDef) -> Result<Value, String> {
     match def.kind.as_str() {
         "cleanup" => cleanup(core, &def.config).await,
+        "http" => call_url(&def.config).await,
         other => Err(format!("Unknown type of job: {other}.")),
     }
+}
+
+async fn call_url(config: &Value) -> Result<Value, String> {
+    let method = match text(config, "method") {
+        "" => "GET",
+        m => m,
+    };
+    let body = Some(text(config, "body")).filter(|b| !b.is_empty());
+    let timeout =
+        Duration::from_secs(number(config, "timeoutSeconds").unwrap_or(30).clamp(1, 60) as u64);
+    let reply = crate::http::guarded(
+        method,
+        text(config, "url").trim(),
+        &headers_of(config),
+        body,
+        timeout,
+    )
+    .await?;
+    let ok = match number(config, "expectStatus") {
+        Some(want) => i64::from(reply.status) == want,
+        None => (200..300).contains(&reply.status),
+    };
+    if !ok {
+        return Err(format!("The server answered {}.", reply.status));
+    }
+    Ok(json!({ "status": reply.status, "response": reply.excerpt }))
 }
 
 async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
@@ -310,9 +411,42 @@ pub(crate) fn listed(
         "next": next,
         "kind": "user",
         "type": def.kind,
-        "config": def.config,
+        "config": masked(def),
         "lastRun": last,
     })
+}
+
+/// The config as the API shows it: header values hidden.
+fn masked(def: &JobDef) -> Value {
+    let mut config = def.config.clone();
+    if def.kind == "http"
+        && let Some(h) = config.get_mut("headers").and_then(Value::as_object_mut)
+    {
+        for v in h.values_mut() {
+            *v = json!(MASK);
+        }
+    }
+    config
+}
+
+/// A header sent back as the mask keeps its saved value.
+fn unmask(def: &mut JobDef, saved: &JobDef) {
+    if def.kind != "http" {
+        return;
+    }
+    let was = headers_of(&saved.config);
+    if let Some(h) = def.config.get_mut("headers").and_then(Value::as_object_mut) {
+        for (name, value) in h.iter_mut() {
+            if value.as_str() == Some(MASK) {
+                *value = json!(
+                    was.iter()
+                        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                        .map(|(_, v)| v.as_str())
+                        .unwrap_or_default()
+                );
+            }
+        }
+    }
 }
 
 fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
@@ -397,6 +531,19 @@ fn normalized(def: &JobDef) -> Value {
             }
             out
         }
+        "http" => {
+            let mut out = json!({
+                "url": text(c, "url").trim(),
+                "method": match text(c, "method") { "" => "GET", m => m },
+                "headers": headers_of(c).into_iter().map(|(k, v)| (k, json!(v))).collect::<Map<_, _>>(),
+                "body": text(c, "body"),
+                "timeoutSeconds": number(c, "timeoutSeconds").unwrap_or(30),
+            });
+            if let Some(s) = number(c, "expectStatus") {
+                out["expectStatus"] = s.into();
+            }
+            out
+        }
         _ => c.clone(),
     }
 }
@@ -414,7 +561,9 @@ pub async fn update(
     let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
         return Err(ApiError::not_found());
     };
-    let mut def = read(&body, settings.cron_jobs[pos].clone());
+    let saved = settings.cron_jobs[pos].clone();
+    let mut def = read(&body, saved.clone());
+    unmask(&mut def, &saved);
     def.id = id;
     let errors = validate(&core, &def, &settings.cron_jobs).await;
     if !errors.is_empty() {
@@ -468,7 +617,7 @@ pub async fn preview(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let def = read(
+    let mut def = read(
         &body,
         JobDef {
             id: body
@@ -482,6 +631,9 @@ pub async fn preview(
         },
     );
     let others = core.settings().cron_jobs.clone();
+    if let Some(saved) = others.iter().find(|j| j.id == def.id) {
+        unmask(&mut def, saved);
+    }
     let errors = validate(&core, &def, &others).await;
     if !errors.is_empty() {
         return Err(invalid(&errors));

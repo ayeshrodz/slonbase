@@ -262,7 +262,21 @@ const SCHEDULES = [
   ["Weekly (Sunday 03:00)", "0 3 * * 0"],
 ];
 
-const JOB_TYPES = [{ value: "cleanup", label: "Clean up records" }];
+const JOB_TYPES = [
+  { value: "cleanup", label: "Clean up records" },
+  { value: "http", label: "Call a URL" },
+];
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+// headers are edited as lines of "Name: value"; saved values come back masked and stay as they are
+const headerLines = (h) => Object.entries(h || {}).map(([k, v]) => `${k}: ${v}`).join("\n");
+const headerObject = (text) => {
+  const out = {};
+  for (const line of text.split("\n")) {
+    const i = line.indexOf(":");
+    if (i > 0) out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+  }
+  return out;
+};
 
 function JobEditor({ job, onClose, onDone }) {
   const collections = useStore(app, (st) => st.collections) || [];
@@ -276,6 +290,12 @@ function JobEditor({ job, onClose, onDone }) {
   const [days, setDays] = useState(c.olderThanDays ? String(c.olderThanDays) : "");
   const [field, setField] = useState(c.field || "created");
   const [maxRows, setMaxRows] = useState(c.maxRows ? String(c.maxRows) : "10000");
+  const [url, setUrl] = useState(c.url || "");
+  const [method, setMethod] = useState(c.method || "GET");
+  const [headers, setHeaders] = useState(headerLines(c.headers));
+  const [payload, setPayload] = useState(c.body || "");
+  const [timeout, setTimeoutSeconds] = useState(c.timeoutSeconds ? String(c.timeoutSeconds) : "30");
+  const [expect, setExpect] = useState(c.expectStatus ? String(c.expectStatus) : "");
   const [enabled, setEnabled] = useState(job ? job.enabled : true);
   const [errors, setErrors] = useState({});
   const [preview, setPreview] = useState(null);
@@ -286,7 +306,10 @@ function JobEditor({ job, onClose, onDone }) {
     expression,
     type,
     enabled,
-    config: { collection, filter, field, olderThanDays: days.trim() ? Number(days) : null, maxRows: maxRows.trim() ? Number(maxRows) : null },
+    config:
+      type === "http"
+        ? { url, method, headers: headerObject(headers), body: payload, timeoutSeconds: timeout.trim() ? Number(timeout) : null, expectStatus: expect.trim() ? Number(expect) : null }
+        : { collection, filter, field, olderThanDays: days.trim() ? Number(days) : null, maxRows: maxRows.trim() ? Number(maxRows) : null },
   });
   // what it would do, as it is being made (nothing is saved or run)
   useEffect(() => {
@@ -300,7 +323,7 @@ function JobEditor({ job, onClose, onDone }) {
       }
     }, 450);
     return () => clearTimeout(t);
-  }, [name, expression, type, collection, filter, days, field, maxRows]);
+  }, [name, expression, type, collection, filter, days, field, maxRows, url, method, headers, payload, timeout, expect]);
   const submit = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -340,6 +363,19 @@ function JobEditor({ job, onClose, onDone }) {
         <${Field} label="Filter" error=${errors["config.filter"]} help="Same syntax as API rules, e.g. status = 'expired'. Both are applied when you give both."><${Input} class="mono" value=${filter} onInput=${setFilter} placeholder="status = 'expired'" /></${Field}>
         <${Field} label="At most this many records per run" error=${errors["config.maxRows"]}><${Input} type="number" min="1" max="100000" value=${maxRows} onInput=${setMaxRows} /></${Field}>
         ${preview && preview.matching != null && html`<${Callout} kind=${preview.matching ? "warn" : "info"}>${preview.matching === 0 ? "No record matches now." : `${preview.matching} record${preview.matching === 1 ? "" : "s"} match now and would be deleted at the next run (at most ${maxRows || "10000"} per run).`}</${Callout}>`}
+      </div>`}
+      ${type === "http" &&
+      html`<div class="stack">
+        <div class="grid-2">
+          <${Field} label="Method"><${Select} value=${method} onChange=${setMethod} options=${METHODS} /></${Field}>
+          <${Field} label="URL" error=${errors["config.url"]} help="Public addresses only: this server and private networks can't be called"><${Input} class="mono" value=${url} onInput=${setUrl} placeholder="https://example.com/hook" /></${Field}>
+        </div>
+        <${Field} label="Headers" error=${errors["config.headers"]} help="One per line, Name: value. Saved values are hidden; leave a line as it is to keep it."><textarea class="input mono" rows="3" value=${headers} onInput=${(e) => setHeaders(e.target.value)} placeholder="Authorization: Bearer …"></textarea></${Field}>
+        ${method !== "GET" && html`<${Field} label="Body" error=${errors["config.body"]}><textarea class="input mono" rows="3" value=${payload} onInput=${(e) => setPayload(e.target.value)} placeholder='{"ping": true}'></textarea></${Field}>`}
+        <div class="grid-2">
+          <${Field} label="Time limit (seconds)" error=${errors["config.timeoutSeconds"]}><${Input} type="number" min="1" max="60" value=${timeout} onInput=${setTimeoutSeconds} /></${Field}>
+          <${Field} label="Counts as success" error=${errors["config.expectStatus"]} help="A status code; empty means any 2xx"><${Input} type="number" min="100" max="599" value=${expect} onInput=${setExpect} placeholder="2xx" /></${Field}>
+        </div>
       </div>`}
       ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>

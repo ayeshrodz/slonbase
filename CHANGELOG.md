@@ -22,6 +22,13 @@ You can make cron jobs in the dashboard now: Settings → Cron jobs → New job.
   one instance, never twice at once, with a time limit, and their runs and results (how many
   were deleted) are in the history like the others. Developers can still run any job now. The
   API is `POST /api/crons`, `PATCH`/`DELETE /api/crons/{id}` and `POST /api/cron-preview`.
+- **Cron job type: Call a URL.** A webhook or a health ping on a schedule: GET, POST, PUT, PATCH
+  or DELETE with headers and a body, a time limit, and an optional status that counts as
+  success (any 2xx by default). The status and the start of the answer are in the history.
+  Only public addresses can be called: this server, private networks and cloud metadata
+  addresses are refused when you save and again when it runs (every redirect is checked too, and
+  a redirect to another host drops the headers). Header values (an `Authorization` token) are
+  shown hidden after saving and kept when you edit the job.
 
 ## [2.5.3] - 2026-11-08
 
