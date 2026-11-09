@@ -118,11 +118,15 @@ async fn target(
     }
     let host = url.host_str().ok_or("The URL has no host.")?.to_string();
     let port = url.port_or_known_default().ok_or("The URL has no port.")?;
-    let addrs: Vec<std::net::SocketAddr> =
-        tokio::net::lookup_host((host.trim_matches(['[', ']']), port))
-            .await
-            .map_err(|_| format!("Can't find the host {host}."))?
-            .collect();
+    // a resolver that doesn't answer must not hold a request (or a job) for long
+    let addrs: Vec<std::net::SocketAddr> = tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::net::lookup_host((host.trim_matches(['[', ']']), port)),
+    )
+    .await
+    .map_err(|_| format!("Looking up {host} took too long."))?
+    .map_err(|_| format!("Can't find the host {host}."))?
+    .collect();
     if addrs.is_empty() {
         return Err(format!("Can't find the host {host}."));
     }
@@ -253,6 +257,15 @@ mod tests {
             "http://169.254.169.254/latest/meta-data/",
             "http://[::1]/",
             "http://0.0.0.0/",
+            "http://0/",
+            "http://127.1/",
+            "http://2130706433/",
+            "http://0x7f.0.0.1/",
+            "http://[::ffff:127.0.0.1]/",
+            "http://[::ffff:a00:1]/",
+            "http://[fd00::1]/",
+            "http://[fe80::1]/",
+            "http://100.64.0.1/",
             "ftp://example.com/",
             "file:///etc/passwd",
             "http://user:pass@example.com/",

@@ -7,6 +7,7 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [Dashboard cron jobs](#dashboard-cron-jobs): what the new job types can reach.
 - [Following up the audits (2.5.0)](#following-up-the-audits-250): open streams, route coverage,
   isolation between installations, file names and archives.
 - [Defaults and degraded modes (2.4.0)](#defaults-and-degraded-modes-240): rate limits when the
@@ -16,6 +17,37 @@ To report a problem, see the [security policy](../SECURITY.md).
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## Dashboard cron jobs
+
+Jobs made in Settings → Cron jobs (call a URL, send an email, run SQL, clean up records) were
+reviewed when they were added, against the code and with tests.
+
+### 1. A resolver that doesn't answer could hold a request (low)
+
+Saving a *Call a URL* job resolves its host to refuse private addresses. The lookup had no time
+limit, so a slow name server could hold the API request. It now gives up after 5 seconds.
+
+### Checked and found sound
+
+- **Calls to this server and private networks.** Loopback, private, link-local (cloud metadata),
+  shared, unique-local and IPv4-mapped IPv6 addresses are refused, including the odd spellings
+  (`127.1`, `2130706433`, `0x7f.0.0.1`, `::ffff:127.0.0.1`); every address a name resolves to must
+  be public and the connection goes to the addresses that were checked (no DNS rebinding);
+  redirects are followed by hand and checked again, and a redirect to another host drops the
+  headers. Tests: `http::tests`, `jobs_that_call_a_url`.
+- **Secrets.** Header values come back masked and never appear in `/api/settings`, the jobs list
+  or the history; errors carry no URL (it can hold a token).
+- **Who can do what.** Making and changing jobs is for admins and owners; *Run SQL* jobs are
+  owners only, only with the SQL console on, and run through the console's own code path (its
+  role, limits and read-only rule), so a job can't do what the console can't. Turning a job into
+  another type counts as a change. Tests: `who_may_make_jobs`, `jobs_that_run_sql`, the roles
+  table tests.
+- **Email.** Recipients and subject are checked for control characters (no header injection), the
+  body is escaped, at most 10 recipients a job and 50 jobs. An admin could already send mail
+  through the templates and the test email, so this adds no new reach.
+- **Clean up.** Never touches system collections or views, needs a filter or an age, deletes
+  through the records service (cascades, files, realtime), and is capped per run.
 
 ## Following up the audits (2.5.0)
 
