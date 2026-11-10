@@ -17,7 +17,7 @@
   <a href="https://github.com/ayeshrodz/slonbase/releases"><img alt="Release" src="https://img.shields.io/github/v/release/ayeshrodz/slonbase?display_name=tag&sort=semver&color=4f7a6c"></a>
   <a href="https://github.com/ayeshrodz/slonbase/pkgs/container/slonbase"><img alt="Docker image" src="https://img.shields.io/badge/ghcr.io-slonbase-4f7a6c?logo=docker&logoColor=white"></a>
   <img alt="PostgreSQL 14+" src="https://img.shields.io/badge/PostgreSQL-14%2B-336791?logo=postgresql&logoColor=white">
-  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.88%2B-b7410e?logo=rust&logoColor=white">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-1.89%2B-b7410e?logo=rust&logoColor=white">
   <a href="LICENSE"><img alt="Apache 2.0 license" src="https://img.shields.io/badge/license-Apache--2.0-4f7a6c"></a>
 </p>
 

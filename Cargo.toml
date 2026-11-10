@@ -2,7 +2,7 @@
 name = "slonbase"
 version = "2.6.1"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.89"
 description = "Open-source backend platform on PostgreSQL: one Rust binary with a REST and realtime API, auth with roles, files, hooks and a multi-project admin dashboard"
 license = "Apache-2.0"
 repository = "https://github.com/ayeshrodz/slonbase"
@@ -64,7 +64,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 webpki-roots = "1.0.9"
 tempfile = "3.27.0"
-rusqlite = { version = "0.40.2", default-features = false, features = ["bundled"] }
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled"] }
 zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2"] }
 mimalloc = { version = "0.1", default-features = false }
 html5ever = { version = "0.40.1", default-features = false }

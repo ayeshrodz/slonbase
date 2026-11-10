@@ -8,6 +8,12 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **Updated the bundled SQLite used by `slonbase import-pb`** (`rusqlite` 0.41.1 /
+  `libsqlite3-sys` 0.39.1, SQLite 3.54.1) for CVE-2026-119375 (`RUSTSEC-2026-0459`). Building
+  from source now requires **Rust 1.89 or newer** (was 1.88).
+
 ### Fixed
 
 - **Lowering the number of automatic backups to keep takes effect immediately.** The limit
