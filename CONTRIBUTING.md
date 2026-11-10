@@ -13,7 +13,7 @@ Security problems go through [SECURITY.md](SECURITY.md), not public issues.
 
 ## Development setup
 
-You need Rust 1.87 or newer,
+You need Rust 1.89 or newer,
 and for most tests a PostgreSQL server where a role can create databases:
 
 ```sh

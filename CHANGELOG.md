@@ -8,6 +8,20 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **Updated the bundled SQLite used by `slonbase import-pb`** (`rusqlite` 0.41.1 /
+  `libsqlite3-sys` 0.39.1, SQLite 3.54.1) for CVE-2026-119375 (`RUSTSEC-2026-0459`). Building
+  from source now requires **Rust 1.89 or newer** (was 1.88).
+
+### Fixed
+
+- **Lowering the number of automatic backups to keep takes effect immediately.** The limit
+  (`backups.cronMaxKeep`) was only enforced after the next automatic backup, so lowering it left
+  the older automatic backups in place until the next scheduled run. It is now also enforced
+  when the setting is saved. Only automatic backups count towards the limit and are deleted by
+  it; manual backups are never deleted, and the setting's help text now states this.
+
 ## [2.6.1] - 2026-11-09
 
 ### Security

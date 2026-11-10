@@ -245,7 +245,7 @@ export function Backups({ s }) {
         <${Field} label="Schedule" error=${s.errors["backups.cron"]} help=${`e.g. 0 3 * * * for every day at 03:00 ${d.schedule.timezone === "UTC" ? "UTC" : "(" + d.schedule.timezone + ")"} — empty turns it off`}>
           <${Input} class="mono" value=${d.backups.cron} onInput=${(v) => s.set("backups.cron", v)} placeholder="0 3 * * *" />
         </${Field}>
-        <${Field} label="Keep" help="Older automatic backups are deleted"><${Input} type="number" min="1" value=${d.backups.cronMaxKeep} onInput=${(v) => s.set("backups.cronMaxKeep", Number(v))} /></${Field}>
+        <${Field} label="Keep" help="How many automatic backups to keep: older ones are deleted (also when you lower this). Manual backups are never deleted."><${Input} type="number" min="1" value=${d.backups.cronMaxKeep} onInput=${(v) => s.set("backups.cronMaxKeep", Number(v))} /></${Field}>
         <${TimeZoneField} s=${s} />
       </div>
       <div class="chips">

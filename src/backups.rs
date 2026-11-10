@@ -1034,6 +1034,13 @@ pub async fn run_auto_backup(core: &Arc<Core>) -> Result<String, BackupError> {
         chrono::Utc::now().format("%Y%m%d%H%M%S")
     );
     create(core, &name).await?;
+    prune_automatic(core).await?;
+    Ok(name)
+}
+
+/// Deletes the oldest automatic backups beyond `backups.cronMaxKeep` (manual backups are never
+/// counted or deleted). Runs after each automatic backup, and when the number is changed.
+pub(crate) async fn prune_automatic(core: &Core) -> Result<(), BackupError> {
     let keep = core.settings().backups.cron_max_keep.max(1) as usize;
     let target = storage(core);
     let mut auto: Vec<(String, u64, String)> = target
@@ -1049,7 +1056,7 @@ pub async fn run_auto_backup(core: &Arc<Core>) -> Result<String, BackupError> {
             tracing::warn!(backup = %key, error = %format!("{err:#}"), "failed to delete an old automatic backup");
         }
     }
-    Ok(name)
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

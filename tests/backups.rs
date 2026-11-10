@@ -411,6 +411,81 @@ async fn automatic_backups() {
     tdb.drop_db().await;
 }
 
+/// Lowering the number of automatic backups to keep removes the extra ones at once (it used to
+/// wait for the next automatic run, which can be a day away), and manual backups are never
+/// counted or deleted.
+#[tokio::test]
+async fn lowering_the_number_to_keep_removes_the_extra_automatic_backups() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "backups": { "cron": "0 3 * * *", "cronMaxKeep": 4 } })),
+    )
+    .await;
+    for _ in 0..4 {
+        let (status, res) = admin(&app, &token, "POST", "/api/crons/__pbAutoBackup__", None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+    }
+    let (status, res) = admin(
+        &app,
+        &token,
+        "POST",
+        "/api/backups",
+        Some(json!({ "name": "mine.zip" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    assert_eq!(
+        backups(&app, &token).await.len(),
+        5,
+        "4 automatic and 1 manual"
+    );
+
+    // lower it: the newest two automatic backups stay, and so does the manual one
+    let (status, res) = admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "backups": { "cronMaxKeep": 2 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let mut list = Vec::new();
+    for _ in 0..100 {
+        list = backups(&app, &token).await;
+        if list.len() == 3 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let auto = list.iter().filter(|b| b["auto"] == true).count();
+    assert_eq!((list.len(), auto), (3, 2), "{list:?}");
+    assert!(list.iter().any(|b| b["key"] == "mine.zip"), "{list:?}");
+
+    // a change that doesn't touch the number leaves the backups alone
+    admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "meta": { "appName": "Shop" } })),
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(backups(&app, &token).await.len(), 3);
+
+    drop(app);
+    tdb.drop_db().await;
+}
+
 /// The schedule is read on the clocks of `schedule.timezone` (UTC by default, as in PocketBase):
 /// `0 3 * * *` set on a machine in Auckland used to run at 16:00 there.
 #[tokio::test]
