@@ -8,6 +8,13 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Security
+
+- **Updated the bundled SQLite** (`libsqlite3-sys` 0.39, through `rusqlite` 0.41) to include the
+  fix for RUSTSEC-2026-0459. slonbase only uses SQLite to read a PocketBase data file during an
+  import, so a running server is not exposed, but the import reads a file you provide. The
+  minimum supported Rust version is now 1.89 (it was 1.88), which `rusqlite` 0.41 requires.
+
 ## [2.6.1] - 2026-11-09
 
 ### Security
