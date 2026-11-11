@@ -1006,6 +1006,50 @@ fn request_info(
     ))
 }
 
+/// Changes the settings as they are *stored* and saves the result.
+///
+/// The stored row is read under a row lock, so edits made at the same time (by other requests or
+/// other instances) are applied one after the other, each on top of the previous one, instead of
+/// overwriting each other with a copy read earlier. `change` gets the current settings and
+/// returns the new ones; the result is checked, saved, announced to the other instances (at
+/// commit) and becomes this instance's settings.
+pub(crate) async fn modify<F>(core: &Arc<Core>, change: F) -> Result<Settings, ApiError>
+where
+    F: FnOnce(&Settings) -> Result<Settings, ApiError>,
+{
+    let mut client = core
+        .pool
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    tx.execute(
+        "SELECT 1 FROM _slonbase.params WHERE key = $1 FOR UPDATE",
+        &[&PARAMS_KEY],
+    )
+    .await
+    .map_err(|e| ApiError::internal(e.into()))?;
+    let current = Settings::load(&tx, core.secrets_key())
+        .await
+        .map_err(ApiError::internal)?;
+    let next = change(&current)?;
+    crate::assets::check_uses(&tx, &next).await?;
+    next.save(&tx, core.secrets_key())
+        .await
+        .map_err(ApiError::internal)?;
+    crate::realtime::notify(&tx, "settings")
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    tx.commit()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    core.set_settings(next.clone());
+    Ok(next)
+}
+
 /// Merges `body` (sections of settings) into the current settings, validates and saves them
 /// and tells the other instances.
 pub(crate) async fn apply_patch(
@@ -1017,21 +1061,7 @@ pub(crate) async fn apply_patch(
         .get("backups")
         .and_then(|b| b.get("cronMaxKeep"))
         .is_some();
-    let settings = prepare_patch(&core.settings(), body)?;
-    let client = core
-        .pool
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    crate::assets::check_uses(&client, &settings).await?;
-    settings
-        .save(&client, core.secrets_key())
-        .await
-        .map_err(ApiError::internal)?;
-    crate::realtime::notify(&client, "settings")
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
-    core.set_settings(settings.clone());
+    let settings = modify(core, |current| prepare_patch(current, body)).await?;
     reloaded(core);
     if keep_changed {
         let core = core.clone();

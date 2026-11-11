@@ -75,6 +75,8 @@ pub struct Reply {
     pub status: u16,
     /// The start of the body, as text (at most [`EXCERPT`] bytes).
     pub excerpt: String,
+    /// How many bytes of the body were read (at most the read limit).
+    pub bytes: usize,
     /// Where the request ended up, after redirects.
     pub url: String,
 }
@@ -164,7 +166,7 @@ async fn request(
     let mut url = reqwest::Url::parse(url).map_err(|_| "Not a valid URL.".to_string())?;
     let mut body = body.map(str::to_string);
     let headers = headers.to_vec();
-    let first_host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+    let first = url.clone();
     let deadline = tokio::time::Instant::now() + timeout;
     for hop in 0..=MAX_REDIRECTS {
         // (only the first hop may be private, and only for the tests)
@@ -178,7 +180,10 @@ async fn request(
         let mut req = client
             .request(method.clone(), url.clone())
             .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()));
-        if host == first_host {
+        // the caller's headers (an `Authorization` token) only go where the request was meant to
+        // go: the same scheme, host and port, never another host, another port or a downgrade
+        // from https to http
+        if same_origin(&url, &first) {
             for (k, v) in &headers {
                 req = req.header(k, v);
             }
@@ -219,14 +224,23 @@ async fn request(
                 break;
             }
         }
+        let read = bytes.len();
         bytes.truncate(EXCERPT);
         return Ok(Reply {
             status,
+            bytes: read,
             excerpt: String::from_utf8_lossy(&bytes).into_owned(),
             url: url.to_string(),
         });
     }
     Err("Too many redirects.".into())
+}
+
+/// Whether two URLs have the same origin: scheme, host and port.
+fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
+    a.scheme() == b.scheme()
+        && a.host_str().map(str::to_ascii_lowercase) == b.host_str().map(str::to_ascii_lowercase)
+        && a.port_or_known_default() == b.port_or_known_default()
 }
 
 /// The cause of a reqwest error without the URL (which can hold a secret in its query).
@@ -258,6 +272,25 @@ mod tests {
             String::from_utf8_lossy(&buf[..n]).into_owned()
         });
         (port, task)
+    }
+
+    #[test]
+    fn headers_only_go_to_the_origin_they_were_meant_for() {
+        let url = |u: &str| reqwest::Url::parse(u).unwrap();
+        let start = url("https://api.example.com/hook");
+        assert!(same_origin(
+            &start,
+            &url("https://API.example.com/other?x=1")
+        ));
+        assert!(same_origin(&start, &url("https://api.example.com:443/")));
+        for elsewhere in [
+            "http://api.example.com/hook",       // a downgrade to plain http
+            "https://api.example.com:8443/hook", // another port
+            "https://example.com/hook",          // another host
+            "https://api.example.com.evil.net/", // a look-alike host
+        ] {
+            assert!(!same_origin(&start, &url(elsewhere)), "{elsewhere}");
+        }
     }
 
     #[tokio::test]

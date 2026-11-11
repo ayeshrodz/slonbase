@@ -1224,3 +1224,298 @@ async fn paused_jobs_dont_run_on_their_schedule_but_can_be_run_by_hand() {
     let (_, settings) = call(&app, &token, "GET", "/api/settings", None).await;
     assert_eq!(settings["schedule"]["pauseJobs"], false, "{settings}");
 }
+
+async fn key_for(app: &Arc<App>, token: &str, role: &str) -> String {
+    let (status, key) = call(
+        app,
+        token,
+        "POST",
+        "/api/team/keys",
+        Some(json!({ "name": role, "role": role })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{key}");
+    key["key"].as_str().unwrap().to_string()
+}
+
+#[tokio::test]
+async fn what_each_role_can_read_and_run() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "smtp": { "enabled": true, "host": "mail.acme.test", "port": 2525 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let mut ids = Vec::new();
+    for body in [
+        json!({ "name": "Query", "expression": "0 3 * * *", "type": "sql",
+                "config": { "statement": "SELECT 1 AS secret_marker" } }),
+        json!({ "name": "Mail", "expression": "0 8 * * *", "type": "mail",
+                "config": { "to": "ceo@example.com", "subject": "Quarterly numbers", "body": "internal figures" },
+                "notify": { "emails": ["oncall@example.com"] } }),
+    ] {
+        let (status, res) = call(&app, &token, "POST", "/api/crons", Some(body)).await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+        ids.push(res["id"].as_str().unwrap().to_string());
+    }
+    let (viewer, developer, admin) = (
+        key_for(&app, &token, "viewer").await,
+        key_for(&app, &token, "developer").await,
+        key_for(&app, &token, "admin").await,
+    );
+
+    // below admin: that a job exists, when it runs and how it went, not what it does
+    for (role, key) in [("viewer", &viewer), ("developer", &developer)] {
+        let (status, list) = call(&app, key, "GET", "/api/crons", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let text = list.to_string();
+        for secret in [
+            "secret_marker",
+            "ceo@example.com",
+            "Quarterly numbers",
+            "internal figures",
+            "oncall@example.com",
+        ] {
+            assert!(!text.contains(secret), "{role} sees {secret}: {text}");
+        }
+        assert_eq!(
+            list.as_array().unwrap().len(),
+            2,
+            "{role} still sees the jobs"
+        );
+        assert!(list[0]["name"].is_string());
+    }
+    // an admin edits jobs, so sees their settings, except an SQL statement (owners'): the
+    // editor can't show what it can't edit
+    let (_, list) = call(&app, &admin, "GET", "/api/crons", None).await;
+    let text = list.to_string();
+    assert!(
+        text.contains("internal figures"),
+        "admins see a mail job: {text}"
+    );
+    assert!(
+        !text.contains("secret_marker"),
+        "admins don't see SQL: {text}"
+    );
+    let (_, list) = call(&app, &token, "GET", "/api/crons", None).await;
+    assert!(
+        list.to_string().contains("secret_marker"),
+        "owners see it all"
+    );
+
+    // only an owner runs a saved SQL statement by hand
+    for (role, key) in [("developer", &developer), ("admin", &admin)] {
+        let (status, res) = call(&app, key, "POST", &format!("/api/crons/{}", ids[0]), None).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{role}: {res}");
+    }
+    let (status, _) = call(
+        &app,
+        &developer,
+        "POST",
+        &format!("/api/crons/{}", ids[1]),
+        None,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::NO_CONTENT,
+        "developers still run the others"
+    );
+    let (status, _) = call(
+        &app,
+        &token,
+        "POST",
+        &format!("/api/crons/{}", ids[0]),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+}
+
+#[tokio::test]
+async fn jobs_edited_at_the_same_time_are_all_kept() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "events", "fields": [{ "name": "title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let makes = (0..12).map(|i| {
+        let app = app.clone();
+        let token = token.clone();
+        async move {
+            call(
+                &app,
+                &token,
+                "POST",
+                "/api/crons",
+                Some(cleanup(&format!("Job {i}"), "title ~ 'x'")),
+            )
+            .await
+        }
+    });
+    for (status, res) in futures_util::future::join_all(makes).await {
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+    let (_, list) = call(&app, &token, "GET", "/api/crons", None).await;
+    assert_eq!(
+        list.as_array().unwrap().len(),
+        12,
+        "no job was lost: {list}"
+    );
+}
+
+#[tokio::test]
+async fn settings_saved_at_the_same_time_are_all_kept() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "events", "fields": [{ "name": "title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    // jobs, API keys and a settings change, all at once: each is applied on top of the others
+    let mut calls = Vec::new();
+    for i in 0..4 {
+        let (a1, t1) = (app.clone(), token.clone());
+        calls.push(tokio::spawn(async move {
+            call(
+                &a1,
+                &t1,
+                "POST",
+                "/api/crons",
+                Some(cleanup(&format!("Job {i}"), "title ~ 'x'")),
+            )
+            .await
+        }));
+        let (a2, t2) = (app.clone(), token.clone());
+        calls.push(tokio::spawn(async move {
+            call(
+                &a2,
+                &t2,
+                "POST",
+                "/api/team/keys",
+                Some(json!({ "name": format!("key {i}"), "role": "viewer" })),
+            )
+            .await
+        }));
+    }
+    let (app2, token2) = (app.clone(), token.clone());
+    calls.push(tokio::spawn(async move {
+        call(
+            &app2,
+            &token2,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "meta": { "appName": "Shop" } })),
+        )
+        .await
+    }));
+    for handle in calls {
+        let (status, res) = handle.await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+    let (_, jobs) = call(&app, &token, "GET", "/api/crons", None).await;
+    assert_eq!(jobs.as_array().unwrap().len(), 4, "{jobs}");
+    let (_, settings) = call(&app, &token, "GET", "/api/settings", None).await;
+    assert_eq!(settings["meta"]["appName"], "Shop");
+    // and what every instance would load from the database is the same
+    let core = app.core().unwrap();
+    let client = core.pool.get().await.unwrap();
+    let stored = slonbase::settings::Settings::load(&client, None)
+        .await
+        .unwrap();
+    assert_eq!((stored.cron_jobs.len(), stored.api_keys.len()), (4, 4));
+    assert_eq!(stored.meta.app_name, "Shop");
+}
+
+#[tokio::test]
+async fn history_never_shows_the_content_of_a_called_urls_answer() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let core = app.core().unwrap();
+    // a run recorded by an earlier version, with the start of the answer in its result
+    core.pool
+        .get()
+        .await
+        .unwrap()
+        .execute(
+            "INSERT INTO _slonbase.job_runs (kind, job, trigger, status, finished, meta)
+             VALUES ('cron', 'user:old', 'schedule', 'ok', now(),
+                     '{\"status\":200,\"response\":\"{\\\"token\\\":\\\"leaked\\\"}\"}'::jsonb)",
+            &[],
+        )
+        .await
+        .unwrap();
+    for key in [token.clone(), key_for(&app, &token, "viewer").await] {
+        let (status, runs) = call(&app, &key, "GET", "/api/jobs/runs?kind=cron", None).await;
+        assert_eq!(status, StatusCode::OK, "{runs}");
+        assert_eq!(runs["items"][0]["meta"]["status"], 200, "{runs}");
+        assert!(!runs.to_string().contains("leaked"), "{runs}");
+    }
+}
+
+#[tokio::test]
+async fn names_and_mail_schedules_are_safe() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "smtp": { "enabled": true, "host": "mail.acme.test", "port": 2525 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    // a name ends up in an email's subject: no line breaks or other control characters
+    for name in ["Nightly\nBcc: evil@example.com", "Tab\there", "Bell\u{7}"] {
+        let mut body = url_job(name, "http://93.184.216.34/");
+        body["notify"] = json!({ "emails": ["ops@example.com"] });
+        let (status, res) = call(&app, &token, "POST", "/api/crons", Some(body)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{name:?}: {res}");
+        assert!(res["data"]["name"].is_object(), "{name:?}: {res}");
+    }
+    // an email job can't run more than every 5 minutes (a typo mustn't mail people every minute)
+    let mail = |expression: &str| {
+        json!({ "name": "Mail", "expression": expression, "type": "mail",
+                "config": { "to": "ops@example.com", "subject": "Hi", "body": "x" } })
+    };
+    for expression in ["* * * * *", "*/2 * * * *", "0,3 * * * *", "0-10 * * * *"] {
+        let (status, res) = call(&app, &token, "POST", "/api/crons", Some(mail(expression))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{expression}: {res}");
+        assert!(res["data"]["expression"].is_object(), "{expression}: {res}");
+    }
+    for expression in ["*/5 * * * *", "0 * * * *", "0 8 * * 1", "7,40 * * * *"] {
+        let (status, res) = call(&app, &token, "POST", "/api/crons", Some(mail(expression))).await;
+        assert_eq!(status, StatusCode::OK, "{expression}: {res}");
+        let id = res["id"].as_str().unwrap().to_string();
+        let (status, _) = call(&app, &token, "DELETE", &format!("/api/crons/{id}"), None).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+    }
+}

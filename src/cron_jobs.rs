@@ -34,6 +34,7 @@ use crate::collections::model::CollectionKind;
 use crate::core::Core;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
+use crate::roles::Role;
 use crate::validation::Errors;
 
 /// The prefix of every dashboard job's id.
@@ -136,10 +137,25 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
     {
         errors.invalid("name", "Another job has this name.");
     }
+    // a name ends up in the subject of notification emails: one plain line
+    if name.chars().any(char::is_control) {
+        errors.invalid(
+            "name",
+            "Must not contain line breaks or other control characters.",
+        );
+    }
     if crate::cron::Schedule::parse(&def.expression).is_none() {
         errors.invalid(
             "expression",
             "Not a cron expression: minute hour day month weekday, e.g. 0 3 * * *.",
+        );
+    } else if def.kind == "mail"
+        && min_gap_minutes(&def.expression, core.settings().timezone())
+            .is_some_and(|gap| gap < MIN_MAIL_GAP_MINUTES)
+    {
+        errors.invalid(
+            "expression",
+            format!("An email job can run at most every {MIN_MAIL_GAP_MINUTES} minutes."),
         );
     }
     if !(0..=MAX_RETRIES).contains(&def.retries) {
@@ -163,6 +179,28 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
         validate_sql(core, &def.config, &mut errors);
     }
     errors
+}
+
+/// An email job runs at most this often: a schedule typed wrongly mustn't mail people every
+/// minute, and the mail settings' sender reputation is shared by everything that sends.
+const MIN_MAIL_GAP_MINUTES: i64 = 5;
+
+/// The shortest time between two of the next runs of a schedule, in minutes.
+fn min_gap_minutes(expression: &str, tz: chrono_tz::Tz) -> Option<i64> {
+    let schedule = crate::cron::Schedule::parse(expression)?;
+    let mut after = chrono::Utc::now();
+    let mut previous: Option<chrono::DateTime<chrono::Utc>> = None;
+    let mut shortest: Option<i64> = None;
+    for _ in 0..24 {
+        let next = schedule.next_after(&after, tz)?;
+        if let Some(p) = previous {
+            let gap = (next - p).num_minutes();
+            shortest = Some(shortest.map_or(gap, |s| s.min(gap)));
+        }
+        previous = Some(next);
+        after = next;
+    }
+    shortest
 }
 
 /// The addresses of a `mail` job (a list, or one text with commas, spaces or lines between).
@@ -550,7 +588,14 @@ async fn call_url(config: &Value) -> Result<Value, Fail> {
     if !ok {
         return Err(Fail::from(format!("The server answered {}.", reply.status)));
     }
-    Ok(json!({ "status": reply.status, "response": reply.excerpt }))
+    // what happened, not what was answered: a response can hold anything the called service
+    // returns, and the history is readable by more people than can see the job's settings
+    Ok(http_result(&reply))
+}
+
+/// What the history keeps of a call: the status and the size of the answer, never its content.
+fn http_result(reply: &crate::http::Reply) -> Value {
+    json!({ "status": reply.status, "bytes": reply.bytes })
 }
 
 async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
@@ -791,12 +836,27 @@ pub(crate) async fn run_scheduled(
 }
 
 /// How the jobs list shows a dashboard job (the fields of a hook job, and its settings).
+///
+/// What a job does is shown by role: everyone who can open the page sees that a job exists, when
+/// it runs and how it went; its settings (a query, an email's text and addresses, a filter, a
+/// URL) only to those who can change it (admins and owners), and an SQL statement only to owners.
 pub(crate) fn listed(
     def: &JobDef,
     tz: chrono_tz::Tz,
     now: chrono::DateTime<chrono::Utc>,
     last: Option<Value>,
+    role: Role,
 ) -> Value {
+    let sees_settings = role >= Role::Admin && (def.kind != "sql" || role >= Role::Owner);
+    let (config, emails, webhook) = if sees_settings {
+        (
+            masked(def),
+            def.notify.emails.clone(),
+            !def.notify.webhook.is_empty(),
+        )
+    } else {
+        (json!({}), Vec::new(), false)
+    };
     let next = crate::cron::Schedule::parse(&def.expression)
         .filter(|_| def.enabled)
         .and_then(|s| s.next_after(&now, tz))
@@ -811,10 +871,10 @@ pub(crate) fn listed(
         "next": next,
         "kind": "user",
         "type": def.kind,
-        "config": masked(def),
+        "config": config,
         "notify": {
-            "emails": def.notify.emails,
-            "webhook": if def.notify.webhook.is_empty() { "" } else { MASK },
+            "emails": emails,
+            "webhook": if webhook { MASK } else { "" },
         },
         "retries": def.retries,
         "retryDelaySeconds": if def.retries > 0 { def.retry_delay_seconds.max(1) } else { DEFAULT_RETRY_DELAY },
@@ -909,6 +969,11 @@ fn whole(v: &Value) -> Option<i64> {
         .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
+/// The signed-in superuser's role.
+pub(crate) fn role_of(core: &Core, auth: &RequestAuth) -> Result<Role, ApiError> {
+    crate::roles::require_role(core, auth, Role::Viewer).map(|(_, role)| role)
+}
+
 /// Jobs of type `sql` can read and change anything the console can: owners only.
 fn owner_only(core: &Core, auth: &RequestAuth) -> Result<(), ApiError> {
     crate::roles::require_role(core, auth, crate::roles::Role::Owner)
@@ -931,7 +996,8 @@ pub async fn create(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let mut settings = (*core.settings()).clone();
+    let role = role_of(&core, &auth)?;
+    let snapshot = core.settings();
     let now = crate::datetime::format(&chrono::Utc::now());
     let mut def = read(
         &body,
@@ -949,30 +1015,48 @@ pub async fn create(
     }
     // a copy keeps the secrets of the job it was made from (the form only has them masked)
     let kept = match body.get("copyOf").and_then(Value::as_str) {
-        Some(from) => match settings.cron_jobs.iter().find(|j| j.id == from) {
+        Some(from) => match snapshot.cron_jobs.iter().find(|j| j.id == from) {
             Some(source) => unmask(&mut def, source),
             None => return Err(ApiError::not_found()),
         },
         None => Ok(()),
     };
-    let mut errors = validate(&core, &def, &settings.cron_jobs).await;
+    let mut errors = validate(&core, &def, &snapshot.cron_jobs).await;
     if let Err(message) = kept {
         errors.invalid("config.headers", message);
-    }
-    if settings.cron_jobs.len() >= MAX_JOBS {
-        errors.invalid("name", "An installation has at most 50 jobs made here.");
     }
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
     def.config = normalized(&def);
-    settings.cron_jobs.push(def.clone());
-    crate::roles::save_settings(&core, settings).await?;
+    // added to the jobs as stored: the limits are checked again there, so jobs made at the same
+    // time all stay, and no more than the limit can be made
+    let added = def.clone();
+    crate::settings::modify(&core, move |current| {
+        let mut settings = current.clone();
+        let mut errors = Errors::new();
+        if settings.cron_jobs.len() >= MAX_JOBS {
+            errors.invalid("name", "An installation has at most 50 jobs made here.");
+        } else if settings
+            .cron_jobs
+            .iter()
+            .any(|o| o.name.trim().eq_ignore_ascii_case(added.name.trim()))
+        {
+            errors.invalid("name", "Another job has this name.");
+        }
+        if !errors.is_empty() {
+            return Err(invalid(&errors));
+        }
+        settings.cron_jobs.push(added);
+        Ok(settings)
+    })
+    .await?;
     Ok(Json(listed(
         &def,
         core.settings().timezone(),
         chrono::Utc::now(),
         None,
+        role,
     )))
 }
 
@@ -1024,23 +1108,23 @@ pub async fn update(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let mut settings = (*core.settings()).clone();
-    let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
+    let role = role_of(&core, &auth)?;
+    let snapshot = core.settings();
+    let Some(saved) = snapshot.cron_jobs.iter().find(|j| j.id == id).cloned() else {
         return Err(ApiError::not_found());
     };
-    let saved = settings.cron_jobs[pos].clone();
     let mut def = read(&body, saved.clone());
     let kept = unmask(&mut def, &saved);
     if saved.kind == "sql" || def.kind == "sql" {
         owner_only(&core, &auth)?;
     }
-    def.id = id;
+    def.id = id.clone();
     // switching a job off must always work, whatever else about it has gone stale
     let only_off = body.len() == 1 && body.get("enabled") == Some(&json!(false));
     let mut errors = if only_off {
         Errors::new()
     } else {
-        validate(&core, &def, &settings.cron_jobs).await
+        validate(&core, &def, &snapshot.cron_jobs).await
     };
     if let Err(message) = kept {
         errors.invalid("config.headers", message);
@@ -1050,13 +1134,22 @@ pub async fn update(
     }
     def.config = normalized(&def);
     def.updated = crate::datetime::format(&chrono::Utc::now());
-    settings.cron_jobs[pos] = def.clone();
-    crate::roles::save_settings(&core, settings).await?;
+    let replacement = def.clone();
+    crate::settings::modify(&core, move |current| {
+        let mut settings = current.clone();
+        let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
+            return Err(ApiError::not_found());
+        };
+        settings.cron_jobs[pos] = replacement;
+        Ok(settings)
+    })
+    .await?;
     Ok(Json(listed(
         &def,
         core.settings().timezone(),
         chrono::Utc::now(),
         None,
+        role,
     )))
 }
 
@@ -1068,13 +1161,16 @@ pub async fn delete(
 ) -> Result<StatusCode, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let mut settings = (*core.settings()).clone();
-    let before = settings.cron_jobs.len();
-    settings.cron_jobs.retain(|j| j.id != id);
-    if settings.cron_jobs.len() == before {
-        return Err(ApiError::not_found());
-    }
-    crate::roles::save_settings(&core, settings).await?;
+    crate::settings::modify(&core, |current| {
+        let mut settings = current.clone();
+        let before = settings.cron_jobs.len();
+        settings.cron_jobs.retain(|j| j.id != id);
+        if settings.cron_jobs.len() == before {
+            return Err(ApiError::not_found());
+        }
+        Ok(settings)
+    })
+    .await?;
     // the claim of its last minute has no use now
     if let Ok(client) = core.pool.get().await {
         let _ = client
@@ -1155,6 +1251,19 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_history_of_a_call_has_no_response_content() {
+        let reply = crate::http::Reply {
+            status: 200,
+            excerpt: "{\"token\":\"s3cret\"}".into(),
+            bytes: 17,
+            url: "https://example.com/".into(),
+        };
+        let meta = http_result(&reply);
+        assert_eq!(meta, json!({ "status": 200, "bytes": 17 }));
+        assert!(!meta.to_string().contains("s3cret"));
+    }
 
     #[test]
     fn only_the_first_failure_of_a_streak_and_the_recovery_are_told() {
