@@ -223,7 +223,7 @@ Open the printed link (the token in it is required) to create the first superuse
 two volumes: `pgdata` (the database) and `slonbase_data` (`/data`: files, backups, hooks and the
 config file).
 
-`SLONBASE_VERSION` in `.env` pins a release (`2.6.1`); the default is `latest`. When the image
+`SLONBASE_VERSION` in `.env` pins a release (`2.6.2`); the default is `latest`. When the image
 can't be pulled, or with `docker compose up --build`, Compose builds it from a checkout of the
 repository (run it there).
 
@@ -236,7 +236,7 @@ and has a health check (`slonbase health`).
 ```sh
 docker run -d --name slonbase -p 8090:8090 -v slonbase_data:/data \
   -e SLONBASE_DATABASE_URL='postgres://user:pass@db.example.com:5432/app?sslmode=require' \
-  ghcr.io/ayeshrodz/slonbase:2.6.1
+  ghcr.io/ayeshrodz/slonbase:2.6.2
 docker logs slonbase 2>&1 | grep "setup?token"
 ```
 
@@ -246,8 +246,8 @@ Without `SLONBASE_DATABASE_URL` the setup wizard asks for the connection and sav
 ## Plain binary
 
 ```sh
-curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v2.6.1/slonbase-2.6.1-linux-amd64.tar.gz
-tar xzf slonbase-2.6.1-linux-amd64.tar.gz
+curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v2.6.2/slonbase-2.6.2-linux-amd64.tar.gz
+tar xzf slonbase-2.6.2-linux-amd64.tar.gz
 ./slonbase serve      # starts in setup mode and prints the setup link
 ```
 

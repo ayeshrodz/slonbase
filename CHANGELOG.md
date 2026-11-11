@@ -8,6 +8,8 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.6.2] - 2026-11-11
+
 ### Security
 
 - **Cron job settings are only shown to those who can change them.** `GET /api/crons` returned
@@ -1716,7 +1718,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.6.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.6.2...HEAD
+[2.6.2]: https://github.com/ayeshrodz/slonbase/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/ayeshrodz/slonbase/compare/v2.6.0...v2.6.1
 [2.6.0]: https://github.com/ayeshrodz/slonbase/compare/v2.5.3...v2.6.0
 [2.5.3]: https://github.com/ayeshrodz/slonbase/compare/v2.5.2...v2.5.3
