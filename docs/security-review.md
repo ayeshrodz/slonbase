@@ -7,6 +7,8 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [Dashboard cron jobs (2.6)](#dashboard-cron-jobs-26): what the job types can reach, who can see
+  and run them, and how settings are saved.
 - [Following up the audits (2.5.0)](#following-up-the-audits-250): open streams, route coverage,
   isolation between installations, file names and archives.
 - [Defaults and degraded modes (2.4.0)](#defaults-and-degraded-modes-240): rate limits when the
@@ -16,6 +18,70 @@ To report a problem, see the [security policy](../SECURITY.md).
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## Dashboard cron jobs (2.6)
+
+Jobs made in Settings → Cron jobs (clean up records, call a URL, send an email, run SQL, with
+retries and failure notifications) were reviewed against the code, and every finding below was
+reproduced with a test before it was fixed.
+
+### 1. Every role could read every job's settings (medium)
+
+`GET /api/crons` is open to viewers and returned each job's full settings: an SQL statement, an
+email's text and recipients, a cleanup filter, a URL and the notification addresses. Settings are
+now shown to admins and owners only, and an SQL statement only to owners; viewers and developers
+see that a job exists, its schedule and how it went.
+
+### 2. A developer could run a saved SQL statement (medium)
+
+"Run now" needs the developer role, which is right for every type except *Run SQL*: the statement
+runs with the SQL console's reach, which is owner-only. Starting an SQL job by hand now needs an
+owner too (scheduled runs are unchanged).
+
+### 3. The history kept the content of a called URL's answer (medium)
+
+A *Call a URL* run recorded the first 2 KB of the response body in the history, which every role
+can read. A service called with an `Authorization` header can answer with private data. The
+history now records the status and the size of the answer, and the content of runs recorded
+before is not returned.
+
+### 4. Settings saved at the same time overwrote each other (medium)
+
+Settings were saved by writing back a whole copy read earlier. Twelve jobs created at the same
+time left one. Everything that changes settings (jobs, API keys, roles, the settings API) now
+goes through one function that reads the stored settings under a row lock and applies the change
+on top of them, so concurrent saves, on one instance or several, are applied in turn.
+
+### 5. Headers could leave the origin they were meant for (low)
+
+The headers of a *Call a URL* job were dropped on a redirect to another host, but kept on a
+redirect to another port or from https to http. They are now sent only to the same scheme, host
+and port.
+
+### 6. Smaller findings fixed in the same pass (low)
+
+- A job name could contain line breaks, and it is used in the subject of failure notifications.
+- An email job could run every minute; the minimum interval is 5 minutes.
+- Looking up the host of a *Call a URL* job when saving it had no time limit; it gives up after
+  5 seconds.
+
+### Checked and found sound
+
+- **Calls to this server and private networks.** Loopback, private, link-local (cloud metadata),
+  shared, unique-local and IPv4-mapped IPv6 addresses are refused, including the odd spellings
+  (`127.1`, `2130706433`, `0x7f.0.0.1`, `::ffff:127.0.0.1`); every address a name resolves to
+  must be public and the connection goes to the addresses that were checked (no DNS rebinding);
+  redirects are followed by hand and checked again. This applies to the failure webhook too.
+- **Secrets.** Header values and the webhook URL come back masked and never appear in
+  `/api/settings`, the jobs list or the history; a saved header is only kept while the URL is
+  unchanged; errors carry no URL.
+- **Who can change what.** Making and changing jobs is for admins and owners; *Run SQL* jobs are
+  owners only, only with the SQL console on, and run through the console's own code path (its
+  role, limits and read-only rule). Turning a job into another type counts as a change.
+- **Email.** Recipients and subject are checked for control characters (no header injection),
+  the body is escaped, at most 10 recipients a job and 50 jobs.
+- **Clean up.** Never touches system collections or views, needs a filter or an age, deletes
+  through the records service (cascades, files, realtime), and is capped per run.
 
 ## Following up the audits (2.5.0)
 

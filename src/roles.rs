@@ -289,26 +289,6 @@ pub(crate) fn require_role(
     Ok((me, role))
 }
 
-pub(crate) async fn save_settings(
-    core: &Arc<Core>,
-    settings: crate::settings::Settings,
-) -> Result<(), ApiError> {
-    let client = core
-        .pool
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    settings
-        .save(&client, core.secrets_key())
-        .await
-        .map_err(ApiError::internal)?;
-    crate::realtime::notify(&client, "settings")
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
-    core.set_settings(settings);
-    Ok(())
-}
-
 fn key_json(k: &ApiKey) -> Value {
     json!({
         "id": k.id,
@@ -399,24 +379,27 @@ pub async fn set_role(
     if !ids.contains(&id) {
         return Err(ApiError::not_found());
     }
-    let mut settings = (*core.settings()).clone();
-    if role == Role::Owner {
-        settings.superuser_roles.remove(&id);
-    } else {
-        settings
-            .superuser_roles
-            .insert(id.clone(), role.as_str().to_string());
-    }
-    // roles of superusers that are gone go too
-    settings.superuser_roles.retain(|k, _| ids.contains(k));
-    let owners = ids
-        .iter()
-        .filter(|i| !settings.superuser_roles.contains_key(*i))
-        .count();
-    if owners == 0 {
-        return Err(ApiError::bad_request("There must be at least one owner."));
-    }
-    save_settings(&core, settings).await?;
+    crate::settings::modify(&core, |current| {
+        let mut settings = current.clone();
+        if role == Role::Owner {
+            settings.superuser_roles.remove(&id);
+        } else {
+            settings
+                .superuser_roles
+                .insert(id.clone(), role.as_str().to_string());
+        }
+        // roles of superusers that are gone go too
+        settings.superuser_roles.retain(|k, _| ids.contains(k));
+        let owners = ids
+            .iter()
+            .filter(|i| !settings.superuser_roles.contains_key(*i))
+            .count();
+        if owners == 0 {
+            return Err(ApiError::bad_request("There must be at least one owner."));
+        }
+        Ok(settings)
+    })
+    .await?;
     tracing::info!(superuser = %id, role = role.as_str(), "changed a superuser's role");
     Ok(Json(json!({ "id": id, "role": role })))
 }
@@ -500,8 +483,7 @@ pub async fn create_key(
             );
         }
     }
-    let mut settings = (*core.settings()).clone();
-    if settings.api_keys.len() >= MAX_KEYS {
+    if core.settings().api_keys.len() >= MAX_KEYS {
         errors.invalid(
             "name",
             "An installation has at most 50 keys; revoke some first.",
@@ -532,8 +514,17 @@ pub async fn create_key(
     };
     let mut answer = key_json(&key);
     answer["key"] = secret.into();
-    settings.api_keys.push(key);
-    save_settings(&core, settings).await?;
+    crate::settings::modify(&core, |current| {
+        let mut settings = current.clone();
+        if settings.api_keys.len() >= MAX_KEYS {
+            return Err(ApiError::bad_request(
+                "An installation has at most 50 keys; revoke some first.",
+            ));
+        }
+        settings.api_keys.push(key.clone());
+        Ok(settings)
+    })
+    .await?;
     Ok(Json(answer))
 }
 
@@ -545,15 +536,18 @@ pub async fn delete_key(
 ) -> Result<StatusCode, ApiError> {
     let core = app.core()?;
     let (me, role) = require_role(&core, &auth, Role::Admin)?;
-    let mut settings = (*core.settings()).clone();
-    let Some(pos) = settings.api_keys.iter().position(|k| k.id == id) else {
-        return Err(ApiError::not_found());
-    };
-    if role != Role::Owner && settings.api_keys[pos].superuser != me.id() {
-        return Err(ApiError::forbidden("Only owners can revoke others' keys."));
-    }
-    settings.api_keys.remove(pos);
-    save_settings(&core, settings).await?;
+    crate::settings::modify(&core, |current| {
+        let mut settings = current.clone();
+        let Some(pos) = settings.api_keys.iter().position(|k| k.id == id) else {
+            return Err(ApiError::not_found());
+        };
+        if role != Role::Owner && settings.api_keys[pos].superuser != me.id() {
+            return Err(ApiError::forbidden("Only owners can revoke others' keys."));
+        }
+        settings.api_keys.remove(pos);
+        Ok(settings)
+    })
+    .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

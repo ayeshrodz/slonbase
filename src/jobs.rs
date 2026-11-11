@@ -89,6 +89,15 @@ impl Run {
     }
 }
 
+/// A run's recorded result as the API shows it. Runs recorded before the history stopped keeping
+/// the content of a called URL's answer have it under `response`; it is not shown.
+fn run_meta(mut meta: Value) -> Value {
+    if let Some(object) = meta.as_object_mut() {
+        object.remove("response");
+    }
+    meta
+}
+
 /// [`prune`] on one call in 60 (the maintenance tick runs every minute).
 pub(crate) async fn prune_hourly(core: &Core) {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -138,7 +147,7 @@ fn run_json(row: &tokio_postgres::Row) -> Value {
         "durationMs": finished.map(|f| (f - started).num_milliseconds()),
         "status": row.get::<_, String>("status"),
         "detail": row.get::<_, String>("detail"),
-        "meta": row.get::<_, Value>("meta"),
+        "meta": run_meta(row.get::<_, Value>("meta")),
     })
 }
 

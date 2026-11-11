@@ -10,6 +10,36 @@ changes, listed in its **Upgrading** section.
 
 ### Security
 
+- **Cron job settings are only shown to those who can change them.** `GET /api/crons` returned
+  every job's settings to every role: an SQL statement, an email's text and addresses, a
+  cleanup filter, a URL. Viewers and developers now see that a job exists, its schedule and how it
+  went, and admins see the settings of every job except the SQL statement, which only owners
+  see (as only owners can change it).
+- **Only owners can run an SQL job by hand.** "Run now" on a job of type *Run SQL* needed only the
+  developer role, which let a developer start a saved statement with the SQL console's reach.
+  Developers and admins still run every other type.
+- **The history no longer keeps what a called URL answered.** A *Call a URL* run recorded the
+  first 2 KB of the response body, readable by every role through the jobs' history. It now
+  records the status and the size. The content of runs recorded before this change is no longer
+  shown either.
+- **Headers stay on the origin they were meant for.** The headers of a *Call a URL* job were
+  dropped on a redirect to another host, but kept on a redirect to another port or from https
+  to http. They are now sent only to the same scheme, host and port.
+- **A job's name can't carry line breaks or other control characters.** The name is used in the
+  subject of failure notifications.
+- **An email job can run at most every 5 minutes.** A schedule such as `* * * * *` would have
+  mailed its recipients every minute.
+
+### Fixed
+
+- **Settings saved at the same time no longer overwrite each other.** Cron jobs, API keys, roles
+  and the other settings were saved by writing back a whole copy read earlier, so two saves
+  made close together (for example several jobs created at once, or a job saved while another
+  setting changed) kept only the last one. Saves now read the stored settings under a lock and
+  apply each change on top of them, on every instance.
+
+### Security
+
 - **Updated the bundled SQLite used by `slonbase import-pb`** (`rusqlite` 0.41.1 /
   `libsqlite3-sys` 0.39.1, SQLite 3.54.1) for CVE-2026-119375 (`RUSTSEC-2026-0459`). Building
   from source now requires **Rust 1.89 or newer** (was 1.88).
