@@ -16,7 +16,7 @@ publish = false
 
 
 [lints.clippy]
-# With rust-version 1.88, clippy suggests merging nested `if let`s into let chains. The nested
+# With rust-version 1.89, clippy suggests merging nested `if let`s into let chains. The nested
 # form is kept (it reads the same); a style-only rewrite of every site isn't worth the churn.
 collapsible_if = "allow"
 
