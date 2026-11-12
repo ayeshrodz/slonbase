@@ -191,7 +191,10 @@ async fn background_jobs_dont_use_the_apis_connections() {
         states(&client).await
     );
     let left: i64 = client
-        .query_one("SELECT count(*) FROM events WHERE title LIKE 'old%'", &[])
+        .query_one(
+            "SELECT count(*) FROM slonbase.events WHERE title LIKE 'old%'",
+            &[],
+        )
         .await
         .unwrap()
         .get(0);
