@@ -641,7 +641,7 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
         .iter()
         .filter(|j| j.schedule.matches(&now, tz))
     {
-        let claimed = claim_minute(core, &job.id, &minute);
+        let claimed = crate::jobs::claim_minute(core, &job.id, &minute);
         match claimed.await {
             Ok(true) => {}
             Ok(false) => continue,
@@ -654,25 +654,6 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
         tokio::spawn(run_cron_recorded(core, id, run, "schedule"));
     }
     crate::cron_jobs::run_scheduled(core, now, &minute, tz).await;
-}
-
-/// Claims `minute` for the job `id`: true for the one instance that gets it, so each job runs once
-/// a minute across instances (the claim is a conditional upsert in the params table).
-pub(crate) async fn claim_minute(core: &Arc<Core>, id: &str, minute: &str) -> anyhow::Result<bool> {
-    let client = core
-        .pool
-        .get()
-        .await
-        .map_err(crate::db::describe_pool_error)?;
-    let rows = client
-        .execute(
-            "INSERT INTO _slonbase.params (key, value) VALUES ($1, to_jsonb($2::text))
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()
-             WHERE _slonbase.params.value <> EXCLUDED.value",
-            &[&format!("cron_last:{id}"), &minute],
-        )
-        .await?;
-    Ok(rows == 1)
 }
 
 /// Runs a cron job, recorded in the jobs' history.

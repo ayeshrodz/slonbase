@@ -62,6 +62,7 @@ pub mod roles;
 pub mod s3;
 pub mod secrets;
 pub mod server;
+pub mod services;
 pub mod settings;
 pub mod setup;
 pub mod sql_console;
