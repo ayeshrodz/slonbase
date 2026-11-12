@@ -523,7 +523,7 @@ async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
 async fn still_running(core: &Core, id: &str) -> bool {
     let check = async {
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;
@@ -586,7 +586,7 @@ pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
 
 /// What a job's last finished run came to: `ok`, `error` or nothing yet.
 async fn last_finished(core: &Core, id: &str) -> Option<String> {
-    let client = core.pool.get().await.ok()?;
+    let client = core.db().get().await.ok()?;
     client
         .query_opt(
             "SELECT status FROM _slonbase.job_runs
@@ -706,16 +706,57 @@ pub(crate) async fn run_scheduled(
         if !due {
             continue;
         }
-        match crate::jobs::claim_minute(core, &def.id, minute).await {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(err) => {
-                tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to schedule a cron job");
-                continue;
-            }
+        // queued once for this minute, whichever instance notices first; a worker runs it
+        let dedupe = format!("cron:{}:{minute}", def.id);
+        if let Err(err) = enqueue(core, &def.id, "schedule", Some(&dedupe)).await {
+            tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to schedule a cron job");
         }
-        tokio::spawn(run_recorded(core.clone(), def.clone(), "schedule"));
     }
+}
+
+/// The queue's kind for a run of a dashboard job.
+pub const QUEUE_KIND: &str = "cron.user";
+
+/// Queues a run of the job `id` (`trigger`: `schedule` or `manual`).
+pub(crate) async fn enqueue(
+    core: &Core,
+    id: &str,
+    trigger: &str,
+    dedupe: Option<&str>,
+) -> anyhow::Result<bool> {
+    crate::queue::enqueue(
+        core,
+        crate::queue::NewJob {
+            kind: QUEUE_KIND,
+            reference: id,
+            payload: json!({ "trigger": trigger }),
+            dedupe,
+            max_attempts: 1,
+        },
+    )
+    .await
+}
+
+/// Tells the queue what runs a dashboard job: the job as it is defined when the worker picks
+/// it up (a job deleted or switched off meanwhile isn't run on its schedule).
+pub(crate) fn register(handlers: &mut crate::queue::Handlers) {
+    handlers.register(QUEUE_KIND, |core, job| async move {
+        let manual = job.payload["trigger"] == "manual";
+        let settings = core.settings();
+        let Some(def) = settings
+            .cron_jobs
+            .iter()
+            .find(|d| d.id == job.reference)
+            .cloned()
+        else {
+            return Ok(());
+        };
+        if !manual && (!def.enabled || settings.schedule.pause_jobs) {
+            return Ok(());
+        }
+        run_recorded(core, def, if manual { "manual" } else { "schedule" }).await;
+        Ok(())
+    });
 }
 
 /// How the jobs list shows a dashboard job (the fields of a hook job, and its settings).
@@ -1054,7 +1095,7 @@ pub async fn delete(
     })
     .await?;
     // the claim of its last minute has no use now
-    if let Ok(client) = core.pool.get().await {
+    if let Ok(client) = core.db().get().await {
         let _ = client
             .execute(
                 "DELETE FROM _slonbase.params WHERE key = $1",

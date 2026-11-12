@@ -614,7 +614,7 @@ async fn forward(
         .collect();
     let request = json!({ "headers": headers, "body": body });
     let (id, others) = {
-        let client = core.pool.get().await.map_err(pool_error)?;
+        let client = core.db().get().await.map_err(pool_error)?;
         let others: i64 = client
             .query_one(
                 "SELECT count(*) FROM _slonbase.instances WHERE id <> $1 AND seen > now() - interval '60 seconds'",
@@ -671,7 +671,7 @@ async fn forward(
         Err(_) => false,
     };
     hub.forwards.lock().expect("forwards lock").remove(&id);
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let response: Option<Value> = client
         .query_opt(
             "DELETE FROM _slonbase.realtime_forwards WHERE id = $1 RETURNING response",
@@ -687,7 +687,7 @@ async fn forward(
 }
 
 async fn notify_with(core: &Core, payload: &str) -> anyhow::Result<()> {
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     notify(&client, payload).await?;
     Ok(())
 }
@@ -736,7 +736,7 @@ fn handle_forward(core: &Arc<Core>, payload: &str) {
 }
 
 async fn run_forwarded(core: &Arc<Core>, id: i64) -> anyhow::Result<()> {
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     let Some(row) = client
         .query_opt(
             "SELECT request FROM _slonbase.realtime_forwards WHERE id = $1",
@@ -783,7 +783,7 @@ async fn run_forwarded(core: &Arc<Core>, id: i64) -> anyhow::Result<()> {
         "contentType": content_type,
         "body": String::from_utf8_lossy(&bytes),
     });
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     client
         .execute(
             "UPDATE _slonbase.realtime_forwards SET response = $2 WHERE id = $1",
@@ -988,7 +988,7 @@ async fn prepare(
 /// changes). Their streams are closed, so that ending a session also ends what it receives.
 async fn drop_ended_sessions(core: &Arc<Core>, targets: &mut Vec<Target>) {
     let mut seen: HashMap<(String, String), bool> = HashMap::new();
-    let Ok(client) = core.pool.get().await else {
+    let Ok(client) = core.db().get().await else {
         return;
     };
     let mut ended = Vec::new();
@@ -1135,7 +1135,7 @@ async fn check_access(
         selects.join(", "),
         columns.join(", ")
     );
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     let row = client.query_text_one(&sql, &params).await?;
 
     Ok((0..targets.len())
@@ -1238,7 +1238,7 @@ fn spawn_delivery(core: Weak<Core>) -> mpsc::Sender<i64> {
 
 async fn deliver_events(core: &Arc<Core>, ids: &[i64]) -> anyhow::Result<()> {
     use futures_util::StreamExt;
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     let rows = client
         .query(
             "SELECT collection_id, action, record FROM _slonbase.events WHERE id = ANY($1) ORDER BY id",
@@ -1287,7 +1287,7 @@ const ANNOUNCE_EVERY: Duration = Duration::from_millis(5);
 /// next snapshot is taken by the same statement, so nothing committed in between is missed or
 /// read twice.
 async fn events_since(core: &Core, since: &str) -> anyhow::Result<(String, Vec<i64>)> {
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     let row = client
         .query_one(
             "SELECT pg_current_snapshot()::text, coalesce((
@@ -1348,7 +1348,7 @@ fn spawn_poller(core: Weak<Core>, delivery: mpsc::Sender<i64>) {
 }
 
 async fn current_snapshot(core: &Core) -> anyhow::Result<String> {
-    let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+    let client = core.db().get().await.map_err(db::describe_pool_error)?;
     Ok(client
         .query_one("SELECT pg_current_snapshot()::text", &[])
         .await?
@@ -1366,7 +1366,7 @@ fn spawn_announcer(core: Weak<Core>) {
             wake.notified().await;
             let Some(core) = core.upgrade() else { return };
             if core.realtime.other_instances() > 0 {
-                if let Ok(client) = core.pool.get().await {
+                if let Ok(client) = core.db().get().await {
                     if let Err(err) = notify(&client, "changed").await {
                         tracing::debug!(error = %err, "failed to announce a write");
                     }
@@ -1403,7 +1403,7 @@ async fn reload_settings(core: &Arc<Core>) {
     for _ in 0..5 {
         let generation = core.settings_generation();
         let loaded = async {
-            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            let client = core.db().get().await.map_err(db::describe_pool_error)?;
             Settings::load(&client, core.secrets_key()).await
         };
         match loaded.await {
@@ -1431,7 +1431,7 @@ pub async fn check_sync(core: &Core) {
     let hub = &core.realtime;
     let n = hub.ping_sent.fetch_add(1, Relaxed) + 1;
     let sent = async {
-        let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+        let client = core.db().get().await.map_err(db::describe_pool_error)?;
         notify(&client, &format!("ping:{}:{n}", hub.instance)).await?;
         anyhow::Ok(())
     };
@@ -1464,7 +1464,7 @@ pub async fn check_sync(core: &Core) {
 /// forward subscribe requests to it, and counts the others (for shared rate limits).
 async fn heartbeat(core: &Core) {
     let beat = async {
-        let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+        let client = core.db().get().await.map_err(db::describe_pool_error)?;
         let others: i64 = client
             .query_one(
                 "WITH beat AS (INSERT INTO _slonbase.instances (id) VALUES ($1) \
@@ -1608,7 +1608,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                 tracing::debug!(error = %format!("{err:#}"), "failed to delete old logs");
                             }
                         }
-                        if let Ok(client) = core.pool.get().await {
+                        if let Ok(client) = core.db().get().await {
                             let _ = client
                                 .batch_execute(&format!(
                                     "DELETE FROM _slonbase.events WHERE created < now() - interval '{EVENT_RETENTION_SECS} seconds';

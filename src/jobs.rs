@@ -31,7 +31,7 @@ pub struct Run {
 pub async fn start(core: &Arc<Core>, kind: &str, job: &str, trigger: &str) -> Run {
     let id = async {
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;
@@ -70,7 +70,7 @@ impl Run {
         let done = async {
             let client = self
                 .core
-                .pool
+                .db()
                 .get()
                 .await
                 .map_err(crate::db::describe_pool_error)?;
@@ -93,7 +93,7 @@ impl Run {
 /// a minute across instances (the claim is a conditional upsert in the params table).
 pub(crate) async fn claim_minute(core: &Arc<Core>, id: &str, minute: &str) -> anyhow::Result<bool> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -124,6 +124,9 @@ pub(crate) async fn prune_hourly(core: &Core) {
     if !TICKS.fetch_add(1, Ordering::Relaxed).is_multiple_of(60) {
         return;
     }
+    if let Err(err) = crate::queue::prune(core).await {
+        tracing::debug!(error = %format!("{err:#}"), "failed to prune the job queue");
+    }
     if let Err(err) = prune(core).await {
         tracing::debug!(error = %format!("{err:#}"), "failed to prune the jobs' history");
     }
@@ -133,7 +136,7 @@ pub(crate) async fn prune_hourly(core: &Core) {
 /// stopped (after a day).
 pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -206,7 +209,7 @@ pub async fn runs(
     let core = app.core()?;
     auth.require_superuser()?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

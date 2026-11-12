@@ -711,7 +711,7 @@ pub async fn serve(
         return Err(ApiError::not_found());
     }
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;

@@ -246,7 +246,7 @@ async fn copy_records(
     }
 
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -568,7 +568,7 @@ pub async fn run(core: &Arc<Core>, path: &Path, with_settings: bool) -> Result<R
     }
 
     // other instances reload the collections
-    if let Ok(client) = core.pool.get().await {
+    if let Ok(client) = core.db().get().await {
         let _ = crate::realtime::notify(&client, "collections").await;
     }
     report.migrations = import_migration_history(core, &source).await?;
@@ -599,7 +599,7 @@ async fn import_migration_history(core: &Core, source: &Source) -> Result<usize>
         return Ok(0);
     }
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;

@@ -245,7 +245,7 @@ async fn fetch(
     );
     let client = ctx
         .core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;

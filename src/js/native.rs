@@ -507,7 +507,7 @@ async fn stored_values(
 ) -> Result<Map<String, Value>, ApiError> {
     let c = core.collection(collection)?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -677,7 +677,7 @@ async fn db_query(
     records: Option<&Collection>,
 ) -> Result<Value, ApiError> {
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -726,7 +726,7 @@ async fn finish_query(
 ) -> Result<Value, ApiError> {
     // row changes reach the realtime triggers, a TRUNCATE doesn't
     if result.is_ok() && sql.to_ascii_lowercase().contains("truncate") {
-        if let Ok(client) = core.pool.get().await {
+        if let Ok(client) = core.db().get().await {
             core.data_changed_everywhere(&client).await;
         }
     } else if result.is_ok() {

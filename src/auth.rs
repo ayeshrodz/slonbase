@@ -228,7 +228,7 @@ pub async fn verify_record_token(
     if !collection.is_auth() {
         return None;
     }
-    let client = core.pool.get().await.ok()?;
+    let client = core.db().get().await.ok()?;
     let values = store::find_by_id(&client, &collection, id).await.ok()??;
     let refreshable = claims
         .get("refreshable")

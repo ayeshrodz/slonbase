@@ -86,7 +86,7 @@ async fn run_transaction(
     mut jobs: mpsc::Receiver<TxMessage>,
     effects: Arc<tokio::sync::Mutex<FileEffects>>,
 ) {
-    let mut client = match core.pool.get().await {
+    let mut client = match core.db().get().await {
         Ok(client) => client,
         Err(e) => return fail_all(jobs, ApiError::internal(describe_pool_error(e))).await,
     };

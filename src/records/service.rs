@@ -229,7 +229,7 @@ impl Core {
     }
 
     async fn client(&self) -> Result<deadpool_postgres::Client, ApiError> {
-        self.pool
+        self.db()
             .get()
             .await
             .map_err(|e| ApiError::internal(describe_pool_error(e)))

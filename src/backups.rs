@@ -175,7 +175,7 @@ impl Drop for Locks<'_> {
 async fn lock(core: &Core) -> Result<Locks<'_>, BackupError> {
     let local = core.backup_lock.try_lock().map_err(|_| BackupError::Busy)?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| BackupError::Other(crate::db::describe_pool_error(e)))?;
@@ -278,7 +278,7 @@ async fn create_locked(core: &Core, name: &str, target: &Storage) -> Result<()> 
     tokio::fs::create_dir_all(tmp.0.join("db")).await?;
 
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -697,7 +697,7 @@ struct Unreadable(String);
 async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Result<()> {
     let _guard = core.schema_lock.lock().await;
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -944,7 +944,7 @@ pub async fn run_scheduled(core: &Arc<Core>) {
     let minute = now.format("%Y-%m-%dT%H:%M").to_string();
     let claimed = async {
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;

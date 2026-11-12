@@ -124,7 +124,7 @@ pub async fn auth_with_oauth2(
     }
 
     // the linked record, else the signed-in one, else the one with the same email
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let mut found = None;
     let mut linked_to = None;
     if let Some(row) = client
@@ -203,7 +203,7 @@ pub async fn auth_with_oauth2(
                     // a record made for this sign-in must not outlive its failure (two
                     // sign-ins of the same new account racing: the loser's record is removed)
                     if is_new_record {
-                        if let Ok(client) = core.pool.get().await {
+                        if let Ok(client) = core.db().get().await {
                             let _ = client
                                 .execute(
                                     &format!(
@@ -254,7 +254,7 @@ async fn link(
     user: &AuthUser,
     record_id: &str,
 ) -> Result<(), ApiError> {
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     client
         .execute(
             &format!(
@@ -332,7 +332,7 @@ async fn update_existing(
     }
     sets.dedup_by(|a, b| a.0 == b.0);
 
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let mut assignments = Vec::new();
     let mut texts: Vec<String> = vec![id.clone()];
     for (column, value) in &sets {
@@ -442,7 +442,7 @@ async fn create(
         .unwrap_or_default()
         .to_string();
 
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     if !user.email.is_empty() {
         client
             .execute(
@@ -507,7 +507,7 @@ async fn keep_redirect_name(core: &Core, code: &str, user: &str) -> Option<()> {
     if name.is_empty() {
         return None;
     }
-    let client = core.pool.get().await.ok()?;
+    let client = core.db().get().await.ok()?;
     client
         .batch_execute(&format!(
             "DELETE FROM _slonbase.oauth2_names WHERE created < now() - interval '{NAME_TTL}'"
@@ -527,7 +527,7 @@ async fn keep_redirect_name(core: &Core, code: &str, user: &str) -> Option<()> {
 
 /// The name kept for a code by [`keep_redirect_name`], once.
 async fn take_redirect_name(core: &Core, code: &str) -> Option<String> {
-    let client = core.pool.get().await.ok()?;
+    let client = core.db().get().await.ok()?;
     let row = client
         .query_opt(
             &format!(
@@ -554,7 +554,7 @@ async fn redirect(core: &Core, params: &HashMap<String, String>) -> Response {
     if !realtime::send_to_client(core, &state, realtime::OAUTH2_TOPIC, data.clone()) {
         // the client may be connected to another instance
         let sent = async {
-            let client = core.pool.get().await.ok()?;
+            let client = core.db().get().await.ok()?;
             realtime::notify(&client, &format!("oauth2:{data}"))
                 .await
                 .ok()
@@ -618,7 +618,7 @@ pub async fn list_external_auths(
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     owner_or_superuser(&auth, &c, &id)?;
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let rows = client
         .query(
             &format!(
@@ -657,7 +657,7 @@ pub async fn unlink_external_auth(
     let core = app.core()?;
     let c = auth_collection(&core, &collection)?;
     owner_or_superuser(&auth, &c, &id)?;
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let deleted = client
         .execute(
             &format!(

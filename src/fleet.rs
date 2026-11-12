@@ -77,7 +77,7 @@ async fn count_records(client: &deadpool_postgres::Object) -> anyhow::Result<(i6
 async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
     let started = Instant::now();
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;

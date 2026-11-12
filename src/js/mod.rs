@@ -951,7 +951,7 @@ async fn apply_enrich_state(e: &mut RecordEnrichEvent, state: &Value) -> Result<
     }
     let client = e
         .core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|err| ApiError::internal(crate::db::describe_pool_error(err)))?;
@@ -1120,7 +1120,7 @@ async fn apply_auth_state(e: &mut AuthRequestEvent, state: &Value) -> Result<(),
     }
     let client = e
         .core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|err| ApiError::internal(crate::db::describe_pool_error(err)))?;

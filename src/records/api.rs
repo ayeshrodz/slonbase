@@ -265,7 +265,7 @@ pub async fn list(
     let cached = count_key.as_deref().and_then(|key| core.counts.get(key));
 
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
@@ -415,7 +415,7 @@ pub async fn view(
         table_ref(&c.name)
     );
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;
@@ -571,7 +571,7 @@ async fn transaction(client: &mut deadpool_postgres::Client) -> Result<Transacti
 }
 
 async fn pooled(core: &Core) -> Result<deadpool_postgres::Client, ApiError> {
-    core.pool
+    core.db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))
@@ -1913,7 +1913,7 @@ pub async fn truncate(
     }
 
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(describe_pool_error(e)))?;

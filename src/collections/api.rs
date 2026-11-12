@@ -53,7 +53,7 @@ async fn infer_view(
         ));
     }
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -305,7 +305,7 @@ async fn filtered(
         order.join(", ")
     );
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -843,7 +843,7 @@ pub async fn dry_run_view(
         ));
     }
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -1141,7 +1141,7 @@ pub(crate) async fn import_definitions(
     }
 
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

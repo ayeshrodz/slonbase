@@ -251,7 +251,7 @@ pub async fn authenticate_key(
     }
     let registry = core.registry();
     let collection = registry.get(crate::collections::model::SUPERUSERS_COLLECTION_NAME)?;
-    let client = core.pool.get().await.ok()?;
+    let client = core.db().get().await.ok()?;
     let condition = format!("{}.id = $1", crate::records::store::ALIAS);
     let values = crate::records::store::find_by(&client, collection, &condition, &key.superuser)
         .await
@@ -317,7 +317,7 @@ pub async fn list(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json
     let core = app.core()?;
     require_role(&core, &auth, Role::Viewer)?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -365,7 +365,7 @@ pub async fn set_role(
         .and_then(Role::parse)
         .ok_or_else(|| ApiError::bad_request("role must be owner, admin, developer or viewer."))?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -410,7 +410,7 @@ pub async fn check_delete(core: &Core, id: &str) -> Result<(), ApiError> {
         return Ok(());
     }
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

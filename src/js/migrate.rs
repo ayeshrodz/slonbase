@@ -327,7 +327,7 @@ pub fn files(dir: &Path) -> Result<Vec<(String, String)>> {
 /// The applied migrations, oldest first.
 pub async fn applied(core: &Core) -> Result<Vec<String>> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -346,7 +346,7 @@ pub async fn applied(core: &Core) -> Result<Vec<String>> {
 pub async fn sync_history(core: &Core, dir: &Path) -> Result<Vec<String>> {
     let present: Vec<String> = files(dir)?.into_iter().map(|(name, _)| name).collect();
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -854,7 +854,7 @@ pub async fn automigrate(core: &Core, changes: Vec<Change<'_>>) {
     }
     let recorded = async {
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;

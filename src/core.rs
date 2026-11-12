@@ -16,7 +16,14 @@ use crate::settings::Settings;
 use crate::storage::Storage;
 
 pub struct Core {
+    /// The connections of API requests. Take one with [`Core::db`], which answers with the
+    /// workers' pool instead while a background job is running.
     pub pool: Pool,
+    /// The connections of the job queue's workers, apart from the API's (set when the core
+    /// is started; without it, jobs use `pool`).
+    job_pool: std::sync::OnceLock<Pool>,
+    /// The job queue: what runs each kind of job, and what wakes the workers.
+    pub(crate) queue: crate::queue::Queue,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
     /// The others wait here rather than for a connection (see `http_policy`).
     pub(crate) heavy_writes: tokio::sync::Semaphore,
@@ -115,6 +122,10 @@ fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
     }
 }
 
+/// Job workers, and their connections, for the main installation and for each project.
+const MAIN_JOB_WORKERS: usize = 2;
+const PROJECT_JOB_WORKERS: usize = 1;
+
 impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
     /// collections and settings in sync with other instances.
@@ -137,6 +148,18 @@ impl Core {
         app_logs: bool,
     ) -> Result<Arc<Self>> {
         let core = Self::load(pool, config, hooks).await?;
+        // background jobs get connections of their own, so they never take one from the API:
+        // two for the main installation, one for a project (opened when a job runs, closed
+        // when the queue is empty)
+        let workers = if app_logs {
+            MAIN_JOB_WORKERS
+        } else {
+            PROJECT_JOB_WORKERS
+        };
+        let mut jobs_db = config.database.clone();
+        jobs_db.max_connections = workers;
+        let _ = core.job_pool.set(crate::db::connect(url, &jobs_db)?);
+        crate::queue::spawn_workers(&core, workers);
         if app_logs {
             crate::logs::capture_app_logs(&core.logs);
         }
@@ -175,8 +198,12 @@ impl Core {
         // but one, so everything else (the dashboard, health checks) always finds one free
         let heavy_writes =
             tokio::sync::Semaphore::new(pool.status().max_size.saturating_sub(1).max(1));
+        let mut handlers = crate::queue::Handlers::default();
+        crate::cron_jobs::register(&mut handlers);
         Ok(Arc::new(Self {
             pool,
+            job_pool: Default::default(),
+            queue: crate::queue::Queue::new(handlers),
             heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
@@ -206,6 +233,22 @@ impl Core {
                 .then(|| config.migrations.dir.clone()),
             hooks,
         }))
+    }
+
+    /// The pool to take a connection from: the API's, or the job workers' while a background
+    /// job is running (so what a job reads and writes never uses an API connection). Work a
+    /// job hands to another task, such as a hook handler, uses the API's.
+    pub fn db(&self) -> &Pool {
+        if crate::queue::on_worker() {
+            self.job_pool()
+        } else {
+            &self.pool
+        }
+    }
+
+    /// The job workers' pool (the API's when this core has none of its own).
+    pub(crate) fn job_pool(&self) -> &Pool {
+        self.job_pool.get().unwrap_or(&self.pool)
     }
 
     /// Where automigrate writes migration files, or `None` when it's off.
@@ -255,7 +298,7 @@ impl Core {
     /// before the restore stop working), collections and settings. Realtime clients are
     /// disconnected, since their auth may no longer exist.
     pub async fn reload_after_restore(&self) -> Result<()> {
-        let client = self.pool.get().await.map_err(describe_pool_error)?;
+        let client = self.db().get().await.map_err(describe_pool_error)?;
         // a backup made without the key comes back unencrypted
         if let Some(key) = self.secrets_key() {
             crate::secrets::seal_plain(&client, key).await?;

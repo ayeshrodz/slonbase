@@ -56,6 +56,7 @@ pub mod migrations;
 pub mod oauth2;
 pub mod picker;
 pub mod projects;
+pub mod queue;
 pub mod realtime;
 pub mod records;
 pub mod roles;

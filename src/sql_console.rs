@@ -239,7 +239,7 @@ pub(crate) async fn execute(
     };
 
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -404,7 +404,7 @@ pub async fn crons(
     auth.require_superuser()?;
     let role = crate::services::access::role(&core, &auth)?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -485,11 +485,10 @@ pub async fn run_cron(
                 "Only owners can run SQL jobs.",
             )?;
         }
-        tokio::spawn(crate::cron_jobs::run_recorded(
-            core.clone(),
-            def.clone(),
-            "manual",
-        ));
+        // in the background, on a queue worker
+        crate::cron_jobs::enqueue(&core, &def.id, "manual", None)
+            .await
+            .map_err(ApiError::internal)?;
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
     }
     if id != AUTO_BACKUP_JOB || core.settings().backups.cron.trim().is_empty() {

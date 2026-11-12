@@ -206,7 +206,7 @@ async fn client(
 ) -> Result<(Arc<crate::core::Core>, deadpool_postgres::Object), ApiError> {
     let core = app.core()?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
