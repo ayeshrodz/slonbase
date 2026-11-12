@@ -35,6 +35,8 @@ use crate::core::Core;
 use crate::error::ApiError;
 use crate::extract::JsonObject;
 use crate::roles::Role;
+use crate::services::access::{self, Access};
+use crate::services::{self, Failure, mail, outbound};
 use crate::validation::Errors;
 
 /// The prefix of every dashboard job's id.
@@ -203,101 +205,40 @@ fn min_gap_minutes(expression: &str, tz: chrono_tz::Tz) -> Option<i64> {
     shortest
 }
 
-/// The addresses of a `mail` job (a list, or one text with commas, spaces or lines between).
-fn recipients(config: &Value) -> Vec<String> {
-    let raw: Vec<String> = match config.get("to") {
-        Some(Value::Array(a)) => a
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_string))
-            .collect(),
-        Some(Value::String(s)) => vec![s.clone()],
-        _ => vec![],
-    };
-    raw.iter()
-        .flat_map(|s| s.split([',', ';', '\n', ' ']))
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-fn plain_line(s: &str) -> bool {
-    !s.chars().any(char::is_control)
-}
-
-/// One to 10 plausible addresses, none with a control character (no header injection).
-fn check_addresses(to: &[String]) -> Result<(), String> {
-    if to.is_empty() || to.len() > 10 {
-        return Err("One to 10 email addresses.".into());
-    }
-    match to.iter().find(|a| {
-        a.len() > 254
-            || !plain_line(a)
-            || a.matches('@').count() != 1
-            || a.starts_with('@')
-            || a.ends_with('@')
-            || !a.rsplit('@').next().is_some_and(|d| d.contains('.'))
-    }) {
-        Some(bad) => Err(format!("{bad:?} is not an email address.")),
-        None => Ok(()),
-    }
-}
-
 async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors) {
     if !notify.emails.is_empty() {
-        if let Err(message) = check_addresses(&notify.emails) {
+        if let Err(message) = mail::check_addresses(&notify.emails) {
             errors.invalid("notify.emails", message);
-        } else if !core.settings().smtp.enabled {
-            errors.invalid(
-                "notify.emails",
-                "Email isn't set up: turn on SMTP in Settings → Mail first.",
-            );
+        } else if !mail::enabled(core) {
+            errors.invalid("notify.emails", mail::DISABLED);
         }
     }
     if !notify.webhook.is_empty() {
-        if let Err(message) = crate::http::check_target(&notify.webhook).await {
+        if let Err(message) = outbound::check(&notify.webhook).await {
             errors.invalid("notify.webhook", message);
         }
     }
 }
 
 fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
-    if let Err(message) = check_addresses(&recipients(config)) {
+    if let Err(message) = mail::check_addresses(&mail::recipients(config.get("to"))) {
         errors.invalid("config.to", message);
     }
     let subject = text(config, "subject").trim();
-    if subject.is_empty() || subject.chars().count() > 200 || !plain_line(subject) {
+    if subject.is_empty() || subject.chars().count() > 200 || !mail::plain_line(subject) {
         errors.invalid("config.subject", "1 to 200 characters, on one line.");
     }
     if text(config, "body").chars().count() > 20_000 {
         errors.invalid("config.body", "At most 20 000 characters.");
     }
-    if !core.settings().smtp.enabled {
-        errors.invalid(
-            "config.to",
-            "Email isn't set up: turn on SMTP in Settings → Mail first.",
-        );
+    if !mail::enabled(core) {
+        errors.invalid("config.to", mail::DISABLED);
     }
 }
 
 fn validate_sql(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
-    let statement = text(config, "statement").trim();
-    if !core.sql_console {
-        errors.invalid(
-            "config.statement",
-            "SQL jobs need the SQL console: start slonbase with --sql-console.",
-        );
-    } else if statement.is_empty()
-        || statement.chars().count() > crate::sql_console::MAX_QUERY_LENGTH
-    {
-        errors.invalid("config.statement", "1 to 20 000 characters.");
-    } else if !core.sql_console_writes
-        && !crate::sql_console::READ_KEYWORDS
-            .contains(&crate::sql_console::first_keyword(statement).as_str())
-    {
-        errors.invalid(
-            "config.statement",
-            "The SQL console is read-only, so is this job: start slonbase with --sql-console-writes to change data.",
-        );
+    if let Err(message) = services::sql::check(core, text(config, "statement")) {
+        errors.invalid("config.statement", message);
     }
 }
 
@@ -320,7 +261,7 @@ fn headers_of(config: &Value) -> Vec<(String, String)> {
 }
 
 async fn validate_http(config: &Value, errors: &mut Errors) {
-    match crate::http::check_target(text(config, "url").trim()).await {
+    match outbound::check(text(config, "url").trim()).await {
         Ok(()) => {}
         Err(message) => errors.invalid("config.url", &message),
     }
@@ -433,40 +374,14 @@ fn failure(err: crate::error::ApiError) -> String {
     err.details.as_deref().unwrap_or(&err.message).to_string()
 }
 
-/// Why an attempt failed, and whether trying again could help (a missing setting or a refused
-/// address won't fix itself; a timeout or a busy database might).
-#[derive(Debug)]
-pub(crate) struct Fail {
-    pub message: String,
-    pub retry: bool,
-}
-
-impl From<String> for Fail {
-    fn from(message: String) -> Self {
-        Self {
-            message,
-            retry: true,
-        }
-    }
-}
-
-impl Fail {
-    fn fatal(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-            retry: false,
-        }
-    }
-}
-
 /// One attempt at a job's work.
-async fn attempt(core: &Arc<Core>, def: &JobDef) -> Result<Value, Fail> {
+async fn attempt(core: &Arc<Core>, def: &JobDef) -> Result<Value, Failure> {
     match def.kind.as_str() {
-        "cleanup" => cleanup(core, &def.config).await.map_err(Fail::from),
+        "cleanup" => cleanup(core, &def.config).await.map_err(Failure::transient),
         "http" => call_url(&def.config).await,
         "mail" => send_mail(core, &def.config).await,
         "sql" => run_sql(core, &def.config).await,
-        other => Err(Fail::fatal(format!("Unknown type of job: {other}."))),
+        other => Err(Failure::permanent(format!("Unknown type of job: {other}."))),
     }
 }
 
@@ -492,7 +407,7 @@ async fn with_retries<F, Fut>(
 ) -> (Result<Value, String>, u32)
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = Result<Value, Fail>>,
+    Fut: Future<Output = Result<Value, Failure>>,
 {
     let mut tries = 0;
     loop {
@@ -517,76 +432,52 @@ where
     }
 }
 
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-}
-
-async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, Fail> {
-    if !core.settings().smtp.enabled {
-        return Err(Fail::fatal(
-            "Email isn't set up: turn on SMTP in Settings → Mail.",
-        ));
-    }
-    let to = recipients(config);
-    let html = escape(text(config, "body")).replace('\n', "<br>");
-    let mut sent = 0;
-    for address in &to {
-        core.send_mail_now(crate::mail::Message {
-            to: address.clone(),
-            subject: text(config, "subject").trim().to_string(),
-            html: html.clone(),
-        })
-        .await
-        .map_err(|e| Fail::from(format!("Sending to {address} failed: {e}")))?;
-        sent += 1;
-    }
+async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, Failure> {
+    let sent = mail::send_text(
+        core,
+        &mail::recipients(config.get("to")),
+        text(config, "subject").trim(),
+        text(config, "body"),
+    )
+    .await?;
     Ok(json!({ "sent": sent }))
 }
 
-async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, Fail> {
-    let result = crate::sql_console::execute(core, text(config, "statement"), 100)
-        .await
-        .map_err(|e| Fail {
-            // the console is off or read-only for this statement: that won't change by itself
-            retry: e.status != StatusCode::FORBIDDEN,
-            message: failure(e),
-        })?;
+async fn run_sql(core: &Arc<Core>, config: &Value) -> Result<Value, Failure> {
+    // (a scheduled job: an owner set it up, the server runs it)
+    let outcome = services::sql::run(core, Access::System, text(config, "statement"), 100).await?;
     // what it did, not what it read: rows may hold anything
     Ok(json!({
-        "affectedRows": result["affectedRows"],
-        "rows": result["rows"].as_array().map_or(0, Vec::len),
-        "readOnly": result["readOnly"],
+        "affectedRows": outcome.affected_rows,
+        "rows": outcome.rows,
+        "readOnly": outcome.read_only,
     }))
 }
 
-async fn call_url(config: &Value) -> Result<Value, Fail> {
+async fn call_url(config: &Value) -> Result<Value, Failure> {
     let method = match text(config, "method") {
         "" => "GET",
         m => m,
     };
-    let body = Some(text(config, "body")).filter(|b| !b.is_empty());
     let timeout =
         Duration::from_secs(number(config, "timeoutSeconds").unwrap_or(30).clamp(1, 60) as u64);
-    let reply = crate::http::guarded(
+    let reply = outbound::send(outbound::Request {
         method,
-        text(config, "url").trim(),
-        &headers_of(config),
-        body,
+        url: text(config, "url").trim(),
+        headers: &headers_of(config),
+        body: Some(text(config, "body")).filter(|b| !b.is_empty()),
         timeout,
-    )
-    .await
-    .map_err(|message| Fail {
-        retry: !crate::http::refused(&message),
-        message,
-    })?;
+    })
+    .await?;
     let ok = match number(config, "expectStatus") {
         Some(want) => i64::from(reply.status) == want,
         None => (200..300).contains(&reply.status),
     };
     if !ok {
-        return Err(Fail::from(format!("The server answered {}.", reply.status)));
+        return Err(Failure::transient(format!(
+            "The server answered {}.",
+            reply.status
+        )));
     }
     // what happened, not what was answered: a response can hold anything the called service
     // returns, and the history is readable by more people than can see the job's settings
@@ -594,7 +485,7 @@ async fn call_url(config: &Value) -> Result<Value, Fail> {
 }
 
 /// What the history keeps of a call: the status and the size of the answer, never its content.
-fn http_result(reply: &crate::http::Reply) -> Value {
+fn http_result(reply: &outbound::Reply) -> Value {
     json!({ "status": reply.status, "bytes": reply.bytes })
 }
 
@@ -672,7 +563,7 @@ pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
         || async {
             match tokio::time::timeout(RUN_LIMIT, attempt(&core, &def)).await {
                 Ok(result) => result,
-                Err(_) => Err(Fail::from(format!(
+                Err(_) => Err(Failure::transient(format!(
                     "Stopped after {} minutes.",
                     RUN_LIMIT.as_secs() / 60
                 ))),
@@ -764,19 +655,11 @@ fn notice_json(def: &JobDef, event: Notice, error: &str, tries: u32, at: &str) -
 async fn send_notices(core: &Arc<Core>, def: &JobDef, event: Notice, error: &str, tries: u32) {
     let at = crate::datetime::format(&chrono::Utc::now());
     if !def.notify.emails.is_empty() {
-        if core.settings().smtp.enabled {
+        if mail::enabled(core) {
             let (subject, body) = notice_text(def, event, error, tries, &at);
-            let html = escape(&body).replace('\n', "<br>");
             for address in &def.notify.emails {
-                let sent = core
-                    .send_mail_now(crate::mail::Message {
-                        to: address.clone(),
-                        subject: subject.clone(),
-                        html: html.clone(),
-                    })
-                    .await;
-                if let Err(err) = sent {
-                    tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to mail a cron job's notice");
+                if let Err(err) = mail::send_text_to(core, address, &subject, &body).await {
+                    tracing::warn!(job = %def.id, error = %err, "failed to mail a cron job's notice");
                 }
             }
         } else {
@@ -785,13 +668,13 @@ async fn send_notices(core: &Arc<Core>, def: &JobDef, event: Notice, error: &str
     }
     if !def.notify.webhook.is_empty() {
         let body = notice_json(def, event, error, tries, &at).to_string();
-        let sent = crate::http::guarded(
-            "POST",
-            &def.notify.webhook,
-            &[("content-type".to_string(), "application/json".to_string())],
-            Some(&body),
-            Duration::from_secs(10),
-        )
+        let sent = outbound::send(outbound::Request {
+            method: "POST",
+            url: &def.notify.webhook,
+            headers: &[("content-type".to_string(), "application/json".to_string())],
+            body: Some(&body),
+            timeout: Duration::from_secs(10),
+        })
         .await;
         match sent {
             Ok(reply) if !(200..300).contains(&reply.status) => {
@@ -823,7 +706,7 @@ pub(crate) async fn run_scheduled(
         if !due {
             continue;
         }
-        match crate::hooks::claim_minute(core, &def.id, minute).await {
+        match crate::jobs::claim_minute(core, &def.id, minute).await {
             Ok(true) => {}
             Ok(false) => continue,
             Err(err) => {
@@ -951,7 +834,7 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
     }
     if let Some(n) = body.get("notify").and_then(Value::as_object) {
         def.notify = Notify {
-            emails: recipients(&json!({ "to": n.get("emails").cloned().unwrap_or_default() })),
+            emails: mail::recipients(n.get("emails")),
             webhook: n
                 .get("webhook")
                 .and_then(Value::as_str)
@@ -969,16 +852,15 @@ fn whole(v: &Value) -> Option<i64> {
         .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
 }
 
-/// The signed-in superuser's role.
-pub(crate) fn role_of(core: &Core, auth: &RequestAuth) -> Result<Role, ApiError> {
-    crate::roles::require_role(core, auth, Role::Viewer).map(|(_, role)| role)
-}
-
 /// Jobs of type `sql` can read and change anything the console can: owners only.
 fn owner_only(core: &Core, auth: &RequestAuth) -> Result<(), ApiError> {
-    crate::roles::require_role(core, auth, crate::roles::Role::Owner)
-        .map(|_| ())
-        .map_err(|_| ApiError::forbidden("Only owners can make or change SQL jobs."))
+    access::require(
+        core,
+        auth,
+        Role::Owner,
+        "Only owners can make or change SQL jobs.",
+    )
+    .map(|_| ())
 }
 
 fn invalid(errors: &Errors) -> ApiError {
@@ -996,7 +878,7 @@ pub async fn create(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let role = role_of(&core, &auth)?;
+    let role = access::role(&core, &auth)?;
     let snapshot = core.settings();
     let now = crate::datetime::format(&chrono::Utc::now());
     let mut def = read(
@@ -1090,7 +972,7 @@ fn normalized(def: &JobDef) -> Value {
             out
         }
         "mail" => json!({
-            "to": recipients(c),
+            "to": mail::recipients(c.get("to")),
             "subject": text(c, "subject").trim(),
             "body": text(c, "body"),
         }),
@@ -1108,7 +990,7 @@ pub async fn update(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let role = role_of(&core, &auth)?;
+    let role = access::role(&core, &auth)?;
     let snapshot = core.settings();
     let Some(saved) = snapshot.cron_jobs.iter().find(|j| j.id == id).cloned() else {
         return Err(ApiError::not_found());
@@ -1254,7 +1136,7 @@ mod tests {
 
     #[test]
     fn the_history_of_a_call_has_no_response_content() {
-        let reply = crate::http::Reply {
+        let reply = outbound::Reply {
             status: 200,
             excerpt: "{\"token\":\"s3cret\"}".into(),
             bytes: 17,
@@ -1323,7 +1205,7 @@ mod tests {
         let calls = AtomicU32::new(0);
         let (result, tries) = with_retries(3, quick, || async {
             if calls.fetch_add(1, Ordering::SeqCst) < 2 {
-                Err(Fail::from("busy".to_string()))
+                Err(Failure::transient("busy".to_string()))
             } else {
                 Ok(json!({ "sent": 1 }))
             }
@@ -1345,7 +1227,7 @@ mod tests {
         let calls = AtomicU32::new(0);
         let (result, tries) = with_retries(2, quick, || async {
             calls.fetch_add(1, Ordering::SeqCst);
-            Err(Fail::from("down".to_string()))
+            Err(Failure::transient("down".to_string()))
         })
         .await;
         assert_eq!((tries, calls.load(Ordering::SeqCst)), (3, 3));
@@ -1354,7 +1236,7 @@ mod tests {
         let calls = AtomicU32::new(0);
         let (result, tries) = with_retries(5, quick, || async {
             calls.fetch_add(1, Ordering::SeqCst);
-            Err(Fail::fatal("Email isn't set up."))
+            Err(Failure::permanent("Email isn't set up."))
         })
         .await;
         assert_eq!((tries, calls.load(Ordering::SeqCst)), (1, 1));

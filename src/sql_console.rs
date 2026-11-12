@@ -402,7 +402,7 @@ pub async fn crons(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let role = crate::cron_jobs::role_of(&core, &auth)?;
+    let role = crate::services::access::role(&core, &auth)?;
     let client = core
         .pool
         .get()
@@ -478,8 +478,12 @@ pub async fn run_cron(
     if let Some(def) = core.settings().cron_jobs.iter().find(|j| j.id == id) {
         // a saved SQL statement runs with the console's reach: only owners start it by hand
         if def.kind == "sql" {
-            crate::roles::require_role(&core, &auth, crate::roles::Role::Owner)
-                .map_err(|_| ApiError::forbidden("Only owners can run SQL jobs."))?;
+            crate::services::access::require(
+                &core,
+                &auth,
+                crate::roles::Role::Owner,
+                "Only owners can run SQL jobs.",
+            )?;
         }
         tokio::spawn(crate::cron_jobs::run_recorded(
             core.clone(),
