@@ -49,6 +49,45 @@ pub(crate) async fn resume(core: &Arc<Core>, queue_job: i64) -> Option<Run> {
     })
 }
 
+/// Starts a run of `job` for the queued job `queue_job` unless another run of it is going
+/// (started within the hour): `None` then. The check and the start are one step (a lock on the
+/// job for the transaction), so two runs queued at the same moment can't both start.
+pub(crate) async fn start_exclusive(
+    core: &Arc<Core>,
+    kind: &str,
+    job: &str,
+    trigger: &str,
+    queue_job: i64,
+) -> anyhow::Result<Option<Run>> {
+    let mut client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let tx = client.transaction().await?;
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('slonbase.job:' || $1 || ':' || $2, 0))",
+        &[&kind, &job],
+    )
+    .await?;
+    let row = tx
+        .query_opt(
+            "INSERT INTO _slonbase.job_runs (kind, job, trigger, queue_job)
+             SELECT $1, $2, $3, $4 WHERE NOT EXISTS (
+                 SELECT 1 FROM _slonbase.job_runs
+                 WHERE kind = $1 AND job = $2 AND status = 'running'
+                   AND started > now() - interval '1 hour')
+             RETURNING id",
+            &[&kind, &job, &trigger, &queue_job],
+        )
+        .await?;
+    tx.commit().await?;
+    Ok(row.map(|row| Run {
+        core: core.clone(),
+        id: Some(row.get(0)),
+    }))
+}
+
 /// [`start`] for a run that belongs to a queued job, so a later attempt can [`resume`] it.
 pub(crate) async fn start_queued(
     core: &Arc<Core>,

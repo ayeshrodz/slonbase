@@ -483,30 +483,6 @@ async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
     Ok(json!({ "collection": collection, "deleted": deleted, "limit": max }))
 }
 
-/// Whether a run of the job is still going (started within the hour), so a slow run isn't
-/// started again on top of itself.
-async fn still_running(core: &Core, id: &str) -> bool {
-    // (a run whose instance stopped doesn't count)
-    let _ = crate::jobs::close_orphans(core, crate::jobs::CRON, Some(id)).await;
-    let check = async {
-        let client = core
-            .db()
-            .get()
-            .await
-            .map_err(crate::db::describe_pool_error)?;
-        let row = client
-            .query_one(
-                "SELECT EXISTS (SELECT 1 FROM _slonbase.job_runs
-                 WHERE kind = $1 AND job = $2 AND status = 'running'
-                 AND started > now() - interval '1 hour')",
-                &[&crate::jobs::CRON, &id],
-            )
-            .await?;
-        anyhow::Ok(row.get::<_, bool>(0))
-    };
-    check.await.unwrap_or(false)
-}
-
 /// A scheduled run that waited this long in the queue (the workers were busy, or no instance
 /// was up) is dropped: the schedule has moved on, and running the minutes that were missed one
 /// after the other helps nobody.
@@ -548,12 +524,19 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
                 tracing::warn!(job = %def.id, scheduled_for, "a cron job's run waited too long: dropped");
                 return Ok(());
             }
-            if still_running(&core, &def.id).await {
-                tracing::warn!(job = %def.id, "a cron job is still running: not started again");
-                return Ok(());
+            // (a run whose instance stopped doesn't count as going)
+            let _ = crate::jobs::close_orphans(&core, crate::jobs::CRON, Some(&def.id)).await;
+            let started =
+                crate::jobs::start_exclusive(&core, crate::jobs::CRON, &def.id, trigger, job.id)
+                    .await
+                    .map_err(|e| Failure::transient(format!("{e:#}")))?;
+            match started {
+                Some(record) => record,
+                None => {
+                    tracing::warn!(job = %def.id, "a cron job is still running: not started again");
+                    return Ok(());
+                }
             }
-            crate::jobs::start_queued(&core, crate::jobs::CRON, &def.id, trigger, Some(job.id))
-                .await
         }
     };
     let tries = job.attempt.max(1) as u32;
