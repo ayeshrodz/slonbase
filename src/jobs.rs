@@ -248,7 +248,7 @@ pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
                      SELECT id, row_number() OVER (PARTITION BY kind, job ORDER BY started DESC) AS n
                      FROM _slonbase.job_runs
                  ) ranked WHERE n > {KEEP}
-             ) old WHERE r.id = old.id;
+             ) old WHERE r.id = old.id AND r.status <> 'running';
              UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
                  detail = 'Interrupted: the instance running it stopped.'
              WHERE r.status = 'running' AND r.started < now() - interval '1 day'

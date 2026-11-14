@@ -651,6 +651,11 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
     crate::cron_jobs::run_scheduled(core, now, &minute, tz).await;
 }
 
+/// How long a run of a cron job registered by code is waited for. A job that hangs would
+/// otherwise hold its queue worker for good, and with it the other background work of the
+/// installation; after this the run is recorded as failed and the worker goes on.
+const CRON_RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3600);
+
 /// The queue's kind for a run of a cron job registered by code.
 pub const CRON_QUEUE_KIND: &str = "cron.hook";
 
@@ -714,7 +719,14 @@ async fn run_cron_recorded(
 ) -> Result<(), String> {
     let record =
         crate::jobs::start_queued(&core, crate::jobs::CRON, &id, trigger, Some(queue_job)).await;
-    match run(core).await {
+    let outcome = match tokio::time::timeout(CRON_RUN_LIMIT, run(core)).await {
+        Ok(outcome) => outcome,
+        Err(_) => Err(ApiError::internal(anyhow::anyhow!(
+            "Not finished after {} minutes: no longer waited for.",
+            CRON_RUN_LIMIT.as_secs() / 60
+        ))),
+    };
+    match outcome {
         Ok(()) => {
             record.finish(Ok(serde_json::json!({}))).await;
             Ok(())

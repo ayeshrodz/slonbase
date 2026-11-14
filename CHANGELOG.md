@@ -32,6 +32,9 @@ changes, listed in its **Upgrading** section.
 - **Failure and recovery notices are delivered one by one, and tried again.** Each address and
   the webhook get their notice as a queued job of their own, tried up to 3 times; one that can't
   be delivered no longer leaves the others unsent.
+- **A run of a cron job registered by code is waited for up to an hour.** One that takes longer
+  is recorded as failed, so a job that hangs can't hold up the installation's other background
+  work.
 - **A scheduled run that waited more than 10 minutes is dropped.** When the workers were busy or
   no instance was up, the minutes that were missed are not run one after the other afterwards.
 - **Settings are stored a section a row.** Each section of the settings (`meta`, `smtp`,
