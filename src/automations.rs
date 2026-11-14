@@ -181,7 +181,7 @@ pub(crate) async fn validate(core: &Arc<Core>, config: &Value, errors: &mut Erro
         }
         let mut own = Errors::new();
         validate_step(core, step, &mut own).await;
-        errors.extend_prefixed(&format!("config.steps.{n}."), own);
+        errors.extend_prefixed(&format!("config.steps.{n}"), own);
     }
 }
 
