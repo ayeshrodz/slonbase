@@ -697,25 +697,33 @@ pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
             tracing::warn!(job = %job.reference, scheduled_for, "a cron job's run waited too long: dropped");
             return Ok(());
         }
-        run_cron_recorded(core, job.reference, run, trigger).await;
-        Ok(())
+        run_cron_recorded(core, job.reference, job.id, run, trigger)
+            .await
+            .map_err(crate::services::Failure::permanent)
     });
 }
 
-/// Runs a cron job, recorded in the jobs' history.
-pub(crate) async fn run_cron_recorded(
+/// Runs a cron job for the queued job `queue_job`, recorded in the jobs' history. Returns why
+/// it failed, if it did.
+async fn run_cron_recorded(
     core: Arc<Core>,
     id: String,
+    queue_job: i64,
     run: Arc<CronFn>,
     trigger: &'static str,
-) {
-    let record = crate::jobs::start(&core, crate::jobs::CRON, &id, trigger).await;
+) -> Result<(), String> {
+    let record =
+        crate::jobs::start_queued(&core, crate::jobs::CRON, &id, trigger, Some(queue_job)).await;
     match run(core).await {
-        Ok(()) => record.finish(Ok(serde_json::json!({}))).await,
+        Ok(()) => {
+            record.finish(Ok(serde_json::json!({}))).await;
+            Ok(())
+        }
         Err(err) => {
             let detail = err.details.as_deref().unwrap_or(&err.message).to_string();
             tracing::error!(job = %id, error = %detail, "a cron job failed");
-            record.finish(Err(detail)).await;
+            record.finish(Err(detail.clone())).await;
+            Err(detail)
         }
     }
 }

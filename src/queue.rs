@@ -229,7 +229,7 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
                      started = COALESCE(started, now())
                  WHERE id = (
                      SELECT id FROM _slonbase.jobs
-                     WHERE (state = 'queued' AND run_after <= now())
+                     WHERE (state = 'queued' AND run_after <= now() AND id <> ALL($2))
                         OR (state = 'running' AND locked_until < now() AND id <> ALL($2))
                      ORDER BY run_after, id
                      FOR UPDATE SKIP LOCKED LIMIT 1

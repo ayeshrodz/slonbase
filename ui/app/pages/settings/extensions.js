@@ -4,7 +4,7 @@
 import { html, useState, useEffect } from "../../lib/core.js";
 import { api } from "../../lib/api.js";
 import { Icon } from "../../lib/icons.js";
-import { Skeleton, Callout, toast } from "../../lib/ui.js";
+import { Button, Skeleton, Callout } from "../../lib/ui.js";
 import { plural } from "../../lib/format.js";
 import { Card } from "./shared.js";
 
@@ -20,13 +20,20 @@ const code = (text) => html`<code>${text}</code>`;
 export function Extensions() {
   const [data, setData] = useState(null);
   const [denied, setDenied] = useState(false);
-  useEffect(() => {
+  const [failed, setFailed] = useState(false);
+  const load = () => {
+    setFailed(false);
     api
       .get("/api/extensions")
       .then(setData)
-      .catch((err) => (err.status === 403 ? setDenied(true) : toast.error(err)));
-  }, []);
+      .catch((err) => (err.status === 403 ? setDenied(true) : setFailed(true)));
+  };
+  useEffect(load, []);
   if (denied) return html`<${Callout} kind="info">Your role can't see what this instance has loaded.</${Callout}>`;
+  if (failed)
+    return html`<${Callout} kind="warn">
+      <div class="row"><span class="grow">What this instance has loaded couldn't be read.</span><${Button} size="sm" icon="refresh" onClick=${load}>Try again</${Button}></div>
+    </${Callout}>`;
   if (!data) return html`<div class="stack"><${Skeleton} height=${160} /><${Skeleton} height=${120} /></div>`;
   const { hooks, cronJobs, jobKinds, settingsSections } = data;
   return html`<div class="stack">

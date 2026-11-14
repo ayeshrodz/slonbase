@@ -33,24 +33,28 @@ pub async fn start(core: &Arc<Core>, kind: &str, job: &str, trigger: &str) -> Ru
 }
 
 /// The run that the queued job `queue_job` started on an earlier attempt, if it did.
-pub(crate) async fn resume(core: &Arc<Core>, queue_job: i64) -> Option<Run> {
-    let client = core.db().get().await.ok()?;
+pub(crate) async fn resume(core: &Arc<Core>, queue_job: i64) -> anyhow::Result<Option<Run>> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
     let row = client
         .query_opt(
             "SELECT id FROM _slonbase.job_runs WHERE queue_job = $1 AND status = 'running'
              ORDER BY id DESC LIMIT 1",
             &[&queue_job],
         )
-        .await
-        .ok()??;
-    Some(Run {
+        .await?;
+    Ok(row.map(|row| Run {
         core: core.clone(),
         id: Some(row.get(0)),
-    })
+    }))
 }
 
 /// Starts a run of `job` for the queued job `queue_job` unless another run of it is going
-/// (started within the hour): `None` then. The check and the start are one step (a lock on the
+/// (started within the hour), or the queued job has a run already (it finished, and the
+/// instance stopped before the queue knew: the work is not done a second time): `None` then. The check and the start are one step (a lock on the
 /// job for the transaction), so two runs queued at the same moment can't both start.
 pub(crate) async fn start_exclusive(
     core: &Arc<Core>,
@@ -77,6 +81,7 @@ pub(crate) async fn start_exclusive(
                  SELECT 1 FROM _slonbase.job_runs
                  WHERE kind = $1 AND job = $2 AND status = 'running'
                    AND started > now() - interval '1 hour')
+               AND NOT EXISTS (SELECT 1 FROM _slonbase.job_runs WHERE queue_job = $4)
              RETURNING id",
             &[&kind, &job, &trigger, &queue_job],
         )

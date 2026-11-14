@@ -502,7 +502,10 @@ pub(crate) fn stale(scheduled_for: &str, now: chrono::DateTime<chrono::Utc>) -> 
 async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failure> {
     let manual = job.payload["trigger"] == "manual";
     let trigger = if manual { "manual" } else { "schedule" };
-    let resumed = crate::jobs::resume(&core, job.id).await;
+    // (a history that can't be read is not a history that isn't there: tried again later)
+    let resumed = crate::jobs::resume(&core, job.id)
+        .await
+        .map_err(|e| Failure::transient(format!("{e:#}")))?;
     let settings = core.settings();
     let def = settings.cron_jobs.iter().find(|d| d.id == job.reference);
     // deleted, switched off or paused since it was queued: not run on its schedule
@@ -533,7 +536,7 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
             match started {
                 Some(record) => record,
                 None => {
-                    tracing::warn!(job = %def.id, "a cron job is still running: not started again");
+                    tracing::warn!(job = %def.id, "a cron job is still running, or this run was already recorded: not started");
                     return Ok(());
                 }
             }

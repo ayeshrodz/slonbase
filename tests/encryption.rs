@@ -174,7 +174,20 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     assert_eq!(status, StatusCode::OK, "{res}");
     let (settings, _) = params(&tdb).await;
     assert!(sealed(&settings), "{settings}");
-    assert!(!settings.to_string().contains("Sealed app"));
+    let meta: Value = tdb
+        .pool()
+        .get()
+        .await
+        .unwrap()
+        .query_one(
+            "SELECT value FROM _slonbase.params WHERE key = 'settings:meta'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(sealed(&meta), "{meta}");
+    assert!(!meta.to_string().contains("Sealed app"));
     // the SMTP password still is what was set
     let core = keyed.core().unwrap();
     assert_eq!(core.settings().smtp.password, SMTP_PASSWORD);
