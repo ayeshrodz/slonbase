@@ -10,6 +10,22 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Automations.** A schedule with up to 20 steps, where each step can use what the steps before
+  it produced: find records, continue only if something holds, send an email template (once, or
+  once for each record), create, update or delete records, call a URL, run SQL. Made in the
+  dashboard under Automations (a page of its own, with the history of everything that ran) or
+  through `/api/automations`; see [automations](docs/automations.md).
+  - Data is passed on in Jinja expressions (`{{ steps.overdue.count }}`, `{{ item.email }}`). A
+    filter takes data only through its `{:name}` parameters and an SQL statement is run as
+    saved, so data can't change what either does.
+  - A retry continues at the step, and the item, that failed: an email that was sent is not
+    sent again.
+  - The history shows what each step came to in numbers, never what was read.
+- **Email templates.** Emails written once (a subject and an HTML body in Jinja syntax) and sent
+  by automations with the data of each run, under Automations, Templates: an editor with a live
+  preview against sample data, and a test send. Values are escaped, and the body is put in the
+  mail layout.
+
 - **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
   with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
   its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
@@ -42,6 +58,10 @@ changes, listed in its **Upgrading** section.
   writes only the sections it changes. `/api/settings` is unchanged. Settings stored as one value
   are converted at the first start, and read as they are from a backup made by an earlier
   version.
+
+- **Cron jobs are automations.** A cron job made in Settings, Cron jobs is an automation of one
+  step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
+  dashboard lists them under Automations; the old page's address leads there.
 
 ### Upgrading
 

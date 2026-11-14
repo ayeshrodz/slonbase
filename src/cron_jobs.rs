@@ -1,4 +1,4 @@
-//! Cron jobs made in the dashboard (Settings → Cron jobs), as opposed to the ones code registers
+//! Jobs made in the dashboard (Automations; Settings → Cron jobs before 2.7), as opposed to the ones code registers
 //! with `cronAdd()` or `Hooks::cron`. A job is a schedule and a *type* with its settings; the
 //! types are small, safe building blocks, so making one needs no hook file and no restart.
 //!
@@ -17,6 +17,7 @@
 //! `mail` sends an email (through the mail settings) and `sql` runs a statement under exactly
 //! the SQL console's policy (console on, writes only when allowed, its role and limits); a job of
 //! type `sql` can only be made or changed by an owner, since it can read and change anything.
+//! `steps` is a list of steps that pass data on: an automation (see [`crate::automations`]).
 
 use std::sync::Arc;
 use std::time::Duration;

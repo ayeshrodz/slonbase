@@ -1,4 +1,4 @@
-// Settings: application, mail, file storage, backups, security, logs, crons, import/export.
+// Settings: application, mail, file storage, backups, security, logs, import/export.
 import { html, useState, useEffect, useMemo, useStore, navigate, cx } from "../lib/core.js";
 import { api, qs, enc, getFileToken, BASE } from "../lib/api.js";
 import { app, loadCollections } from "../lib/state.js";
@@ -22,7 +22,7 @@ import {
 } from "../lib/ui.js";
 import { bytes, formatDate, relativeTime, plural } from "../lib/format.js";
 import { Card, useSettings } from "./settings/shared.js";
-import { Backups, Crons } from "./settings/operations.js";
+import { Backups } from "./settings/operations.js";
 import { Storage } from "./settings/storage.js";
 import { Security, LogsSettings } from "./settings/security.js";
 import { Transfer } from "./settings/transfer.js";
@@ -62,7 +62,6 @@ const GROUPS = [
     label: "Operations",
     items: [
       { id: "backups", label: "Backups", icon: "archive", sections: ["backups", "schedule"] },
-      { id: "crons", label: "Cron jobs", icon: "clock" },
       { id: "logs", label: "Logs", icon: "logs", sections: ["logs"] },
     ],
   },
@@ -84,7 +83,7 @@ const SECTIONS = GROUPS.flatMap((g) => g.items);
 export function Settings({ section }) {
   const s = useSettings();
   const active = SECTIONS.find((x) => x.id === section) || SECTIONS[0];
-  const needsDraft = !["crons", "transfer", "users", "app-users", "extensions"].includes(active.id);
+  const needsDraft = !["transfer", "users", "app-users", "extensions"].includes(active.id);
   return html`<div class="page enter">
     <div class="page-head"><div class="grow"><div class="eyebrow"><${Icon} name="settings" size=${14} /> Configuration</div><h1>Settings</h1></div></div>
     <div class="settings-layout">
@@ -112,7 +111,6 @@ export function Settings({ section }) {
               ${active.id === "backups" && html`<${Backups} s=${s} />`}
               ${active.id === "security" && html`<${Security} s=${s} />`}
               ${active.id === "logs" && html`<${LogsSettings} s=${s} />`}
-              ${active.id === "crons" && html`<${Crons} />`}
               ${active.id === "users" && html`<${Team} />`}
               ${active.id === "app-users" && html`<${AppUsers} />`}
               ${active.id === "transfer" && html`<${Transfer} />`}
