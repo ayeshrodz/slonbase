@@ -69,7 +69,7 @@ zip = { version = "9.0.2", default-features = false, features = ["deflate-flate2
 mimalloc = { version = "0.1", default-features = false }
 html5ever = { version = "0.40.1", default-features = false }
 http-body-util = "0.1.5"
-minijinja = { version = "2", default-features = false, features = ["builtins", "fuel", "json", "std_collections"] }
+minijinja = { version = "2", default-features = false, features = ["builtins", "fuel", "json", "serde", "std_collections"] }
 
 [features]
 default = ["js"]

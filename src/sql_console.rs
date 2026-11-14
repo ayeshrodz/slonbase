@@ -478,7 +478,7 @@ pub async fn run_cron(
     }
     if let Some(def) = core.settings().cron_jobs.iter().find(|j| j.id == id) {
         // a saved SQL statement runs with the console's reach: only owners start it by hand
-        if def.kind == "sql" {
+        if crate::automations::does(def, &["sql"]) {
             crate::services::access::require(
                 &core,
                 &auth,

@@ -43,6 +43,27 @@ pub fn check(core: &Core, statement: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Runs `statement` and returns the console's answer, rows included (at most `max_rows`): for
+/// what passes them on to something the same people set up, never to a history or a log.
+pub async fn query(
+    core: &Core,
+    access: Access,
+    statement: &str,
+    max_rows: usize,
+) -> Result<Value, Failure> {
+    if !access.allows(Role::Owner) {
+        return Err(Failure::permanent("Only owners can run SQL."));
+    }
+    crate::sql_console::execute(core, statement, max_rows)
+        .await
+        .map_err(|e| Failure {
+            // the console is off, or read-only for this statement: that won't change by itself
+            retry: e.status != axum::http::StatusCode::FORBIDDEN,
+            message: e.details.as_deref().unwrap_or(&e.message).to_string(),
+            retry_in: None,
+        })
+}
+
 /// Runs `statement` and returns what it did (at most `max_rows` rows are read).
 pub async fn run(
     core: &Core,
@@ -50,17 +71,7 @@ pub async fn run(
     statement: &str,
     max_rows: usize,
 ) -> Result<Outcome, Failure> {
-    if !access.allows(Role::Owner) {
-        return Err(Failure::permanent("Only owners can run SQL."));
-    }
-    let result = crate::sql_console::execute(core, statement, max_rows)
-        .await
-        .map_err(|e| Failure {
-            // the console is off, or read-only for this statement: that won't change by itself
-            retry: e.status != axum::http::StatusCode::FORBIDDEN,
-            message: e.details.as_deref().unwrap_or(&e.message).to_string(),
-            retry_in: None,
-        })?;
+    let result = query(core, access, statement, max_rows).await?;
     Ok(Outcome {
         affected_rows: result["affectedRows"].clone(),
         rows: result["rows"].as_array().map_or(0, Vec::len),

@@ -124,6 +124,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "job_runs_queue",
         sql: include_str!("../migrations/0021_job_runs_queue.sql"),
     },
+    Migration {
+        version: 22,
+        name: "job_run_state",
+        sql: include_str!("../migrations/0022_job_run_state.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.

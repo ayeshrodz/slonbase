@@ -41,7 +41,7 @@ use crate::validation::Errors;
 /// The prefix of every dashboard job's id.
 pub const ID_PREFIX: &str = "user:";
 const MAX_JOBS: usize = 50;
-const TYPES: &[&str] = &["cleanup", "http", "mail", "sql"];
+const TYPES: &[&str] = &["cleanup", "http", "mail", "sql", crate::automations::KIND];
 /// What the API shows instead of a saved header value.
 pub const MASK: &str = "••••••••";
 const METHODS: &[&str] = &["GET", "POST", "PUT", "PATCH", "DELETE"];
@@ -92,7 +92,7 @@ fn text<'a>(config: &'a Value, key: &str) -> &'a str {
     config.get(key).and_then(Value::as_str).unwrap_or_default()
 }
 
-fn number(config: &Value, key: &str) -> Option<i64> {
+pub(crate) fn number(config: &Value, key: &str) -> Option<i64> {
     config.get(key).and_then(|v| {
         v.as_i64()
             .or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
@@ -150,13 +150,13 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
             "expression",
             "Not a cron expression: minute hour day month weekday, e.g. 0 3 * * *.",
         );
-    } else if def.kind == "mail"
+    } else if crate::automations::does(def, &["mail", "email"])
         && min_gap_minutes(&def.expression, core.settings().timezone())
             .is_some_and(|gap| gap < MIN_MAIL_GAP_MINUTES)
     {
         errors.invalid(
             "expression",
-            format!("An email job can run at most every {MIN_MAIL_GAP_MINUTES} minutes."),
+            format!("What sends email can run at most every {MIN_MAIL_GAP_MINUTES} minutes."),
         );
     }
     if !(0..=MAX_RETRIES).contains(&def.retries) {
@@ -178,6 +178,8 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
         validate_mail(core, &def.config, &mut errors);
     } else if def.kind == "sql" {
         validate_sql(core, &def.config, &mut errors);
+    } else if def.kind == crate::automations::KIND {
+        crate::automations::validate(core, &def.config, &mut errors).await;
     }
     errors
 }
@@ -219,7 +221,7 @@ async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors)
     }
 }
 
-fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+pub(crate) fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
     if let Err(message) = mail::check_addresses(&mail::recipients(config.get("to"))) {
         errors.invalid("config.to", message);
     }
@@ -235,7 +237,7 @@ fn validate_mail(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
     }
 }
 
-fn validate_sql(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+pub(crate) fn validate_sql(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
     if let Err(message) = services::sql::check(core, text(config, "statement")) {
         errors.invalid("config.statement", message);
     }
@@ -259,7 +261,7 @@ fn headers_of(config: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-async fn validate_http(config: &Value, errors: &mut Errors) {
+pub(crate) async fn validate_http(config: &Value, errors: &mut Errors) {
     match outbound::check(text(config, "url").trim()).await {
         Ok(()) => {}
         Err(message) => errors.invalid("config.url", &message),
@@ -308,7 +310,7 @@ async fn validate_http(config: &Value, errors: &mut Errors) {
     }
 }
 
-async fn validate_cleanup(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
+pub(crate) async fn validate_cleanup(core: &Arc<Core>, config: &Value, errors: &mut Errors) {
     let name = text(config, "collection");
     let Ok(collection) = core.collection(name) else {
         errors.invalid("config.collection", "Choose a collection.");
@@ -454,7 +456,7 @@ fn http_result(reply: &outbound::Reply) -> Value {
     json!({ "status": reply.status, "bytes": reply.bytes })
 }
 
-async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
+pub(crate) async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
     let collection = text(config, "collection");
     let (filter, params) = cleanup_filter(config, chrono::Utc::now());
     let max = number(config, "maxRows").unwrap_or(DEFAULT_MAX_ROWS).max(1);
@@ -543,7 +545,13 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
         }
     };
     let tries = job.attempt.max(1) as u32;
-    let result = match tokio::time::timeout(RUN_LIMIT, attempt(&core, &def)).await {
+    let work = async {
+        match def.kind == crate::automations::KIND {
+            true => crate::automations::run(&core, &def, &record).await,
+            false => attempt(&core, &def).await,
+        }
+    };
+    let result = match tokio::time::timeout(RUN_LIMIT, work).await {
         Ok(result) => result,
         Err(_) => Err(Failure::transient(format!(
             "Stopped after {} minutes.",
@@ -851,7 +859,8 @@ pub(crate) fn listed(
     last: Option<Value>,
     role: Role,
 ) -> Value {
-    let sees_settings = role >= Role::Admin && (def.kind != "sql" || role >= Role::Owner);
+    let sees_settings =
+        role >= Role::Admin && (!crate::automations::does(def, &["sql"]) || role >= Role::Owner);
     let (config, emails, webhook) = if sees_settings {
         (
             masked(def),
@@ -888,8 +897,16 @@ pub(crate) fn listed(
 
 /// The config as the API shows it: header values hidden.
 fn masked(def: &JobDef) -> Value {
-    let mut config = def.config.clone();
-    if def.kind == "http"
+    masked_config(&def.kind, &def.config)
+}
+
+/// [`masked`] for the settings of one type (a job's, or a step's).
+pub(crate) fn masked_config(kind: &str, config: &Value) -> Value {
+    if kind == crate::automations::KIND {
+        return crate::automations::masked(config);
+    }
+    let mut config = config.clone();
+    if kind == "http"
         && let Some(h) = config.get_mut("headers").and_then(Value::as_object_mut)
     {
         for v in h.values_mut() {
@@ -905,17 +922,35 @@ fn unmask(def: &mut JobDef, saved: &JobDef) -> Result<(), String> {
     if def.notify.webhook == MASK {
         def.notify.webhook = saved.notify.webhook.clone();
     }
-    if def.kind != "http" {
+    if def.kind == crate::automations::KIND {
+        return crate::automations::unmask(&mut def.config, saved);
+    }
+    unmask_config(&def.kind, &mut def.config, &saved.kind, &saved.config)
+}
+
+/// [`unmask`] for the settings of one type (a job's, or a step's): `was_kind` and `was` are
+/// what was saved in its place.
+pub(crate) fn unmask_config(
+    kind: &str,
+    config: &mut Value,
+    was_kind: &str,
+    was: &Value,
+) -> Result<(), String> {
+    if kind != "http" {
         return Ok(());
     }
-    let was = headers_of(&saved.config);
+    let saved = match was_kind == "http" {
+        true => headers_of(was),
+        false => Vec::new(),
+    };
     let mut kept = false;
-    if let Some(h) = def.config.get_mut("headers").and_then(Value::as_object_mut) {
+    if let Some(h) = config.get_mut("headers").and_then(Value::as_object_mut) {
         for (name, value) in h.iter_mut() {
             if value.as_str() == Some(MASK) {
                 kept = true;
                 *value = json!(
-                    was.iter()
+                    saved
+                        .iter()
                         .find(|(k, _)| k.eq_ignore_ascii_case(name))
                         .map(|(_, v)| v.as_str())
                         .unwrap_or_default()
@@ -923,8 +958,7 @@ fn unmask(def: &mut JobDef, saved: &JobDef) -> Result<(), String> {
             }
         }
     }
-    if kept && saved.kind == "http" && text(&def.config, "url").trim() != text(&saved.config, "url")
-    {
+    if kept && was_kind == "http" && text(config, "url").trim() != text(was, "url") {
         return Err("The URL changed: type the header values again, saved ones only go to the address they were saved with.".into());
     }
     Ok(())
@@ -1013,7 +1047,7 @@ pub async fn create(
             ..Default::default()
         },
     );
-    if def.kind == "sql" {
+    if crate::automations::does(&def, &["sql"]) {
         owner_only(&core, &auth)?;
     }
     // a copy keeps the secrets of the job it was made from (the form only has them masked)
@@ -1065,8 +1099,13 @@ pub async fn create(
 
 /// The config as stored: only the keys the type uses, with defaults filled in.
 fn normalized(def: &JobDef) -> Value {
-    let c = &def.config;
-    match def.kind.as_str() {
+    normalized_config(&def.kind, &def.config)
+}
+
+/// [`normalized`] for the settings of one type (a job's, or a step's).
+pub(crate) fn normalized_config(kind: &str, c: &Value) -> Value {
+    match kind {
+        crate::automations::KIND => crate::automations::normalized(c),
         "cleanup" => {
             let mut out = json!({
                 "collection": text(c, "collection"),
@@ -1118,7 +1157,7 @@ pub async fn update(
     };
     let mut def = read(&body, saved.clone());
     let kept = unmask(&mut def, &saved);
-    if saved.kind == "sql" || def.kind == "sql" {
+    if crate::automations::does(&saved, &["sql"]) || crate::automations::does(&def, &["sql"]) {
         owner_only(&core, &auth)?;
     }
     def.id = id.clone();
@@ -1251,6 +1290,7 @@ mod tests {
         let reply = outbound::Reply {
             status: 200,
             excerpt: "{\"token\":\"s3cret\"}".into(),
+            body: "{\"token\":\"s3cret\"}".into(),
             bytes: 17,
             url: "https://example.com/".into(),
         };

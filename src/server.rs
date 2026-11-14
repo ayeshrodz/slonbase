@@ -139,6 +139,27 @@ fn app_router(app: Arc<App>) -> Router {
                 .patch(crate::cron_jobs::update)
                 .delete(crate::cron_jobs::delete),
         )
+        // (automations: the same jobs under the name the dashboard gives them)
+        .route(
+            "/api/automations",
+            get(crate::sql_console::crons).post(crate::cron_jobs::create),
+        )
+        .route(
+            "/api/automations/{id}",
+            post(crate::sql_console::run_cron)
+                .patch(crate::cron_jobs::update)
+                .delete(crate::cron_jobs::delete),
+        )
+        .route(
+            "/api/templates",
+            get(crate::templates::list).post(crate::templates::create),
+        )
+        .route("/api/templates/preview", post(crate::templates::preview))
+        .route(
+            "/api/templates/{id}",
+            axum::routing::patch(crate::templates::update).delete(crate::templates::delete),
+        )
+        .route("/api/templates/{id}/test", post(crate::templates::test))
         .route(
             "/api/collections/meta/scaffolds",
             get(collections::api::scaffolds),
