@@ -955,11 +955,17 @@ fn retry_pause(attempt: i32) -> std::time::Duration {
 /// run of its own in the history.
 pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
     handlers.register(QUEUE_KIND, |core, job| async move {
-        let trigger = if job.attempt <= 1 { "schedule" } else { "retry" };
-        run_auto_backup_recorded(&core, trigger).await.map_err(|err| {
-            tracing::error!(error = %err, "the automatic backup failed");
-            crate::services::Failure::transient(err.to_string()).after(retry_pause(job.attempt))
-        })
+        let trigger = if job.attempt <= 1 {
+            "schedule"
+        } else {
+            "retry"
+        };
+        run_auto_backup_recorded(&core, trigger)
+            .await
+            .map_err(|err| {
+                tracing::error!(error = %err, "the automatic backup failed");
+                crate::services::Failure::transient(err.to_string()).after(retry_pause(job.attempt))
+            })
     });
 }
 

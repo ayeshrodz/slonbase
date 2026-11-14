@@ -241,7 +241,11 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
         .await?;
     if let Some(row) = &row {
         let id: i64 = row.get(0);
-        core.queue.running.lock().expect("running jobs lock").insert(id);
+        core.queue
+            .running
+            .lock()
+            .expect("running jobs lock")
+            .insert(id);
     }
     Ok(row.map(|r| Job {
         id: r.get(0),

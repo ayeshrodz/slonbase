@@ -964,8 +964,14 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
                 .await
                 .unwrap();
             let settled = eventually(async || {
-                let pending = "SELECT count(*) FROM _slonbase.jobs WHERE state IN ('queued', 'running')";
-                client.query_one(pending, &[]).await.unwrap().get::<_, i64>(0) == 0
+                let pending =
+                    "SELECT count(*) FROM _slonbase.jobs WHERE state IN ('queued', 'running')";
+                client
+                    .query_one(pending, &[])
+                    .await
+                    .unwrap()
+                    .get::<_, i64>(0)
+                    == 0
             })
             .await;
             assert!(settled, "the queue didn't settle");

@@ -491,10 +491,10 @@ fn register(
                 .routes
                 .push((reg.method.clone(), reg.path.clone())),
             "cron" | "cronRemove" => {}
-            kind => hooks.loaded.handlers.push((
-                crate::extensions::event_name(kind),
-                reg.collections.clone(),
-            )),
+            kind => hooks
+                .loaded
+                .handlers
+                .push((crate::extensions::event_name(kind), reg.collections.clone())),
         }
         let (index, pool) = (reg.index, pool.clone());
         let request_hook = match reg.kind.as_str() {

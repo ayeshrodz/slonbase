@@ -37,10 +37,7 @@ fn kind_title(kind: &str) -> &'static str {
 }
 
 /// `GET /api/extensions`: developers, admins and owners (the role is checked by the guard).
-pub async fn list(
-    State(app): State<Arc<App>>,
-    auth: RequestAuth,
-) -> Result<Json<Value>, ApiError> {
+pub async fn list(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
     let loaded = &core.hooks.loaded;
@@ -103,7 +100,10 @@ mod tests {
     #[test]
     fn events_are_named_as_hook_files_name_them() {
         assert_eq!(event_name("recordCreate"), "onRecordCreate");
-        assert_eq!(event_name("recordAuthWithOTPRequest"), "onRecordAuthWithOTPRequest");
+        assert_eq!(
+            event_name("recordAuthWithOTPRequest"),
+            "onRecordAuthWithOTPRequest"
+        );
         assert_eq!(event_name("routerUse"), "routerUse");
         assert_eq!(event_name("ready"), "onBootstrap");
     }

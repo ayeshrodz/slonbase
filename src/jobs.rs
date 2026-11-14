@@ -204,7 +204,11 @@ pub(crate) async fn prune_hourly(core: &Core) {
 
 /// Closes the runs whose queued job ended without them (its instance stopped on the last
 /// attempt): they would otherwise count as running.
-pub(crate) async fn close_orphans(core: &Core, kind: &str, job: Option<&str>) -> anyhow::Result<()> {
+pub(crate) async fn close_orphans(
+    core: &Core,
+    kind: &str,
+    job: Option<&str>,
+) -> anyhow::Result<()> {
     let client = core
         .db()
         .get()

@@ -160,7 +160,11 @@ async fn settings_stored_as_one_value_are_converted_at_the_next_start() {
     let after = second.core().unwrap().settings();
     assert_eq!(*after, *before);
     let stored = keys(&client).await;
-    assert_eq!(stored.len(), slonbase::settings::SECTIONS.len(), "{stored:?}");
+    assert_eq!(
+        stored.len(),
+        slonbase::settings::SECTIONS.len(),
+        "{stored:?}"
+    );
     assert!(!stored.contains(&"settings".to_string()), "{stored:?}");
 
     // and they are changed as before
@@ -230,7 +234,11 @@ async fn one_value_left_by_a_restored_backup_is_read_and_goes_at_the_next_save()
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
     let stored = keys(&client).await;
-    assert_eq!(stored.len(), slonbase::settings::SECTIONS.len(), "{stored:?}");
+    assert_eq!(
+        stored.len(),
+        slonbase::settings::SECTIONS.len(),
+        "{stored:?}"
+    );
     assert!(!stored.contains(&"settings".to_string()), "{stored:?}");
     let settings = app.core().unwrap().settings();
     assert_eq!(settings.smtp.password, "s3cret");

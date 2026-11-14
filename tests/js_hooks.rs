@@ -381,7 +381,10 @@ async fn js_hooks() {
         .iter()
         .map(|k| k["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(kinds, ["backup.auto", "cron.hook", "cron.notice", "cron.user"]);
+    assert_eq!(
+        kinds,
+        ["backup.auto", "cron.hook", "cron.notice", "cron.user"]
+    );
     assert!(
         loaded["settingsSections"]
             .as_array()

@@ -78,7 +78,10 @@ pub const SECTIONS: &[Section] = &[
     section("trustedProxy", "Reverse proxy headers"),
     section("superuserIPs", "Addresses superusers may sign in from"),
     section("login", "Sign-in page"),
-    section("security", "Browser origins, upload limits, HTTPS, lockout, maintenance"),
+    section(
+        "security",
+        "Browser origins, upload limits, HTTPS, lockout, maintenance",
+    ),
     section("mailLayout", "Layout of emails"),
     section("files", "File tokens and thumbnails"),
     Section {
@@ -1207,9 +1210,7 @@ where
         .transaction()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    lock(&tx)
-        .await
-        .map_err(|e| ApiError::internal(e.into()))?;
+    lock(&tx).await.map_err(|e| ApiError::internal(e.into()))?;
     let current = Settings::load(&tx, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
@@ -1633,7 +1634,12 @@ mod tests {
     #[test]
     fn every_field_of_the_settings_is_a_section() {
         let value = serde_json::to_value(Settings::default()).unwrap();
-        let fields: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        let fields: Vec<&str> = value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect();
         let mut sections: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
         sections.sort_unstable();
         let mut sorted = fields.clone();
@@ -1665,7 +1671,9 @@ mod tests {
         assert!(public.get("superuserRoles").is_none());
 
         let body = json!({ "smtp": { "password": "", "port": 2525 }, "s3": { "secret": "new" } });
-        let Value::Object(body) = body else { unreachable!() };
+        let Value::Object(body) = body else {
+            unreachable!()
+        };
         let next = prepare_patch(&current, body).unwrap();
         assert_eq!(next.smtp.password, "p");
         assert_eq!(next.smtp.port, 2525);
