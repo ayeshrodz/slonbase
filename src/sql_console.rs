@@ -470,9 +470,10 @@ pub async fn run_cron(
     let core = app.core()?;
     auth.require_superuser()?;
     if let Some(job) = core.hooks.crons().iter().find(|j| j.id == id) {
-        // in the background, like PocketBase
-        let (run, core) = (job.run.clone(), core.clone());
-        tokio::spawn(crate::hooks::run_cron_recorded(core, id, run, "manual"));
+        // in the background (like PocketBase), on a queue worker
+        crate::hooks::enqueue_cron(&core, &job.id, "manual", "", None)
+            .await
+            .map_err(ApiError::internal)?;
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
     }
     if let Some(def) = core.settings().cron_jobs.iter().find(|j| j.id == id) {
@@ -486,7 +487,7 @@ pub async fn run_cron(
             )?;
         }
         // in the background, on a queue worker
-        crate::cron_jobs::enqueue(&core, &def.id, "manual", None)
+        crate::cron_jobs::enqueue(&core, def, "manual", "", None)
             .await
             .map_err(ApiError::internal)?;
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());

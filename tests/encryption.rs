@@ -49,7 +49,7 @@ async fn params(tdb: &TestDb) -> (Value, Value) {
                 .get::<_, Value>(0)
         }
     };
-    (get("settings").await, get("auth_secret").await)
+    (get("settings:smtp").await, get("auth_secret").await)
 }
 
 fn sealed(value: &Value) -> bool {
@@ -174,7 +174,20 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     assert_eq!(status, StatusCode::OK, "{res}");
     let (settings, _) = params(&tdb).await;
     assert!(sealed(&settings), "{settings}");
-    assert!(!settings.to_string().contains("Sealed app"));
+    let meta: Value = tdb
+        .pool()
+        .get()
+        .await
+        .unwrap()
+        .query_one(
+            "SELECT value FROM _slonbase.params WHERE key = 'settings:meta'",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(sealed(&meta), "{meta}");
+    assert!(!meta.to_string().contains("Sealed app"));
     // the SMTP password still is what was set
     let core = keyed.core().unwrap();
     assert_eq!(core.settings().smtp.password, SMTP_PASSWORD);
@@ -265,7 +278,7 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     drop(client);
     let (settings, secret) = params(&tdb).await;
     assert!(!sealed(&settings) && !sealed(&secret));
-    assert_eq!(settings["smtp"]["password"], SMTP_PASSWORD);
+    assert_eq!(settings["password"], SMTP_PASSWORD);
     assert_eq!(
         members_data(&tdb).await["oauth2"]["providers"][0]["clientSecret"],
         CLIENT_SECRET

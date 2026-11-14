@@ -29,6 +29,78 @@ pub struct Run {
 
 /// Records that `job` (of `kind`) started, by `trigger` (`schedule`, `manual` or `api`).
 pub async fn start(core: &Arc<Core>, kind: &str, job: &str, trigger: &str) -> Run {
+    start_queued(core, kind, job, trigger, None).await
+}
+
+/// The run that the queued job `queue_job` started on an earlier attempt, if it did.
+pub(crate) async fn resume(core: &Arc<Core>, queue_job: i64) -> anyhow::Result<Option<Run>> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let row = client
+        .query_opt(
+            "SELECT id FROM _slonbase.job_runs WHERE queue_job = $1 AND status = 'running'
+             ORDER BY id DESC LIMIT 1",
+            &[&queue_job],
+        )
+        .await?;
+    Ok(row.map(|row| Run {
+        core: core.clone(),
+        id: Some(row.get(0)),
+    }))
+}
+
+/// Starts a run of `job` for the queued job `queue_job` unless another run of it is going
+/// (started within the hour), or the queued job has a run already (it finished, and the
+/// instance stopped before the queue knew: the work is not done a second time): `None` then. The check and the start are one step (a lock on the
+/// job for the transaction), so two runs queued at the same moment can't both start.
+pub(crate) async fn start_exclusive(
+    core: &Arc<Core>,
+    kind: &str,
+    job: &str,
+    trigger: &str,
+    queue_job: i64,
+) -> anyhow::Result<Option<Run>> {
+    let mut client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let tx = client.transaction().await?;
+    tx.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended('slonbase.job:' || $1 || ':' || $2, 0))",
+        &[&kind, &job],
+    )
+    .await?;
+    let row = tx
+        .query_opt(
+            "INSERT INTO _slonbase.job_runs (kind, job, trigger, queue_job)
+             SELECT $1, $2, $3, $4 WHERE NOT EXISTS (
+                 SELECT 1 FROM _slonbase.job_runs
+                 WHERE kind = $1 AND job = $2 AND status = 'running'
+                   AND started > now() - interval '1 hour')
+               AND NOT EXISTS (SELECT 1 FROM _slonbase.job_runs WHERE queue_job = $4)
+             RETURNING id",
+            &[&kind, &job, &trigger, &queue_job],
+        )
+        .await?;
+    tx.commit().await?;
+    Ok(row.map(|row| Run {
+        core: core.clone(),
+        id: Some(row.get(0)),
+    }))
+}
+
+/// [`start`] for a run that belongs to a queued job, so a later attempt can [`resume`] it.
+pub(crate) async fn start_queued(
+    core: &Arc<Core>,
+    kind: &str,
+    job: &str,
+    trigger: &str,
+    queue_job: Option<i64>,
+) -> Run {
     let id = async {
         let client = core
             .db()
@@ -37,8 +109,9 @@ pub async fn start(core: &Arc<Core>, kind: &str, job: &str, trigger: &str) -> Ru
             .map_err(crate::db::describe_pool_error)?;
         let row = client
             .query_one(
-                "INSERT INTO _slonbase.job_runs (kind, job, trigger) VALUES ($1, $2, $3) RETURNING id",
-                &[&kind, &job, &trigger],
+                "INSERT INTO _slonbase.job_runs (kind, job, trigger, queue_job)
+                 VALUES ($1, $2, $3, $4) RETURNING id",
+                &[&kind, &job, &trigger, &queue_job],
             )
             .await?;
         anyhow::Ok(row.get::<_, i64>(0))
@@ -58,6 +131,24 @@ pub async fn start(core: &Arc<Core>, kind: &str, job: &str, trigger: &str) -> Ru
 }
 
 impl Run {
+    /// The run's id in the history (none when it couldn't be recorded).
+    pub(crate) fn id(&self) -> Option<i64> {
+        self.id
+    }
+
+    /// Notes where a run that goes on stands (a failed attempt that will be tried again).
+    pub(crate) async fn note(&self, detail: &str) {
+        let Some(id) = self.id else { return };
+        if let Ok(client) = self.core.db().get().await {
+            let _ = client
+                .execute(
+                    "UPDATE _slonbase.job_runs SET detail = $2 WHERE id = $1",
+                    &[&id, &detail.chars().take(4000).collect::<String>()],
+                )
+                .await;
+        }
+    }
+
     /// Records how the run ended: `Ok` with what it made, or `Err` with why it failed.
     pub async fn finish(self, result: Result<Value, String>) {
         let Some(id) = self.id else {
@@ -89,25 +180,6 @@ impl Run {
     }
 }
 
-/// Claims `minute` for the job `id`: true for the one instance that gets it, so each job runs once
-/// a minute across instances (the claim is a conditional upsert in the params table).
-pub(crate) async fn claim_minute(core: &Arc<Core>, id: &str, minute: &str) -> anyhow::Result<bool> {
-    let client = core
-        .db()
-        .get()
-        .await
-        .map_err(crate::db::describe_pool_error)?;
-    let rows = client
-        .execute(
-            "INSERT INTO _slonbase.params (key, value) VALUES ($1, to_jsonb($2::text))
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()
-             WHERE _slonbase.params.value <> EXCLUDED.value",
-            &[&format!("cron_last:{id}"), &minute],
-        )
-        .await?;
-    Ok(rows == 1)
-}
-
 /// A run's recorded result as the API shows it. Runs recorded before the history stopped keeping
 /// the content of a called URL's answer have it under `response`; it is not shown.
 fn run_meta(mut meta: Value) -> Value {
@@ -127,13 +199,42 @@ pub(crate) async fn prune_hourly(core: &Core) {
     if let Err(err) = crate::queue::prune(core).await {
         tracing::debug!(error = %format!("{err:#}"), "failed to prune the job queue");
     }
+    if let Err(err) = close_orphans(core, CRON, None).await {
+        tracing::debug!(error = %format!("{err:#}"), "failed to close interrupted runs");
+    }
     if let Err(err) = prune(core).await {
         tracing::debug!(error = %format!("{err:#}"), "failed to prune the jobs' history");
     }
 }
 
+/// Closes the runs whose queued job ended without them (its instance stopped on the last
+/// attempt): they would otherwise count as running.
+pub(crate) async fn close_orphans(
+    core: &Core,
+    kind: &str,
+    job: Option<&str>,
+) -> anyhow::Result<()> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    client
+        .execute(
+            "UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
+                 detail = 'Interrupted: the instance running it stopped.'
+             WHERE r.kind = $1 AND ($2::text IS NULL OR r.job = $2) AND r.status = 'running'
+               AND r.queue_job IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j
+                               WHERE j.id = r.queue_job AND j.state IN ('queued', 'running'))",
+            &[&kind, &job],
+        )
+        .await?;
+    Ok(())
+}
+
 /// Keeps the last runs of each job, and closes runs left `running` by an instance that
-/// stopped (after a day).
+/// stopped (after a day; not a run whose queued job still waits for a retry).
 pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
     let client = core
         .db()
@@ -147,10 +248,12 @@ pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
                      SELECT id, row_number() OVER (PARTITION BY kind, job ORDER BY started DESC) AS n
                      FROM _slonbase.job_runs
                  ) ranked WHERE n > {KEEP}
-             ) old WHERE r.id = old.id;
-             UPDATE _slonbase.job_runs SET status = 'error', finished = now(),
+             ) old WHERE r.id = old.id AND r.status <> 'running';
+             UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
                  detail = 'Interrupted: the instance running it stopped.'
-             WHERE status = 'running' AND started < now() - interval '1 day';"
+             WHERE r.status = 'running' AND r.started < now() - interval '1 day'
+               AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j
+                               WHERE j.id = r.queue_job AND j.state IN ('queued', 'running'));"
         ))
         .await?;
     Ok(())

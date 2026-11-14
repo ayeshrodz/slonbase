@@ -188,6 +188,7 @@ for (const theme of ["light", "dark"]) {
     ["storage", "#/settings/storage", { screenshot: false }],
     ["logs settings", "#/settings/logs", { screenshot: false }],
     ["import", "#/settings/transfer", { screenshot: false }],
+    ["extensions", "#/settings/extensions", { screenshot: false }],
     ["mail", "#/settings/mail", { screenshot: false }],
     ["team", "#/settings/users", { screenshot: false }],
     ["app users", "#/settings/app-users", { screenshot: false }],

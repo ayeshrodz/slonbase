@@ -24,6 +24,9 @@ pub mod sql;
 pub struct Failure {
     pub message: String,
     pub retry: bool,
+    /// How long to wait before the next try, when the one who failed knows better than the
+    /// default of whoever retries.
+    pub retry_in: Option<std::time::Duration>,
 }
 
 impl Failure {
@@ -32,6 +35,7 @@ impl Failure {
         Self {
             message: message.into(),
             retry: true,
+            retry_in: None,
         }
     }
 
@@ -40,7 +44,14 @@ impl Failure {
         Self {
             message: message.into(),
             retry: false,
+            retry_in: None,
         }
+    }
+
+    /// The same failure, to be tried again after `wait`.
+    pub fn after(mut self, wait: std::time::Duration) -> Self {
+        self.retry_in = Some(wait);
+        self
     }
 }
 

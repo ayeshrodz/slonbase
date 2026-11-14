@@ -242,7 +242,7 @@ pub(super) fn call_in_tx(
             ctx.run(handle, move |tx, _| {
                 Box::pin(async move {
                     saved
-                        .save(tx, core.secrets_key())
+                        .save(tx, core.secrets_key(), None)
                         .await
                         .map_err(ApiError::internal)?;
                     crate::realtime::notify(tx, "settings")

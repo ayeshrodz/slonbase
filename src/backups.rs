@@ -776,20 +776,21 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
             .into());
         }
     }
-    for param in crate::secrets::SEALED_PARAMS {
-        let Some(row) = tx
-            .query_opt(
-                "SELECT value FROM _slonbase.params WHERE key = $1",
-                &[param],
-            )
-            .await?
-        else {
-            continue;
-        };
+    let sealed = tx
+        .query(
+            "SELECT key, value FROM _slonbase.params WHERE key = ANY($1) OR starts_with(key, $2)",
+            &[
+                &crate::secrets::SEALED_PARAMS,
+                &crate::secrets::SEALED_PREFIX,
+            ],
+        )
+        .await?;
+    for row in sealed {
+        let param: String = row.get(0);
         if let Err(err) = crate::secrets::from_stored(
-            row.get(0),
+            row.get(1),
             core.secrets_key(),
-            crate::secrets::param_name(param),
+            crate::secrets::param_name(&param),
         ) {
             return Err(Unreadable(format!(
                 "The backup can't be restored here: {err}. Restore it with the encryption key it was made with."
@@ -909,29 +910,14 @@ async fn swap_dirs(target: &Path, restored: &Path) -> Result<()> {
 // ---------------------------------------------------------------------------
 // automatic backups
 
-/// Seconds to wait before each retry of a failed automatic backup (the first try is at once).
-const RETRY_PAUSES: [u64; 4] = [0, 60, 300, 900];
+/// Seconds to wait before each retry of a failed automatic backup.
+const RETRY_PAUSES: [u64; 3] = [60, 300, 900];
 
-/// Calls `attempt` ("schedule" the first time, "retry" after) until it succeeds, waiting the
-/// given seconds before each try; false if every try failed.
-async fn retry_pauses<F, Fut>(pauses: &[u64], mut attempt: F) -> bool
-where
-    F: FnMut(&'static str) -> Fut,
-    Fut: std::future::Future<Output = bool>,
-{
-    for (n, pause) in pauses.iter().enumerate() {
-        if *pause > 0 {
-            tokio::time::sleep(std::time::Duration::from_secs(*pause)).await;
-        }
-        if attempt(if n == 0 { "schedule" } else { "retry" }).await {
-            return true;
-        }
-    }
-    false
-}
+/// The queue's kind for the automatic backup.
+pub const QUEUE_KIND: &str = "backup.auto";
 
-/// Runs the automatic backup if the `backups.cron` schedule fires this minute. Only one
-/// instance wins each minute (claimed in the params table).
+/// Queues the automatic backup if the `backups.cron` schedule fires this minute: once for the
+/// minute, whichever instance notices first.
 pub async fn run_scheduled(core: &Arc<Core>) {
     let settings = core.settings();
     let Some(schedule) = crate::cron::Schedule::parse(&settings.backups.cron) else {
@@ -942,47 +928,44 @@ pub async fn run_scheduled(core: &Arc<Core>) {
         return;
     }
     let minute = now.format("%Y-%m-%dT%H:%M").to_string();
-    let claimed = async {
-        let client = core
-            .db()
-            .get()
-            .await
-            .map_err(crate::db::describe_pool_error)?;
-        let rows = client
-            .execute(
-                "INSERT INTO _slonbase.params (key, value) VALUES ('backups_last_auto', to_jsonb($1::text))
-                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()
-                 WHERE _slonbase.params.value <> EXCLUDED.value",
-                &[&minute],
-            )
-            .await?;
-        anyhow::Ok(rows == 1)
-    };
-    match claimed.await {
-        Ok(true) => {}
-        Ok(false) => return,
-        Err(err) => {
-            tracing::warn!(error = %format!("{err:#}"), "failed to schedule the automatic backup");
-            return;
-        }
+    let queued = crate::queue::enqueue(
+        core,
+        crate::queue::NewJob {
+            kind: QUEUE_KIND,
+            reference: "auto",
+            payload: json!({}),
+            dedupe: Some(&format!("backup:auto:{minute}")),
+            max_attempts: 1 + RETRY_PAUSES.len() as i32,
+        },
+    )
+    .await;
+    if let Err(err) = queued {
+        tracing::warn!(error = %format!("{err:#}"), "failed to schedule the automatic backup");
     }
-    let core = core.clone();
-    tokio::spawn(async move {
-        // the minute is claimed, so a failure would otherwise wait for the next scheduled time
-        // (a day, say): retry a few times with growing pauses
-        retry_pauses(&RETRY_PAUSES, |trigger| {
-            let core = core.clone();
-            async move {
-                match run_auto_backup_recorded(&core, trigger).await {
-                    Ok(()) => true,
-                    Err(err) => {
-                        tracing::error!(error = %err, "the automatic backup failed");
-                        false
-                    }
-                }
-            }
-        })
-        .await;
+}
+
+/// How long to wait after failed attempt number `attempt` (from 1).
+fn retry_pause(attempt: i32) -> std::time::Duration {
+    let n = (attempt.max(1) as usize - 1).min(RETRY_PAUSES.len() - 1);
+    std::time::Duration::from_secs(RETRY_PAUSES[n])
+}
+
+/// Tells the queue what runs the automatic backup. A failure would otherwise wait for the next
+/// scheduled time (a day, say): it is tried again a few times with growing pauses, each try a
+/// run of its own in the history.
+pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
+    handlers.register(QUEUE_KIND, |core, job| async move {
+        let trigger = if job.attempt <= 1 {
+            "schedule"
+        } else {
+            "retry"
+        };
+        run_auto_backup_recorded(&core, trigger)
+            .await
+            .map_err(|err| {
+                tracing::error!(error = %err, "the automatic backup failed");
+                crate::services::Failure::transient(err.to_string()).after(retry_pause(job.attempt))
+            })
     });
 }
 
@@ -1370,32 +1353,12 @@ mod extract_tests {
         let _ = std::fs::remove_dir_all(&base);
     }
 
-    #[tokio::test]
-    async fn a_failed_automatic_backup_is_retried() {
-        assert_eq!(RETRY_PAUSES, [0, 60, 300, 900]);
-        let pauses = [0u64; 4];
-        let tries = std::sync::Mutex::new(Vec::new());
-        // fails twice, then works: three tries, the first one a "schedule"
-        let ok = retry_pauses(&pauses, |trigger| {
-            let n = {
-                let mut t = tries.lock().unwrap();
-                t.push(trigger);
-                t.len()
-            };
-            async move { n >= 3 }
-        })
-        .await;
-        assert!(ok);
-        assert_eq!(*tries.lock().unwrap(), ["schedule", "retry", "retry"]);
-        // always failing: gives up after every try was used
-        let n = std::sync::atomic::AtomicUsize::new(0);
-        let ok = retry_pauses(&pauses, |_| {
-            n.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            async { false }
-        })
-        .await;
-        assert!(!ok);
-        assert_eq!(n.load(std::sync::atomic::Ordering::SeqCst), pauses.len());
+    #[test]
+    fn a_failed_automatic_backup_waits_longer_before_each_retry() {
+        let secs = |attempt| retry_pause(attempt).as_secs();
+        assert_eq!([secs(1), secs(2), secs(3)], [60, 300, 900]);
+        // (never asked for: the last attempt isn't retried)
+        assert_eq!(secs(9), 900);
     }
 
     #[tokio::test]

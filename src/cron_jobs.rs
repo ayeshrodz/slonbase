@@ -18,7 +18,6 @@
 //! the SQL console's policy (console on, writes only when allowed, its role and limits); a job of
 //! type `sql` can only be made or changed by an owner, since it can read and change anything.
 
-use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -398,40 +397,6 @@ fn backoff(delay_seconds: i64, n: u32) -> Duration {
         .min(MAX_RETRY_WAIT)
 }
 
-/// Tries `work` up to `1 + retries` times, waiting `wait(n)` before retry `n` and stopping at a
-/// failure that retrying can't fix. Returns the outcome and how many attempts were made.
-async fn with_retries<F, Fut>(
-    retries: u32,
-    wait: impl Fn(u32) -> Duration,
-    mut work: F,
-) -> (Result<Value, String>, u32)
-where
-    F: FnMut() -> Fut,
-    Fut: Future<Output = Result<Value, Failure>>,
-{
-    let mut tries = 0;
-    loop {
-        tries += 1;
-        match work().await {
-            Ok(mut meta) => {
-                if tries > 1 {
-                    meta["attempts"] = tries.into();
-                }
-                return (Ok(meta), tries);
-            }
-            Err(fail) if fail.retry && tries <= retries => tokio::time::sleep(wait(tries)).await,
-            Err(fail) => {
-                let message = if tries > 1 {
-                    format!("{} (after {tries} attempts)", fail.message)
-                } else {
-                    fail.message
-                };
-                return (Err(message), tries);
-            }
-        }
-    }
-}
-
 async fn send_mail(core: &Arc<Core>, config: &Value) -> Result<Value, Failure> {
     let sent = mail::send_text(
         core,
@@ -518,86 +483,144 @@ async fn cleanup(core: &Arc<Core>, config: &Value) -> Result<Value, String> {
     Ok(json!({ "collection": collection, "deleted": deleted, "limit": max }))
 }
 
-/// Whether the job's last run is still going (started within the hour), so a slow run isn't
-/// started again on top of itself.
-async fn still_running(core: &Core, id: &str) -> bool {
-    let check = async {
+/// A scheduled run that waited this long in the queue (the workers were busy, or no instance
+/// was up) is dropped: the schedule has moved on, and running the minutes that were missed one
+/// after the other helps nobody.
+const STALE_AFTER_MINUTES: i64 = 10;
+
+pub(crate) fn stale(scheduled_for: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+    chrono::NaiveDateTime::parse_from_str(scheduled_for, "%Y-%m-%dT%H:%M")
+        .is_ok_and(|at| (now.naive_utc() - at).num_minutes() >= STALE_AFTER_MINUTES)
+}
+
+/// One attempt of a queued run, recorded in the jobs' history.
+///
+/// A run is one row of the history however many attempts it takes: the first attempt starts
+/// it, a failed attempt that can be retried leaves it running and hands the wait to the queue
+/// (so the retry survives a restart and may happen on another instance), and the last attempt
+/// closes it and tells the job's people.
+async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failure> {
+    let manual = job.payload["trigger"] == "manual";
+    let trigger = if manual { "manual" } else { "schedule" };
+    // (a history that can't be read is not a history that isn't there: tried again later)
+    let resumed = crate::jobs::resume(&core, job.id)
+        .await
+        .map_err(|e| Failure::transient(format!("{e:#}")))?;
+    let settings = core.settings();
+    let def = settings.cron_jobs.iter().find(|d| d.id == job.reference);
+    // deleted, switched off or paused since it was queued: not run on its schedule
+    let def = match def {
+        Some(def) if manual || (def.enabled && !settings.schedule.pause_jobs) => def.clone(),
+        _ => {
+            if let Some(record) = resumed {
+                let why = "The job was removed or switched off before it could be tried again.";
+                record.finish(Err(why.to_string())).await;
+            }
+            return Ok(());
+        }
+    };
+    let record = match resumed {
+        Some(record) => record,
+        None => {
+            let scheduled_for = job.payload["minute"].as_str().unwrap_or_default();
+            if !manual && stale(scheduled_for, chrono::Utc::now()) {
+                tracing::warn!(job = %def.id, scheduled_for, "a cron job's run waited too long: dropped");
+                return Ok(());
+            }
+            // (a run whose instance stopped doesn't count as going)
+            let _ = crate::jobs::close_orphans(&core, crate::jobs::CRON, Some(&def.id)).await;
+            let started =
+                crate::jobs::start_exclusive(&core, crate::jobs::CRON, &def.id, trigger, job.id)
+                    .await
+                    .map_err(|e| Failure::transient(format!("{e:#}")))?;
+            match started {
+                Some(record) => record,
+                None => {
+                    tracing::warn!(job = %def.id, "a cron job is still running, or this run was already recorded: not started");
+                    return Ok(());
+                }
+            }
+        }
+    };
+    let tries = job.attempt.max(1) as u32;
+    let result = match tokio::time::timeout(RUN_LIMIT, attempt(&core, &def)).await {
+        Ok(result) => result,
+        Err(_) => Err(Failure::transient(format!(
+            "Stopped after {} minutes.",
+            RUN_LIMIT.as_secs() / 60
+        ))),
+    };
+    let result = match result {
+        Ok(mut meta) => {
+            if tries > 1 {
+                meta["attempts"] = tries.into();
+            }
+            Ok(meta)
+        }
+        Err(fail) if fail.retry && job.attempt < job.max_attempts => {
+            let delay = match def.retry_delay_seconds {
+                0 => DEFAULT_RETRY_DELAY,
+                d => d,
+            };
+            record
+                .note(&format!(
+                    "Attempt {tries} failed: {} It will be tried again.",
+                    fail.message
+                ))
+                .await;
+            return Err(fail.after(backoff(delay, tries)));
+        }
+        Err(fail) if tries > 1 => Err(format!("{} (after {tries} attempts)", fail.message)),
+        Err(fail) => Err(fail.message),
+    };
+    if let Err(detail) = &result {
+        tracing::error!(job = %def.id, error = %detail, "a cron job failed");
+    }
+    let error = result.as_ref().err().cloned().unwrap_or_default();
+    // how the run before this one ended, to tell the first failure of a streak from the rest
+    let event = match manual || def.notify.is_empty() {
+        true => None,
+        false => {
+            let before = last_finished(&core, &def.id, record.id()).await;
+            notice(before.as_deref(), result.is_ok())
+        }
+    };
+    record.finish(result).await;
+    if let Some(event) = event {
+        queue_notices(&core, &def, job.id, event, &error, tries).await;
+    }
+    match error.is_empty() {
+        true => Ok(()),
+        false => Err(Failure::permanent(error)),
+    }
+}
+
+/// What the job's finished run before `this` one came to: `ok`, `error` or nothing yet.
+async fn last_finished(core: &Core, id: &str, this: Option<i64>) -> Option<String> {
+    let found = async {
         let client = core
             .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;
         let row = client
-            .query_one(
-                "SELECT EXISTS (SELECT 1 FROM _slonbase.job_runs
-                 WHERE kind = $1 AND job = $2 AND status = 'running'
-                 AND started > now() - interval '1 hour')",
-                &[&crate::jobs::CRON, &id],
+            .query_opt(
+                "SELECT status FROM _slonbase.job_runs
+                 WHERE kind = $1 AND job = $2 AND status IN ('ok', 'error')
+                   AND ($3::int8 IS NULL OR id <> $3::int8)
+                 ORDER BY started DESC, id DESC LIMIT 1",
+                &[&crate::jobs::CRON, &id, &this],
             )
             .await?;
-        anyhow::Ok(row.get::<_, bool>(0))
+        anyhow::Ok(row.map(|row| row.get::<_, String>(0)))
     };
-    check.await.unwrap_or(false)
-}
-
-/// Runs a job, recorded in the jobs' history (`trigger`: `schedule` or `manual`).
-pub async fn run_recorded(core: Arc<Core>, def: JobDef, trigger: &'static str) {
-    if still_running(&core, &def.id).await {
-        tracing::warn!(job = %def.id, "a cron job is still running: not started again");
-        return;
+    match found.await {
+        Ok(status) => status,
+        Err(err) => {
+            tracing::warn!(job = %id, error = %format!("{err:#}"), "failed to read a cron job's last run");
+            None
+        }
     }
-    // how the run before this one ended, to tell the first failure of a streak from the rest
-    let before = match def.notify.is_empty() {
-        true => None,
-        false => last_finished(&core, &def.id).await,
-    };
-    let record = crate::jobs::start(&core, crate::jobs::CRON, &def.id, trigger).await;
-    let retries = def.retries.clamp(0, MAX_RETRIES) as u32;
-    let delay = match def.retry_delay_seconds {
-        0 => DEFAULT_RETRY_DELAY,
-        d => d,
-    };
-    let (result, tries) = with_retries(
-        retries,
-        |n| backoff(delay, n),
-        || async {
-            match tokio::time::timeout(RUN_LIMIT, attempt(&core, &def)).await {
-                Ok(result) => result,
-                Err(_) => Err(Failure::transient(format!(
-                    "Stopped after {} minutes.",
-                    RUN_LIMIT.as_secs() / 60
-                ))),
-            }
-        },
-    )
-    .await;
-    if let Err(detail) = &result {
-        tracing::error!(job = %def.id, error = %detail, "a cron job failed");
-    }
-    let event = (trigger == "schedule")
-        .then(|| notice(before.as_deref(), result.is_ok()))
-        .flatten();
-    let error = result.as_ref().err().cloned().unwrap_or_default();
-    record.finish(result).await;
-    if let Some(event) = event {
-        send_notices(&core, &def, event, &error, tries).await;
-    }
-}
-
-/// What a job's last finished run came to: `ok`, `error` or nothing yet.
-async fn last_finished(core: &Core, id: &str) -> Option<String> {
-    let client = core.db().get().await.ok()?;
-    client
-        .query_opt(
-            "SELECT status FROM _slonbase.job_runs
-             WHERE kind = $1 AND job = $2 AND status IN ('ok', 'error')
-             ORDER BY started DESC, id DESC LIMIT 1",
-            &[&crate::jobs::CRON, &id],
-        )
-        .await
-        .ok()
-        .flatten()
-        .map(|row| row.get::<_, String>(0))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -650,25 +673,91 @@ fn notice_json(def: &JobDef, event: Notice, error: &str, tries: u32, at: &str) -
     })
 }
 
-/// Tells the job's people. A notice that can't be sent is logged and changes nothing about the
-/// run: it is never retried and never makes the job fail.
-async fn send_notices(core: &Arc<Core>, def: &JobDef, event: Notice, error: &str, tries: u32) {
+impl Notice {
+    fn name(self) -> &'static str {
+        match self {
+            Notice::Failed => "failed",
+            Notice::Recovered => "recovered",
+        }
+    }
+}
+
+/// The queue's kind for one notice to one address.
+pub const NOTICE_KIND: &str = "cron.notice";
+/// How many times a notice is tried.
+const NOTICE_ATTEMPTS: i32 = 3;
+
+/// Queues a notice for each of the job's people: each is delivered on its own (one that fails
+/// is tried again without the others being sent twice) and never changes how the run ended.
+async fn queue_notices(
+    core: &Arc<Core>,
+    def: &JobDef,
+    run: i64,
+    event: Notice,
+    error: &str,
+    tries: u32,
+) {
     let at = crate::datetime::format(&chrono::Utc::now());
+    let mut targets: Vec<Value> = Vec::new();
     if !def.notify.emails.is_empty() {
         if mail::enabled(core) {
-            let (subject, body) = notice_text(def, event, error, tries, &at);
-            for address in &def.notify.emails {
-                if let Err(err) = mail::send_text_to(core, address, &subject, &body).await {
-                    tracing::warn!(job = %def.id, error = %err, "failed to mail a cron job's notice");
-                }
-            }
+            targets.extend(def.notify.emails.iter().map(|a| json!({ "email": a })));
         } else {
             tracing::warn!(job = %def.id, "email is off: a cron job's notice was not sent");
         }
     }
     if !def.notify.webhook.is_empty() {
-        let body = notice_json(def, event, error, tries, &at).to_string();
-        let sent = outbound::send(outbound::Request {
+        // (the address stays in the job's settings: it may carry a token)
+        targets.push(json!({ "webhook": true }));
+    }
+    for (n, target) in targets.into_iter().enumerate() {
+        let queued = crate::queue::enqueue(
+            core,
+            crate::queue::NewJob {
+                kind: NOTICE_KIND,
+                reference: &def.id,
+                payload: json!({
+                    "event": event.name(), "error": error, "tries": tries, "at": at,
+                    "target": target,
+                }),
+                dedupe: Some(&format!("notice:{run}:{n}")),
+                max_attempts: NOTICE_ATTEMPTS,
+            },
+        )
+        .await;
+        if let Err(err) = queued {
+            tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to queue a cron job's notice");
+        }
+    }
+}
+
+/// Delivers one queued notice.
+async fn deliver_notice(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failure> {
+    let settings = core.settings();
+    // (a job deleted meanwhile has nobody to tell)
+    let Some(def) = settings.cron_jobs.iter().find(|d| d.id == job.reference) else {
+        return Ok(());
+    };
+    let event = match job.payload["event"].as_str() {
+        Some("recovered") => Notice::Recovered,
+        _ => Notice::Failed,
+    };
+    let error = job.payload["error"].as_str().unwrap_or_default();
+    let tries = job.payload["tries"].as_u64().unwrap_or(1) as u32;
+    let at = job.payload["at"].as_str().unwrap_or_default();
+    let target = &job.payload["target"];
+    let sent = if let Some(address) = target["email"].as_str() {
+        // (still one of the job's addresses)
+        if !def.notify.emails.iter().any(|a| a == address) {
+            return Ok(());
+        }
+        let (subject, body) = notice_text(def, event, error, tries, at);
+        mail::send_text_to(&core, address, &subject, &body).await
+    } else if def.notify.webhook.is_empty() {
+        return Ok(());
+    } else {
+        let body = notice_json(def, event, error, tries, at).to_string();
+        let reply = outbound::send(outbound::Request {
             method: "POST",
             url: &def.notify.webhook,
             headers: &[("content-type".to_string(), "application/json".to_string())],
@@ -676,16 +765,19 @@ async fn send_notices(core: &Arc<Core>, def: &JobDef, event: Notice, error: &str
             timeout: Duration::from_secs(10),
         })
         .await;
-        match sent {
-            Ok(reply) if !(200..300).contains(&reply.status) => {
-                tracing::warn!(job = %def.id, status = reply.status, "a cron job's webhook answered with an error");
-            }
-            Err(err) => {
-                tracing::warn!(job = %def.id, error = %err, "failed to call a cron job's webhook");
-            }
-            Ok(_) => {}
+        match reply {
+            Ok(reply) if !(200..300).contains(&reply.status) => Err(Failure::transient(format!(
+                "The server answered {}.",
+                reply.status
+            ))),
+            Ok(_) => Ok(()),
+            Err(fail) => Err(fail),
         }
+    };
+    if let Err(fail) = &sent {
+        tracing::warn!(job = %def.id, error = %fail, "a cron job's notice could not be delivered");
     }
+    sent
 }
 
 /// Runs the dashboard jobs due this minute; one instance runs each (claimed like hook jobs).
@@ -708,7 +800,7 @@ pub(crate) async fn run_scheduled(
         }
         // queued once for this minute, whichever instance notices first; a worker runs it
         let dedupe = format!("cron:{}:{minute}", def.id);
-        if let Err(err) = enqueue(core, &def.id, "schedule", Some(&dedupe)).await {
+        if let Err(err) = enqueue(core, def, "schedule", minute, Some(&dedupe)).await {
             tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to schedule a cron job");
         }
     }
@@ -717,46 +809,34 @@ pub(crate) async fn run_scheduled(
 /// The queue's kind for a run of a dashboard job.
 pub const QUEUE_KIND: &str = "cron.user";
 
-/// Queues a run of the job `id` (`trigger`: `schedule` or `manual`).
-pub(crate) async fn enqueue(
+/// Queues a run of a job (`trigger`: `schedule` or `manual`), to be tried as many times as
+/// the job says.
+#[doc(hidden)]
+pub async fn enqueue(
     core: &Core,
-    id: &str,
+    def: &JobDef,
     trigger: &str,
+    minute: &str,
     dedupe: Option<&str>,
 ) -> anyhow::Result<bool> {
     crate::queue::enqueue(
         core,
         crate::queue::NewJob {
             kind: QUEUE_KIND,
-            reference: id,
-            payload: json!({ "trigger": trigger }),
+            reference: &def.id,
+            payload: json!({ "trigger": trigger, "minute": minute }),
             dedupe,
-            max_attempts: 1,
+            max_attempts: 1 + def.retries.clamp(0, MAX_RETRIES) as i32,
         },
     )
     .await
 }
 
-/// Tells the queue what runs a dashboard job: the job as it is defined when the worker picks
-/// it up (a job deleted or switched off meanwhile isn't run on its schedule).
+/// Tells the queue what runs a dashboard job and what delivers its notices. A run uses the job
+/// as it is defined when the worker picks it up.
 pub(crate) fn register(handlers: &mut crate::queue::Handlers) {
-    handlers.register(QUEUE_KIND, |core, job| async move {
-        let manual = job.payload["trigger"] == "manual";
-        let settings = core.settings();
-        let Some(def) = settings
-            .cron_jobs
-            .iter()
-            .find(|d| d.id == job.reference)
-            .cloned()
-        else {
-            return Ok(());
-        };
-        if !manual && (!def.enabled || settings.schedule.pause_jobs) {
-            return Ok(());
-        }
-        run_recorded(core, def, if manual { "manual" } else { "schedule" }).await;
-        Ok(())
-    });
+    handlers.register(QUEUE_KIND, run_queued);
+    handlers.register(NOTICE_KIND, deliver_notice);
 }
 
 /// How the jobs list shows a dashboard job (the fields of a hook job, and its settings).
@@ -1094,15 +1174,6 @@ pub async fn delete(
         Ok(settings)
     })
     .await?;
-    // the claim of its last minute has no use now
-    if let Ok(client) = core.db().get().await {
-        let _ = client
-            .execute(
-                "DELETE FROM _slonbase.params WHERE key = $1",
-                &[&format!("cron_last:{id}")],
-            )
-            .await;
-    }
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1235,53 +1306,17 @@ mod tests {
         );
     }
 
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    fn quick(_: u32) -> Duration {
-        Duration::from_millis(1)
-    }
-
-    #[tokio::test]
-    async fn a_failing_job_is_tried_again_and_the_attempts_are_counted() {
-        let calls = AtomicU32::new(0);
-        let (result, tries) = with_retries(3, quick, || async {
-            if calls.fetch_add(1, Ordering::SeqCst) < 2 {
-                Err(Failure::transient("busy".to_string()))
-            } else {
-                Ok(json!({ "sent": 1 }))
-            }
-        })
-        .await;
-        assert_eq!(tries, 3);
-        let meta = result.unwrap();
-        assert_eq!(meta["attempts"], 3);
-        assert_eq!(meta["sent"], 1);
-
-        // no retries configured: one attempt, no `attempts` in the result
-        let (result, tries) = with_retries(0, quick, || async { Ok(json!({})) }).await;
-        assert_eq!(tries, 1);
-        assert!(result.unwrap().get("attempts").is_none());
-    }
-
-    #[tokio::test]
-    async fn retries_run_out_and_a_failure_that_cant_change_is_not_retried() {
-        let calls = AtomicU32::new(0);
-        let (result, tries) = with_retries(2, quick, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            Err(Failure::transient("down".to_string()))
-        })
-        .await;
-        assert_eq!((tries, calls.load(Ordering::SeqCst)), (3, 3));
-        assert_eq!(result.unwrap_err(), "down (after 3 attempts)");
-
-        let calls = AtomicU32::new(0);
-        let (result, tries) = with_retries(5, quick, || async {
-            calls.fetch_add(1, Ordering::SeqCst);
-            Err(Failure::permanent("Email isn't set up."))
-        })
-        .await;
-        assert_eq!((tries, calls.load(Ordering::SeqCst)), (1, 1));
-        assert_eq!(result.unwrap_err(), "Email isn't set up.");
+    #[test]
+    fn a_scheduled_run_that_waited_too_long_is_stale() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-10T12:30:20Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        assert!(!stale("2026-11-10T12:30", now));
+        assert!(!stale("2026-11-10T12:21", now));
+        assert!(stale("2026-11-10T12:20", now));
+        assert!(stale("2026-11-09T12:30", now));
+        // a run with no minute (started by hand) never is
+        assert!(!stale("", now));
     }
 
     #[test]

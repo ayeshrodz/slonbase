@@ -912,13 +912,13 @@ async fn impersonation_and_settings() {
         .await
         .unwrap()
         .query_one(
-            "SELECT value FROM _slonbase.params WHERE key = 'settings'",
+            "SELECT value FROM _slonbase.params WHERE key = 'settings:smtp'",
             &[],
         )
         .await
         .unwrap()
         .get(0);
-    assert_eq!(stored["smtp"]["password"], "secret");
+    assert_eq!(stored["password"], "secret");
     env.admin(
         "PATCH",
         "/api/settings",
@@ -932,14 +932,14 @@ async fn impersonation_and_settings() {
         .await
         .unwrap()
         .query_one(
-            "SELECT value FROM _slonbase.params WHERE key = 'settings'",
+            "SELECT value FROM _slonbase.params WHERE key = 'settings:smtp'",
             &[],
         )
         .await
         .unwrap()
         .get(0);
-    assert_eq!(stored["smtp"]["password"], "secret", "kept when not sent");
-    assert_eq!(stored["smtp"]["port"], 2525);
+    assert_eq!(stored["password"], "secret", "kept when not sent");
+    assert_eq!(stored["port"], 2525);
 
     env.finish().await;
 }

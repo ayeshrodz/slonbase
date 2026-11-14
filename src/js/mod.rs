@@ -482,8 +482,20 @@ fn register(
         async {}
     });
 
+    hooks.loaded.files = pool.workers.files.iter().map(|(n, _)| n.clone()).collect();
     let mut routes: BTreeMap<String, Vec<(String, usize)>> = BTreeMap::new();
     for reg in registrations {
+        match reg.kind.as_str() {
+            "route" => hooks
+                .loaded
+                .routes
+                .push((reg.method.clone(), reg.path.clone())),
+            "cron" | "cronRemove" => {}
+            kind => hooks
+                .loaded
+                .handlers
+                .push((crate::extensions::event_name(kind), reg.collections.clone())),
+        }
         let (index, pool) = (reg.index, pool.clone());
         let request_hook = match reg.kind.as_str() {
             "recordCreateRequest" => Some((&mut hooks.on_record_create_request, false)),

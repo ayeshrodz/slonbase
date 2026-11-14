@@ -657,7 +657,7 @@ async fn jobs_that_run_sql() {
     // without the console there are no SQL jobs
     let (app, token, _dir) = ready_app(&tdb).await;
     let sql = |name: &str, statement: &str| {
-        json!({ "name": name, "expression": "0 * * * *", "type": "sql",
+        json!({ "name": name, "expression": "0 0 29 2 *", "type": "sql",
                 "config": { "statement": statement } })
     };
     let (status, res) = call(
@@ -761,7 +761,7 @@ async fn failed_runs_are_tried_again_with_a_wait() {
         ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
     let job = |retries: Value, delay: Value| {
         json!({
-            "name": "Always fails", "expression": "0 * * * *", "type": "sql",
+            "name": "Always fails", "expression": "0 0 29 2 *", "type": "sql",
             "config": { "statement": "SELECT 1/0" },
             "retries": retries, "retryDelaySeconds": delay,
         })
@@ -862,7 +862,8 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
     core.set_mailer(mailer.clone());
     let job = |statement: &str, notify: Value| {
         json!({
-            "name": "Nightly check", "expression": "0 * * * *", "type": "sql",
+            // (a schedule the test's own clock never meets: the runs below are the only ones)
+            "name": "Nightly check", "expression": "0 0 29 2 *", "type": "sql",
             "config": { "statement": statement }, "notify": notify,
         })
     };
@@ -950,9 +951,31 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
     .await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(core.settings().cron_jobs[0].notify.webhook, "");
+    // queues a run and waits until it and the notices it queued are through
+    let (client, conn) = tokio_postgres::connect(&tdb.url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    tokio::spawn(conn);
+    let client = &client;
     let run = |def: slonbase::cron_jobs::JobDef, trigger: &'static str| {
         let core = core.clone();
-        async move { slonbase::cron_jobs::run_recorded(core, def, trigger).await }
+        async move {
+            slonbase::cron_jobs::enqueue(&core, &def, trigger, "", None)
+                .await
+                .unwrap();
+            let settled = eventually(async || {
+                let pending =
+                    "SELECT count(*) FROM _slonbase.jobs WHERE state IN ('queued', 'running')";
+                client
+                    .query_one(pending, &[])
+                    .await
+                    .unwrap()
+                    .get::<_, i64>(0)
+                    == 0
+            })
+            .await;
+            assert!(settled, "the queue didn't settle");
+        }
     };
     let mails = || mailer.sent.lock().unwrap().clone();
 
@@ -970,7 +993,8 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
     assert_eq!(
         mails().len(),
         1,
-        "a job that keeps failing sends one message"
+        "a job that keeps failing sends one message: {:?}",
+        mails()
     );
 
     // it works again: one message, then quiet

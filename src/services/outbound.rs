@@ -41,6 +41,7 @@ pub async fn send(request: Request<'_>) -> Result<Reply, Failure> {
     .map_err(|message| Failure {
         retry: !crate::http::refused(&message),
         message,
+        retry_in: None,
     })
 }
 

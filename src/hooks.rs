@@ -337,6 +337,8 @@ pub(crate) type CronFn = dyn Fn(Arc<Core>) -> BoxFuture<Result<(), ApiError>> + 
 /// All registered hooks.
 #[derive(Default)]
 pub struct Hooks {
+    /// What loading the hook files registered, for the Extensions page.
+    pub(crate) loaded: crate::extensions::Loaded,
     /// Runs for every request when the server is ready (see [`RequestEvent`]).
     pub on_request: Hook<RequestEvent>,
     pub on_record_create_request: Hook<RecordRequestEvent>,
@@ -628,8 +630,8 @@ pub(crate) struct Change {
     pub values: Map<String, Value>,
 }
 
-/// Runs the custom cron jobs whose schedule fires this minute. Only one instance runs
-/// each job each minute (claimed in the params table).
+/// Queues the custom cron jobs whose schedule fires this minute. Each is queued once for the
+/// minute, whichever instance notices first, and run by a queue worker.
 #[doc(hidden)]
 pub async fn run_scheduled_crons(core: &Arc<Core>) {
     let now = chrono::Utc::now();
@@ -641,35 +643,99 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
         .iter()
         .filter(|j| j.schedule.matches(&now, tz))
     {
-        let claimed = crate::jobs::claim_minute(core, &job.id, &minute);
-        match claimed.await {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(err) => {
-                tracing::warn!(job = %job.id, error = %format!("{err:#}"), "failed to schedule a cron job");
-                continue;
-            }
+        let dedupe = format!("cron:{}:{minute}", job.id);
+        if let Err(err) = enqueue_cron(core, &job.id, "schedule", &minute, Some(&dedupe)).await {
+            tracing::warn!(job = %job.id, error = %format!("{err:#}"), "failed to schedule a cron job");
         }
-        let (core, run, id) = (core.clone(), job.run.clone(), job.id.clone());
-        tokio::spawn(run_cron_recorded(core, id, run, "schedule"));
     }
     crate::cron_jobs::run_scheduled(core, now, &minute, tz).await;
 }
 
-/// Runs a cron job, recorded in the jobs' history.
-pub(crate) async fn run_cron_recorded(
+/// How long a run of a cron job registered by code is waited for. A job that hangs would
+/// otherwise hold its queue worker for good, and with it the other background work of the
+/// installation; after this the run is recorded as failed and the worker goes on.
+const CRON_RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3600);
+
+/// The queue's kind for a run of a cron job registered by code.
+pub const CRON_QUEUE_KIND: &str = "cron.hook";
+
+/// Queues a run of the cron job `id` (`trigger`: `schedule` or `manual`).
+pub(crate) async fn enqueue_cron(
+    core: &Core,
+    id: &str,
+    trigger: &str,
+    minute: &str,
+    dedupe: Option<&str>,
+) -> anyhow::Result<bool> {
+    crate::queue::enqueue(
+        core,
+        crate::queue::NewJob {
+            kind: CRON_QUEUE_KIND,
+            reference: id,
+            payload: serde_json::json!({ "trigger": trigger, "minute": minute }),
+            dedupe,
+            max_attempts: 1,
+        },
+    )
+    .await
+}
+
+/// Tells the queue what runs a cron job registered by code: the function registered under the
+/// job's id on the instance whose worker picks it up.
+pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
+    handlers.register(CRON_QUEUE_KIND, |core, job| async move {
+        let Some(run) = core
+            .hooks
+            .crons
+            .iter()
+            .find(|j| j.id == job.reference)
+            .map(|j| j.run.clone())
+        else {
+            return Ok(());
+        };
+        let trigger = match job.payload["trigger"] == "manual" {
+            true => "manual",
+            false => "schedule",
+        };
+        let scheduled_for = job.payload["minute"].as_str().unwrap_or_default();
+        if trigger == "schedule" && crate::cron_jobs::stale(scheduled_for, chrono::Utc::now()) {
+            tracing::warn!(job = %job.reference, scheduled_for, "a cron job's run waited too long: dropped");
+            return Ok(());
+        }
+        run_cron_recorded(core, job.reference, job.id, run, trigger)
+            .await
+            .map_err(crate::services::Failure::permanent)
+    });
+}
+
+/// Runs a cron job for the queued job `queue_job`, recorded in the jobs' history. Returns why
+/// it failed, if it did.
+async fn run_cron_recorded(
     core: Arc<Core>,
     id: String,
+    queue_job: i64,
     run: Arc<CronFn>,
     trigger: &'static str,
-) {
-    let record = crate::jobs::start(&core, crate::jobs::CRON, &id, trigger).await;
-    match run(core).await {
-        Ok(()) => record.finish(Ok(serde_json::json!({}))).await,
+) -> Result<(), String> {
+    let record =
+        crate::jobs::start_queued(&core, crate::jobs::CRON, &id, trigger, Some(queue_job)).await;
+    let outcome = match tokio::time::timeout(CRON_RUN_LIMIT, run(core)).await {
+        Ok(outcome) => outcome,
+        Err(_) => Err(ApiError::internal(anyhow::anyhow!(
+            "Not finished after {} minutes: no longer waited for.",
+            CRON_RUN_LIMIT.as_secs() / 60
+        ))),
+    };
+    match outcome {
+        Ok(()) => {
+            record.finish(Ok(serde_json::json!({}))).await;
+            Ok(())
+        }
         Err(err) => {
             let detail = err.details.as_deref().unwrap_or(&err.message).to_string();
             tracing::error!(job = %id, error = %detail, "a cron job failed");
-            record.finish(Err(detail)).await;
+            record.finish(Err(detail.clone())).await;
+            Err(detail)
         }
     }
 }
