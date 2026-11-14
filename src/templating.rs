@@ -166,6 +166,8 @@ fn allowed_code(code: &str, block: bool) -> Result<(), String> {
     Ok(())
 }
 
+const UNCLOSED: &str = "A {{, {% or {# isn't closed.";
+
 /// [`allowed_code`] for every `{{ }}` and `{% %}` of a template (a `{% raw %}` block is text).
 fn allowed_template(source: &str) -> Result<(), String> {
     let mut rest = source;
@@ -182,9 +184,14 @@ fn allowed_template(source: &str) -> Result<(), String> {
             continue;
         };
         let inner_start = start + 2;
-        let Some(len) = find_close(&rest[inner_start..], close) else {
-            // (unclosed: the engine says so)
-            return Ok(());
+        // (a comment ends at its first `#}`, whatever it holds, as the engine reads it; code
+        // ends outside its quoted texts. What can't be read here is refused, never skipped.)
+        let found = match close {
+            "#}" => rest[inner_start..].find(close),
+            _ => find_close(&rest[inner_start..], close),
+        };
+        let Some(len) = found else {
+            return Err(UNCLOSED.into());
         };
         let inner = &rest[inner_start..inner_start + len];
         rest = &rest[inner_start + len + 2..];
@@ -197,9 +204,9 @@ fn allowed_template(source: &str) -> Result<(), String> {
             match rest.find("endraw") {
                 Some(end) => match rest[end..].find("%}") {
                     Some(c) => rest = &rest[end + c + 2..],
-                    None => return Ok(()),
+                    None => return Err(UNCLOSED.into()),
                 },
-                None => return Ok(()),
+                None => return Err(UNCLOSED.into()),
             }
             continue;
         }
@@ -514,6 +521,32 @@ mod tests {
             )
             .unwrap(),
             "1 + 2 * 3 ~ 4{{ a * b }}"
+        );
+        // a quote in a comment doesn't hide what follows it, and what isn't closed is refused
+        let big = "x".repeat(90_000);
+        for source in [
+            format!(
+                "{{# ' #}}{{% set kept %}}{{% for i in range(10000) %}}{big}{{% endfor %}}{{% endset %}}"
+            ),
+            "{# \" #}{{ 'a' ~ 'b' }}".to_string(),
+            "{{ 'a' }}{% set x = 1".to_string(),
+            "{# never closed".to_string(),
+            "{% raw %}{{ x }}".to_string(),
+        ] {
+            assert!(
+                check(&source).is_err(),
+                "{}",
+                &source[..source.len().min(60)]
+            );
+            assert!(
+                render(&source, &json!({}), Mode::Html).is_err(),
+                "{}",
+                &source[..source.len().min(60)]
+            );
+        }
+        assert_eq!(
+            render("{# it's fine #}ok", &json!({}), Mode::Text).unwrap(),
+            "ok"
         );
         // (text that isn't ASCII, in comments and quotes, is read as text)
         assert_eq!(

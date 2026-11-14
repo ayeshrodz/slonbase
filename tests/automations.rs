@@ -208,6 +208,24 @@ async fn templates_are_made_previewed_and_kept_while_in_use() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
 
+    // a body that would build a huge text outside the output is refused at once, even behind
+    // a comment that holds a quote
+    let started = std::time::Instant::now();
+    let big = "x".repeat(90_000);
+    let body = format!(
+        "{{# ' #}}{{% set kept %}}{{% for i in range(10000) %}}{big}{{% endfor %}}{{% endset %}}"
+    );
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/templates/preview",
+        Some(json!({ "subject": "s", "body": body })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(started.elapsed() < Duration::from_secs(5));
+
     // changed, listed, and sent as a test with its sample
     let changed = ok(
         &app,
