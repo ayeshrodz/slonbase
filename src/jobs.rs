@@ -234,7 +234,7 @@ pub(crate) async fn close_orphans(
 }
 
 /// Keeps the last runs of each job, and closes runs left `running` by an instance that
-/// stopped (after a day).
+/// stopped (after a day; not a run whose queued job still waits for a retry).
 pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
     let client = core
         .db()
@@ -249,9 +249,11 @@ pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
                      FROM _slonbase.job_runs
                  ) ranked WHERE n > {KEEP}
              ) old WHERE r.id = old.id;
-             UPDATE _slonbase.job_runs SET status = 'error', finished = now(),
+             UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
                  detail = 'Interrupted: the instance running it stopped.'
-             WHERE status = 'running' AND started < now() - interval '1 day';"
+             WHERE r.status = 'running' AND r.started < now() - interval '1 day'
+               AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j
+                               WHERE j.id = r.queue_job AND j.state IN ('queued', 'running'));"
         ))
         .await?;
     Ok(())
