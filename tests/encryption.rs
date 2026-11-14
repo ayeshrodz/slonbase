@@ -49,7 +49,7 @@ async fn params(tdb: &TestDb) -> (Value, Value) {
                 .get::<_, Value>(0)
         }
     };
-    (get("settings").await, get("auth_secret").await)
+    (get("settings:smtp").await, get("auth_secret").await)
 }
 
 fn sealed(value: &Value) -> bool {
@@ -265,7 +265,7 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
     drop(client);
     let (settings, secret) = params(&tdb).await;
     assert!(!sealed(&settings) && !sealed(&secret));
-    assert_eq!(settings["smtp"]["password"], SMTP_PASSWORD);
+    assert_eq!(settings["password"], SMTP_PASSWORD);
     assert_eq!(
         members_data(&tdb).await["oauth2"]["providers"][0]["clientSecret"],
         CLIENT_SECRET

@@ -512,7 +512,7 @@ async fn still_running(core: &Core, id: &str) -> bool {
 /// after the other helps nobody.
 const STALE_AFTER_MINUTES: i64 = 10;
 
-fn stale(scheduled_for: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
+pub(crate) fn stale(scheduled_for: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
     chrono::NaiveDateTime::parse_from_str(scheduled_for, "%Y-%m-%dT%H:%M")
         .is_ok_and(|at| (now.naive_utc() - at).num_minutes() >= STALE_AFTER_MINUTES)
 }
@@ -611,19 +611,30 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
 
 /// What the job's finished run before `this` one came to: `ok`, `error` or nothing yet.
 async fn last_finished(core: &Core, id: &str, this: Option<i64>) -> Option<String> {
-    let client = core.db().get().await.ok()?;
-    client
-        .query_opt(
-            "SELECT status FROM _slonbase.job_runs
-             WHERE kind = $1 AND job = $2 AND status IN ('ok', 'error')
-               AND id <> COALESCE($3, 0)
-             ORDER BY started DESC, id DESC LIMIT 1",
-            &[&crate::jobs::CRON, &id, &this],
-        )
-        .await
-        .ok()
-        .flatten()
-        .map(|row| row.get::<_, String>(0))
+    let found = async {
+        let client = core
+            .db()
+            .get()
+            .await
+            .map_err(crate::db::describe_pool_error)?;
+        let row = client
+            .query_opt(
+                "SELECT status FROM _slonbase.job_runs
+                 WHERE kind = $1 AND job = $2 AND status IN ('ok', 'error')
+                   AND ($3::int8 IS NULL OR id <> $3::int8)
+                 ORDER BY started DESC, id DESC LIMIT 1",
+                &[&crate::jobs::CRON, &id, &this],
+            )
+            .await?;
+        anyhow::Ok(row.map(|row| row.get::<_, String>(0)))
+    };
+    match found.await {
+        Ok(status) => status,
+        Err(err) => {
+            tracing::warn!(job = %id, error = %format!("{err:#}"), "failed to read a cron job's last run");
+            None
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -19,7 +19,89 @@ use crate::extract::JsonObject;
 use crate::hooks::{self, DataEvent};
 use crate::validation::Errors;
 
-const PARAMS_KEY: &str = "settings";
+/// The params key the settings were stored under as one value, up to 2.6. It is still read (a
+/// database not yet converted, a restored backup) and goes away at the next save.
+const LEGACY_KEY: &str = "settings";
+/// The params key of a section: `settings:<section>`.
+const SECTION_PREFIX: &str = "settings:";
+/// Serializes the changes of the settings across requests and instances
+/// (`pg_advisory_xact_lock`).
+const SETTINGS_LOCK_KEY: i64 = crate::migrations::SCHEMA_LOCK_KEY + 2;
+
+/// A section of the settings: one top-level key of [`Settings`], stored in a row of its own.
+///
+/// This table is the one place that says what a section is: where it is shown and changed, and
+/// which of its values are secrets. The storage, the API's representation and the merging of
+/// updates all go by it, so a new section is a field of [`Settings`] and a line here.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Section {
+    /// The key in the settings' JSON.
+    pub name: &'static str,
+    /// What it holds, in a few words.
+    pub title: &'static str,
+    /// Private sections are never sent by `/api/settings` nor changed by it: an API of their own
+    /// shows and changes them.
+    pub private: bool,
+    /// Values that are never sent back, and kept when an update leaves them empty (JSON
+    /// pointers within the section).
+    pub secrets: &'static [&'static str],
+}
+
+const fn section(name: &'static str, title: &'static str) -> Section {
+    Section {
+        name,
+        title,
+        private: false,
+        secrets: &[],
+    }
+}
+
+/// Every section of the settings, in the order of [`Settings`]'s fields.
+pub const SECTIONS: &[Section] = &[
+    section("meta", "Application name, address and branding"),
+    Section {
+        secrets: &["/password"],
+        ..section("smtp", "Mail server")
+    },
+    Section {
+        secrets: &["/secret"],
+        ..section("s3", "File storage")
+    },
+    Section {
+        secrets: &["/s3/secret"],
+        ..section("backups", "Automatic backups and where backups are kept")
+    },
+    section("schedule", "Time zone of schedules, pausing of jobs"),
+    section("logs", "Request logs"),
+    section("batch", "Batch requests"),
+    section("rateLimits", "Rate limits"),
+    section("trustedProxy", "Reverse proxy headers"),
+    section("superuserIPs", "Addresses superusers may sign in from"),
+    section("login", "Sign-in page"),
+    section("security", "Browser origins, upload limits, HTTPS, lockout, maintenance"),
+    section("mailLayout", "Layout of emails"),
+    section("files", "File tokens and thumbnails"),
+    Section {
+        private: true,
+        ..section("superuserRoles", "Roles of the team")
+    },
+    Section {
+        private: true,
+        ..section("apiKeys", "API keys")
+    },
+    Section {
+        private: true,
+        ..section("cronJobs", "Cron jobs made in the dashboard")
+    },
+];
+
+/// The value at `pointer` when it is a string.
+fn secret_at<'a>(section: &'a mut Value, pointer: &str) -> Option<&'a mut String> {
+    match section.pointer_mut(pointer) {
+        Some(Value::String(secret)) => Some(secret),
+        _ => None,
+    }
+}
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -55,9 +137,6 @@ pub struct Settings {
     /// Cron jobs made in the dashboard. Only `/api/crons` shows and changes them.
     pub cron_jobs: Vec<crate::cron_jobs::JobDef>,
 }
-
-/// Settings that only `/api/team` (and `/api/crons`) show and change.
-const PRIVATE_SECTIONS: &[&str] = &["superuserRoles", "apiKeys", "cronJobs"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -555,81 +634,183 @@ pub struct TrustedProxy {
 impl Settings {
     /// Loads the settings, decrypting them with `key` when they're stored encrypted (see
     /// [`crate::secrets`]).
+    ///
+    /// Each section is a row (`settings:<section>`). Settings stored as one value (up to 2.6)
+    /// are read too, a section's own row counting over them; a section with no row has its
+    /// defaults.
     pub async fn load(
         client: &impl GenericClient,
         key: Option<&crate::secrets::SecretsKey>,
     ) -> anyhow::Result<Self> {
-        let row = client
-            .query_opt(
-                "SELECT value FROM _slonbase.params WHERE key = $1",
-                &[&PARAMS_KEY],
+        let rows = client
+            .query(
+                "SELECT key, value FROM _slonbase.params
+                 WHERE key = $1 OR starts_with(key, $2)",
+                &[&LEGACY_KEY, &SECTION_PREFIX],
             )
             .await?;
-        Ok(match row {
-            Some(row) => {
-                serde_json::from_value(crate::secrets::from_stored(row.get(0), key, "settings")?)?
+        let mut whole = Map::new();
+        let mut sections = Map::new();
+        for row in rows {
+            let name: String = row.get(0);
+            let value = crate::secrets::from_stored(row.get(1), key, "settings")?;
+            match name.strip_prefix(SECTION_PREFIX) {
+                Some(section) => {
+                    sections.insert(section.to_string(), value);
+                }
+                None => {
+                    if let Value::Object(legacy) = value {
+                        whole = legacy;
+                    }
+                }
             }
-            None => Self::default(),
-        })
+        }
+        whole.extend(sections);
+        Ok(serde_json::from_value(Value::Object(whole))?)
+    }
+
+    /// The sections as they are stored: each section's name and value.
+    fn sections(&self) -> Vec<(&'static str, Value)> {
+        let mut value = serde_json::to_value(self).expect("settings serialize");
+        SECTIONS
+            .iter()
+            .map(|s| (s.name, value[s.name].take()))
+            .collect()
     }
 
     /// Saves the settings of a new installation: the defaults, with rate limits on.
     /// Settings saved before (by a migration, say) are kept.
     pub(crate) async fn init(client: &impl GenericClient) -> anyhow::Result<()> {
-        let mut settings = Self::default();
-        settings.rate_limits.enabled = true;
-        client
-            .execute(
-                "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING",
-                &[&PARAMS_KEY, &serde_json::to_value(&settings)?],
+        let stored = client
+            .query_opt(
+                "SELECT 1 FROM _slonbase.params WHERE key = $1 OR starts_with(key, $2) LIMIT 1",
+                &[&LEGACY_KEY, &SECTION_PREFIX],
             )
             .await?;
+        if stored.is_some() {
+            return Ok(());
+        }
+        let mut settings = Self::default();
+        settings.rate_limits.enabled = true;
+        for (name, value) in settings.sections() {
+            client
+                .execute(
+                    "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2)
+                     ON CONFLICT (key) DO NOTHING",
+                    &[&format!("{SECTION_PREFIX}{name}"), &value],
+                )
+                .await?;
+        }
         Ok(())
     }
 
-    /// Saves the settings, encrypted with `key` if there's one.
+    /// Saves the settings, encrypted with `key` if there's one: every section, or only those
+    /// that differ from `stored` (the settings as they were just read, in the same
+    /// transaction). Settings still stored as one value are converted: every section is
+    /// written and the one value removed.
     pub(crate) async fn save(
         &self,
         client: &impl GenericClient,
         key: Option<&crate::secrets::SecretsKey>,
+        stored: Option<&Settings>,
     ) -> anyhow::Result<()> {
-        let value = crate::secrets::to_stored(&serde_json::to_value(self)?, key);
-        client
+        let converted = client
             .execute(
-                "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2)
-                 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()",
-                &[&PARAMS_KEY, &value],
+                "DELETE FROM _slonbase.params WHERE key = $1",
+                &[&LEGACY_KEY],
             )
-            .await?;
+            .await?
+            > 0;
+        let before = match converted {
+            true => None,
+            false => stored.map(Settings::sections),
+        };
+        for (n, (name, value)) in self.sections().into_iter().enumerate() {
+            if before.as_ref().is_some_and(|b| b[n].1 == value) {
+                continue;
+            }
+            client
+                .execute(
+                    "INSERT INTO _slonbase.params (key, value) VALUES ($1, $2)
+                     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated = now()",
+                    &[
+                        &format!("{SECTION_PREFIX}{name}"),
+                        &crate::secrets::to_stored(&value, key),
+                    ],
+                )
+                .await?;
+        }
         Ok(())
     }
 
-    /// The representation returned by the API (passwords and secrets are never sent back).
+    /// The representation returned by the API: no private sections, and no passwords or
+    /// secrets.
     pub(crate) fn public_json(&self) -> Value {
         let mut value = serde_json::to_value(self).expect("settings serialize");
-        if let Some(o) = value.as_object_mut() {
-            for key in PRIVATE_SECTIONS {
-                o.remove(*key);
+        for section in SECTIONS {
+            if section.private {
+                if let Some(o) = value.as_object_mut() {
+                    o.remove(section.name);
+                }
+                continue;
+            }
+            for pointer in section.secrets {
+                if let Some(secret) = secret_at(&mut value[section.name], pointer) {
+                    secret.clear();
+                }
             }
         }
-        value["smtp"]["password"] = Value::String(String::new());
-        value["s3"]["secret"] = Value::String(String::new());
-        value["backups"]["s3"]["secret"] = Value::String(String::new());
         value
     }
+}
 
-    /// Keeps the stored secrets that an update left empty.
-    fn keep_secrets(&mut self, current: &Settings) {
-        for (new, old) in [
-            (&mut self.smtp.password, &current.smtp.password),
-            (&mut self.s3.secret, &current.s3.secret),
-            (&mut self.backups.s3.secret, &current.backups.s3.secret),
-        ] {
-            if new.is_empty() {
+/// Keeps the stored secrets that an update left empty (`merged`: the settings' JSON with the
+/// update applied).
+fn keep_secrets(merged: &mut Value, current: &Value) {
+    for section in SECTIONS {
+        for pointer in section.secrets {
+            let Some(new) = secret_at(&mut merged[section.name], pointer) else {
+                continue;
+            };
+            if !new.is_empty() {
+                continue;
+            }
+            if let Some(Value::String(old)) = current[section.name].pointer(pointer) {
                 new.clone_from(old);
             }
         }
     }
+}
+
+/// Serializes changes of the settings until the transaction ends.
+async fn lock(tx: &impl GenericClient) -> Result<(), tokio_postgres::Error> {
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SETTINGS_LOCK_KEY])
+        .await
+        .map(|_| ())
+}
+
+/// Converts settings stored as one value (up to 2.6) to a row per section, once. Reading
+/// doesn't need it ([`Settings::load`] reads both) and any save does the same; this only makes
+/// the stored form the same everywhere from the first start on.
+pub(crate) async fn convert_stored(
+    pool: &deadpool_postgres::Pool,
+    key: Option<&crate::secrets::SecretsKey>,
+) -> anyhow::Result<()> {
+    let mut client = pool.get().await.map_err(crate::db::describe_pool_error)?;
+    let tx = client.transaction().await?;
+    lock(&tx).await?;
+    let legacy = tx
+        .query_opt(
+            "SELECT 1 FROM _slonbase.params WHERE key = $1",
+            &[&LEGACY_KEY],
+        )
+        .await?;
+    if legacy.is_none() {
+        return Ok(());
+    }
+    Settings::load(&tx, key).await?.save(&tx, key, None).await?;
+    tx.commit().await?;
+    Ok(())
 }
 
 fn validate(s: &Settings) -> Errors {
@@ -1008,7 +1189,7 @@ fn request_info(
 
 /// Changes the settings as they are *stored* and saves the result.
 ///
-/// The stored row is read under a row lock, so edits made at the same time (by other requests or
+/// The stored settings are read under a lock, so edits made at the same time (by other requests or
 /// other instances) are applied one after the other, each on top of the previous one, instead of
 /// overwriting each other with a copy read earlier. `change` gets the current settings and
 /// returns the new ones; the result is checked, saved, announced to the other instances (at
@@ -1026,18 +1207,15 @@ where
         .transaction()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    tx.execute(
-        "SELECT 1 FROM _slonbase.params WHERE key = $1 FOR UPDATE",
-        &[&PARAMS_KEY],
-    )
-    .await
-    .map_err(|e| ApiError::internal(e.into()))?;
+    lock(&tx)
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
     let current = Settings::load(&tx, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
     let next = change(&current)?;
     crate::assets::check_uses(&tx, &next).await?;
-    next.save(&tx, core.secrets_key())
+    next.save(&tx, core.secrets_key(), Some(&current))
         .await
         .map_err(ApiError::internal)?;
     crate::realtime::notify(&tx, "settings")
@@ -1103,7 +1281,7 @@ pub(crate) fn prepare_patch(
 ) -> Result<Settings, ApiError> {
     let mut merged = serde_json::to_value(current).expect("settings serialize");
     for (section, value) in body {
-        if PRIVATE_SECTIONS.contains(&section.as_str()) {
+        if SECTIONS.iter().any(|s| s.private && s.name == section) {
             continue;
         }
         let Some(target) = merged.get_mut(&section) else {
@@ -1116,9 +1294,12 @@ pub(crate) fn prepare_patch(
         }
         merge(target, value);
     }
-    let mut settings: Settings = serde_json::from_value(merged)
+    keep_secrets(
+        &mut merged,
+        &serde_json::to_value(current).expect("settings serialize"),
+    );
+    let settings: Settings = serde_json::from_value(merged)
         .map_err(|e| ApiError::bad_request(format!("Invalid settings: {e}.")))?;
-    settings.keep_secrets(current);
     let errors = validate(&settings);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(
@@ -1394,8 +1575,8 @@ pub(crate) async fn upgrade_login_lockout(
     }
     let stored = tx
         .query_opt(
-            "SELECT 1 FROM _slonbase.params WHERE key = $1",
-            &[&PARAMS_KEY],
+            "SELECT 1 FROM _slonbase.params WHERE key = $1 OR starts_with(key, $2) LIMIT 1",
+            &[&LEGACY_KEY, &SECTION_PREFIX],
         )
         .await?
         .is_some();
@@ -1406,7 +1587,7 @@ pub(crate) async fn upgrade_login_lockout(
             if !(1..=60).contains(&settings.security.login_lockout.minutes) {
                 settings.security.login_lockout.minutes = 15;
             }
-            settings.save(&tx, key).await?;
+            settings.save(&tx, key, None).await?;
             tracing::info!(
                 "the sign-in lockout is now on ({DEFAULT_LOCKOUT_ATTEMPTS} failed sign-ins per identity and address in {} minutes); turn it off in Settings, Security",
                 settings.security.login_lockout.minutes
@@ -1447,6 +1628,49 @@ mod tests {
         assert_eq!(value["logs"]["logIP"], true);
         assert_eq!(value["backups"]["s3"]["secret"], "");
         assert!(validate(&Settings::default()).is_empty());
+    }
+
+    #[test]
+    fn every_field_of_the_settings_is_a_section() {
+        let value = serde_json::to_value(Settings::default()).unwrap();
+        let fields: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        let mut sections: Vec<&str> = SECTIONS.iter().map(|s| s.name).collect();
+        sections.sort_unstable();
+        let mut sorted = fields.clone();
+        sorted.sort_unstable();
+        assert_eq!(sections, sorted);
+        // and every secret a section names is there
+        for section in SECTIONS {
+            for pointer in section.secrets {
+                assert!(
+                    matches!(value[section.name].pointer(pointer), Some(Value::String(_))),
+                    "{}{pointer}",
+                    section.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn secrets_are_hidden_and_kept_when_left_empty() {
+        let mut current = Settings::default();
+        current.smtp.password = "p".into();
+        current.s3.secret = "s".into();
+        current.backups.s3.secret = "b".into();
+        let public = current.public_json();
+        assert_eq!(public["smtp"]["password"], "");
+        assert_eq!(public["s3"]["secret"], "");
+        assert_eq!(public["backups"]["s3"]["secret"], "");
+        assert!(public.get("apiKeys").is_none() && public.get("cronJobs").is_none());
+        assert!(public.get("superuserRoles").is_none());
+
+        let body = json!({ "smtp": { "password": "", "port": 2525 }, "s3": { "secret": "new" } });
+        let Value::Object(body) = body else { unreachable!() };
+        let next = prepare_patch(&current, body).unwrap();
+        assert_eq!(next.smtp.password, "p");
+        assert_eq!(next.smtp.port, 2525);
+        assert_eq!(next.s3.secret, "new");
+        assert_eq!(next.backups.s3.secret, "b");
     }
 
     #[test]

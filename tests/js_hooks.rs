@@ -355,6 +355,43 @@ async fn js_hooks() {
     call(&app, admin, "POST", "/api/crons/jsjob", None).await;
     wait_for_log(&app, &token, "cron 1").await;
 
+    // what the instance loaded, as the Extensions page lists it
+    let (status, loaded) = call(&app, admin, "GET", "/api/extensions", None).await;
+    assert_eq!(status, StatusCode::OK, "{loaded}");
+    assert_eq!(loaded["hooks"]["files"], json!(["main.pb.js"]));
+    let handlers = loaded["hooks"]["handlers"].as_array().unwrap();
+    assert!(
+        handlers
+            .iter()
+            .any(|h| h["event"] == "onRecordCreateRequest" && h["collections"].is_array()),
+        "{loaded}"
+    );
+    let routes = loaded["hooks"]["routes"].as_array().unwrap();
+    assert!(
+        routes.contains(&json!({ "method": "GET", "path": "/api/js/hello/{name}" })),
+        "{loaded}"
+    );
+    assert_eq!(
+        loaded["cronJobs"],
+        json!([{ "id": "jsjob", "expression": "*/5 * * * *" }])
+    );
+    let kinds: Vec<&str> = loaded["jobKinds"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|k| k["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["backup.auto", "cron.hook", "cron.notice", "cron.user"]);
+    assert!(
+        loaded["settingsSections"]
+            .as_array()
+            .unwrap()
+            .contains(&json!({ "name": "apiKeys", "title": "API keys", "private": true })),
+        "{loaded}"
+    );
+    let (status, _) = call(&app, None, "GET", "/api/extensions", None).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+
     // delete hook
     let (_, via_js) = call(
         &app,

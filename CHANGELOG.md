@@ -8,16 +8,45 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
+  with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
+  its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
+
 ### Changed
 
 - **Background jobs run from a durable queue, on connections of their own.** Scheduled and manual
-  runs of the dashboard's jobs are now rows in a queue (`_slonbase.jobs`) that every instance's
-  workers share: a run queued by an instance that then stops is picked up by another, and a
-  scheduled job is still queued once a minute however many instances there are. The workers use
-  their own connections (up to 2 for the main database and 1 per project, opened when a job runs
-  and closed when the queue is empty), so a job never takes a connection from API requests. The
-  most connections an instance can open is now `20 + 6 × projects` (it was `18 + 5 × projects`);
-  see [scaling](docs/scaling.md#the-connection-budget).
+  runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
+  are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued
+  by an instance that then stops is picked up by another, and a scheduled job is still queued
+  once a minute however many instances there are. The workers use their own connections (up to 2
+  for the main database and 2 per project, opened when a job runs and closed when the queue is
+  empty), so a job never takes a connection from API requests. The most connections an instance
+  can open is now `20 + 7 × projects` (it was `18 + 5 × projects`); see
+  [scaling](docs/scaling.md#the-connection-budget).
+- **Retries survive a restart.** A failed run that is to be tried again waits in the queue, not
+  in the memory of the instance that ran it: the retry happens after a restart too, and on
+  whichever instance is free. A run is still one line of the history however many attempts it
+  takes. The same holds for the automatic backup's retries (after 1, 5 and 15 minutes).
+- **Failure and recovery notices are delivered one by one, and tried again.** Each address and
+  the webhook get their notice as a queued job of their own, tried up to 3 times; one that can't
+  be delivered no longer leaves the others unsent.
+- **A scheduled run that waited more than 10 minutes is dropped.** When the workers were busy or
+  no instance was up, the minutes that were missed are not run one after the other afterwards.
+- **Settings are stored a section a row.** Each section of the settings (`meta`, `smtp`,
+  `backups`, ...) is a row of its own in `_slonbase.params` (`settings:<section>`), and a change
+  writes only the sections it changes. `/api/settings` is unchanged. Settings stored as one value
+  are converted at the first start, and read as they are from a backup made by an earlier
+  version.
+
+### Upgrading
+
+- Stop every instance before starting the new version, as for every upgrade: this version
+  changes how settings and job schedules are stored, and an instance of 2.6 doesn't read the
+  new form.
+- A project's instance can now open up to 2 connections for background jobs (it was 1): count
+  `20 + 7 × projects` connections per instance.
 
 ## [2.6.2] - 2026-11-11
 

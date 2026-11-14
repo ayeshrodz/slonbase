@@ -36,6 +36,7 @@ pub mod datetime;
 pub mod db;
 pub mod error;
 pub mod excerpt;
+pub mod extensions;
 pub mod extract;
 pub mod filter;
 pub mod fleet;

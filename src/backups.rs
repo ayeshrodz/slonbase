@@ -776,20 +776,21 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
             .into());
         }
     }
-    for param in crate::secrets::SEALED_PARAMS {
-        let Some(row) = tx
-            .query_opt(
-                "SELECT value FROM _slonbase.params WHERE key = $1",
-                &[param],
-            )
-            .await?
-        else {
-            continue;
-        };
+    let sealed = tx
+        .query(
+            "SELECT key, value FROM _slonbase.params WHERE key = ANY($1) OR starts_with(key, $2)",
+            &[
+                &crate::secrets::SEALED_PARAMS,
+                &crate::secrets::SEALED_PREFIX,
+            ],
+        )
+        .await?;
+    for row in sealed {
+        let param: String = row.get(0);
         if let Err(err) = crate::secrets::from_stored(
-            row.get(0),
+            row.get(1),
             core.secrets_key(),
-            crate::secrets::param_name(param),
+            crate::secrets::param_name(&param),
         ) {
             return Err(Unreadable(format!(
                 "The backup can't be restored here: {err}. Restore it with the encryption key it was made with."

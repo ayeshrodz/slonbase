@@ -337,6 +337,8 @@ pub(crate) type CronFn = dyn Fn(Arc<Core>) -> BoxFuture<Result<(), ApiError>> + 
 /// All registered hooks.
 #[derive(Default)]
 pub struct Hooks {
+    /// What loading the hook files registered, for the Extensions page.
+    pub(crate) loaded: crate::extensions::Loaded,
     /// Runs for every request when the server is ready (see [`RequestEvent`]).
     pub on_request: Hook<RequestEvent>,
     pub on_record_create_request: Hook<RecordRequestEvent>,
@@ -642,7 +644,7 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
         .filter(|j| j.schedule.matches(&now, tz))
     {
         let dedupe = format!("cron:{}:{minute}", job.id);
-        if let Err(err) = enqueue_cron(core, &job.id, "schedule", Some(&dedupe)).await {
+        if let Err(err) = enqueue_cron(core, &job.id, "schedule", &minute, Some(&dedupe)).await {
             tracing::warn!(job = %job.id, error = %format!("{err:#}"), "failed to schedule a cron job");
         }
     }
@@ -657,6 +659,7 @@ pub(crate) async fn enqueue_cron(
     core: &Core,
     id: &str,
     trigger: &str,
+    minute: &str,
     dedupe: Option<&str>,
 ) -> anyhow::Result<bool> {
     crate::queue::enqueue(
@@ -664,7 +667,7 @@ pub(crate) async fn enqueue_cron(
         crate::queue::NewJob {
             kind: CRON_QUEUE_KIND,
             reference: id,
-            payload: serde_json::json!({ "trigger": trigger }),
+            payload: serde_json::json!({ "trigger": trigger, "minute": minute }),
             dedupe,
             max_attempts: 1,
         },
@@ -689,6 +692,11 @@ pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
             true => "manual",
             false => "schedule",
         };
+        let scheduled_for = job.payload["minute"].as_str().unwrap_or_default();
+        if trigger == "schedule" && crate::cron_jobs::stale(scheduled_for, chrono::Utc::now()) {
+            tracing::warn!(job = %job.reference, scheduled_for, "a cron job's run waited too long: dropped");
+            return Ok(());
+        }
         run_cron_recorded(core, job.reference, run, trigger).await;
         Ok(())
     });

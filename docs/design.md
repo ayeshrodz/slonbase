@@ -723,8 +723,9 @@ exports what it owns itself:
   daylight saving change a job at a fixed hour runs once (right after the change if its time was
   skipped, the first time if its hour is repeated, as Vixie cron does), and a job in every hour
   keeps to the clock.
-  Each scheduled minute is claimed with a conditional update of a params row, so one instance runs
-  it. Automatic backups beyond `cronMaxKeep` are deleted, oldest first.
+  Each scheduled minute is queued once in the job queue (see
+  [Services, the job queue and the settings' sections](#services-the-job-queue-and-the-settings-sections)),
+  so one instance runs it; a failed backup is tried again after 1, 5 and 15 minutes. Automatic backups beyond `cronMaxKeep` are deleted, oldest first.
 - Downloads need a superuser file token (and an allowed IP); uploads are streamed to disk, have no
   size limit, and must contain a valid manifest.
 
@@ -844,8 +845,9 @@ responses are `[{"status", "body"}]`, and a failure answers `400` with
 - After-success hooks get every change of a transaction (`FileEffects.changes`, including
   cascades and relations cleared by a delete) once it commits, from `settle`. They're local to the
   instance that made the change, unlike realtime events, so each change runs them once.
-- Cron jobs are checked by the listener's 20-second tick; each matching minute is claimed per job
-  in `_slonbase.params`, so one instance runs it.
+- Cron jobs are checked by the listener's 20-second tick; each matching minute is queued once per
+  job in the job queue, and a worker of one instance runs it (the function registered under the
+  job's id on that instance).
 - The record service (`Core::save_record` and friends) runs with `RequestAuth::system`, a
   superuser without a record, through the same `create_in`/`update_in`/`delete_in`. Filter
   placeholders (`{:name}`) are turned into literal tokens by the tokenizer, so values can't change
@@ -991,6 +993,56 @@ gives NULL, and so on):
   `... WHERE email != ''`; the condition is parsed and re-emitted, columns compared with
   literals only), and JSON numbers round-trip exactly (`serde_json`'s `float_roundtrip`;
   without it `23.400000000000002` read back as `23.4`).
+
+### Services, the job queue and the settings' sections
+
+Features are built from three things that know nothing about the features using them. A new
+feature registers with them and leaves the request path (records, auth, rules, realtime) alone.
+
+- **Services** (`src/services`): one interface each for what a feature does on a user's behalf.
+  `outbound` sends HTTP requests to addresses a user typed in (public addresses only, no
+  redirects to private ones), `mail` sends email to addresses a user typed in (a limit on
+  recipients, no header injection), `sql` runs statements under the SQL console's policy, and
+  `access` says whose permissions apply (a role, or the system for scheduled work an owner set
+  up). A failure says whether trying again could help (`Failure::transient` or `permanent`), and
+  may name the wait.
+- **The job queue** (`src/queue.rs`, `_slonbase.jobs`): background work as rows.
+  - A job has a kind, a reference, a payload and a number of attempts. What runs a kind is
+    registered when the core is loaded (`Handlers::register`); the queue knows no feature.
+  - Every instance runs workers. A worker claims the next due job with
+    `FOR UPDATE SKIP LOCKED` and holds it with a 90-second lease; the instance renews the leases
+    of all its running jobs every 20 seconds in one statement, on the workers' pool or, when the
+    running jobs hold all of it, on the API's. A lease that runs out (the instance stopped) frees
+    the job for another attempt, or fails it when none is left. An instance never takes a job it
+    is itself still running.
+  - A job queued with a `dedupe` key exists once: a cron job's key is its id and the minute, so
+    it runs once a minute across instances.
+  - A handler that fails with a retryable failure is queued again for later (the wait the
+    failure names, or 30 seconds doubling up to 5 minutes) until its attempts are used. The
+    waiting job is a row, so retries survive restarts.
+  - Workers use a pool of their own (2 connections for the main database, 2 per project), and
+    `Core::db()` answers with that pool inside a job, so background work never waits on, or
+    takes, a connection of the API. A worker with nothing to do holds no connection and asks
+    nothing of the database until a job is queued or due; it looks every 10 minutes for jobs
+    left by instances that stopped. Finished jobs are deleted after a week.
+  - Kinds today: `cron.user` (a run of a dashboard job; one history row however many attempts,
+    found again through `job_runs.queue_job`), `cron.notice` (one failure or recovery notice to
+    one address or the webhook, 3 attempts), `cron.hook` (a run of a job registered by code) and
+    `backup.auto` (the automatic backup, 4 attempts). A scheduled run that waited more than 10
+    minutes before its first attempt is dropped.
+- **The settings' sections** (`settings::SECTIONS`): each top-level key of the settings is a
+  section with a row of its own in `_slonbase.params` (`settings:<section>`, sealed like the
+  rest when there is an encryption key). The table says which sections are private (changed
+  through an API of their own, never sent by `/api/settings`) and which values are secrets
+  (never sent back, kept when an update leaves them empty); storage, the API's representation
+  and the merging of updates all go by it. A change takes an advisory lock, reads the stored
+  settings, validates the whole and writes only the sections that differ, so changes made at
+  the same time are applied one after the other. Settings stored as one value (`settings`, up
+  to 2.6) are read as they are, a section's own row counting over them, and converted at the
+  first start or the first save (a restored backup).
+
+`GET /api/extensions` (Settings, Extensions) lists what an instance has loaded: hook files,
+handlers and routes, cron jobs registered by code, the queue's kinds and the settings' sections.
 
 ### Performance
 

@@ -19,6 +19,8 @@ use serde_json::{Value, json};
 pub const KEY_LENGTH: usize = 32;
 /// The `_slonbase.params` keys stored sealed.
 pub const SEALED_PARAMS: &[&str] = &["settings", "auth_secret"];
+/// Keys that start with this are sealed too: the sections of the settings.
+pub const SEALED_PREFIX: &str = "settings:";
 
 const KEY_HINT: &str =
     "set the encryption key (--encryption-key, SLONBASE_ENCRYPTION_KEY or server.encryption_key)";
@@ -247,24 +249,21 @@ pub async fn seal_plain_rows(client: &impl GenericClient, key: &SecretsKey) -> R
 /// made without one). Values sealed meanwhile by another instance are left alone.
 pub async fn seal_plain(client: &impl GenericClient, key: &SecretsKey) -> Result<usize> {
     let mut sealed = 0;
-    for param in SEALED_PARAMS {
-        let Some(row) = client
-            .query_opt(
-                "SELECT value FROM _slonbase.params WHERE key = $1",
-                &[param],
-            )
-            .await?
-        else {
-            continue;
-        };
-        let value: Value = row.get(0);
+    let rows = client
+        .query(
+            "SELECT key, value FROM _slonbase.params WHERE key = ANY($1) OR starts_with(key, $2)",
+            &[&SEALED_PARAMS, &SEALED_PREFIX],
+        )
+        .await?;
+    for row in rows {
+        let (param, value): (String, Value) = (row.get(0), row.get(1));
         if is_sealed(&value) {
             continue;
         }
         sealed += client
             .execute(
                 "UPDATE _slonbase.params SET value = $2 WHERE key = $1 AND value = $3",
-                &[param, &to_stored(&value, Some(key)), &value],
+                &[&param, &to_stored(&value, Some(key)), &value],
             )
             .await? as usize;
     }
@@ -281,21 +280,20 @@ pub async fn rekey(
 ) -> Result<usize> {
     let tx = client.transaction().await?;
     let mut changed = 0;
-    for param in SEALED_PARAMS {
-        let Some(row) = tx
-            .query_opt(
-                "SELECT value FROM _slonbase.params WHERE key = $1 FOR UPDATE",
-                &[param],
-            )
-            .await?
-        else {
-            continue;
-        };
-        let value = from_stored(row.get(0), from, param_name(param))?;
+    let rows = tx
+        .query(
+            "SELECT key, value FROM _slonbase.params
+             WHERE key = ANY($1) OR starts_with(key, $2) FOR UPDATE",
+            &[&SEALED_PARAMS, &SEALED_PREFIX],
+        )
+        .await?;
+    for row in rows {
+        let param: String = row.get(0);
+        let value = from_stored(row.get(1), from, param_name(&param))?;
         changed += tx
             .execute(
                 "UPDATE _slonbase.params SET value = $2 WHERE key = $1",
-                &[param, &to_stored(&value, to)],
+                &[&param, &to_stored(&value, to)],
             )
             .await? as usize;
     }

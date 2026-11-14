@@ -139,8 +139,10 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
     let backup_file = path.starts_with("/api/backups/")
         && !path.ends_with("/restore")
         && path.matches('/').count() == 3;
+    // what code the instance has loaded: those who work with it
+    let extensions = path == "/api/extensions";
     if read {
-        return !(backup_file && role < Role::Admin);
+        return !(backup_file && role < Role::Admin) && !(extensions && role < Role::Developer);
     }
     // what every superuser does for themselves
     if !via_key {
@@ -739,6 +741,7 @@ mod tests {
             Some(Role::Viewer),
         ),
         ("GET", "/api/health", Some(Role::Viewer)),
+        ("GET", "/api/extensions", Some(Role::Developer)),
         ("GET", "/api/jobs/runs", Some(Role::Viewer)),
         ("GET", "/api/logs", Some(Role::Viewer)),
         ("GET", "/api/logs/stats", Some(Role::Viewer)),

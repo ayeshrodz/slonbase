@@ -155,10 +155,8 @@ pub(crate) async fn prune_hourly(core: &Core) {
     if let Err(err) = crate::queue::prune(core).await {
         tracing::debug!(error = %format!("{err:#}"), "failed to prune the job queue");
     }
-    for kind in [BACKUP, CRON] {
-        if let Err(err) = close_orphans(core, kind, None).await {
-            tracing::debug!(error = %format!("{err:#}"), "failed to close interrupted runs");
-        }
+    if let Err(err) = close_orphans(core, CRON, None).await {
+        tracing::debug!(error = %format!("{err:#}"), "failed to close interrupted runs");
     }
     if let Err(err) = prune(core).await {
         tracing::debug!(error = %format!("{err:#}"), "failed to prune the jobs' history");

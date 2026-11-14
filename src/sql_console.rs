@@ -471,7 +471,7 @@ pub async fn run_cron(
     auth.require_superuser()?;
     if let Some(job) = core.hooks.crons().iter().find(|j| j.id == id) {
         // in the background (like PocketBase), on a queue worker
-        crate::hooks::enqueue_cron(&core, &job.id, "manual", None)
+        crate::hooks::enqueue_cron(&core, &job.id, "manual", "", None)
             .await
             .map_err(ApiError::internal)?;
         return Ok(axum::http::StatusCode::NO_CONTENT.into_response());
