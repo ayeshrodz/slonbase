@@ -327,6 +327,7 @@ impl Projects {
         if let Some(project) = removed {
             if let Mode::Ready { core } = project.app.mode() {
                 core.realtime.disconnect_all();
+                core.realtime.stop_listening();
                 core.pool.close();
                 core.job_pool().close();
             }
@@ -678,6 +679,23 @@ impl Projects {
             .await;
         // a connected database wasn't slonbase's to create, so it isn't slonbase's to drop
         if url.is_none() {
+            // the project's own connections close as its work ends: wait for them, since
+            // `WITH (FORCE)` can't end them where the installation's role isn't a member of
+            // the project's role (PostgreSQL 14 and before)
+            for _ in 0..50 {
+                let open = client
+                    .query_one(
+                        "SELECT count(*) FROM pg_stat_activity WHERE datname = $1",
+                        &[&database],
+                    )
+                    .await
+                    .map(|row| row.get::<_, i64>(0))
+                    .unwrap_or(0);
+                if open == 0 {
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
             client
                 .batch_execute(&format!(
                     "DROP DATABASE IF EXISTS {} WITH (FORCE)",
