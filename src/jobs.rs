@@ -170,8 +170,9 @@ impl Run {
         Ok(())
     }
 
-    /// Changes one number of the kept state (`key`), without writing the rest again.
-    pub(crate) async fn keep_number(&self, key: &str, value: i64) -> anyhow::Result<()> {
+    /// Changes some values of the kept state (the keys of `patch`) in one write, without
+    /// writing the rest again.
+    pub(crate) async fn keep_patch(&self, patch: &Value) -> anyhow::Result<()> {
         let Some(id) = self.id else { return Ok(()) };
         let client = self
             .core
@@ -181,10 +182,9 @@ impl Run {
             .map_err(crate::db::describe_pool_error)?;
         client
             .execute(
-                "UPDATE _slonbase.job_runs
-                 SET state = jsonb_set(COALESCE(state, '{}'), ARRAY[$2], to_jsonb($3::int8))
+                "UPDATE _slonbase.job_runs SET state = COALESCE(state, '{}') || $2::jsonb
                  WHERE id = $1",
-                &[&id, &key, &value],
+                &[&id, patch],
             )
             .await?;
         Ok(())

@@ -297,16 +297,24 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
   // checked as it is being made (nothing is saved or run)
   const signature = JSON.stringify([name, expression, steps.map((s) => [s.name, s.type, s.forEach, s.f]), retries, retryDelay, notifyEmails, notifyHook]);
   useEffect(() => {
+    // (an answer that comes back after the form changed again is not this form's)
+    let stale = false;
     const t = setTimeout(async () => {
       try {
-        setPreview(await api.post("/api/cron-preview", body()));
+        const checked = await api.post("/api/cron-preview", body());
+        if (stale) return;
+        setPreview(checked);
         setErrors({});
       } catch (err) {
+        if (stale) return;
         setPreview(null);
         setErrors(err.fieldErrors ? err.fieldErrors() : {});
       }
     }, 450);
-    return () => clearTimeout(t);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [signature]);
   const submit = async (e) => {
     e.preventDefault();
@@ -325,7 +333,7 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
     }
   };
   const examples = EXAMPLES.filter((x) => x.needs !== "template" || templates.length > 0);
-  return html`<${Modal} onClose=${onClose} size="mid">
+  return html`<${Modal} onClose=${onClose} size="mid" labelledBy="sheet-title">
     <${SheetHead} title=${editing ? "Edit automation" : copyOf ? "Copy automation" : "New automation"} subtitle="Runs its steps in order on a schedule, on one instance, and shows in the history" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
       ${!job && html`<div class="stack tight"><span class="small muted">Start from an example</span><div class="chips">${examples.map((x) => html`<button type="button" class="chip selectable outline" onClick=${() => start(x)}>${x.label}</button>`)}</div></div>`}
@@ -521,6 +529,7 @@ function TemplateEditor({ template, onClose, onDone }) {
   };
   // the email as it would be, with the sample data (nothing is saved or sent)
   useEffect(() => {
+    let stale = false;
     const t = setTimeout(async () => {
       const d = data();
       if (d === null) {
@@ -528,13 +537,18 @@ function TemplateEditor({ template, onClose, onDone }) {
         return;
       }
       try {
-        setPreview(await api.post("/api/templates/preview", { subject, body, data: d }));
+        const rendered = await api.post("/api/templates/preview", { subject, body, data: d });
+        if (stale) return;
+        setPreview(rendered);
         setProblem("");
       } catch (err) {
-        setProblem(err.message || "The template can't be rendered.");
+        if (!stale) setProblem(err.message || "The template can't be rendered.");
       }
     }, 400);
-    return () => clearTimeout(t);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [subject, body, sample]);
   const payload = () => ({ name, description, subject, body, sample: data() === null ? sample : data() });
   const submit = async (e) => {
@@ -564,7 +578,7 @@ function TemplateEditor({ template, onClose, onDone }) {
       setSending(false);
     }
   };
-  return html`<${Modal} onClose=${onClose} size="wide">
+  return html`<${Modal} onClose=${onClose} size="wide" labelledBy="sheet-title">
     <${SheetHead} title=${editing ? "Edit template" : "New template"} subtitle="An email written once and sent by automations with the data of each run" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
       <div class="grid-2">

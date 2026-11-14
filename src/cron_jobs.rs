@@ -547,6 +547,12 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
     };
     let tries = job.attempt.max(1) as u32;
     let work = async {
+        // (a job changed while a retry waited is not run as what it has become)
+        let kept = record
+            .kept()
+            .await
+            .map_err(|e| Failure::transient(format!("{e:#}")))?;
+        crate::automations::unchanged(&def, &kept.unwrap_or_default())?;
         match def.kind == crate::automations::KIND {
             true => crate::automations::run(&core, &def, &record).await,
             false => attempt(&core, &def).await,

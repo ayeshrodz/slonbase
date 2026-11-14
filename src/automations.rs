@@ -439,6 +439,17 @@ fn bad(message: impl Into<String>) -> Failure {
     Failure::permanent(message)
 }
 
+/// What a run kept belongs to the job as it was: a job changed while a retry waited is not
+/// continued in the middle of other steps, nor run as whatever it has become.
+pub(crate) fn unchanged(def: &JobDef, kept: &Value) -> Result<(), Failure> {
+    match kept.get("of") {
+        Some(of) if of != &json!(def.updated) => Err(bad(
+            "The automation was changed while this run waited to be tried again.",
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Runs the steps of `def` for `record`'s run, continuing where an earlier attempt stopped.
 /// Returns what to record: each step with what it came to.
 pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<Value, Failure> {
@@ -448,15 +459,17 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         .await
         .map_err(|e| Failure::transient(format!("{e:#}")))?
         .unwrap_or_else(|| json!({}));
-    // what was kept belongs to the steps as they were: an automation changed while a retry
-    // waited is not continued in the middle of other steps
-    if kept.get("of").is_some_and(|of| of != &json!(def.updated)) {
-        return Err(bad(
-            "The automation was changed while this run waited to be tried again.",
-        ));
+    unchanged(def, &kept)?;
+    if kept.get("of").is_none() {
+        // (from the first step on: what is kept says which steps it belongs to)
+        record
+            .keep(&json!({ "of": def.updated, "next": 0, "row": 0, "part": 0 }))
+            .await
+            .map_err(|e| Failure::transient(format!("{e:#}")))?;
     }
     let next = kept["next"].as_u64().unwrap_or(0) as usize;
     let row = kept["row"].as_u64().unwrap_or(0) as usize;
+    let part = kept["part"].as_u64().unwrap_or(0) as usize;
     let mut outputs = kept["outputs"].as_object().cloned().unwrap_or_default();
     let mut summary = kept["summary"].as_array().cloned().unwrap_or_default();
     let mut stopped = None;
@@ -474,8 +487,11 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
                 "now": crate::datetime::format(&chrono::Utc::now()),
             })
         };
+        // (where an earlier attempt stopped inside this step: the item, and how far into it)
+        let resumed = i == next;
         let output = if step.for_each.is_empty() {
-            run_step(core, step, &context(&Value::Null, 0))
+            let done = if resumed { part } else { 0 };
+            run_step(core, step, &context(&Value::Null, 0), record, done)
                 .await
                 .map_err(named)?
         } else {
@@ -492,14 +508,15 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
                     items.len()
                 ))));
             }
-            let start = if i == next { row } else { 0 };
+            let start = if resumed { row } else { 0 };
             for (r, item) in items.iter().enumerate().skip(start) {
-                run_step(core, step, &context(item, r))
+                let done = if resumed && r == start { part } else { 0 };
+                run_step(core, step, &context(item, r), record, done)
                     .await
                     .map_err(named)?;
                 // (kept per item: a retry goes on with the next one)
                 record
-                    .keep_number("row", r as i64 + 1)
+                    .keep_patch(&json!({ "row": r + 1, "part": 0 }))
                     .await
                     .map_err(|e| Failure::transient(format!("{e:#}")))?;
             }
@@ -516,7 +533,7 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         outputs.insert(step.name.clone(), output);
         record
             .keep(&json!({
-                "of": def.updated, "next": i + 1, "row": 0,
+                "of": def.updated, "next": i + 1, "row": 0, "part": 0,
                 "outputs": outputs, "summary": summary,
             }))
             .await
@@ -565,6 +582,14 @@ fn visible(
     Value::Object(record)
 }
 
+/// Keeps that address number `n` of a step run was sent to.
+async fn sent_one(record: &Run, n: usize) -> Result<(), Failure> {
+    record
+        .keep_patch(&json!({ "part": n + 1 }))
+        .await
+        .map_err(|e| Failure::transient(format!("{e:#}")))
+}
+
 /// The addresses a rendered `to` comes to.
 fn addresses(to: Option<&Value>, context: &Value) -> Result<Vec<String>, Failure> {
     let rendered = match to {
@@ -576,8 +601,16 @@ fn addresses(to: Option<&Value>, context: &Value) -> Result<Vec<String>, Failure
     Ok(list)
 }
 
-/// Runs one step once and returns what it produced, for the steps after it.
-async fn run_step(core: &Arc<Core>, step: &Step, context: &Value) -> Result<Value, Failure> {
+/// Runs one step once and returns what it produced, for the steps after it. `done` is how many
+/// addresses an earlier attempt of this very step run already sent to: they are skipped, and
+/// each further one is kept with `record` as it is sent, so no address is mailed twice.
+async fn run_step(
+    core: &Arc<Core>,
+    step: &Step,
+    context: &Value,
+    record: &Run,
+    done: usize,
+) -> Result<Value, Failure> {
     let c = &step.config;
     let rendered = |key: &str| -> Result<Value, Failure> {
         match c.get(key) {
@@ -719,9 +752,18 @@ async fn run_step(core: &Arc<Core>, step: &Step, context: &Value) -> Result<Valu
             if let Value::Object(own) = rendered("data")? {
                 data.extend(own);
             }
-            let sent = crate::templates::send(core, text(c, "template"), &to, &Value::Object(data))
+            let data = Value::Object(data);
+            for (n, address) in to.iter().enumerate().skip(done) {
+                crate::templates::send(
+                    core,
+                    text(c, "template"),
+                    std::slice::from_ref(address),
+                    &data,
+                )
                 .await?;
-            Ok(json!({ "sent": sent }))
+                sent_one(record, n).await?;
+            }
+            Ok(json!({ "sent": to.len() }))
         }
         "mail" => {
             let to = addresses(c.get("to"), context)?;
@@ -732,8 +774,12 @@ async fn run_step(core: &Arc<Core>, step: &Step, context: &Value) -> Result<Valu
                     "The subject must come to 1 to 200 characters on one line.",
                 ));
             }
-            let sent = mail::send_text(core, &to, subject, &rendered_text("body")?).await?;
-            Ok(json!({ "sent": sent }))
+            let body = rendered_text("body")?;
+            for (n, address) in to.iter().enumerate().skip(done) {
+                mail::send_text_to(core, address, subject, &body).await?;
+                sent_one(record, n).await?;
+            }
+            Ok(json!({ "sent": to.len() }))
         }
         "write" => {
             let name = text(c, "collection");

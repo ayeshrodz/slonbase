@@ -63,7 +63,13 @@ fn date(value: String, format: Option<String>) -> String {
     {
         return value;
     }
-    parsed.format_with_items(items.into_iter()).to_string()
+    // (and some items only parse: writing them fails, which `to_string` would panic on)
+    use std::fmt::Write;
+    let mut out = String::new();
+    match write!(out, "{}", parsed.format_with_items(items.into_iter())) {
+        Ok(()) => out,
+        Err(_) => value,
+    }
 }
 
 /// An engine error in one line, without the engine's name for the template.
@@ -99,18 +105,45 @@ pub fn check_expression(expression: &str) -> Result<(), String> {
         .map_err(describe)
 }
 
+/// What a rendering writes into: it refuses to grow past [`MAX_OUTPUT`], so a template that
+/// repeats a large text stops there instead of filling memory first.
+#[derive(Default)]
+struct Limited {
+    out: Vec<u8>,
+    full: bool,
+}
+
+impl std::io::Write for Limited {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.out.len() + buf.len() > MAX_OUTPUT {
+            self.full = true;
+            return Err(std::io::Error::other("too large"));
+        }
+        self.out.extend_from_slice(buf);
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// Renders `source` with `data`.
 pub fn render(source: &str, data: &Value, mode: Mode) -> Result<String, String> {
-    let out = environment(mode)
-        .render_str(source, Jinja::from_serialize(data))
-        .map_err(describe)?;
-    if out.len() > MAX_OUTPUT {
+    let env = environment(mode);
+    let template = env.template_from_str(source).map_err(describe)?;
+    let mut out = Limited::default();
+    let rendered = template
+        .render_captured_to(Jinja::from_serialize(data), &mut out)
+        .map(|_| ());
+    if out.full {
         return Err(format!(
             "The result is larger than {} KB.",
             MAX_OUTPUT / 1024
         ));
     }
-    Ok(out)
+    rendered.map_err(describe)?;
+    String::from_utf8(out.out).map_err(|e| e.to_string())
 }
 
 /// The value of an expression with `data`.
@@ -227,6 +260,23 @@ mod tests {
     }
 
     #[test]
+    fn output_stops_at_the_limit_while_it_is_written() {
+        // a large text repeated: within the work limit, far over the output limit
+        let source = format!(
+            "{{% for i in range(10000) %}}{}{{% endfor %}}",
+            "x".repeat(90_000)
+        );
+        let started = std::time::Instant::now();
+        let err = render(&source, &json!({}), Mode::Html).unwrap_err();
+        assert!(err.contains("larger than"), "{err}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(2));
+        // and a text can't be made large inside an expression either
+        for source in ["{{ 'x' * 100000000 }}", "{{ ('x' * 100000) * 100000 }}"] {
+            assert!(render(source, &json!({}), Mode::Text).is_err(), "{source}");
+        }
+    }
+
+    #[test]
     fn a_template_cant_reach_outside_its_data() {
         // no include, import or extends: there is nothing to load from
         for source in [
@@ -298,6 +348,11 @@ mod tests {
         assert_eq!(
             render("{{ word | date }}", &data, Mode::Text).unwrap(),
             "soon"
+        );
+        // (a format item that only parses must not bring the server down)
+        assert_eq!(
+            render("{{ at | date('%#z') }}", &data, Mode::Text).unwrap(),
+            "2026-11-10 12:30:00.000Z"
         );
         // a format that can't be used leaves the value alone
         assert_eq!(

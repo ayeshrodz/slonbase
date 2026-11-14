@@ -351,6 +351,12 @@ function Shell() {
     document.title = pageTitle(navLabel);
   }, [navLabel, appName]);
 
+  // (in an effect, so the route is being listened to when it changes)
+  const oldCrons = path.startsWith("/settings/crons");
+  useEffect(() => {
+    if (oldCrons) navigate("/automations", true);
+  }, [oldCrons]);
+
   let page;
   let params;
   if (path === "/") page = html`<${Overview} />`;
@@ -360,11 +366,9 @@ function Shell() {
   else if (path.startsWith("/health")) page = html`<${Health} />`;
   else if (path.startsWith("/sql")) page = html`<${SqlConsole} />`;
   else if (path.startsWith("/projects") && !PROJECT) page = html`<${Projects} />`;
-  // (where cron jobs were before they became automations)
-  else if (path.startsWith("/settings/crons")) {
-    navigate("/automations", true);
-    page = null;
-  } else if ((params = match("/automations/:tab?", path))) page = html`<${Automations} tab=${params.tab || "automations"} />`;
+  // (where cron jobs were before they became automations: redirected by the effect above)
+  else if (oldCrons) page = null;
+  else if ((params = match("/automations/:tab?", path))) page = html`<${Automations} tab=${params.tab || "automations"} />`;
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;
   else page = html`<div class="page"><div class="empty"><h3>Page not found</h3><a href="#/">Back to the overview</a></div></div>`;
 

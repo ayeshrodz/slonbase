@@ -78,8 +78,9 @@ addresses per step run.
 The run stops at the step and is recorded as failed, with the step's name in the message. With
 **If it fails, try again**, the run is tried again later (after the wait you choose, then twice
 as long each time), and it **continues at the step that failed**: steps that finished are not
-done again, and a step that runs once per item goes on with the next item. So an email that was
-sent is not sent a second time. Retries survive a restart. An automation that is changed while
+done again, a step that runs once per item goes on with the next item, and an email to several
+addresses goes on with the next address. So an email that was sent is not sent a second time
+(short of the server stopping in the instant between sending one and noting it). Retries survive a restart. An automation that is changed while
 a retry waits is not continued: that run is recorded as failed.
 
 A failure that trying again can't fix (a missing template, an address that isn't one, a record
