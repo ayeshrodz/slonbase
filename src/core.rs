@@ -124,7 +124,7 @@ fn storage_for(settings: &Settings, local: &std::path::Path) -> Storage {
 
 /// Job workers, and their connections, for the main installation and for each project.
 const MAIN_JOB_WORKERS: usize = 2;
-const PROJECT_JOB_WORKERS: usize = 1;
+const PROJECT_JOB_WORKERS: usize = 2;
 
 impl Core {
     /// Loads the core and starts the listener that delivers realtime events and keeps
@@ -200,6 +200,8 @@ impl Core {
             tokio::sync::Semaphore::new(pool.status().max_size.saturating_sub(1).max(1));
         let mut handlers = crate::queue::Handlers::default();
         crate::cron_jobs::register(&mut handlers);
+        crate::hooks::register_jobs(&mut handlers);
+        crate::backups::register_jobs(&mut handlers);
         Ok(Arc::new(Self {
             pool,
             job_pool: Default::default(),

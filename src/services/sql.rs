@@ -59,6 +59,7 @@ pub async fn run(
             // the console is off, or read-only for this statement: that won't change by itself
             retry: e.status != axum::http::StatusCode::FORBIDDEN,
             message: e.details.as_deref().unwrap_or(&e.message).to_string(),
+            retry_in: None,
         })?;
     Ok(Outcome {
         affected_rows: result["affectedRows"].clone(),

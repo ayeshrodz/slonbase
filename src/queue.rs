@@ -3,9 +3,13 @@
 //! - **Durable.** A job is a row. It stays until a worker has run it, so it outlives the
 //!   instance that queued it.
 //! - **Shared.** Every instance runs workers; a job is claimed by one of them
-//!   (`FOR UPDATE SKIP LOCKED`) and held with a lease that the worker renews while it runs. A
-//!   lease that runs out (the instance stopped) frees the job: it is run again if it has
-//!   attempts left, and marked failed otherwise.
+//!   (`FOR UPDATE SKIP LOCKED`) and held with a lease that its instance renews while it runs
+//!   (all its running jobs in one statement, on whichever pool has a connection free, so a
+//!   busy worker pool can't let a lease run out). A lease that runs out (the instance stopped)
+//!   frees the job: it is run again if it has attempts left, and marked failed otherwise.
+//! - **Retried.** A handler that fails with a [`Failure`] worth retrying is run again later,
+//!   up to the job's `max_attempts`, after the wait the failure names or a growing default.
+//!   The waiting job is a row like any other: it survives a restart.
 //! - **Once.** A job queued with a `dedupe` key exists once, whichever instance queues it
 //!   first: that is how a scheduled job runs once a minute across instances.
 //! - **Apart.** Workers take their connections from a pool of their own
@@ -18,10 +22,10 @@
 //! What a job *does* is registered by kind ([`Handlers`]); the queue knows nothing about the
 //! features that use it.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -32,7 +36,7 @@ use crate::services::Failure;
 
 /// How long a claim holds without being renewed.
 const LEASE_SECONDS: i64 = 90;
-/// How often a running job's lease is renewed.
+/// How often the leases of the running jobs are renewed.
 const RENEW_EVERY: Duration = Duration::from_secs(20);
 /// How often a worker with nothing to do looks for jobs left by instances that stopped.
 const IDLE_LOOK: Duration = Duration::from_secs(600);
@@ -89,6 +93,9 @@ impl Handlers {
 pub struct Queue {
     pub(crate) handlers: Handlers,
     wake: Arc<tokio::sync::Notify>,
+    /// The jobs this instance is running now: their leases are renewed, and they are never
+    /// taken a second time here, whatever their lease says.
+    running: Mutex<HashSet<i64>>,
 }
 
 impl Queue {
@@ -96,7 +103,24 @@ impl Queue {
         Self {
             handlers,
             wake: Default::default(),
+            running: Default::default(),
         }
+    }
+
+    /// The kinds of jobs that have a handler, sorted.
+    pub(crate) fn kinds(&self) -> Vec<&'static str> {
+        let mut kinds: Vec<_> = self.handlers.0.keys().copied().collect();
+        kinds.sort_unstable();
+        kinds
+    }
+
+    fn running(&self) -> Vec<i64> {
+        self.running
+            .lock()
+            .expect("running jobs lock")
+            .iter()
+            .copied()
+            .collect()
     }
 }
 
@@ -143,6 +167,7 @@ pub async fn enqueue(core: &Core, job: NewJob<'_>) -> Result<bool> {
 /// Starts `count` workers for `core`. They stop when the core is dropped.
 pub(crate) fn spawn_workers(core: &Arc<Core>, count: usize) {
     let instance = crate::ids::random_id(12);
+    tokio::spawn(renew_leases(Arc::downgrade(core), instance.clone()));
     for _ in 0..count {
         tokio::spawn(worker(
             Arc::downgrade(core),
@@ -190,8 +215,9 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
         .execute(
             "UPDATE _slonbase.jobs SET state = 'failed', finished = now(),
                     error = 'Interrupted: the instance running it stopped.'
-             WHERE state = 'running' AND locked_until < now() AND attempt >= max_attempts",
-            &[],
+             WHERE state = 'running' AND locked_until < now() AND attempt >= max_attempts
+               AND id <> ALL($1)",
+            &[&core.queue.running()],
         )
         .await?;
     let row = client
@@ -204,15 +230,19 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
                  WHERE id = (
                      SELECT id FROM _slonbase.jobs
                      WHERE (state = 'queued' AND run_after <= now())
-                        OR (state = 'running' AND locked_until < now())
+                        OR (state = 'running' AND locked_until < now() AND id <> ALL($2))
                      ORDER BY run_after, id
                      FOR UPDATE SKIP LOCKED LIMIT 1
                  )
                  RETURNING id, kind, ref, payload, attempt, max_attempts"
             ),
-            &[&instance],
+            &[&instance, &core.queue.running()],
         )
         .await?;
+    if let Some(row) = &row {
+        let id: i64 = row.get(0);
+        core.queue.running.lock().expect("running jobs lock").insert(id);
+    }
     Ok(row.map(|r| Job {
         id: r.get(0),
         kind: r.get(1),
@@ -254,51 +284,66 @@ async fn next_wake(core: &Core) -> Duration {
     }
 }
 
-/// Runs a claimed job with its lease renewed, and records how it ended.
+/// Runs a claimed job and records how it ended.
 async fn run(core: &Arc<Core>, job: Job, instance: &str) {
-    let Some(handler) = core.queue.handlers.0.get(job.kind.as_str()).cloned() else {
-        finish(
-            core,
-            &job,
-            instance,
-            Err(Failure::permanent(format!(
-                "Nothing runs jobs of kind {}.",
-                job.kind
-            ))),
-        )
-        .await;
-        return;
-    };
-    let renew = {
-        let (core, id, instance) = (Arc::downgrade(core), job.id, instance.to_string());
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(RENEW_EVERY).await;
-                let Some(core) = core.upgrade() else { return };
-                let Ok(client) = core.job_pool().get().await else {
-                    continue;
-                };
-                let _ = client
-                    .execute(
-                        &format!(
-                            "UPDATE _slonbase.jobs
-                             SET locked_until = now() + interval '{LEASE_SECONDS} seconds'
-                             WHERE id = $1 AND locked_by = $2 AND state = 'running'"
-                        ),
-                        &[&id, &instance],
-                    )
-                    .await;
+    let result = match core.queue.handlers.0.get(job.kind.as_str()).cloned() {
+        // in a task of its own, so a handler that panics fails its job and not the worker
+        Some(handler) => {
+            let work = tokio::spawn(ON_WORKER.scope((), handler(core.clone(), job.clone())));
+            match work.await {
+                Ok(result) => result,
+                Err(_) => Err(Failure::permanent("The job stopped unexpectedly.")),
             }
-        })
+        }
+        None => Err(Failure::permanent(format!(
+            "Nothing runs jobs of kind {}.",
+            job.kind
+        ))),
     };
-    // in a task of its own, so a handler that panics fails its job and not the worker
-    let work = tokio::spawn(ON_WORKER.scope((), handler(core.clone(), job.clone())));
-    let result = match work.await {
-        Ok(result) => result,
-        Err(_) => Err(Failure::permanent("The job stopped unexpectedly.")),
-    };
-    renew.abort();
     finish(core, &job, instance, result).await;
+    core.queue
+        .running
+        .lock()
+        .expect("running jobs lock")
+        .remove(&job.id);
+}
+
+/// Renews the leases of the jobs this instance is running, all in one statement. It takes a
+/// connection from the workers' pool or, when the running jobs hold them all, from the API's:
+/// a lease must not run out because the work it protects is busy.
+async fn renew_leases(core: Weak<Core>, instance: String) {
+    const WAIT: Duration = Duration::from_secs(3);
+    loop {
+        tokio::time::sleep(RENEW_EVERY).await;
+        let Some(core) = core.upgrade() else { return };
+        let running = core.queue.running();
+        if running.is_empty() {
+            continue;
+        }
+        let renewed = async {
+            let client = match tokio::time::timeout(WAIT, core.job_pool().get()).await {
+                Ok(Ok(client)) => client,
+                _ => tokio::time::timeout(WAIT, core.pool.get())
+                    .await
+                    .map_err(|_| anyhow::anyhow!("no connection was free"))?
+                    .map_err(crate::db::describe_pool_error)?,
+            };
+            client
+                .execute(
+                    &format!(
+                        "UPDATE _slonbase.jobs
+                         SET locked_until = now() + interval '{LEASE_SECONDS} seconds'
+                         WHERE id = ANY($1) AND locked_by = $2 AND state = 'running'"
+                    ),
+                    &[&running, &instance],
+                )
+                .await?;
+            anyhow::Ok(())
+        };
+        if let Err(err) = renewed.await {
+            tracing::warn!(error = %format!("{err:#}"), "failed to renew the leases of the running jobs");
+        }
+    }
 }
 
 async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failure>) {
@@ -320,9 +365,12 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failu
             }
             // tried again later, waiting longer each time
             Err(failure) if failure.retry && job.attempt < job.max_attempts => {
-                let wait = 30i64
-                    .saturating_mul(1 << (job.attempt - 1).clamp(0, 10))
-                    .min(300);
+                let wait = match failure.retry_in {
+                    Some(wait) => wait.as_secs().clamp(1, 3600) as i64,
+                    None => 30i64
+                        .saturating_mul(1 << (job.attempt - 1).clamp(0, 10))
+                        .min(300),
+                };
                 client
                     .execute(
                         &format!(
