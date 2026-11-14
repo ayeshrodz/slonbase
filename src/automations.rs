@@ -205,10 +205,21 @@ async fn validate_step(core: &Arc<Core>, step: &Step, errors: &mut Errors) {
             }
         }
         "http" => {
-            // (an address built from data is checked when it is called)
+            // data may fill in the path of an address, never choose where it goes: the request
+            // carries the step's saved headers
+            let url = text(c, "url").trim();
             let mut fixed = c.clone();
-            if templating::is_template(text(c, "url")) {
-                fixed["url"] = json!("https://example.com/");
+            if templating::is_template(url) {
+                match fixed_origin(url) {
+                    Some(origin) => fixed["url"] = json!(origin),
+                    None => {
+                        errors.invalid(
+                            "config.url",
+                            "The address up to its path is typed, not built from data: https://example.com/orders/{{ item.id }}.",
+                        );
+                        return;
+                    }
+                }
             }
             cron_jobs::validate_http(&fixed, errors).await;
         }
@@ -309,6 +320,19 @@ async fn validate_step(core: &Arc<Core>, step: &Step, errors: &mut Errors) {
         }
         _ => {}
     }
+}
+
+/// The part of a templated address that says where it goes (`https://example.com/`), when
+/// all of it is typed: the scheme, the host and the slash that ends them come before the first
+/// template.
+fn fixed_origin(url: &str) -> Option<&str> {
+    let typed = &url[..url.find("{{").or_else(|| url.find("{%"))?];
+    let host = typed.find("://")? + 3;
+    let end = host + typed[host..].find('/')? + 1;
+    // (nothing after the host may reopen it: no credentials, no second host)
+    let authority = &typed[host..end - 1];
+    (!authority.is_empty() && !authority.contains('@') && !authority.contains('\\'))
+        .then(|| &typed[..end])
 }
 
 /// Whether an address list is, or holds, a template.
@@ -424,6 +448,13 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         .await
         .map_err(|e| Failure::transient(format!("{e:#}")))?
         .unwrap_or_else(|| json!({}));
+    // what was kept belongs to the steps as they were: an automation changed while a retry
+    // waited is not continued in the middle of other steps
+    if kept.get("of").is_some_and(|of| of != &json!(def.updated)) {
+        return Err(bad(
+            "The automation was changed while this run waited to be tried again.",
+        ));
+    }
     let next = kept["next"].as_u64().unwrap_or(0) as usize;
     let row = kept["row"].as_u64().unwrap_or(0) as usize;
     let mut outputs = kept["outputs"].as_object().cloned().unwrap_or_default();
@@ -484,7 +515,10 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         summary.push(brief(step, &output));
         outputs.insert(step.name.clone(), output);
         record
-            .keep(&json!({ "next": i + 1, "row": 0, "outputs": outputs, "summary": summary }))
+            .keep(&json!({
+                "of": def.updated, "next": i + 1, "row": 0,
+                "outputs": outputs, "summary": summary,
+            }))
             .await
             .map_err(|e| Failure::transient(format!("{e:#}")))?;
         if halts {
@@ -614,6 +648,22 @@ async fn run_step(core: &Arc<Core>, step: &Step, context: &Value) -> Result<Valu
         }
         "http" => {
             let url = rendered_text("url")?;
+            // what data filled in stays under the address that was typed
+            if let Some(origin) = fixed_origin(text(c, "url").trim()) {
+                let same = match (reqwest::Url::parse(origin), reqwest::Url::parse(url.trim())) {
+                    (Ok(typed), Ok(built)) => {
+                        typed.scheme() == built.scheme()
+                            && typed.host_str() == built.host_str()
+                            && typed.port_or_known_default() == built.port_or_known_default()
+                    }
+                    _ => false,
+                };
+                if !same {
+                    return Err(bad(
+                        "The address came to another server than the one typed.",
+                    ));
+                }
+            }
             let body = rendered_text("body")?;
             let headers: Vec<(String, String)> = match rendered("headers")? {
                 Value::Object(h) => h
@@ -739,6 +789,32 @@ async fn run_step(core: &Arc<Core>, step: &Step, context: &Value) -> Result<Valu
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn data_fills_in_a_path_not_a_server() {
+        assert_eq!(
+            fixed_origin("https://example.com/orders/{{ item.id }}"),
+            Some("https://example.com/")
+        );
+        assert_eq!(
+            fixed_origin("http://api.example.com:8080/v1/{{ item.id }}?x={{ y }}"),
+            Some("http://api.example.com:8080/")
+        );
+        for url in [
+            "{{ item.url }}",
+            "https://{{ item.host }}/x",
+            "https://example.com{{ item.path }}",
+            "https://example.{{ tld }}/x",
+            "https://user@{{ host }}/",
+            "https://user:pw@example.com/{{ x }}",
+            "https:///{{ x }}",
+            "//example.com/{{ x }}",
+        ] {
+            assert_eq!(fixed_origin(url), None, "{url}");
+        }
+        // nothing to fill in: nothing to hold
+        assert_eq!(fixed_origin("https://example.com/x"), None);
+    }
 
     #[test]
     fn step_names_are_identifiers() {

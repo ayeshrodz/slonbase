@@ -189,7 +189,7 @@ function StepFields({ step, set, errors, at, collections, templates, sqlOn }) {
       return html`<div class="stack">
         <div class="grid-2">
           <${Field} label="Method"><${Select} value=${f.method} onChange=${up("method")} options=${METHODS} /></${Field}>
-          <${Field} label="URL" error=${e("url")} help="Public addresses only: this server and private networks can't be called"><${Input} class="mono" value=${f.url} onInput=${up("url")} placeholder="https://example.com/hook" /></${Field}>
+          <${Field} label="URL" error=${e("url")} help="Public addresses only. Data can fill in the path, not the server: https://example.com/orders/{{ item.id }}"><${Input} class="mono" value=${f.url} onInput=${up("url")} placeholder="https://example.com/hook" /></${Field}>
         </div>
         <${Field} label="Headers" error=${e("headers")} help="One per line, Name: value. Saved values are hidden; leave a line as it is to keep it.">${area("headers", 2, "Authorization: Bearer …")}</${Field}>
         ${f.method !== "GET" && html`<${Field} label="Body" error=${e("body")}>${area("body", 3, '{ "count": {{ steps.records.count }} }')}</${Field}>`}

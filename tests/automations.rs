@@ -594,6 +594,15 @@ async fn steps_are_checked_and_follow_the_rules_of_what_they_do() {
             json!([{ "name": "a", "type": "http", "config": { "url": "http://127.0.0.1/x" } }]),
             "steps.0.config.url",
         ),
+        // data may fill in a path, never choose the server
+        (
+            json!([{ "name": "a", "type": "http", "config": { "url": "https://{{ item.host }}/x" } }]),
+            "steps.0.config.url",
+        ),
+        (
+            json!([{ "name": "a", "type": "http", "config": { "url": "{{ item.url }}" } }]),
+            "steps.0.config.url",
+        ),
         (
             json!([{ "name": "a", "type": "mail", "config": { "to": "{{ item.email", "subject": "s", "body": "b" } }]),
             "steps.0.config",
@@ -611,6 +620,16 @@ async fn steps_are_checked_and_follow_the_rules_of_what_they_do() {
         let pointer = format!("/data/config/{}", field.replace('.', "/"));
         assert!(res.pointer(&pointer).is_some(), "{field}: {res}");
     }
+    let built = automation(json!([
+        { "name": "a", "type": "http", "config": { "url": "http://93.184.216.34/orders/{{ steps.x.id }}" } },
+    ]));
+    let (status, res) = call(&app, &token, "POST", "/api/cron-preview", Some(built)).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "a path may be built from data: {res}"
+    );
+
     // more than 20 steps
     let many: Vec<Value> = (0..21).map(|n| query(&format!("s{n}"))).collect();
     let (status, _) = call(
@@ -796,4 +815,82 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
     assert!(!res.to_string().contains("T0K3N"));
+}
+
+#[tokio::test]
+async fn an_automation_changed_while_a_retry_waits_is_not_continued() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let mailer = mail_on(&app, &token).await;
+    let steps = |subject: &str| {
+        json!({ "steps": [
+            { "name": "tell", "type": "mail",
+              "config": { "to": "a@example.com", "subject": subject, "body": "x" } },
+            { "name": "fails", "type": "sql", "config": { "statement": "SELECT 1/0" } },
+        ] })
+    };
+    let automation = ok(
+        &app,
+        &token,
+        "POST",
+        "/api/automations",
+        json!({
+            "name": "Changing", "expression": NEVER, "type": "steps",
+            "retries": 2, "retryDelaySeconds": 2, "config": steps("First"),
+        }),
+    )
+    .await;
+    let id = automation["id"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &app,
+        &token,
+        "POST",
+        &format!("/api/automations/{id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let query = format!("/api/jobs/runs?kind=cron&job={id}");
+    assert!(
+        eventually(async || {
+            let (_, res) = call(&app, &token, "GET", &query, None).await;
+            res["items"][0]["detail"]
+                .as_str()
+                .is_some_and(|d| d.contains("Attempt 1 failed"))
+        })
+        .await
+    );
+    // changed before the retry: its steps are no longer the ones the run was in the middle of
+    ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "config": steps("Second") }),
+    )
+    .await;
+    let mut last = Value::Null;
+    assert!(
+        eventually(async || {
+            let (_, res) = call(&app, &token, "GET", &query, None).await;
+            last = res["items"][0].clone();
+            last["status"] == "error"
+        })
+        .await,
+        "{last}"
+    );
+    assert!(
+        last["detail"]
+            .as_str()
+            .unwrap()
+            .contains("was changed while"),
+        "{last}"
+    );
+    // and nothing of the new steps ran in its place
+    let sent = mailer.sent.lock().unwrap().clone();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].subject, "First");
 }

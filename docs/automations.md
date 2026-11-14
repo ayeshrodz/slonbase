@@ -42,12 +42,16 @@ Also there: `index` (the item's position, from 0), `automation.name`, `automatio
 A value that isn't there is nothing, not an error. Filters work as in Jinja (`| upper`,
 `| default("…")`, `| length`, `| int`, `| tojson`), and `| date("%d %B %Y")` writes a date.
 
-Two things are never built from data, so data can't change what they do:
+Three things are never built from data, so data can't change what they do:
 
 - **A filter** takes data through its parameters: write `status = {:status}` and give
   `{ "status": "{{ item.status }}" }` as the parameters. The value is bound, not pasted in.
 - **An SQL statement** is run exactly as it was saved. What it returns reaches later steps as
   text (`{{ steps.totals.rows[0].sum | int }}`).
+
+- **The server a URL step calls** is typed: data can fill in the path and the query
+  (`https://example.com/orders/{{ item.id }}`), not the scheme or the host, because the request
+  carries the step's saved headers.
 
 Records reach steps without the fields no API shows (password hashes, token keys), and system
 collections can't be read or written by a step.
@@ -75,7 +79,8 @@ The run stops at the step and is recorded as failed, with the step's name in the
 **If it fails, try again**, the run is tried again later (after the wait you choose, then twice
 as long each time), and it **continues at the step that failed**: steps that finished are not
 done again, and a step that runs once per item goes on with the next item. So an email that was
-sent is not sent a second time. Retries survive a restart.
+sent is not sent a second time. Retries survive a restart. An automation that is changed while
+a retry waits is not continued: that run is recorded as failed.
 
 A failure that trying again can't fix (a missing template, an address that isn't one, a record
 that isn't there) is not retried.
