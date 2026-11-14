@@ -277,7 +277,7 @@ async fn shared_claim_mail(
     sent: &str,
 ) -> anyhow::Result<Result<(), String>> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -371,7 +371,7 @@ async fn shared_allow(
     rule: &RateLimitRule,
 ) -> anyhow::Result<bool> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -426,7 +426,7 @@ pub async fn check_lockout(
         return Ok(());
     }
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -470,7 +470,7 @@ pub async fn record_sign_in(
     let key = lockout_key(collection, identity, ip);
     let done = async {
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;

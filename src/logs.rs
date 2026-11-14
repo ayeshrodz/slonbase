@@ -511,7 +511,7 @@ pub async fn list(
     let order = compile_sort(&sort, &LOGS, ALIAS, true).map_err(bad_filter)?;
 
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -559,7 +559,7 @@ pub async fn view(
     let core = app.core()?;
     auth.require_superuser()?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -585,7 +585,7 @@ pub async fn stats(
     let mut params = Params::default();
     let condition = filter_sql(&query, &mut params)?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -617,7 +617,7 @@ pub async fn truncate(
     let core = app.core()?;
     auth.require_superuser()?;
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

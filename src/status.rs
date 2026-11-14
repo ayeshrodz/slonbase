@@ -44,7 +44,7 @@ pub async fn status(
     // the database: a round trip, its version and size, the pool
     let started = Instant::now();
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

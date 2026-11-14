@@ -328,6 +328,7 @@ impl Projects {
             if let Mode::Ready { core } = project.app.mode() {
                 core.realtime.disconnect_all();
                 core.pool.close();
+                core.job_pool().close();
             }
             project.app.set_mode(Mode::Starting {
                 status: "the project was deleted".into(),
@@ -394,7 +395,7 @@ impl Projects {
             .ok_or_else(|| ApiError::unavailable("slonbase is stopping."))?;
         let core = root.core()?;
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -612,7 +613,7 @@ impl Projects {
             .ok_or_else(|| ApiError::unavailable("slonbase is stopping."))?;
         let core = root.core()?;
         let client = core
-            .pool
+            .db()
             .get()
             .await
             .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -902,7 +903,7 @@ impl Projects {
                 .ok_or_else(|| ApiError::unavailable("slonbase is stopping."))?;
             let core = root.core()?;
             let client = core
-                .pool
+                .db()
                 .get()
                 .await
                 .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
@@ -978,7 +979,7 @@ pub struct Deleted {
 
 async fn load_rows(core: &Core) -> anyhow::Result<Vec<Row>> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
@@ -1154,7 +1155,7 @@ pub struct ProjectDatabase {
 /// connected database, from the main installation's list.
 pub async fn database_of(core: &Core, name: &str) -> anyhow::Result<Option<ProjectDatabase>> {
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;

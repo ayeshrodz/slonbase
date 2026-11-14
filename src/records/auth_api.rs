@@ -133,7 +133,7 @@ async fn record_matches(
     let id_param = params.push(record.id());
     let condition = to_sql(rule, &scope, &mut params)
         .map_err(|e| ApiError::internal(anyhow::anyhow!("invalid stored rule: {e}")))?;
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let row = client
         .query_text_opt(
             &format!(
@@ -169,7 +169,7 @@ pub(super) async fn check_mfa(
     if !mfa.enabled || !record_matches(core, record, Some(&mfa.rule), http_method).await? {
         return Ok(None);
     }
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     if mfa_id.is_empty() {
         let id = crate::ids::random_id(crate::ids::DEFAULT_ID_LENGTH);
         client
@@ -240,7 +240,7 @@ pub(super) async fn auth_alert(
         .unwrap_or_default();
     let key_hash = hex(&Sha256::digest(token_key));
 
-    let db = core.pool.get().await?;
+    let db = core.db().get().await?;
     // devices from before the last password change don't count
     db.execute(
         "DELETE FROM _slonbase.auth_origins
@@ -310,7 +310,7 @@ pub(super) async fn find_by_email(
     c: &Collection,
     email: &str,
 ) -> Result<Option<AuthRecord>, ApiError> {
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let condition = format!(
         "lower({ALIAS}.{}) = lower($1::text)",
         quote_ident(FIELD_EMAIL)
@@ -509,7 +509,7 @@ pub async fn auth_with_password(
         }
     };
 
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let mut found = None;
     for name in fields {
         let Some(field) = c.field(name) else { continue };
@@ -683,7 +683,7 @@ pub async fn impersonate(
         Some(d) if (1..=365 * 86_400).contains(&d) => Some(d),
         Some(_) => return Err(ApiError::bad_request("Invalid duration.")),
     };
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let values = store::find_by_id(&client, &c, &id)
         .await
         .map_err(db_error)?
@@ -813,7 +813,7 @@ pub async fn confirm_verification(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            let client = e.core.pool.get().await.map_err(pool_error)?;
+            let client = e.core.db().get().await.map_err(pool_error)?;
             client
                 .execute(
                     &format!(
@@ -930,7 +930,7 @@ pub async fn confirm_password_reset(
             let hash = values::hash_password(field, password)
                 .await
                 .map_err(ApiError::internal)?;
-            let client = e.core.pool.get().await.map_err(pool_error)?;
+            let client = e.core.db().get().await.map_err(pool_error)?;
             // a new token key signs out every session and makes the reset token
             // single-use; receiving the email also proves ownership of the address
             client
@@ -980,7 +980,7 @@ pub async fn revoke_tokens(
             ));
         }
     }
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let updated = client
         .execute(
             &format!(
@@ -1117,7 +1117,7 @@ pub async fn confirm_email_change(
         e,
         |mut e| async move {
             let record = auth_hooks::record_of(&e)?;
-            let client = e.core.pool.get().await.map_err(pool_error)?;
+            let client = e.core.db().get().await.map_err(pool_error)?;
             let result = client
                 .execute(
                     &format!(

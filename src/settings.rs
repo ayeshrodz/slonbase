@@ -1018,7 +1018,7 @@ where
     F: FnOnce(&Settings) -> Result<Settings, ApiError>,
 {
     let mut client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;

@@ -532,7 +532,7 @@ async fn migrate_command(
         MigrateAction::Collections => {
             let path = migrate::write_snapshot(dir, &core.registry())?;
             // it describes the collections as they are: there's nothing to apply
-            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            let client = core.db().get().await.map_err(db::describe_pool_error)?;
             let file = path
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
@@ -705,7 +705,7 @@ async fn project_command(loaded: config::Loaded, action: ProjectAction) -> Resul
     };
     match action {
         ProjectAction::List => {
-            let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+            let client = core.db().get().await.map_err(db::describe_pool_error)?;
             let rows = client
                 .query(
                     "SELECT name, database, to_char(created, 'YYYY-MM-DD HH24:MI') FROM _slonbase.projects ORDER BY name",
@@ -747,7 +747,7 @@ async fn project_command(loaded: config::Loaded, action: ProjectAction) -> Resul
         }
         ProjectAction::Hosts { name, hosts, clear } => {
             if hosts.is_empty() && !clear {
-                let client = core.pool.get().await.map_err(db::describe_pool_error)?;
+                let client = core.db().get().await.map_err(db::describe_pool_error)?;
                 let row = client
                     .query_opt(
                         "SELECT hosts FROM _slonbase.projects WHERE name = $1",

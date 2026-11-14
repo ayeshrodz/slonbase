@@ -113,7 +113,7 @@ async fn create_otp(
     };
     let options = c.auth_options().expect("auth collection").otp.clone();
 
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     let active = client
         .query(
             "SELECT id FROM _slonbase.otps
@@ -143,7 +143,7 @@ async fn create_otp(
         let plain = password.clone();
         let saved = async {
             let hash = tokio::task::spawn_blocking(move || bcrypt::hash(plain, OTP_COST)).await??;
-            let client = core.pool.get().await?;
+            let client = core.db().get().await?;
             client
                 .execute(
                     "INSERT INTO _slonbase.otps (id, collection_id, record_id, password_hash, sent_to)
@@ -221,7 +221,7 @@ pub async fn auth_with_otp(
         ));
     }
 
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     // each guess takes an attempt before it's checked, in the statement that checks the
     // limit, so guesses sent at the same time can't get past it
     let row = client
@@ -283,7 +283,7 @@ pub async fn auth_with_otp(
 /// its email (receiving it proves the address). Returns the record.
 async fn use_otp(core: &Core, mut record: AuthRecord, otp: Value) -> Result<AuthRecord, ApiError> {
     let invalid = || ApiError::bad_request("Invalid or expired OTP.");
-    let client = core.pool.get().await.map_err(pool_error)?;
+    let client = core.db().get().await.map_err(pool_error)?;
     // single use, also when two requests race
     if client
         .execute(
@@ -354,7 +354,7 @@ pub async fn issue(
     let hash = tokio::task::spawn_blocking(move || bcrypt::hash(plain, OTP_COST)).await??;
     let id = ids::random_id(ids::DEFAULT_ID_LENGTH);
     let client = core
-        .pool
+        .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;

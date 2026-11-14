@@ -40,7 +40,8 @@ one, until a single machine's CPUs are the limit.
 
 One `slonbase serve`, one PostgreSQL database. Nothing to coordinate. Idle it holds about 3
 connections to PostgreSQL, and up to 18 under load (a pool of 16, `database.max_connections`,
-plus two that wait for notifications).
+plus two that wait for notifications), or 20 while background jobs run (they have two
+connections of their own).
 
 ## B. One instance, several projects, several servers
 
@@ -148,10 +149,15 @@ use of it is predictable:
 
 | | Connections per instance |
 |---|---|
-| The main database | up to `database.max_connections` (16), plus 2 for notifications |
-| Each project | up to `projects.max_connections` (4), plus 1 for notifications |
+| The main database | up to `database.max_connections` (16), plus 2 for notifications, plus up to 2 for background jobs |
+| Each project | up to `projects.max_connections` (4), plus 1 for notifications, plus up to 1 for background jobs |
 
-So **N instances and P projects use at most N × (18 + 5 × P)**, with connections opened on demand
+Background jobs (the job queue: scheduled and manual runs of the dashboard's jobs) have
+connections of their own, so a job never takes one an API request is waiting for. They are opened
+when a job runs and closed when the queue is empty, so an installation that runs no jobs opens
+none.
+
+So **N instances and P projects use at most N × (20 + 6 × P)**, with connections opened on demand
 and idle project connections released after two minutes. Measured on one PostgreSQL 16 server:
 
 | Layout | Idle | Under load |

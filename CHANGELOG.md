@@ -8,6 +8,17 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Changed
+
+- **Background jobs run from a durable queue, on connections of their own.** Scheduled and manual
+  runs of the dashboard's jobs are now rows in a queue (`_slonbase.jobs`) that every instance's
+  workers share: a run queued by an instance that then stops is picked up by another, and a
+  scheduled job is still queued once a minute however many instances there are. The workers use
+  their own connections (up to 2 for the main database and 1 per project, opened when a job runs
+  and closed when the queue is empty), so a job never takes a connection from API requests. The
+  most connections an instance can open is now `20 + 6 × projects` (it was `18 + 5 × projects`);
+  see [scaling](docs/scaling.md#the-connection-budget).
+
 ## [2.6.2] - 2026-11-11
 
 ### Security
