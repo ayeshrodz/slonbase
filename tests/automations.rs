@@ -839,6 +839,21 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         "Bearer T0K3N"
     );
 
+    // the same step, a header that was never saved, sent hidden: refused too
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        Some(json!({ "config": { "steps": [
+            { "name": "webhook", "type": "http", "config": {
+                "url": "http://93.184.216.34/hook",
+                "headers": { "Authorization": "••••••••", "X-New": "••••••••" } } },
+        ] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+
     // a saved value never follows a step to another address
     let (status, res) = call(
         &app,

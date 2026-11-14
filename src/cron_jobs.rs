@@ -959,21 +959,20 @@ pub(crate) fn unmask_config(
         false => Vec::new(),
     };
     let mut kept = false;
+    let mut missing = false;
     if let Some(h) = config.get_mut("headers").and_then(Value::as_object_mut) {
         for (name, value) in h.iter_mut() {
             if value.as_str() == Some(MASK) {
                 kept = true;
-                *value = json!(
-                    saved
-                        .iter()
-                        .find(|(k, _)| k.eq_ignore_ascii_case(name))
-                        .map(|(_, v)| v.as_str())
-                        .unwrap_or_default()
-                );
+                match saved.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)) {
+                    Some((_, v)) => *value = json!(v),
+                    None => missing = true,
+                }
             }
         }
     }
-    if kept && was_kind != "http" {
+    // a hidden value is the saved one or nothing: never saved empty in its place
+    if missing {
         return Err(
             "A header was sent hidden but there is no saved value for it: type its value.".into(),
         );

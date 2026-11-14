@@ -226,7 +226,7 @@ fn find_close(code: &str, close: &str) -> Option<usize> {
             None => {
                 if b == b'"' || b == b'\'' {
                     quote = Some(b);
-                } else if code[i..].starts_with(close) {
+                } else if bytes[i..].starts_with(close.as_bytes()) {
                     return Some(i);
                 }
             }
@@ -515,6 +515,12 @@ mod tests {
             .unwrap(),
             "1 + 2 * 3 ~ 4{{ a * b }}"
         );
+        // (text that isn't ASCII, in comments and quotes, is read as text)
+        assert_eq!(
+            render("{# café #}OK {{ 'naïve * ñ' }}", &json!({}), Mode::Text).unwrap(),
+            "OK naïve * ñ"
+        );
+        assert!(check("{# café #}{{ 'é' }}").is_ok());
         assert_eq!(
             render(
                 "{{- 'x' -}} {%- if true +%}y{% endif %}",
