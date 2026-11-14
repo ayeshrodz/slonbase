@@ -801,6 +801,44 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         "Bearer T0K3N"
     );
 
+    // renamed in the editor (sent with the name it was saved under): the value stays
+    let renamed = ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "config": { "steps": [
+            { "name": "webhook", "was": "ping", "type": "http", "config": {
+                "url": "http://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
+        ] } }),
+    )
+    .await;
+    assert_eq!(renamed["config"]["steps"][0]["name"], "webhook");
+    assert!(renamed["config"]["steps"][0].get("was").is_none());
+    let stored = core.settings().cron_jobs[0].config.clone();
+    assert_eq!(
+        stored["steps"][0]["config"]["headers"]["Authorization"],
+        "Bearer T0K3N"
+    );
+    assert!(stored["steps"][0].get("was").is_none());
+    // a hidden value with nothing saved behind it is refused, never saved empty
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        Some(json!({ "config": { "steps": [
+            { "name": "other", "type": "http", "config": {
+                "url": "http://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
+        ] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert_eq!(
+        core.settings().cron_jobs[0].config["steps"][0]["config"]["headers"]["Authorization"],
+        "Bearer T0K3N"
+    );
+
     // a saved value never follows a step to another address
     let (status, res) = call(
         &app,
@@ -808,7 +846,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         "PATCH",
         &format!("/api/automations/{id}"),
         Some(json!({ "config": { "steps": [
-            { "name": "ping", "type": "http", "config": {
+            { "name": "webhook", "type": "http", "config": {
                 "url": "http://93.184.216.35/other", "headers": { "Authorization": "••••••••" } } },
         ] } })),
     )

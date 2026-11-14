@@ -411,9 +411,14 @@ pub(crate) fn unmask(config: &mut Value, saved: &JobDef) -> Result<(), String> {
     for (n, step) in steps.iter_mut().enumerate() {
         let name = text(step, "name").trim().to_string();
         let kind = text(step, "type").to_string();
+        // (a step renamed in the editor is sent with the name it was saved under)
+        let saved_as = match text(step, "was").trim() {
+            "" => name.clone(),
+            was => was.to_string(),
+        };
         let was = saved_steps
             .iter()
-            .find(|s| s.name == name)
+            .find(|s| s.name == saved_as)
             .or_else(|| saved_steps.get(n).filter(|s| s.name.is_empty()));
         let empty = json!({});
         let (was_kind, was_config) = match was {
@@ -460,12 +465,21 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         .map_err(|e| Failure::transient(format!("{e:#}")))?
         .unwrap_or_else(|| json!({}));
     unchanged(def, &kept)?;
+    // the run's time, the same for every attempt (an address built from it stays the same)
+    let at = match kept["at"].as_str() {
+        Some(at) => at.to_string(),
+        None => crate::datetime::format(&chrono::Utc::now()),
+    };
     if kept.get("of").is_none() {
         // (from the first step on: what is kept says which steps it belongs to)
         record
-            .keep(&json!({ "of": def.updated, "next": 0, "row": 0, "part": 0 }))
+            .keep(&json!({ "of": def.updated, "at": at, "next": 0, "row": 0, "part": 0 }))
             .await
             .map_err(|e| Failure::transient(format!("{e:#}")))?;
+    }
+    // a condition ended the run before: it stays ended
+    if let Some(name) = kept["stopped"].as_str() {
+        return Ok(json!({ "steps": kept["summary"], "stoppedAt": name }));
     }
     let next = kept["next"].as_u64().unwrap_or(0) as usize;
     let row = kept["row"].as_u64().unwrap_or(0) as usize;
@@ -484,7 +498,7 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
                 "item": item,
                 "index": index,
                 "automation": { "id": def.id, "name": def.name },
-                "now": crate::datetime::format(&chrono::Utc::now()),
+                "now": at,
             })
         };
         // (where an earlier attempt stopped inside this step: the item, and how far into it)
@@ -531,11 +545,15 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
         let halts = step.kind == "condition" && output["passed"] != true;
         summary.push(brief(step, &output));
         outputs.insert(step.name.clone(), output);
+        let mut kept = json!({
+            "of": def.updated, "at": at, "next": i + 1, "row": 0, "part": 0,
+            "outputs": outputs, "summary": summary,
+        });
+        if halts {
+            kept["stopped"] = json!(step.name);
+        }
         record
-            .keep(&json!({
-                "of": def.updated, "next": i + 1, "row": 0, "part": 0,
-                "outputs": outputs, "summary": summary,
-            }))
+            .keep(&kept)
             .await
             .map_err(|e| Failure::transient(format!("{e:#}")))?;
         if halts {

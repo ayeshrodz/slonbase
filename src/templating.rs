@@ -32,6 +32,24 @@ pub enum Mode {
 fn environment(mode: Mode) -> Environment<'static> {
     let mut env = Environment::new();
     env.set_fuel(Some(FUEL));
+    // what can make a text far larger than what it was given is not there, or is bounded:
+    // fuel counts steps, not bytes, so a single step must not be able to fill memory
+    for name in [
+        "batch",
+        "slice",
+        "indent",
+        "pprint",
+        "format",
+        "chain",
+        "zip",
+        "urlencode",
+    ] {
+        env.remove_filter(name);
+    }
+    env.remove_global("namespace");
+    env.remove_global("debug");
+    env.add_filter("replace", bounded_replace);
+    env.add_filter("join", bounded_join);
     // (a value that isn't there, or anything under it, is nothing: not an error)
     env.set_undefined_behavior(minijinja::UndefinedBehavior::Chainable);
     env.set_auto_escape_callback(move |_| match mode {
@@ -40,6 +58,182 @@ fn environment(mode: Mode) -> Environment<'static> {
     });
     env.add_filter("date", date);
     env
+}
+
+fn too_large() -> minijinja::Error {
+    minijinja::Error::new(
+        minijinja::ErrorKind::InvalidOperation,
+        format!("the result would be larger than {} KB", MAX_OUTPUT / 1024),
+    )
+}
+
+/// `replace`, refused when what it would make is larger than [`MAX_OUTPUT`].
+fn bounded_replace(
+    state: &minijinja::State,
+    value: minijinja::value::StringInput<'_>,
+    from: minijinja::value::StringInput<'_>,
+    to: minijinja::value::StringInput<'_>,
+) -> Result<Jinja, minijinja::Error> {
+    let (text, pattern, with) = (value.as_str(), from.as_str(), to.as_str());
+    let found = match pattern.is_empty() {
+        true => text.chars().count() + 1,
+        false => text.matches(pattern).count(),
+    };
+    let size = text.len() + found.saturating_mul(with.len());
+    if size > MAX_OUTPUT {
+        return Err(too_large());
+    }
+    minijinja::filters::replace(state, value, from, to)
+}
+
+/// `join`, refused when what it would make is larger than [`MAX_OUTPUT`].
+fn bounded_join(
+    state: &minijinja::State,
+    value: &Jinja,
+    joiner: Option<minijinja::value::StringInput<'_>>,
+) -> Result<Jinja, minijinja::Error> {
+    let between = joiner.as_ref().map_or(0, |j| j.as_str().len());
+    let mut size = 0usize;
+    if let Ok(items) = value.try_iter() {
+        for item in items {
+            size = size
+                .saturating_add(
+                    item.as_str()
+                        .map_or_else(|| item.to_string().len(), str::len),
+                )
+                .saturating_add(between);
+            if size > MAX_OUTPUT {
+                return Err(too_large());
+            }
+        }
+    }
+    minijinja::filters::join(state, value, joiner)
+}
+
+/// Operators that can make a text larger than its parts (`*`, `**`, `~`, `+`), and blocks that
+/// keep text out of the output (`set` ... `endset`, `macro`, `call`, `filter`), are not part of
+/// the language here: what a template or an expression makes goes to the bounded output, or
+/// stays the size of what it was given. `code` is the inside of `{{ }}` or `{% %}`, or an
+/// expression.
+fn allowed_code(code: &str, block: bool) -> Result<(), String> {
+    let code = code.trim_matches(|c: char| c == '-' || c == '+' || c.is_whitespace());
+    if block {
+        let keyword: String = code
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        if [
+            "set",
+            "macro",
+            "call",
+            "filter",
+            "endset",
+            "endmacro",
+            "endcall",
+            "endfilter",
+        ]
+        .contains(&keyword.as_str())
+        {
+            return Err(format!(
+                "{{% {keyword} %}} isn't available in templates here."
+            ));
+        }
+    }
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for c in code.chars() {
+        match quote {
+            Some(q) => {
+                if escaped {
+                    escaped = false;
+                } else if c == '\\' {
+                    escaped = true;
+                } else if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '"' | '\'' => quote = Some(c),
+                '*' | '~' | '+' => {
+                    return Err(format!(
+                        "The {c} operator isn't available in templates here: compute values in a step instead."
+                    ));
+                }
+                _ => {}
+            },
+        }
+    }
+    Ok(())
+}
+
+/// [`allowed_code`] for every `{{ }}` and `{% %}` of a template (a `{% raw %}` block is text).
+fn allowed_template(source: &str) -> Result<(), String> {
+    let mut rest = source;
+    while let Some(start) = rest.find('{') {
+        let after = &rest[start..];
+        let (close, block) = if after.starts_with("{{") {
+            ("}}", false)
+        } else if after.starts_with("{%") {
+            ("%}", true)
+        } else if after.starts_with("{#") {
+            ("#}", false)
+        } else {
+            rest = &rest[start + 1..];
+            continue;
+        };
+        let inner_start = start + 2;
+        let Some(len) = find_close(&rest[inner_start..], close) else {
+            // (unclosed: the engine says so)
+            return Ok(());
+        };
+        let inner = &rest[inner_start..inner_start + len];
+        rest = &rest[inner_start + len + 2..];
+        if close == "#}" {
+            continue;
+        }
+        let keyword = inner.trim_start_matches(['-', '+']).trim_start();
+        if block && keyword.starts_with("raw") {
+            // up to its end, as text
+            match rest.find("endraw") {
+                Some(end) => match rest[end..].find("%}") {
+                    Some(c) => rest = &rest[end + c + 2..],
+                    None => return Ok(()),
+                },
+                None => return Ok(()),
+            }
+            continue;
+        }
+        allowed_code(inner, block)?;
+    }
+    Ok(())
+}
+
+/// Where `close` ends the code that starts at `code`, outside its quoted texts.
+fn find_close(code: &str, close: &str) -> Option<usize> {
+    let bytes = code.as_bytes();
+    let mut quote: Option<u8> = None;
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        match quote {
+            Some(q) => {
+                if b == b'\\' {
+                    i += 1;
+                } else if b == q {
+                    quote = None;
+                }
+            }
+            None => {
+                if b == b'"' || b == b'\'' {
+                    quote = Some(b);
+                } else if code[i..].starts_with(close) {
+                    return Some(i);
+                }
+            }
+        }
+        i += 1;
+    }
+    None
 }
 
 /// `{{ value | date }}` or `{{ value | date("%d %B %Y") }}`: a date and time as slonbase
@@ -91,6 +285,7 @@ pub fn is_template(source: &str) -> bool {
 
 /// Checks the syntax of a template.
 pub fn check(source: &str) -> Result<(), String> {
+    allowed_template(source)?;
     environment(Mode::Text)
         .template_from_str(source)
         .map(|_| ())
@@ -99,6 +294,7 @@ pub fn check(source: &str) -> Result<(), String> {
 
 /// Checks the syntax of an expression (`steps.orders.count > 0`).
 pub fn check_expression(expression: &str) -> Result<(), String> {
+    allowed_code(expression, false)?;
     environment(Mode::Text)
         .compile_expression(expression)
         .map(|_| ())
@@ -130,6 +326,7 @@ impl std::io::Write for Limited {
 
 /// Renders `source` with `data`.
 pub fn render(source: &str, data: &Value, mode: Mode) -> Result<String, String> {
+    allowed_template(source)?;
     let env = environment(mode);
     let template = env.template_from_str(source).map_err(describe)?;
     let mut out = Limited::default();
@@ -148,6 +345,7 @@ pub fn render(source: &str, data: &Value, mode: Mode) -> Result<String, String> 
 
 /// The value of an expression with `data`.
 pub fn eval(expression: &str, data: &Value) -> Result<Value, String> {
+    allowed_code(expression, false)?;
     let env = environment(Mode::Text);
     let compiled = env.compile_expression(expression).map_err(describe)?;
     let value = compiled
@@ -162,6 +360,7 @@ pub fn eval(expression: &str, data: &Value) -> Result<Value, String> {
 /// Whether an expression holds with `data` (as `{% if %}` reads it: nothing, zero, an empty
 /// text or list are false).
 pub fn holds(expression: &str, data: &Value) -> Result<bool, String> {
+    allowed_code(expression, false)?;
     let env = environment(Mode::Text);
     let compiled = env.compile_expression(expression).map_err(describe)?;
     compiled
@@ -270,10 +469,70 @@ mod tests {
         let err = render(&source, &json!({}), Mode::Html).unwrap_err();
         assert!(err.contains("larger than"), "{err}");
         assert!(started.elapsed() < std::time::Duration::from_secs(2));
-        // and a text can't be made large inside an expression either
-        for source in ["{{ 'x' * 100000000 }}", "{{ ('x' * 100000) * 100000 }}"] {
-            assert!(render(source, &json!({}), Mode::Text).is_err(), "{source}");
+        // and a text can't be made large where the output doesn't see it: in an expression,
+        // a filter or a block that keeps its text
+        let big = "x".repeat(90_000);
+        for source in [
+            "{{ 'x' * 100000000 }}".to_string(),
+            "{{ ('x' * 100000) * 100000 }}".to_string(),
+            "{{ 'a' ~ 'b' }}".to_string(),
+            "{{ 'a' + 'b' }}".to_string(),
+            "{{ 2 ** 3 }}".to_string(),
+            format!("{{{{ '{big}' | replace('x', '{big}') | length }}}}"),
+            format!("{{{{ range(10000) | join('{big}') | length }}}}"),
+            format!(
+                "{{% set kept %}}{{% for i in range(10000) %}}{big}{{% endfor %}}{{% endset %}}"
+            ),
+            "{% set x = 1 %}".to_string(),
+            "{% macro m() %}x{% endmacro %}".to_string(),
+            "{% filter upper %}x{% endfilter %}".to_string(),
+            "{{ [1] | batch(100000000, 'x') | length }}".to_string(),
+            "{{ 'x' | indent(100000000) }}".to_string(),
+            "{{ namespace() }}".to_string(),
+        ] {
+            let started = std::time::Instant::now();
+            assert!(
+                render(&source, &json!({}), Mode::Text).is_err(),
+                "{}",
+                &source[..source.len().min(80)]
+            );
+            assert!(started.elapsed() < std::time::Duration::from_secs(2));
         }
+        for expression in ["a * 2", "a ~ b", "a + 1", "a ** 2"] {
+            assert!(check_expression(expression).is_err(), "{expression}");
+            assert!(
+                eval(expression, &json!({ "a": "x", "b": "y" })).is_err(),
+                "{expression}"
+            );
+        }
+        // operators inside quoted text, comments and raw blocks are text
+        assert_eq!(
+            render(
+                "{{ '1 + 2 * 3 ~ 4' }}{# a * b #}{% raw %}{{ a * b }}{% endraw %}",
+                &json!({}),
+                Mode::Text
+            )
+            .unwrap(),
+            "1 + 2 * 3 ~ 4{{ a * b }}"
+        );
+        assert_eq!(
+            render(
+                "{{- 'x' -}} {%- if true +%}y{% endif %}",
+                &json!({}),
+                Mode::Text
+            )
+            .unwrap(),
+            "xy"
+        );
+        assert_eq!(
+            render(
+                "{{ 'a-b' | replace('-', '+') }} {{ [1, 2] | join(', ') }} {{ 5 - 2 }}",
+                &json!({}),
+                Mode::Text
+            )
+            .unwrap(),
+            "a+b 1, 2 3"
+        );
     }
 
     #[test]
@@ -307,7 +566,7 @@ mod tests {
             eval("steps.q.rows", &data).unwrap(),
             json!([{ "email": "a@b.co" }])
         );
-        assert_eq!(eval("steps.q.count + 1", &data).unwrap(), json!(2));
+        assert_eq!(eval("steps.q.count - 1", &data).unwrap(), json!(0));
         assert_eq!(eval("steps.nope.rows", &data).unwrap(), Value::Null);
         assert!(holds("steps.q.count > 0", &data).unwrap());
         assert!(!holds("steps.q.rows | length > 3", &data).unwrap());

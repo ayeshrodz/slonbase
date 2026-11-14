@@ -112,7 +112,8 @@ const newStep = (type, taken, config, name, forEach) => {
   const base = typeOf(type).name;
   let unique = name || base;
   for (let n = 2; !name && taken.includes(unique); n++) unique = `${base}_${n}`;
-  return { uid: nextUid++, name: unique, type, forEach: forEach || "", f: formOf(type, config) };
+  // `was`: the name it was saved under, so its saved secrets follow it when it is renamed
+  return { uid: nextUid++, name: unique, was: name || "", type, forEach: forEach || "", f: formOf(type, config) };
 };
 
 // the steps of a job as the form holds them: a job of one type (made before steps) is one step
@@ -292,7 +293,7 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
     notify: { emails: notifyEmails, webhook: notifyHook.trim() },
     retries: Number(retries),
     retryDelaySeconds: retryDelay.trim() ? Number(retryDelay) : null,
-    config: { steps: steps.map((s) => ({ name: s.name.trim(), type: s.type, forEach: s.forEach.trim() || undefined, config: configOf(s.type, s.f) })) },
+    config: { steps: steps.map((s) => ({ name: s.name.trim(), was: s.was || undefined, type: s.type, forEach: s.forEach.trim() || undefined, config: configOf(s.type, s.f) })) },
   });
   // checked as it is being made (nothing is saved or run)
   const signature = JSON.stringify([name, expression, steps.map((s) => [s.name, s.type, s.forEach, s.f]), retries, retryDelay, notifyEmails, notifyHook]);

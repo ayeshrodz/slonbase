@@ -552,7 +552,15 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
             .kept()
             .await
             .map_err(|e| Failure::transient(format!("{e:#}")))?;
-        crate::automations::unchanged(&def, &kept.unwrap_or_default())?;
+        let kept = kept.unwrap_or_default();
+        crate::automations::unchanged(&def, &kept)?;
+        // (a job of one type keeps its version too, so a retry doesn't run what it has become)
+        if def.kind != crate::automations::KIND && kept.get("of").is_none() {
+            record
+                .keep(&json!({ "of": def.updated }))
+                .await
+                .map_err(|e| Failure::transient(format!("{e:#}")))?;
+        }
         match def.kind == crate::automations::KIND {
             true => crate::automations::run(&core, &def, &record).await,
             false => attempt(&core, &def).await,
@@ -964,6 +972,11 @@ pub(crate) fn unmask_config(
                 );
             }
         }
+    }
+    if kept && was_kind != "http" {
+        return Err(
+            "A header was sent hidden but there is no saved value for it: type its value.".into(),
+        );
     }
     if kept && was_kind == "http" && text(config, "url").trim() != text(was, "url") {
         return Err("The URL changed: type the header values again, saved ones only go to the address they were saved with.".into());

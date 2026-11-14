@@ -18,8 +18,8 @@ changes, listed in its **Upgrading** section.
   - Data is passed on in Jinja expressions (`{{ steps.overdue.count }}`, `{{ item.email }}`). A
     filter takes data only through its `{:name}` parameters and an SQL statement is run as
     saved, so data can't change what either does.
-  - A retry continues at the step, and the item, that failed: an email that was sent is not
-    sent again.
+  - A retry continues at the step, the item and the address that failed, so an email that was
+    sent is not sent again (barring a stop in the instant between sending it and noting it).
   - The history shows what each step came to in numbers, never what was read.
 - **Email templates.** Emails written once (a subject and an HTML body in Jinja syntax) and sent
   by automations with the data of each run, under Automations, Templates: an editor with a live

@@ -41,6 +41,9 @@ Every step has a name. A step called `overdue` is `steps.overdue` to the steps a
 Also there: `index` (the item's position, from 0), `automation.name`, `automation.id` and `now`.
 A value that isn't there is nothing, not an error. Filters work as in Jinja (`| upper`,
 `| default("…")`, `| length`, `| int`, `| tojson`), and `| date("%d %B %Y")` writes a date.
+Comparisons, `and`, `or`, `not`, `-` and `/` work; `+`, `*`, `**` and `~`, and `{% set %}`,
+`{% macro %}` and `{% filter %}` blocks don't: they can make a text far larger than what the
+template was given. Compute such values in a step (a query or SQL) instead.
 
 Three things are never built from data, so data can't change what they do:
 
@@ -80,7 +83,8 @@ The run stops at the step and is recorded as failed, with the step's name in the
 as long each time), and it **continues at the step that failed**: steps that finished are not
 done again, a step that runs once per item goes on with the next item, and an email to several
 addresses goes on with the next address. So an email that was sent is not sent a second time
-(short of the server stopping in the instant between sending one and noting it). Retries survive a restart. An automation that is changed while
+(unless the server stops, or the database can't be written, in the instant between sending one
+and noting it: then that one email can be sent again). Retries survive a restart. An automation that is changed while
 a retry waits is not continued: that run is recorded as failed.
 
 A failure that trying again can't fix (a missing template, an address that isn't one, a record
