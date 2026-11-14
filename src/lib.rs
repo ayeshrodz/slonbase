@@ -72,6 +72,7 @@ pub mod status;
 pub mod storage;
 pub mod storage_info;
 pub mod superusers;
+pub mod templating;
 pub mod ui;
 pub mod validation;
 
