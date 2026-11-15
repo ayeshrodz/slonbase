@@ -340,6 +340,125 @@ pub async fn test(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// The queue's kind for an email sent with `POST /api/templates/{id}/send`.
+pub const SEND_KIND: &str = "template.send";
+const SEND_ATTEMPTS: i32 = 3;
+/// The most data a send may carry, as JSON.
+const MAX_SEND_DATA: usize = 64 * 1024;
+/// The most emails one caller may queue per minute.
+const SENDS_PER_MINUTE: u32 = 100;
+
+/// `POST /api/templates/{id}/send`: sends the template to `{to}` (one address or up to 10),
+/// rendered with `{data}`. Developers, admins and owners.
+///
+/// The email is checked now (the template, the addresses, that it renders with this data)
+/// and sent in the background, one queued job per address, each tried up to 3 times: the
+/// answer is `202` with the id of the send. An `Idempotency-Key` header makes a request safe
+/// to repeat: the same key for the same template queues nothing the second time (for 7 days).
+pub async fn send_api(
+    State(app): State<Arc<App>>,
+    Path(id): Path<String>,
+    auth: RequestAuth,
+    headers: axum::http::HeaderMap,
+    JsonObject(body): JsonObject,
+) -> Result<(StatusCode, Json<Value>), ApiError> {
+    use sha2::Digest;
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let settings = core.settings();
+    let Some(template) = settings.templates.iter().find(|t| t.id == id) else {
+        return Err(ApiError::not_found());
+    };
+    let mut errors = Errors::new();
+    let to = mail::recipients(body.get("to"));
+    if let Err(message) = mail::check_addresses(&to) {
+        errors.invalid("to", message);
+    } else if !mail::enabled(&core) {
+        errors.invalid("to", mail::DISABLED);
+    }
+    let data = data_of(&body);
+    if data.to_string().len() > MAX_SEND_DATA {
+        errors.invalid("data", "At most 64 KB of data.");
+    } else if let Err(message) = render(&settings, &template.subject, &template.body, &data) {
+        errors.invalid("data", message);
+    }
+    if !errors.is_empty() {
+        return Err(invalid(&errors));
+    }
+    let key = headers
+        .get("idempotency-key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|k| !k.is_empty());
+    if key.is_some_and(|k| k.len() > 200) {
+        return Err(ApiError::bad_request(
+            "The Idempotency-Key is at most 200 characters.",
+        ));
+    }
+    let caller = auth
+        .superuser
+        .as_ref()
+        .map(|s| s.str("id"))
+        .unwrap_or_default();
+    let allowed = crate::guard::within_limit(
+        &core,
+        &format!("template-send|{caller}"),
+        to.len() as u32,
+        SENDS_PER_MINUTE,
+        60,
+    )
+    .await
+    .map_err(ApiError::internal)?;
+    if !allowed {
+        return Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            format!("At most {SENDS_PER_MINUTE} emails a minute can be sent this way."),
+        ));
+    }
+    // the send's id: what the key comes to for this template, or a new one
+    let send = match key {
+        Some(key) => {
+            hex::encode(sha2::Sha256::digest(format!("{id}\n{key}").as_bytes()))[..20].to_string()
+        }
+        None => crate::ids::random_id(20),
+    };
+    let mut queued = 0;
+    for (n, address) in to.iter().enumerate() {
+        let added = crate::queue::enqueue(
+            &core,
+            crate::queue::NewJob {
+                kind: SEND_KIND,
+                reference: &id,
+                payload: json!({ "to": address, "data": data, "send": send }),
+                dedupe: Some(&format!("template-send:{send}:{n}")),
+                max_attempts: SEND_ATTEMPTS,
+            },
+        )
+        .await
+        .map_err(ApiError::internal)?;
+        queued += usize::from(added);
+    }
+    tracing::info!(template = %id, send = %send, by = %caller, emails = queued, "a template was queued to be sent");
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "id": send, "queued": queued, "duplicate": queued == 0 })),
+    ))
+}
+
+/// Sends one queued email of a template.
+async fn deliver_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failure> {
+    let to = job.payload["to"].as_str().unwrap_or_default().to_string();
+    let sent = send(&core, &job.reference, &[to], &job.payload["data"]).await;
+    if let Err(fail) = &sent {
+        tracing::warn!(template = %job.reference, send = %job.payload["send"], error = %fail, "an email of a template could not be sent");
+    }
+    sent.map(|_| ())
+}
+
+pub(crate) fn register_jobs(handlers: &mut crate::queue::Handlers) {
+    handlers.register(SEND_KIND, deliver_queued);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

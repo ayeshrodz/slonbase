@@ -202,6 +202,7 @@ impl Core {
         crate::cron_jobs::register(&mut handlers);
         crate::hooks::register_jobs(&mut handlers);
         crate::backups::register_jobs(&mut handlers);
+        crate::templates::register_jobs(&mut handlers);
         Ok(Arc::new(Self {
             pool,
             job_pool: Default::default(),

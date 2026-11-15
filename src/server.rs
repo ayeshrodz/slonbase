@@ -160,6 +160,7 @@ fn app_router(app: Arc<App>) -> Router {
             axum::routing::patch(crate::templates::update).delete(crate::templates::delete),
         )
         .route("/api/templates/{id}/test", post(crate::templates::test))
+        .route("/api/templates/{id}/send", post(crate::templates::send_api))
         .route(
             "/api/collections/meta/scaffolds",
             get(collections::api::scaffolds),

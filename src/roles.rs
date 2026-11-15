@@ -168,6 +168,9 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
                 || (*method == Method::POST && path.starts_with("/api/automations/"))
                 || path == "/api/settings/mail/preview"
                 || path == "/api/templates/preview"
+                || (*method == Method::POST
+                    && path.starts_with("/api/templates/")
+                    && path.ends_with("/send"))
         }
         Role::Admin => {
             let superusers = path.starts_with("/api/collections/_superusers");
@@ -872,6 +875,7 @@ mod tests {
         ("PATCH", "/api/templates/{id}", Some(Role::Admin)),
         ("DELETE", "/api/templates/{id}", Some(Role::Admin)),
         ("POST", "/api/templates/{id}/test", Some(Role::Admin)),
+        ("POST", "/api/templates/{id}/send", Some(Role::Developer)),
         ("POST", "/api/cron-preview", Some(Role::Admin)),
         ("POST", "/api/files/token", Some(Role::Viewer)),
         ("POST", "/api/oauth2-redirect", Some(Role::Admin)),

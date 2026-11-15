@@ -405,6 +405,45 @@ async fn shared_count(
     Ok(remaining >= 0)
 }
 
+/// Counts `n` under `key` against `max` per `seconds` (shared by the instances): false once
+/// over. For limits a feature sets on what it does (emails sent through the API), next to the
+/// rate limits of the settings.
+pub(crate) async fn within_limit(
+    core: &Core,
+    key: &str,
+    n: u32,
+    max: u32,
+    seconds: u64,
+) -> anyhow::Result<bool> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let (n, max) = (
+        i32::try_from(n).unwrap_or(i32::MAX),
+        i32::try_from(max).unwrap_or(i32::MAX),
+    );
+    let remaining: i32 = client
+        .query_one(
+            "INSERT INTO _slonbase.rate_limits AS r (key, started, remaining) VALUES ($1, now(), $2::int4 - $4::int4) \
+             ON CONFLICT (key) DO UPDATE SET \
+               started = CASE WHEN r.started <= now() - make_interval(secs => $3::float8) THEN now() ELSE r.started END, \
+               remaining = CASE WHEN r.started <= now() - make_interval(secs => $3::float8) THEN $2::int4 - $4::int4 \
+                                ELSE GREATEST(r.remaining, -1000000) - $4::int4 END \
+             RETURNING remaining",
+            &[
+                &key as &(dyn tokio_postgres::types::ToSql + Sync),
+                &max,
+                &(seconds as f64),
+                &n,
+            ],
+        )
+        .await?
+        .get(0);
+    Ok(remaining >= 0)
+}
+
 // ---------------------------------------------------------------------------
 // sign-in lockout (`security.loginLockout`): failed password sign-ins per identity and address,
 // counted in the database so every instance sees them

@@ -32,6 +32,7 @@ fn kind_title(kind: &str) -> &'static str {
         crate::cron_jobs::NOTICE_KIND => "A failure or recovery notice of a cron job",
         crate::hooks::CRON_QUEUE_KIND => "A run of a cron job registered by code",
         crate::backups::QUEUE_KIND => "The automatic backup",
+        crate::templates::SEND_KIND => "An email of a template sent through the API",
         _ => "",
     }
 }
@@ -115,8 +116,9 @@ mod tests {
         crate::cron_jobs::register(&mut handlers);
         crate::hooks::register_jobs(&mut handlers);
         crate::backups::register_jobs(&mut handlers);
+        crate::templates::register_jobs(&mut handlers);
         let queue = crate::queue::Queue::new(handlers);
-        assert_eq!(queue.kinds().len(), 4);
+        assert_eq!(queue.kinds().len(), 5);
         for kind in queue.kinds() {
             assert!(!kind_title(kind).is_empty(), "{kind}");
         }
