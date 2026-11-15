@@ -140,7 +140,7 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
         && !path.ends_with("/restore")
         && path.matches('/').count() == 3;
     // what code the instance has loaded: those who work with it
-    let extensions = path == "/api/extensions";
+    let extensions = path == "/api/extensions" || path == "/api/extensions/settings";
     if read {
         return !(backup_file && role < Role::Admin) && !(extensions && role < Role::Developer);
     }
@@ -747,6 +747,12 @@ mod tests {
         ),
         ("GET", "/api/health", Some(Role::Viewer)),
         ("GET", "/api/extensions", Some(Role::Developer)),
+        ("GET", "/api/extensions/settings", Some(Role::Developer)),
+        (
+            "PATCH",
+            "/api/extensions/settings/{name}",
+            Some(Role::Admin),
+        ),
         ("GET", "/api/jobs/runs", Some(Role::Viewer)),
         ("GET", "/api/logs", Some(Role::Viewer)),
         ("GET", "/api/logs/stats", Some(Role::Viewer)),

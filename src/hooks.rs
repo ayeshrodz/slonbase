@@ -331,6 +331,51 @@ pub struct CronJob {
     pub(crate) run: Arc<CronFn>,
 }
 
+/// A settings page an extension declares: the dashboard draws its form under Settings,
+/// Extensions, the values are stored with the settings (sealed, backed up, the same on every
+/// instance) and the extension reads them (`$app.settings().ext(name)`).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SettingsForm {
+    /// What the values are stored and read by: 1 to 40 lower case letters, digits, `_`, `-`.
+    pub name: String,
+    pub title: String,
+    pub fields: Vec<SettingsField>,
+}
+
+/// One value of a [`SettingsForm`].
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct SettingsField {
+    pub name: String,
+    pub label: String,
+    /// `text`, `textarea`, `number`, `bool`, `select` or `secret` (never sent back).
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub help: String,
+    /// The choices of a `select`.
+    pub options: Vec<String>,
+    /// The value while none is saved.
+    pub default: Value,
+    pub required: bool,
+}
+
+impl SettingsForm {
+    /// The saved `values` of the form with the defaults of what isn't saved.
+    pub fn values(&self, saved: Option<&Map<String, Value>>) -> Map<String, Value> {
+        self.fields
+            .iter()
+            .map(|field| {
+                let value = saved
+                    .and_then(|s| s.get(&field.name))
+                    .cloned()
+                    .unwrap_or_else(|| field.default.clone());
+                (field.name.clone(), value)
+            })
+            .collect()
+    }
+}
+
 type ReadyFn = dyn Fn(Arc<Core>) -> BoxFuture<()> + Send + Sync;
 pub(crate) type CronFn = dyn Fn(Arc<Core>) -> BoxFuture<Result<(), ApiError>> + Send + Sync;
 /// A function an automation's `script` step runs: it gets the step's input and the run's
@@ -453,6 +498,7 @@ pub struct Hooks {
     pub on_batch_request: Hook<DataEvent>,
     pub(crate) crons: Vec<CronJob>,
     pub(crate) steps: std::collections::BTreeMap<String, Arc<StepFn>>,
+    pub(crate) settings_forms: Vec<SettingsForm>,
     pub(crate) on_ready: Vec<Arc<ReadyFn>>,
 }
 
@@ -516,6 +562,65 @@ impl Hooks {
         // registering a name again replaces it (as for cron jobs)
         self.steps.insert(name.to_string(), run);
         Ok(())
+    }
+
+    /// Declares a settings page (`settingsAdd` in hook files). Declaring a name again replaces
+    /// the page.
+    pub fn settings(&mut self, form: SettingsForm) -> anyhow::Result<()> {
+        let plain = |name: &str, max: usize| {
+            !name.is_empty()
+                && name.len() <= max
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || matches!(c, '_' | '-'))
+        };
+        anyhow::ensure!(
+            plain(&form.name, 40),
+            "invalid settings page name {:?}: 1 to 40 lower case letters, digits, _ and -",
+            form.name
+        );
+        anyhow::ensure!(
+            !form.fields.is_empty() && form.fields.len() <= 40,
+            "settings page {:?}: 1 to 40 fields",
+            form.name
+        );
+        let mut names = std::collections::BTreeSet::new();
+        for field in &form.fields {
+            anyhow::ensure!(
+                !field.name.is_empty()
+                    && field.name.len() <= 40
+                    && field
+                        .name
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                    && names.insert(&field.name),
+                "settings page {:?}: invalid or repeated field name {:?}",
+                form.name,
+                field.name
+            );
+            anyhow::ensure!(
+                ["text", "textarea", "number", "bool", "select", "secret"]
+                    .contains(&field.kind.as_str()),
+                "settings page {:?}: field {:?} has an unknown type {:?}",
+                form.name,
+                field.name,
+                field.kind
+            );
+            anyhow::ensure!(
+                field.kind != "select" || !field.options.is_empty(),
+                "settings page {:?}: the select {:?} has no options",
+                form.name,
+                field.name
+            );
+        }
+        self.settings_forms.retain(|f| f.name != form.name);
+        self.settings_forms.push(form);
+        Ok(())
+    }
+
+    /// The settings pages extensions declared.
+    pub fn settings_forms(&self) -> &[SettingsForm] {
+        &self.settings_forms
     }
 
     /// The names of the functions automations can run as a step.

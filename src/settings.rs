@@ -100,6 +100,10 @@ pub const SECTIONS: &[Section] = &[
         private: true,
         ..section("templates", "Email templates")
     },
+    Section {
+        private: true,
+        ..section("extensions", "Settings of extensions")
+    },
 ];
 
 /// The value at `pointer` when it is a string.
@@ -146,6 +150,9 @@ pub struct Settings {
     pub cron_jobs: Vec<crate::cron_jobs::JobDef>,
     /// The email templates automations send. Only `/api/templates` shows and changes them.
     pub templates: Vec<crate::templates::Template>,
+    /// The values of the settings pages hook files declare (`settingsAdd`), by page. Only
+    /// `/api/extensions/settings` shows and changes them.
+    pub extensions: std::collections::BTreeMap<String, Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

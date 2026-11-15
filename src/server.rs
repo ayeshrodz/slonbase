@@ -122,6 +122,11 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/cron-preview", post(crate::cron_jobs::preview))
         .route("/api/jobs/runs", get(crate::jobs::runs))
         .route("/api/extensions", get(crate::extensions::list))
+        .route("/api/extensions/settings", get(crate::extensions::settings))
+        .route(
+            "/api/extensions/settings/{name}",
+            axum::routing::patch(crate::extensions::save_settings),
+        )
         .route("/api/team", get(crate::roles::list))
         .route("/api/team/me", get(crate::roles::me))
         .route(

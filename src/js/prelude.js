@@ -560,6 +560,8 @@
 
   function settingsModel(raw) {
     Object.defineProperty(raw, "_settings", { value: true });
+    // the values of a settings page declared with settingsAdd(), with its defaults
+    Object.defineProperty(raw, "ext", { value: (name) => call("extSettings", String(name)) });
     return raw;
   }
 
@@ -1718,6 +1720,13 @@
   };
   g.cronAdd = (id, expression, fn) => register("cron", "simple", fn, { id: String(id), expression: String(expression) });
   g.cronRemove = (id) => registrations.push({ kind: "cronRemove", id: String(id) });
+  // a settings page of the dashboard (Settings, Extensions): { title, fields: [{ name, label,
+  // type: "text" | "textarea" | "number" | "bool" | "select" | "secret", help, options,
+  // default, required }] }; read with $app.settings().ext(name)
+  g.settingsAdd = (name, form) => {
+    if (!form || !Array.isArray(form.fields)) throw new TypeError("settingsAdd: the form needs fields");
+    registrations.push({ kind: "settings", id: String(name), form: { title: String(form.title || name), fields: form.fields } });
+  };
   // a function automations can run as a step: fn(input, context) returns the step's result
   g.automationStep = (name, fn) => {
     if (typeof fn !== "function") throw new TypeError("automationStep: the handler must be a function");

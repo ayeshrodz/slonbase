@@ -463,6 +463,17 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             }
             Ok(Value::Null)
         }
+        "extSettings" => {
+            let name = a.str(0);
+            let Some(form) = core.hooks.settings_forms().iter().find(|f| f.name == name) else {
+                return Err(bad(format!(
+                    "No settings page {name:?} is declared (settingsAdd)."
+                )));
+            };
+            Ok(Value::Object(
+                form.values(core.settings().extensions.get(&name)),
+            ))
+        }
         "templateSend" => {
             let to: Vec<String> = match a.value(1) {
                 Value::Array(items) => items

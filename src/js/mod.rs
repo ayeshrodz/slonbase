@@ -339,6 +339,9 @@ struct Registration {
     /// Mail hooks: the kind of email (`verification`, ...), or empty for all.
     #[serde(default)]
     mail: String,
+    /// A settings page (`settingsAdd`).
+    #[serde(default)]
+    form: Option<crate::hooks::SettingsForm>,
 }
 
 /// The running job's channels, used by `e.next()`.
@@ -631,7 +634,7 @@ fn register(
                 .loaded
                 .routes
                 .push((reg.method.clone(), reg.path.clone())),
-            "cron" | "cronRemove" | "automationStep" => {}
+            "cron" | "cronRemove" | "automationStep" | "settings" => {}
             kind => hooks
                 .loaded
                 .handlers
@@ -844,6 +847,10 @@ fn register(
                 }),
             )?,
             "cronRemove" => hooks.remove_cron(&reg.id),
+            "settings" => hooks.settings(crate::hooks::SettingsForm {
+                name: reg.id.clone(),
+                ..reg.form.clone().unwrap_or_default()
+            })?,
             "automationStep" => hooks.add_step(
                 &reg.id,
                 Arc::new(move |_, input, context| {
