@@ -117,8 +117,9 @@ pub fn write(registry: &Registry, path: &Path) -> anyhow::Result<bool> {
     // (whole or not at all: an editor may read it at any moment)
     // (a file of this write's own: two writers at once each rename their own)
     let part = path.with_extension(format!("d.ts.{}.part", crate::ids::random_id(8)));
-    std::fs::write(&part, text)?;
-    if let Err(err) = std::fs::rename(&part, path) {
+    // (nothing of it is left behind when it can't be written or put in place)
+    let written = std::fs::write(&part, text).and_then(|()| std::fs::rename(&part, path));
+    if let Err(err) = written {
         let _ = std::fs::remove_file(&part);
         return Err(err.into());
     }

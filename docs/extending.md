@@ -195,7 +195,8 @@ functions.
   files are appended.
 - **Limits:** a handler's own code may run for `hooks.timeout_seconds` (60 by default). What
   it waits for is not counted: `e.next()`, a query, an HTTP request and `sleep` have limits of
-  their own. One that runs longer is stopped and its request fails.
+  their own (set `database.statement_timeout` so a query that waits for a lock can't hold a
+  runtime indefinitely). One that runs longer is stopped and its request fails.
   A cron job has an hour, a function run as an automation's step five minutes. Each runtime may
   use `hooks.memory_limit_mb` of memory (128 by default). A runtime whose handler was stopped,
   or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit.

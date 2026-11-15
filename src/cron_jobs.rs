@@ -92,11 +92,6 @@ pub struct Trigger {
     /// An expression over `trigger` (`trigger.record.status == "paid"`): the job only starts
     /// for a change it holds for. Empty: every change.
     pub condition: String,
-    /// Since when the job watches (the database's time when it was made or switched on, as
-    /// `YYYY-MM-DD HH:MM:SS.ffffff` in UTC): changes made before that don't start it, however
-    /// late they are dispatched. Set by the server.
-    #[serde(skip_serializing_if = "String::is_empty")]
-    pub since: String,
 }
 
 impl Trigger {
@@ -132,6 +127,13 @@ pub struct JobDef {
     pub trigger: Trigger,
     pub created: String,
     pub updated: String,
+    /// Counts the saves of the job: a change is made to the save it read, or refused.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub revision: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 fn text<'a>(config: &'a Value, key: &str) -> &'a str {
@@ -1213,8 +1215,6 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
                 collection: text(t, "collection").trim().to_string(),
                 actions,
                 condition: text(t, "condition").trim().to_string(),
-                // (the server's: see `stored_trigger`)
-                since: String::new(),
             },
             _ => Trigger::default(),
         };
@@ -1359,7 +1359,7 @@ pub async fn create(
     }
     let secrets = make_secrets(&mut def, None, &body);
     def.config = normalized(&def);
-    stored_trigger(&core, &mut def, None).await?;
+    stored_trigger(&core, &mut def);
     // added to the jobs as stored: the limits are checked again there, so jobs made at the same
     // time all stay, and no more than the limit can be made
     let added = def.clone();
@@ -1382,44 +1382,19 @@ pub async fn create(
         Ok(settings)
     })
     .await?;
-    watch_changes(&core).await;
     Ok(saved_answer(&core, &def, role, secrets))
 }
 
-/// The trigger as stored: the collection by its id (a name can change), since when the job
-/// watches, and nothing of a trigger for a job on a schedule. A job that watched already
-/// (`saved`: switched on, with the same collection) goes on watching since then; one that is
-/// made, switched on or pointed at another collection watches from now.
-async fn stored_trigger(
-    core: &Core,
-    def: &mut JobDef,
-    saved: Option<&JobDef>,
-) -> Result<(), ApiError> {
-    if !def.trigger.is_record() {
-        def.trigger = Trigger::default();
-        return Ok(());
-    }
-    if let Ok(collection) = core.collection(&def.trigger.collection) {
-        def.trigger.collection = collection.id.clone();
-    }
-    let watched = saved.filter(|s| {
-        s.enabled
-            && s.trigger.is_record()
-            && s.trigger.collection == def.trigger.collection
-            && !s.trigger.since.is_empty()
-    });
-    def.trigger.since = match watched {
-        Some(saved) => saved.trigger.since.clone(),
-        None => crate::events::now(core).await.map_err(ApiError::internal)?,
-    };
-    Ok(())
-}
-
-/// Tells the triggers which collections automations now watch (see [`crate::events`]); the
-/// dispatcher does the same when it sees the settings changed, so a failure here mends itself.
-async fn watch_changes(core: &Core) {
-    if let Err(err) = crate::events::sync_watch(core).await {
-        tracing::debug!(error = %format!("{err:#}"), "failed to write the watched collections");
+/// The trigger as stored: the collection by its id (a name can change), and nothing of a
+/// trigger for a job on a schedule.
+fn stored_trigger(core: &Core, def: &mut JobDef) {
+    match def.trigger.is_record() {
+        true => {
+            if let Ok(collection) = core.collection(&def.trigger.collection) {
+                def.trigger.collection = collection.id.clone();
+            }
+        }
+        false => def.trigger = Trigger::default(),
     }
 }
 
@@ -1505,10 +1480,10 @@ pub async fn update(
         false => make_secrets(&mut def, Some(&saved), &body),
     };
     def.config = normalized(&def);
-    stored_trigger(&core, &mut def, Some(&saved)).await?;
+    stored_trigger(&core, &mut def);
     def.updated = crate::datetime::format(&chrono::Utc::now());
     let replacement = def.clone();
-    let read_at = saved.updated.clone();
+    let read = saved.revision;
     crate::settings::modify(&core, move |current| {
         let mut settings = current.clone();
         let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
@@ -1518,21 +1493,25 @@ pub async fn update(
             // (switching off changes that and nothing else, whatever was saved meanwhile)
             settings.cron_jobs[pos].enabled = false;
             settings.cron_jobs[pos].updated = replacement.updated.clone();
+            settings.cron_jobs[pos].revision += 1;
             return Ok(settings);
         }
         // what this request read is what it replaces: a save made meanwhile (a secret
         // replaced, say) is not undone by one that didn't see it
-        if settings.cron_jobs[pos].updated != read_at {
+        // (counted, not timed: two saves can fall in the same millisecond)
+        if settings.cron_jobs[pos].revision != read {
             return Err(ApiError::new(
                 StatusCode::CONFLICT,
                 "It was changed meanwhile: load it again and repeat the change.",
             ));
         }
-        settings.cron_jobs[pos] = replacement;
+        settings.cron_jobs[pos] = JobDef {
+            revision: read + 1,
+            ..replacement
+        };
         Ok(settings)
     })
     .await?;
-    watch_changes(&core).await;
     Ok(saved_answer(&core, &def, role, secrets))
 }
 
@@ -1554,7 +1533,6 @@ pub async fn delete(
         Ok(settings)
     })
     .await?;
-    watch_changes(&core).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

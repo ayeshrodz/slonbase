@@ -53,7 +53,10 @@ routerAdd("GET", "/api/js/ok", (e) => e.json(200, { ok: true }));
 routerUse((e) => {
   if (e.request.url.path === "/api/js/wait") sleep(700);
   e.next();
+  // (and one that goes on running after the wait still has its limit)
+  if (e.request.url.path === "/api/js/late") for (;;) {}
 });
+routerAdd("GET", "/api/js/late", (e) => { sleep(1200); e.json(200, { ok: true }); });
 "#;
 
 async fn call(
@@ -356,6 +359,15 @@ async fn a_handler_runs_within_limits() {
     // answered
     let (status, res) = call(&app, &token, "GET", "/api/js/wait", None).await;
     assert_eq!(status, StatusCode::OK, "{res}");
+    // the wait doesn't take the limit away: a handler that spins after next() is stopped
+    let started = std::time::Instant::now();
+    let (status, res) = call(&app, &token, "GET", "/api/js/late", None).await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR, "{res}");
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

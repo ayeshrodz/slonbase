@@ -4,20 +4,32 @@
 -- change starts its automations once whichever instance looks, and none is lost in a restart.
 --
 -- For that an event also says which fields an update changed (`changed`, only for the
--- collections an automation watches: `event_watch`, a lookup of one row for an update and
--- nothing else for any other write) and what made the change when an automation did
--- (`origin`: the automations a chain of changes went through, so none runs twice in a chain).
+-- collections an automation watches: a lookup in `event_watchers` for an update and nothing
+-- else for any other write) and what made the change when an automation did (`origin`: the
+-- automations a chain of changes went through, so none runs twice in a chain).
+--
+-- `event_watchers` has each automation that watches, with the moment it began to (a change
+-- older than that is not its own). The cursor also holds what the watchers are (`watching`, so
+-- a dispatcher that has not heard of a change to them stands back) and the last time
+-- automations were paused (`paused_from`, `paused_to`: changes made then are not run). All of
+-- it is written with the settings, in their transaction.
 ALTER TABLE _slonbase.events ADD COLUMN IF NOT EXISTS changed TEXT[];
 ALTER TABLE _slonbase.events ADD COLUMN IF NOT EXISTS origin TEXT;
 
-CREATE TABLE IF NOT EXISTS _slonbase.event_watch (
-    collection_id TEXT PRIMARY KEY
+CREATE TABLE IF NOT EXISTS _slonbase.event_watchers (
+    job           TEXT PRIMARY KEY,
+    collection_id TEXT NOT NULL,
+    since         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
+CREATE INDEX IF NOT EXISTS event_watchers_collection ON _slonbase.event_watchers (collection_id);
 
 CREATE TABLE IF NOT EXISTS _slonbase.event_cursor (
-    one      BOOLEAN PRIMARY KEY DEFAULT true CHECK (one),
-    snapshot TEXT NOT NULL,
-    updated  TIMESTAMPTZ NOT NULL DEFAULT now()
+    one         BOOLEAN PRIMARY KEY DEFAULT true CHECK (one),
+    snapshot    TEXT NOT NULL,
+    watching    TEXT NOT NULL DEFAULT '',
+    paused_from TIMESTAMPTZ,
+    paused_to   TIMESTAMPTZ,
+    updated     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE OR REPLACE FUNCTION _slonbase.record_change() RETURNS trigger
@@ -36,7 +48,7 @@ BEGIN
         record := to_jsonb(NEW);
     END IF;
     IF TG_OP = 'UPDATE' AND EXISTS (
-        SELECT 1 FROM _slonbase.event_watch w WHERE w.collection_id = TG_ARGV[0]
+        SELECT 1 FROM _slonbase.event_watchers w WHERE w.collection_id = TG_ARGV[0]
     ) THEN
         SELECT coalesce(array_agg(n.key ORDER BY n.key), '{}') INTO changed
         FROM jsonb_each(record) n

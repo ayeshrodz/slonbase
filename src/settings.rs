@@ -1233,6 +1233,14 @@ where
     next.save(&tx, core.secrets_key(), Some(&current))
         .await
         .map_err(ApiError::internal)?;
+    // who watches for record changes, and whether automations are paused, are written with
+    // the settings that say so: saved together, or not at all
+    let watching_changed = crate::events::state(&current) != crate::events::state(&next);
+    if watching_changed {
+        crate::events::reconcile(&tx, &next)
+            .await
+            .map_err(ApiError::internal)?;
+    }
     crate::realtime::notify(&tx, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
@@ -1240,6 +1248,9 @@ where
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(next.clone());
+    if watching_changed {
+        core.realtime.dispatch.notify_one();
+    }
     Ok(next)
 }
 

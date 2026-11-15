@@ -96,9 +96,9 @@ How it behaves:
 - **At most 1000 runs of one automation wait at once.** Changes beyond that are not run, and the
   history has an entry that says how many. More than 5000 changes at once (a bulk change) are
   not run past the first 5000.
-- **Not later.** Changes made before the automation was made or switched on, or while
-  automations are paused, don't start it afterwards (a change counts from when its transaction
-  began). A restore or an import writes records without starting
+- **Not later.** A change made before the automation was made or switched on doesn't start
+  it, however late the change is read. Neither does one made while automations were paused. A
+  change counts from when its transaction began. A restore or an import writes records without starting
   anything.
 - Runs of the same automation for different changes can overlap (there are two workers), so
   don't rely on their order.

@@ -720,7 +720,7 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
     }
     tx.batch_execute(
         "DELETE FROM _slonbase.collections; DELETE FROM _slonbase.params;
-         TRUNCATE _slonbase.events, _slonbase.event_cursor, _slonbase.otps, _slonbase.mfas;",
+         TRUNCATE _slonbase.events, _slonbase.event_cursor, _slonbase.event_watchers, _slonbase.otps, _slonbase.mfas;",
     )
     .await?;
     if manifest

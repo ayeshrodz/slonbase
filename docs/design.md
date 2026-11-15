@@ -1070,7 +1070,7 @@ handlers and routes, cron jobs registered by code, the queue's kinds and the set
   automation with `trigger.type = "record"` is started from those rows, so changes by any writer
   count and rolled-back ones never do. Nothing new is written per change, except for updates
   of watched collections, which also record the names of the fields that changed (`changed`; the
-  trigger looks the collection up in `_slonbase.event_watch`, one row probe per update).
+  trigger looks the collection up in `_slonbase.event_watchers`, one index probe per update).
 - **A durable cursor.** `_slonbase.event_cursor` holds a transaction snapshot: changes visible
   in it were dispatched. One pass, under an advisory lock so one instance dispatches at a time,
   reads the changes not visible in the snapshot (the query realtime's poller uses), inserts a
@@ -1078,12 +1078,18 @@ handlers and routes, cron jobs registered by code, the queue's kinds and the set
   transaction. So a change is turned into runs exactly once whatever stops in between, and
   transactions that commit out of order are neither skipped nor read twice (event ids don't
   follow commit order; snapshots do).
-- **Boundaries.** The cursor is created when the first automation of this kind is saved,
-  before the save is answered, so a change made after it is dispatched; the watched collections
-  and the cursor's removal go by the settings as stored, read under the dispatcher's lock, not
-  by an instance's copy. Each automation has the time since which it watches (`trigger.since`,
-  the database's clock): a change older than that is not its own, however late a pass comes.
-  While automations are paused the cursor moves and nothing is queued.
+- **Boundaries are written with the settings.** `settings::modify` calls `events::reconcile`
+  in the transaction that saves the settings (when who watches, or the pause, changed), under
+  the dispatcher's lock: the save and these happen together or not at all, and no pass runs
+  across them. It writes who watches and since when (`event_watchers`: a change older than an
+  automation's `since` is not its own, however late a pass comes), creates the cursor with the
+  first watcher and removes it with the last, notes when automations were paused and went on
+  (changes made in between are not run), and stores a fingerprint of the watchers. A pass goes
+  by its instance's copy of the settings, and only dispatches when that copy's fingerprint is
+  the stored one: an instance that has yet to hear of a save stands back instead of moving
+  the cursor past changes meant for an automation it doesn't know. The dispatcher runs the
+  same reconciliation from the stored settings when it starts and when it finds a mismatch,
+  which covers a restore and settings changed by other means.
 - **Pruning.** The outbox is pruned after five minutes as before, except rows the cursor has
   not passed, which stay up to a day. Without an automation of this kind there is no cursor, no
   pass and no database work: the dispatcher only waits to be told the settings changed.

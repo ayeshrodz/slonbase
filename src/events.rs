@@ -36,6 +36,7 @@ use serde_json::{Value, json};
 
 use crate::core::Core;
 use crate::cron_jobs::JobDef;
+use crate::settings::Settings;
 
 /// The most runs of one automation that wait at once.
 pub const MAX_WAITING: i64 = 1000;
@@ -66,70 +67,124 @@ fn watched_collections(jobs: &[JobDef]) -> Vec<String> {
     ids
 }
 
-/// The database's time now, as events' times are compared (`YYYY-MM-DD HH:MM:SS.ffffff`, UTC).
-pub(crate) async fn now(core: &Core) -> anyhow::Result<String> {
-    let client = core
-        .pool
-        .get()
-        .await
-        .map_err(crate::db::describe_pool_error)?;
-    Ok(client
-        .query_one(&format!("SELECT {}", time_sql("now()")), &[])
-        .await?
-        .get(0))
+/// What the watchers are, in a few bytes: who watches what, for which changes, under which
+/// condition. A dispatcher goes by its instance's copy of the settings; it only dispatches when
+/// this is what the stored settings came to (see [`reconcile`]).
+fn fingerprint(jobs: &[JobDef]) -> String {
+    use sha2::Digest;
+    let watching: Vec<Value> = watching(jobs)
+        .iter()
+        .map(|job| json!([job.id, job.trigger]))
+        .collect();
+    match watching.is_empty() {
+        true => String::new(),
+        false => hex::encode(sha2::Sha256::digest(json!(watching).to_string().as_bytes())),
+    }
+}
+
+/// What of the settings the dispatcher goes by: when it differs between two versions of them,
+/// the tables here have to follow.
+pub(crate) fn state(settings: &Settings) -> (String, bool) {
+    (
+        fingerprint(&settings.cron_jobs),
+        settings.schedule.pause_jobs,
+    )
 }
 
 fn time_sql(column: &str) -> String {
     format!("to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')")
 }
 
-/// Writes which collections are watched (so the trigger records the changed fields of their
-/// updates) and, when something watches, the place changes are dispatched from if there is
-/// none yet. Called when automations are saved, before the save is answered, so a change made
-/// after it is one the dispatcher will read; and by the dispatcher when it finds the settings
-/// changed.
+/// Makes the dispatcher's tables say what `settings` say, in `tx`. It is called in the
+/// transaction that saves the settings ([`crate::settings::modify`]), so the two change
+/// together or not at all, and under the dispatcher's lock, so no pass runs across it:
 ///
-/// It goes by the settings as stored, read under the dispatcher's lock, not by this
-/// instance's copy of them: two saves, or an instance that hasn't heard of the last one,
-/// can't leave the table behind what is saved.
-pub(crate) async fn sync_watch(core: &Core) -> anyhow::Result<Vec<String>> {
+/// - who watches, and since when: an automation that begins to watch (made, switched on,
+///   pointed at another collection) watches from this moment, and a change older than that
+///   never starts it;
+/// - the place changes are dispatched from, made when the first automation watches and
+///   removed with the last (the outbox is then pruned as before);
+/// - what the watchers are, for a dispatcher to compare its own settings with;
+/// - when automations were paused: changes made from then until they go on are not run.
+pub(crate) async fn reconcile(
+    tx: &deadpool_postgres::Transaction<'_>,
+    settings: &Settings,
+) -> anyhow::Result<()> {
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&LOCK_KEY])
+        .await?;
+    let watching = watching(&settings.cron_jobs);
+    let jobs: Vec<&str> = watching.iter().map(|job| job.id.as_str()).collect();
+    let collections: Vec<&str> = watching
+        .iter()
+        .map(|job| job.trigger.collection.as_str())
+        .collect();
+    // (one that watches another collection than it did begins again)
+    tx.execute(
+        "DELETE FROM _slonbase.event_watchers w
+         WHERE NOT EXISTS (
+             SELECT 1 FROM unnest($1::text[], $2::text[]) AS now(job, collection_id)
+             WHERE now.job = w.job AND now.collection_id = w.collection_id)",
+        &[&jobs, &collections],
+    )
+    .await?;
+    tx.execute(
+        "INSERT INTO _slonbase.event_watchers (job, collection_id, since)
+         SELECT job, collection_id, clock_timestamp()
+         FROM unnest($1::text[], $2::text[]) AS now(job, collection_id)
+         ON CONFLICT (job) DO NOTHING",
+        &[&jobs, &collections],
+    )
+    .await?;
+    if watching.is_empty() {
+        tx.execute("DELETE FROM _slonbase.event_cursor", &[])
+            .await?;
+        return Ok(());
+    }
+    tx.execute(
+        "INSERT INTO _slonbase.event_cursor (one, snapshot, watching)
+         VALUES (true, pg_current_snapshot()::text, $1)
+         ON CONFLICT (one) DO UPDATE SET watching = excluded.watching",
+        &[&fingerprint(&settings.cron_jobs)],
+    )
+    .await?;
+    match settings.schedule.pause_jobs {
+        // paused, and not noted as such yet
+        true => {
+            tx.execute(
+                "UPDATE _slonbase.event_cursor
+                 SET paused_from = clock_timestamp(), paused_to = NULL
+                 WHERE paused_from IS NULL OR paused_to IS NOT NULL",
+                &[],
+            )
+            .await?;
+        }
+        // going on after a pause
+        false => {
+            tx.execute(
+                "UPDATE _slonbase.event_cursor SET paused_to = clock_timestamp()
+                 WHERE paused_from IS NOT NULL AND paused_to IS NULL",
+                &[],
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
+/// [`reconcile`] with the settings as stored, outside a save: what the dispatcher does when it
+/// starts, and when it finds the tables are not what its settings say (a restore emptied them,
+/// or the settings were changed by something that doesn't go through `modify`).
+pub(crate) async fn sync_watch(core: &Core) -> anyhow::Result<()> {
     let mut client = core
         .pool
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
     let tx = client.transaction().await?;
-    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&LOCK_KEY])
-        .await?;
-    let stored = crate::settings::Settings::load(&tx, core.secrets_key()).await?;
-    let ids = watched_collections(&stored.cron_jobs);
-    tx.execute(
-        "WITH gone AS (
-             DELETE FROM _slonbase.event_watch WHERE collection_id <> ALL($1)
-         )
-         INSERT INTO _slonbase.event_watch (collection_id)
-         SELECT unnest($1::text[]) ON CONFLICT DO NOTHING",
-        &[&ids],
-    )
-    .await?;
-    match ids.is_empty() {
-        // nothing to keep a place for: the outbox is pruned as before
-        true => {
-            tx.execute("DELETE FROM _slonbase.event_cursor", &[])
-                .await?;
-        }
-        false => {
-            tx.execute(
-                "INSERT INTO _slonbase.event_cursor (one, snapshot)
-                 VALUES (true, pg_current_snapshot()::text) ON CONFLICT (one) DO NOTHING",
-                &[],
-            )
-            .await?;
-        }
-    }
+    let stored = Settings::load(&tx, core.secrets_key()).await?;
+    reconcile(&tx, &stored).await?;
     tx.commit().await?;
-    core.realtime.dispatch.notify_one();
-    Ok(ids)
+    Ok(())
 }
 
 /// The statement that prunes the outbox: events older than `seconds`, except those the
@@ -157,7 +212,7 @@ pub(crate) async fn behind(core: &Core) -> anyhow::Result<i64> {
         .query_one(
             "SELECT count(*) FROM _slonbase.events e, _slonbase.event_cursor c
              WHERE e.created < now() - interval '1 minute'
-               AND e.collection_id IN (SELECT collection_id FROM _slonbase.event_watch)
+               AND e.collection_id IN (SELECT collection_id FROM _slonbase.event_watchers)
                AND (e.xid >= pg_snapshot_xmax(c.snapshot::pg_snapshot)
                     OR e.xid = ANY(ARRAY(SELECT pg_snapshot_xip(c.snapshot::pg_snapshot))))",
             &[],
@@ -175,6 +230,8 @@ pub(crate) struct Pass {
     pub dropped: HashMap<String, usize>,
     /// Nothing watches: there is nothing to look for.
     pub idle: bool,
+    /// The tables are not what this instance's settings say: nothing was dispatched.
+    pub stale: bool,
 }
 
 /// What a step sees of the change that started its run.
@@ -217,27 +274,56 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
         // another instance is at it
         return Ok(Pass::default());
     }
-    // the place kept; none yet (or one from another database, after a restore elsewhere):
-    // from now on
-    let since: Option<String> = tx
+    // the place kept, with what the watchers were when it was written and the last pause
+    let cursor = tx
         .query_opt(
-            "SELECT snapshot FROM _slonbase.event_cursor
-             WHERE pg_snapshot_xmax(snapshot::pg_snapshot) <= pg_snapshot_xmax(pg_current_snapshot())",
+            &format!(
+                "SELECT snapshot, watching, {}, {},
+                        pg_snapshot_xmax(snapshot::pg_snapshot) <= pg_snapshot_xmax(pg_current_snapshot())
+                 FROM _slonbase.event_cursor",
+                time_sql("paused_from"),
+                time_sql("paused_to")
+            ),
             &[],
         )
-        .await?
-        .map(|row| row.get(0));
-    let Some(since) = since else {
+        .await?;
+    // no place, or the watchers there are not this instance's: the settings were changed and
+    // this instance has yet to hear of it (or the tables were emptied). Nothing is dispatched
+    // by settings that may be behind: a change would be passed over for an automation this
+    // instance doesn't know of
+    let Some(cursor) =
+        cursor.filter(|row| row.get::<_, String>(1) == fingerprint(&settings.cron_jobs))
+    else {
+        return Ok(Pass {
+            stale: true,
+            ..Default::default()
+        });
+    };
+    let (paused_from, paused_to): (Option<String>, Option<String>) = (cursor.get(2), cursor.get(3));
+    // (a place from another database, after a restore elsewhere: from now on)
+    if !cursor.get::<_, bool>(4) {
         tx.execute(
-            "INSERT INTO _slonbase.event_cursor (one, snapshot)
-             VALUES (true, pg_current_snapshot()::text)
-             ON CONFLICT (one) DO UPDATE SET snapshot = excluded.snapshot, updated = now()",
+            "UPDATE _slonbase.event_cursor SET snapshot = pg_current_snapshot()::text, updated = now()",
             &[],
         )
         .await?;
         tx.commit().await?;
         return Ok(Pass::default());
-    };
+    }
+    let since: String = cursor.get(0);
+    // since when each automation watches
+    let watchers: HashMap<String, String> = tx
+        .query(
+            &format!(
+                "SELECT job, {} FROM _slonbase.event_watchers",
+                time_sql("since")
+            ),
+            &[],
+        )
+        .await?
+        .iter()
+        .map(|row| (row.get(0), row.get(1)))
+        .collect();
     let collections = watched_collections(&settings.cron_jobs);
     let row = tx
         .query_one(
@@ -272,7 +358,17 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
     // while automations are paused nothing is queued, and the place still moves: what changed
     // meanwhile is not run when they go on
     let paused = settings.schedule.pause_jobs;
+    // (and what changed during a pause is not run however late it is read: after they went on)
+    let during_pause = |at: &str| {
+        (paused_from.is_some() || paused_to.is_some())
+            && paused_from.as_deref().is_none_or(|from| at >= from)
+            && paused_to.as_deref().is_none_or(|to| at < to)
+    };
     for event in events.iter().take(MAX_PER_PASS).filter(|_| !paused) {
+        let at = event["at"].as_str().unwrap_or_default();
+        if during_pause(at) {
+            continue;
+        }
         let (collection, action) = (
             event["collection_id"].as_str().unwrap_or_default(),
             event["action"].as_str().unwrap_or_default(),
@@ -285,8 +381,11 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
             if !crate::origin::may_start(origin, &job.id) {
                 continue;
             }
-            // (a change from before the automation was made or switched on is not its own)
-            if event["at"].as_str().unwrap_or_default() < job.trigger.since.as_str() {
+            // (a change from before the automation began to watch is not its own)
+            if watchers
+                .get(&job.id)
+                .is_none_or(|since| at < since.as_str())
+            {
                 continue;
             }
             let condition = job.trigger.condition.trim();
@@ -361,20 +460,24 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
 pub(crate) fn spawn(core: Weak<Core>) {
     tokio::spawn(async move {
         let mut every = POLL_EVERY;
-        let mut synced: Option<Vec<String>> = None;
+        // what the tables were last made to say, as this instance's settings have it
+        let mut synced: Option<(String, bool)> = None;
         // nothing watches and the place kept is gone: nothing is asked of the database
         let mut at_rest = false;
         loop {
             let Some(core) = core.upgrade() else { return };
             let wake = core.realtime.dispatch.clone();
-            // (the trigger knows which collections are watched from a table: kept as the
-            // settings say, also when another instance changed them)
-            let watched = watched_collections(&core.settings().cron_jobs);
-            if synced.as_ref() != Some(&watched) {
+            // (the tables follow the settings in the transaction that saves them; this is for
+            // a start, a restore, and settings changed in some other way)
+            let settings = core.settings();
+            let wanted = state(&settings);
+            let watched = watched_collections(&settings.cron_jobs);
+            drop(settings);
+            if synced.as_ref() != Some(&wanted) {
                 match sync_watch(&core).await {
-                    Ok(ids) => synced = Some(ids),
+                    Ok(()) => synced = Some(wanted),
                     Err(err) => {
-                        tracing::debug!(error = %format!("{err:#}"), "failed to write the watched collections")
+                        tracing::debug!(error = %format!("{err:#}"), "failed to write who watches for record changes")
                     }
                 }
             }
@@ -388,6 +491,12 @@ pub(crate) fn spawn(core: Weak<Core>) {
             at_rest = result.as_ref().is_ok_and(|pass| pass.idle);
             let wait = match result {
                 Ok(pass) if pass.idle => None,
+                // (the tables and these settings disagree: made to agree with what is stored
+                // on the next round, and tried again once this instance has the settings)
+                Ok(pass) if pass.stale => {
+                    synced = None;
+                    Some(POLL_EVERY)
+                }
                 Ok(pass) if pass.queued > 0 => {
                     every = POLL_EVERY;
                     Some(every)

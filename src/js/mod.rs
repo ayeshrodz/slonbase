@@ -515,8 +515,12 @@ fn worker(
             })
         });
         // promises created by the handler
+        // (one that fails leaves the others unrun and the runtime in a state nobody chose,
+        // out of memory among the causes: the runtime is replaced)
+        let mut drained = true;
         while rt.is_job_pending() {
             if rt.execute_pending_job().is_err() {
+                drained = false;
                 break;
             }
         }
@@ -527,7 +531,9 @@ fn worker(
         // state nobody chose (half-changed globals, a heap at its limit): the runtime is
         // not used again, a fresh one takes its place
         let stopped = limits.stopped.load(Ordering::SeqCst);
-        let exhausted = !stopped && result.contains("out of memory");
+        // (an error's text, not an answer's: a handler may well write those words)
+        let failed = result.starts_with("{\"err\"") && result.contains("out of memory");
+        let exhausted = !stopped && (!drained || failed);
         limits.start(None);
         let result = match (stopped, job.limit) {
             (true, Some(limit)) => {
@@ -545,7 +551,9 @@ fn worker(
         let _ = job.out.send(FromJs::Done(result));
         if stopped || exhausted {
             if exhausted {
-                tracing::error!("a JavaScript runtime ran out of memory and is replaced");
+                tracing::error!(
+                    "a JavaScript runtime ran out of memory, or a promise of a handler failed: it is replaced"
+                );
             }
             let name = std::thread::current()
                 .name()
