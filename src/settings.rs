@@ -94,7 +94,11 @@ pub const SECTIONS: &[Section] = &[
     },
     Section {
         private: true,
-        ..section("cronJobs", "Cron jobs made in the dashboard")
+        ..section("cronJobs", "Automations")
+    },
+    Section {
+        private: true,
+        ..section("templates", "Email templates")
     },
 ];
 
@@ -137,8 +141,11 @@ pub struct Settings {
     pub superuser_roles: std::collections::BTreeMap<String, String>,
     /// API keys (their hashes). Like the roles, only `/api/team` shows and changes them.
     pub api_keys: Vec<crate::roles::ApiKey>,
-    /// Cron jobs made in the dashboard. Only `/api/crons` shows and changes them.
+    /// Automations (and the cron jobs made in the dashboard, which are automations of one
+    /// step). Only `/api/automations` and `/api/crons` show and change them.
     pub cron_jobs: Vec<crate::cron_jobs::JobDef>,
+    /// The email templates automations send. Only `/api/templates` shows and changes them.
+    pub templates: Vec<crate::templates::Template>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

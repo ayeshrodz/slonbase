@@ -1041,6 +1041,23 @@ feature registers with them and leaves the request path (records, auth, rules, r
   to 2.6) are read as they are, a section's own row counting over them, and converted at the
   first start or the first save (a restored backup).
 
+- **Automations** (`src/automations.rs`) are the first feature built on all three. An
+  automation is a dashboard job of type `steps`: the job's schedule, retries, notices, history,
+  roles and storage (the private `cronJobs` section) are unchanged, and the type's work is to
+  run the steps. Each step goes through a service (records, `outbound`, `mail`, `sql`) or the
+  template library, so it inherits that service's rules.
+  - Data flows by name through Jinja expressions (`src/templating.rs`, on `minijinja` without
+    its loader: no include, no import, a work limit and an output limit). A filter takes data
+    only through bound parameters and an SQL statement is run as saved, so neither is ever
+    built from data.
+  - What the finished steps produced is kept with the run (`job_runs.state`, never shown by the
+    API and cleared when the run ends), after every step and every item of a repeated step. An
+    attempt that follows a failed one reads it and continues at the step and item that failed.
+  - The history keeps each step's numbers, never rows or responses.
+  - Email templates (`src/templates.rs`) live in the private `templates` settings section, so
+    they are sealed, backed up and synchronized like the rest. Values are HTML-escaped in the
+    body and a subject must come to one line.
+
 `GET /api/extensions` (Settings, Extensions) lists what an instance has loaded: hook files,
 handlers and routes, cron jobs registered by code, the queue's kinds and the settings' sections.
 

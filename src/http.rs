@@ -75,6 +75,8 @@ pub struct Reply {
     pub status: u16,
     /// The start of the body, as text (at most [`EXCERPT`] bytes).
     pub excerpt: String,
+    /// The body that was read, as text (at most the read limit, 64 KB).
+    pub body: String,
     /// How many bytes of the body were read (at most the read limit).
     pub bytes: usize,
     /// Where the request ended up, after redirects.
@@ -225,9 +227,12 @@ async fn request(
             }
         }
         let read = bytes.len();
+        bytes.truncate(READ_LIMIT);
+        let body = String::from_utf8_lossy(&bytes).into_owned();
         bytes.truncate(EXCERPT);
         return Ok(Reply {
             status,
+            body,
             bytes: read,
             excerpt: String::from_utf8_lossy(&bytes).into_owned(),
             url: url.to_string(),

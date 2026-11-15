@@ -165,7 +165,9 @@ pub fn allowed_for(role: Role, method: &Method, path: &str, via_key: bool) -> bo
                 && !path.contains("/impersonate/");
             data || path == "/api/batch"
                 || (*method == Method::POST && path.starts_with("/api/crons/"))
+                || (*method == Method::POST && path.starts_with("/api/automations/"))
                 || path == "/api/settings/mail/preview"
+                || path == "/api/templates/preview"
         }
         Role::Admin => {
             let superusers = path.starts_with("/api/collections/_superusers");
@@ -859,6 +861,17 @@ mod tests {
         ("PATCH", "/api/crons/{id}", Some(Role::Admin)),
         ("DELETE", "/api/crons/{id}", Some(Role::Admin)),
         ("POST", "/api/crons", Some(Role::Admin)),
+        ("GET", "/api/automations", Some(Role::Viewer)),
+        ("POST", "/api/automations", Some(Role::Admin)),
+        ("POST", "/api/automations/{id}", Some(Role::Developer)),
+        ("PATCH", "/api/automations/{id}", Some(Role::Admin)),
+        ("DELETE", "/api/automations/{id}", Some(Role::Admin)),
+        ("GET", "/api/templates", Some(Role::Viewer)),
+        ("POST", "/api/templates", Some(Role::Admin)),
+        ("POST", "/api/templates/preview", Some(Role::Developer)),
+        ("PATCH", "/api/templates/{id}", Some(Role::Admin)),
+        ("DELETE", "/api/templates/{id}", Some(Role::Admin)),
+        ("POST", "/api/templates/{id}/test", Some(Role::Admin)),
         ("POST", "/api/cron-preview", Some(Role::Admin)),
         ("POST", "/api/files/token", Some(Role::Viewer)),
         ("POST", "/api/oauth2-redirect", Some(Role::Admin)),

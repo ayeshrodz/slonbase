@@ -226,6 +226,7 @@ The guides are also on the documentation site, with search:
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime
 - [Extending](docs/extending.md): JavaScript hooks and the Rust library
+- [Automations](docs/automations.md): schedules with steps that pass data on, and email templates
 - [Migrations](docs/migrations.md): collections and data changes in code
 - [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences

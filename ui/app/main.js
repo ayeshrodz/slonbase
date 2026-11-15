@@ -18,6 +18,7 @@ const SqlConsole = lazy(() => import("./pages/sql.js"), "SqlConsole");
 const Projects = lazy(() => import("./pages/projects.js"), "Projects");
 const Health = lazy(() => import("./pages/health.js"), "Health");
 const Diagram = lazy(() => import("./pages/diagram.js"), "Diagram");
+const Automations = lazy(() => import("./pages/automations.js"), "Automations");
 
 initTheme();
 applyBranding();
@@ -29,6 +30,7 @@ const NAV = [
   { path: "/diagram", match: (p) => p.startsWith("/diagram"), icon: "relation", label: "Diagram" },
   { path: "/logs", match: (p) => p.startsWith("/logs"), icon: "logs", label: "Logs" },
   { path: "/sql", match: (p) => p.startsWith("/sql"), icon: "terminal", label: "SQL" },
+  { path: "/automations", match: (p) => p.startsWith("/automations"), icon: "zap", label: "Automations" },
   { path: "/health", match: (p) => p.startsWith("/health"), icon: "pulse", label: "Health" },
   // projects are managed from the main installation
   !PROJECT && { path: "/projects", match: (p) => p.startsWith("/projects"), icon: "layers", label: "Projects" },
@@ -349,6 +351,12 @@ function Shell() {
     document.title = pageTitle(navLabel);
   }, [navLabel, appName]);
 
+  // (in an effect, so the route is being listened to when it changes)
+  const oldCrons = path.startsWith("/settings/crons");
+  useEffect(() => {
+    if (oldCrons) navigate("/automations", true);
+  }, [oldCrons]);
+
   let page;
   let params;
   if (path === "/") page = html`<${Overview} />`;
@@ -358,6 +366,9 @@ function Shell() {
   else if (path.startsWith("/health")) page = html`<${Health} />`;
   else if (path.startsWith("/sql")) page = html`<${SqlConsole} />`;
   else if (path.startsWith("/projects") && !PROJECT) page = html`<${Projects} />`;
+  // (where cron jobs were before they became automations: redirected by the effect above)
+  else if (oldCrons) page = null;
+  else if ((params = match("/automations/:tab?", path))) page = html`<${Automations} tab=${params.tab || "automations"} />`;
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;
   else page = html`<div class="page"><div class="empty"><h3>Page not found</h3><a href="#/">Back to the overview</a></div></div>`;
 

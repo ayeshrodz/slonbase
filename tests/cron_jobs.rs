@@ -440,7 +440,7 @@ async fn jobs_that_call_a_url() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{url}: {res}");
         assert!(res["data"]["config"]["url"].is_object(), "{url}: {res}");
     }
-    let mut odd = url_job("ping", "http://93.184.216.34/hook");
+    let mut odd = url_job("ping", "https://93.184.216.34/hook");
     odd["config"]["method"] = json!("TRACE");
     odd["config"]["timeoutSeconds"] = json!(600);
     odd["config"]["headers"] = json!({ "Host": "x", "bad name": "y" });
@@ -450,13 +450,45 @@ async fn jobs_that_call_a_url() {
         assert!(res["data"]["config"][field].is_object(), "{field}: {res}");
     }
 
+    // a credential is only sent to an https:// address; other headers may go to http://
+    for name in [
+        "Authorization",
+        "cookie",
+        "X-Api-Key",
+        "X-Auth-Token",
+        "X-Hook-Signature",
+    ] {
+        let mut plain = url_job("ping", "HTTP:93.184.216.34/hook");
+        plain["config"]["headers"] = json!({ name: "v" });
+        let (status, res) = call(&app, &token, "POST", "/api/crons", Some(plain)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{name}: {res}");
+        assert!(
+            res["data"]["config"]["headers"].is_object(),
+            "{name}: {res}"
+        );
+    }
+    let mut plain = url_job("plain", "http://93.184.216.34/hook");
+    plain["config"]["headers"] = json!({ "Content-Type": "application/json" });
+    let (status, res) = call(&app, &token, "POST", "/api/crons", Some(plain)).await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let plain_id = res["id"].as_str().unwrap().to_string();
+    let (status, _) = call(
+        &app,
+        &token,
+        "DELETE",
+        &format!("/api/crons/{plain_id}"),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+
     // a public address is fine; the header's value is a secret: shown masked, kept on edit
     let (status, res) = call(
         &app,
         &token,
         "POST",
         "/api/crons",
-        Some(url_job("ping", "http://93.184.216.34/hook")),
+        Some(url_job("ping", "https://93.184.216.34/hook")),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
@@ -481,7 +513,7 @@ async fn jobs_that_call_a_url() {
         "PATCH",
         &format!("/api/crons/{id}"),
         Some(json!({ "config": {
-            "url": "http://93.184.216.34/hook",
+            "url": "https://93.184.216.34/hook",
             "headers": { "Authorization": "••••••••" },
         } })),
     )
@@ -497,7 +529,7 @@ async fn jobs_that_call_a_url() {
         "PATCH",
         &format!("/api/crons/{id}"),
         Some(json!({ "config": {
-            "url": "http://93.184.216.34/other",
+            "url": "https://93.184.216.34/other",
             "headers": { "Authorization": "••••••••" },
         } })),
     )
@@ -507,7 +539,7 @@ async fn jobs_that_call_a_url() {
     assert_eq!(saved(&core), "Bearer s3cret");
     assert_eq!(
         core.settings().cron_jobs[0].config["url"],
-        "http://93.184.216.34/hook"
+        "https://93.184.216.34/hook"
     );
     let (status, _) = call(
         &app,
@@ -515,7 +547,7 @@ async fn jobs_that_call_a_url() {
         "PATCH",
         &format!("/api/crons/{id}"),
         Some(json!({ "config": {
-            "url": "http://93.184.216.34/other",
+            "url": "https://93.184.216.34/other",
             "headers": { "Authorization": "Bearer new" },
         } })),
     )
@@ -1053,7 +1085,7 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
         &token,
         "POST",
         "/api/crons",
-        Some(url_job("Ping", "http://93.184.216.34/hook")),
+        Some(url_job("Ping", "https://93.184.216.34/hook")),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{original}");
@@ -1069,7 +1101,11 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
         &token,
         "POST",
         "/api/crons",
-        Some(copy("Ping (copy)", "http://93.184.216.34/hook", "••••••••")),
+        Some(copy(
+            "Ping (copy)",
+            "https://93.184.216.34/hook",
+            "••••••••",
+        )),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
@@ -1085,7 +1121,7 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
         &token,
         "POST",
         "/api/cron-preview",
-        Some(copy("Ping (3)", "http://93.184.216.34/hook", "••••••••")),
+        Some(copy("Ping (3)", "https://93.184.216.34/hook", "••••••••")),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
@@ -1096,7 +1132,7 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
         &token,
         "POST",
         "/api/crons",
-        Some(copy("Elsewhere", "http://93.184.216.35/hook", "••••••••")),
+        Some(copy("Elsewhere", "https://93.184.216.35/hook", "••••••••")),
     )
     .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
@@ -1108,13 +1144,13 @@ async fn jobs_are_switched_off_and_copied_from_the_list() {
         "/api/crons",
         Some(copy(
             "Elsewhere",
-            "http://93.184.216.35/hook",
+            "https://93.184.216.35/hook",
             "Bearer mine",
         )),
     )
     .await;
     assert_eq!(status, StatusCode::OK);
-    let mut lost = copy("Lost", "http://93.184.216.34/hook", "x");
+    let mut lost = copy("Lost", "https://93.184.216.34/hook", "x");
     lost["copyOf"] = json!("user:nope");
     let (status, _) = call(&app, &token, "POST", "/api/crons", Some(lost)).await;
     assert_eq!(status, StatusCode::NOT_FOUND);

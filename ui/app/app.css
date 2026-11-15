@@ -6090,3 +6090,22 @@ table.table tr.on td {
 .accent-card .tiny.muted {
   color: var(--ink-3);
 }
+
+/* automations: the steps of one, and a template next to its preview */
+.step-card > .card-head {
+  align-items: flex-start;
+}
+.step-card > .card-head .grid-2 {
+  gap: 10px;
+}
+.template-frame {
+  height: 420px;
+}
+.tab-body {
+  margin-top: 16px;
+}
+@media (max-width: 900px) {
+  .template-edit {
+    grid-template-columns: 1fr;
+  }
+}

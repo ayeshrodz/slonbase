@@ -61,7 +61,10 @@ platform on PostgreSQL: one Rust binary, with the dashboard built in.
 
 - Request logs, Prometheus metrics, and a health page.
 - **Backups** on a schedule or on demand, to disk or S3, optionally **encrypted**, with one-click
-  restore, and **a history of every backup and cron job run**: when, how long, how it ended.
+  restore, and **a history of every backup and automation run**: when, how long, how it ended.
+- **[Automations](automations.md):** schedules with steps that pass data on (find records, send
+  an email template to each, change them, call a URL), made in the dashboard with no code, with
+  retries that continue where a run failed.
 - A one-command **installer**, `.deb` and `.rpm` packages from signed repositories, a Docker image
   and Compose file, and setups for Render, Railway, Fly.io, Coolify and Dokploy
   ([installation](installation.md), [platforms](platforms.md)).

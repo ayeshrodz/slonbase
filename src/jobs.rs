@@ -136,6 +136,60 @@ impl Run {
         self.id
     }
 
+    /// What the run kept for an attempt that follows this one (see [`Run::keep`]).
+    pub(crate) async fn kept(&self) -> anyhow::Result<Option<Value>> {
+        let Some(id) = self.id else { return Ok(None) };
+        let client = self
+            .core
+            .db()
+            .get()
+            .await
+            .map_err(crate::db::describe_pool_error)?;
+        let row = client
+            .query_opt("SELECT state FROM _slonbase.job_runs WHERE id = $1", &[&id])
+            .await?;
+        Ok(row.and_then(|row| row.get(0)))
+    }
+
+    /// Keeps `state` with the run, for an attempt that follows a failed one. It is never part
+    /// of the history the API shows, and it goes when the run ends.
+    pub(crate) async fn keep(&self, state: &Value) -> anyhow::Result<()> {
+        let Some(id) = self.id else { return Ok(()) };
+        let client = self
+            .core
+            .db()
+            .get()
+            .await
+            .map_err(crate::db::describe_pool_error)?;
+        client
+            .execute(
+                "UPDATE _slonbase.job_runs SET state = $2 WHERE id = $1",
+                &[&id, state],
+            )
+            .await?;
+        Ok(())
+    }
+
+    /// Changes some values of the kept state (the keys of `patch`) in one write, without
+    /// writing the rest again.
+    pub(crate) async fn keep_patch(&self, patch: &Value) -> anyhow::Result<()> {
+        let Some(id) = self.id else { return Ok(()) };
+        let client = self
+            .core
+            .db()
+            .get()
+            .await
+            .map_err(crate::db::describe_pool_error)?;
+        client
+            .execute(
+                "UPDATE _slonbase.job_runs SET state = COALESCE(state, '{}') || $2::jsonb
+                 WHERE id = $1",
+                &[&id, patch],
+            )
+            .await?;
+        Ok(())
+    }
+
     /// Notes where a run that goes on stands (a failed attempt that will be tried again).
     pub(crate) async fn note(&self, detail: &str) {
         let Some(id) = self.id else { return };
@@ -167,9 +221,15 @@ impl Run {
                 .map_err(crate::db::describe_pool_error)?;
             client
                 .execute(
-                    "UPDATE _slonbase.job_runs SET finished = now(), status = $2, detail = $3, meta = $4
+                    "UPDATE _slonbase.job_runs
+                     SET finished = now(), status = $2, detail = $3, meta = $4, state = NULL
                      WHERE id = $1",
-                    &[&id, &status, &detail.chars().take(4000).collect::<String>(), &meta],
+                    &[
+                        &id,
+                        &status,
+                        &detail.chars().take(4000).collect::<String>(),
+                        &meta,
+                    ],
                 )
                 .await?;
             anyhow::Ok(())
@@ -221,7 +281,7 @@ pub(crate) async fn close_orphans(
         .map_err(crate::db::describe_pool_error)?;
     client
         .execute(
-            "UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
+            "UPDATE _slonbase.job_runs r SET status = 'error', finished = now(), state = NULL,
                  detail = 'Interrupted: the instance running it stopped.'
              WHERE r.kind = $1 AND ($2::text IS NULL OR r.job = $2) AND r.status = 'running'
                AND r.queue_job IS NOT NULL
@@ -249,7 +309,7 @@ pub(crate) async fn prune(core: &Core) -> anyhow::Result<()> {
                      FROM _slonbase.job_runs
                  ) ranked WHERE n > {KEEP}
              ) old WHERE r.id = old.id AND r.status <> 'running';
-             UPDATE _slonbase.job_runs r SET status = 'error', finished = now(),
+             UPDATE _slonbase.job_runs r SET status = 'error', finished = now(), state = NULL,
                  detail = 'Interrupted: the instance running it stopped.'
              WHERE r.status = 'running' AND r.started < now() - interval '1 day'
                AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j

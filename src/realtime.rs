@@ -197,6 +197,8 @@ pub struct Hub {
     poll: Arc<tokio::sync::Notify>,
     /// Wakes the task telling the other instances that this one wrote.
     announce: Arc<tokio::sync::Notify>,
+    /// Ends the listener and closes its connection (the core is being stopped).
+    stop_listening: Arc<tokio::sync::Notify>,
     /// The self-test of the notification path (see [`check_sync`]): the last ping sent and the
     /// last one received back, and the verdict.
     ping_sent: std::sync::atomic::AtomicU64,
@@ -225,6 +227,7 @@ impl Default for Hub {
             announced: Default::default(),
             poll: Default::default(),
             announce: Default::default(),
+            stop_listening: Default::default(),
             ping_sent: Default::default(),
             ping_seen: Default::default(),
             sync: Default::default(),
@@ -282,6 +285,13 @@ impl Hub {
     /// Disconnects every client (their streams end).
     pub fn disconnect_all(&self) {
         self.clients.lock().expect("hub lock").clear();
+    }
+
+    /// Ends the listener now, closing its connection, instead of when it next notices that
+    /// the core is gone (a project being deleted: its database can't be dropped while a
+    /// connection to it is open).
+    pub(crate) fn stop_listening(&self) {
+        self.stop_listening.notify_one();
     }
 
     /// How many other instances share the database (as of the last heartbeat, at most 20
@@ -1496,6 +1506,7 @@ async fn heartbeat(core: &Core) {
 /// (catching up on events and changes it may have missed).
 pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let weak = Arc::downgrade(core);
+    let stop = core.realtime.stop_listening.clone();
     let delivery = spawn_delivery(weak.clone());
     spawn_poller(weak.clone(), delivery);
     spawn_announcer(weak.clone());
@@ -1532,6 +1543,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             let mut schedule = tokio::time::interval(Duration::from_secs(20));
             loop {
                 tokio::select! {
+                    _ = stop.notified() => return,
                     notification = notifications.recv() => {
                         let Some(notification) = notification else { break };
                         let Some(core) = weak.upgrade() else { return };
