@@ -66,26 +66,68 @@ fn watched_collections(jobs: &[JobDef]) -> Vec<String> {
     ids
 }
 
-/// Writes which collections are watched, so the trigger records the changed fields of their
-/// updates. Called when automations are saved, and by the dispatcher when it finds the
-/// settings changed.
-pub(crate) async fn sync_watch(core: &Core) -> anyhow::Result<Vec<String>> {
-    let ids = watched_collections(&core.settings().cron_jobs);
+/// The database's time now, as events' times are compared (`YYYY-MM-DD HH:MM:SS.ffffff`, UTC).
+pub(crate) async fn now(core: &Core) -> anyhow::Result<String> {
     let client = core
         .pool
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
-    client
-        .execute(
-            "WITH gone AS (
-                 DELETE FROM _slonbase.event_watch WHERE collection_id <> ALL($1)
-             )
-             INSERT INTO _slonbase.event_watch (collection_id)
-             SELECT unnest($1::text[]) ON CONFLICT DO NOTHING",
-            &[&ids],
-        )
+    Ok(client
+        .query_one(&format!("SELECT {}", time_sql("now()")), &[])
+        .await?
+        .get(0))
+}
+
+fn time_sql(column: &str) -> String {
+    format!("to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')")
+}
+
+/// Writes which collections are watched (so the trigger records the changed fields of their
+/// updates) and, when something watches, the place changes are dispatched from if there is
+/// none yet. Called when automations are saved, before the save is answered, so a change made
+/// after it is one the dispatcher will read; and by the dispatcher when it finds the settings
+/// changed.
+///
+/// It goes by the settings as stored, read under the dispatcher's lock, not by this
+/// instance's copy of them: two saves, or an instance that hasn't heard of the last one,
+/// can't leave the table behind what is saved.
+pub(crate) async fn sync_watch(core: &Core) -> anyhow::Result<Vec<String>> {
+    let mut client = core
+        .pool
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let tx = client.transaction().await?;
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&LOCK_KEY])
         .await?;
+    let stored = crate::settings::Settings::load(&tx, core.secrets_key()).await?;
+    let ids = watched_collections(&stored.cron_jobs);
+    tx.execute(
+        "WITH gone AS (
+             DELETE FROM _slonbase.event_watch WHERE collection_id <> ALL($1)
+         )
+         INSERT INTO _slonbase.event_watch (collection_id)
+         SELECT unnest($1::text[]) ON CONFLICT DO NOTHING",
+        &[&ids],
+    )
+    .await?;
+    match ids.is_empty() {
+        // nothing to keep a place for: the outbox is pruned as before
+        true => {
+            tx.execute("DELETE FROM _slonbase.event_cursor", &[])
+                .await?;
+        }
+        false => {
+            tx.execute(
+                "INSERT INTO _slonbase.event_cursor (one, snapshot)
+                 VALUES (true, pg_current_snapshot()::text) ON CONFLICT (one) DO NOTHING",
+                &[],
+            )
+            .await?;
+        }
+    }
+    tx.commit().await?;
     core.realtime.dispatch.notify_one();
     Ok(ids)
 }
@@ -159,10 +201,8 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
         .await
         .map_err(crate::db::describe_pool_error)?;
     if watching.is_empty() {
-        // nothing to keep a place for: the outbox is pruned as before
-        client
-            .execute("DELETE FROM _slonbase.event_cursor", &[])
-            .await?;
+        // (the place kept goes when the stored settings say nothing watches: `sync_watch`,
+        // which the dispatcher calls whenever its settings change)
         return Ok(Pass {
             idle: true,
             ..Default::default()
@@ -201,9 +241,11 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
     let collections = watched_collections(&settings.cron_jobs);
     let row = tx
         .query_one(
-            "SELECT pg_current_snapshot()::text, coalesce((
+            &format!(
+                "SELECT pg_current_snapshot()::text, coalesce((
                  SELECT jsonb_agg(to_jsonb(n) ORDER BY n.id) FROM (
-                     SELECT e.id, e.collection_id, e.action, e.record, e.changed, e.origin
+                     SELECT e.id, e.collection_id, e.action, e.record, e.changed, e.origin,
+                            {} AS at
                      FROM _slonbase.events e
                      WHERE e.collection_id = ANY($2)
                        AND (e.xid >= pg_snapshot_xmax($1::text::pg_snapshot)
@@ -211,6 +253,8 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
                      ORDER BY e.id LIMIT $3
                  ) n
              ), '[]'::jsonb)",
+                time_sql("e.created")
+            ),
             &[&since, &collections, &(MAX_PER_PASS as i64 + 1)],
         )
         .await?;
@@ -225,7 +269,10 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
     }
     let mut out = Pass::default();
     let mut waiting: HashMap<&str, i64> = HashMap::new();
-    for event in events.iter().take(MAX_PER_PASS) {
+    // while automations are paused nothing is queued, and the place still moves: what changed
+    // meanwhile is not run when they go on
+    let paused = settings.schedule.pause_jobs;
+    for event in events.iter().take(MAX_PER_PASS).filter(|_| !paused) {
         let (collection, action) = (
             event["collection_id"].as_str().unwrap_or_default(),
             event["action"].as_str().unwrap_or_default(),
@@ -236,6 +283,10 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
             job.trigger.collection == collection && job.trigger.actions.iter().any(|a| a == action)
         }) {
             if !crate::origin::may_start(origin, &job.id) {
+                continue;
+            }
+            // (a change from before the automation was made or switched on is not its own)
+            if event["at"].as_str().unwrap_or_default() < job.trigger.since.as_str() {
                 continue;
             }
             let condition = job.trigger.condition.trim();
@@ -289,6 +340,8 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
     )
     .await?;
     tx.commit().await?;
+    // (given back before the history is written: the pool may have this one connection)
+    drop(client);
     if out.queued > 0 {
         core.queue.wake();
     }

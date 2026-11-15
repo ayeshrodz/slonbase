@@ -422,21 +422,40 @@ pub async fn send_api(
         }
         None => crate::ids::random_id(20),
     };
+    // all of the send or none of it: a failure midway leaves nothing queued, so asking again
+    // can't send to the first addresses twice
+    let mut client = core
+        .db()
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let tx = client
+        .transaction()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
     let mut queued = 0;
     for (n, address) in to.iter().enumerate() {
-        let added = crate::queue::enqueue(
-            &core,
-            crate::queue::NewJob {
-                kind: SEND_KIND,
-                reference: &id,
-                payload: json!({ "to": address, "data": data, "send": send }),
-                dedupe: Some(&format!("template-send:{send}:{n}")),
-                max_attempts: SEND_ATTEMPTS,
-            },
-        )
+        queued += tx
+            .execute(
+                "INSERT INTO _slonbase.jobs (kind, ref, payload, dedupe, max_attempts)
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT (dedupe) DO NOTHING",
+                &[
+                    &SEND_KIND,
+                    &id,
+                    &json!({ "to": address, "data": data, "send": send }),
+                    &format!("template-send:{send}:{n}"),
+                    &SEND_ATTEMPTS,
+                ],
+            )
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?;
+    }
+    tx.commit()
         .await
-        .map_err(ApiError::internal)?;
-        queued += usize::from(added);
+        .map_err(|e| ApiError::internal(e.into()))?;
+    drop(client);
+    if queued > 0 {
+        core.queue.wake();
     }
     tracing::info!(template = %id, send = %send, by = %caller, emails = queued, "a template was queued to be sent");
     Ok((

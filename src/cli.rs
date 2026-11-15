@@ -318,6 +318,9 @@ enum Command {
     },
 }
 
+/// Makes the logs include the SQL that runs (development mode), unless `RUST_LOG` is set.
+static LOG_SQL: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
 /// Runs the command line (`serve`, `setup`, `health`) with the given extensions. Logs go
 /// to stderr (filtered with `RUST_LOG`) unless a tracing subscriber is already set.
 pub async fn run(extensions: Extensions) -> ExitCode {
@@ -327,18 +330,20 @@ pub async fn run(extensions: Extensions) -> ExitCode {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
-                .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-                    // (asked for before the command line is read, which needs the logs)
-                    let dev = std::env::args().any(|a| a == "--dev")
-                        || std::env::var("SLONBASE_DEV")
-                            .is_ok_and(|v| !matches!(v.as_str(), "" | "0" | "false"));
-                    // in development the SQL that runs is logged too
-                    EnvFilter::new(if dev {
-                        "info,tokio_postgres=debug"
-                    } else {
-                        "info"
-                    })
-                })),
+                .with_filter({
+                    // (replaceable: development mode, known once the configuration is read,
+                    // also logs the SQL that runs, unless RUST_LOG says what to log)
+                    let (filter, handle) = tracing_subscriber::reload::Layer::new(
+                        EnvFilter::try_from_default_env()
+                            .unwrap_or_else(|_| EnvFilter::new("info")),
+                    );
+                    let _ = LOG_SQL.set(Box::new(move || {
+                        if std::env::var_os("RUST_LOG").is_none() {
+                            let _ = handle.reload(EnvFilter::new("info,tokio_postgres=debug"));
+                        }
+                    }));
+                    filter
+                }),
         )
         // warnings and errors also go to the logs shown in the dashboard
         .with(crate::logs::AppLogsLayer)
@@ -970,6 +975,9 @@ async fn serve(
     let types_path = crate::js::types::default_path(&loaded.effective.storage.path);
     let app = App::with_extensions(loaded, setup_token, extensions)?;
     if dev {
+        if let Some(log_sql) = LOG_SQL.get() {
+            log_sql();
+        }
         let local = bind
             .rsplit_once(':')
             .map(|(host, _)| host.trim_matches(['[', ']']))
@@ -998,15 +1006,18 @@ async fn serve(
                         let generation = core.registry_generation();
                         if written != Some(generation) {
                             match crate::js::types::write(&core.registry(), &types_path) {
-                                Ok(true) => {
-                                    tracing::info!(path = %types_path.display(), "wrote the type definitions")
+                                Ok(wrote) => {
+                                    if wrote {
+                                        tracing::info!(path = %types_path.display(), "wrote the type definitions");
+                                    }
+                                    written = Some(generation);
                                 }
-                                Ok(false) => {}
+                                // (tried again: the cause may pass, a full disk or a
+                                // directory that can't be written)
                                 Err(err) => {
                                     tracing::warn!(error = %format!("{err:#}"), "failed to write the type definitions")
                                 }
                             }
-                            written = Some(generation);
                         }
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;

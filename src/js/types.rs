@@ -115,9 +115,13 @@ pub fn write(registry: &Registry, path: &Path) -> anyhow::Result<bool> {
         std::fs::create_dir_all(parent)?;
     }
     // (whole or not at all: an editor may read it at any moment)
-    let part = path.with_extension("d.ts.part");
+    // (a file of this write's own: two writers at once each rename their own)
+    let part = path.with_extension(format!("d.ts.{}.part", crate::ids::random_id(8)));
     std::fs::write(&part, text)?;
-    std::fs::rename(&part, path)?;
+    if let Err(err) = std::fs::rename(&part, path) {
+        let _ = std::fs::remove_file(&part);
+        return Err(err.into());
+    }
     Ok(true)
 }
 

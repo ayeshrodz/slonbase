@@ -33,7 +33,7 @@ settingsAdd("billing", {
     { name: "currency", label: "Currency", type: "select", options: ["EUR", "USD"], default: "EUR" },
     { name: "limit", label: "Limit", type: "number", default: 10 },
     { name: "live", type: "bool" },
-    { name: "apiKey", label: "API key", type: "secret", required: true },
+    { name: "apiKey", label: "API key", type: "secret", required: true, default: "sk_default" },
   ],
 });
 
@@ -228,8 +228,12 @@ async fn a_hook_file_declares_a_settings_page() {
     assert_eq!(pages[0]["fields"].as_array().unwrap().len(), 4);
     assert_eq!(
         pages[0]["values"],
-        json!({ "currency": "EUR", "limit": 10, "live": null, "apiKey": "" })
+        json!({ "currency": "EUR", "limit": 10, "live": null, "apiKey": "••••••••" })
     );
+    // (a secret's default is used, and shown to nobody: neither as a value nor in the form)
+    assert!(!pages.to_string().contains("sk_default"), "{pages}");
+    let (_, read) = call(&app, &token, "GET", "/api/js/billing", None).await;
+    assert_eq!(read["apiKey"], "sk_default");
 
     // checked against the form
     for (values, field) in [
@@ -347,9 +351,9 @@ async fn a_handler_runs_within_limits() {
         let (status, res) = call(&app, &token, "GET", "/api/js/ok", None).await;
         assert_eq!(status, StatusCode::OK, "{res}");
     }
-    // the time a handler waits in next() is not its own: the middleware waits 0.7 s, the
-    // route 1.5 s (longer than the limit, but asleep is not running: nothing is asked while
-    // a native call waits), and the request is answered
+    // what a handler waits for is not its own time: the middleware sleeps 0.7 s and waits in
+    // next() for the route, which sleeps 1.5 s (longer than the limit), and the request is
+    // answered
     let (status, res) = call(&app, &token, "GET", "/api/js/wait", None).await;
     assert_eq!(status, StatusCode::OK, "{res}");
 }

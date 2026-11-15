@@ -14,7 +14,8 @@
 //!
 //! A secret is `whsec_` and the base64 of 32 random bytes. It is made here, never typed, and
 //! the request goes through [`super::outbound`] like every other: public addresses only. It is
-//! only sent over https, since what a webhook carries is the installation's data.
+//! only sent over https, since what a webhook carries is the installation's data, and a
+//! redirect is not followed (it is the answer, and not a success).
 
 use std::time::Duration;
 
@@ -93,7 +94,9 @@ pub async fn deliver(
             signature(secrets, id, timestamp, body),
         ),
     ];
-    outbound::send(outbound::Request {
+    // (no redirect is followed: what a webhook carries goes to the https address it was
+    // saved for, and a redirect could lead it to a plain one)
+    outbound::send_direct(outbound::Request {
         method: "POST",
         url,
         headers: &headers,

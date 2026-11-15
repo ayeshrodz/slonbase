@@ -88,7 +88,8 @@ changes, listed in its **Upgrading** section.
   version.
 
 - **JavaScript handlers have a time limit and runtimes a memory limit.** A handler may run for
-  60 seconds (`hooks.timeout_seconds`; the time it waits in `e.next()` isn't counted) and a
+  60 seconds (`hooks.timeout_seconds`; the time JavaScript itself runs, not what it waits for
+  in `e.next()`, queries, HTTP requests or `sleep`) and a
   runtime may use 128 MB (`hooks.memory_limit_mb`); `0` turns either off. A handler that runs
   longer is stopped and its request fails; the runtime is replaced. A cron job registered by
   code is now really stopped after its hour, where before it was only no longer waited for.
@@ -106,8 +107,9 @@ changes, listed in its **Upgrading** section.
 
 ### Upgrading
 
-- **Hooks that run long:** a JavaScript handler that needs more than 60 seconds of its own
-  (not counting `e.next()`, sleeping or waiting for the database) is now stopped. Raise
+- **Hooks that run long:** a JavaScript handler whose own code runs for more than 60 seconds
+  (waiting in `e.next()`, for the database, for an HTTP request or in `sleep` is not counted)
+  is now stopped. Raise
   `hooks.timeout_seconds` (or set it to `0`) before upgrading if you have one. A hook file that
   keeps more than 128 MB in memory needs a higher `hooks.memory_limit_mb`.
 - An automation whose failure notices go to an `http://` webhook keeps sending them, unsigned;

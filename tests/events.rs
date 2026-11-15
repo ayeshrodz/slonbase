@@ -177,8 +177,7 @@ async fn a_change_starts_its_automations_once() {
         ),
     )
     .await;
-    // (the dispatcher starts from the moment the first automation of this kind exists)
-    settle().await;
+    // (changes count from the moment the save was answered: no waiting for the dispatcher)
 
     let ann = ok(
         &app,
@@ -246,6 +245,35 @@ async fn a_change_starts_its_automations_once() {
     assert_eq!(runs["total"], 2, "{runs}");
     assert_eq!(runs["items"][0]["trigger"], "record");
     assert_eq!(runs["items"][0]["status"], "ok");
+
+    // paused: changes made meanwhile start nothing, then or later
+    ok(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        json!({ "schedule": { "pauseJobs": true } }),
+    )
+    .await;
+    ok(
+        &app,
+        &token,
+        "POST",
+        "/api/collections/orders/records",
+        json!({ "customer": "Dee", "paid": true }),
+    )
+    .await;
+    settle().await;
+    ok(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        json!({ "schedule": { "pauseJobs": false } }),
+    )
+    .await;
+    settle().await;
+    assert_eq!(notes(&app, &token, "audit").await, want);
 
     // switched off: changes made meanwhile start nothing, then or later
     ok(
@@ -516,6 +544,18 @@ async fn a_webhook_is_signed_with_a_secret_made_here() {
     )
     .await;
     assert_eq!(stored(&core)["previousSecret"], first.as_str());
+    // (also through one that changes something else and sends no steps at all)
+    ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "name": "Tell them all" }),
+    )
+    .await;
+    assert_eq!(stored(&core)["secret"], second.as_str());
+    assert_eq!(stored(&core)["previousSecret"], first.as_str());
+    assert!(stored(&core)["previousUntil"].is_string());
     // a hidden secret with none saved, or one that isn't a secret, is refused
     for secret in ["••••••••", "mine"] {
         let (status, res) = call(

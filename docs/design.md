@@ -1078,6 +1078,12 @@ handlers and routes, cron jobs registered by code, the queue's kinds and the set
   transaction. So a change is turned into runs exactly once whatever stops in between, and
   transactions that commit out of order are neither skipped nor read twice (event ids don't
   follow commit order; snapshots do).
+- **Boundaries.** The cursor is created when the first automation of this kind is saved,
+  before the save is answered, so a change made after it is dispatched; the watched collections
+  and the cursor's removal go by the settings as stored, read under the dispatcher's lock, not
+  by an instance's copy. Each automation has the time since which it watches (`trigger.since`,
+  the database's clock): a change older than that is not its own, however late a pass comes.
+  While automations are paused the cursor moves and nothing is queued.
 - **Pruning.** The outbox is pruned after five minutes as before, except rows the cursor has
   not passed, which stay up to a day. Without an automation of this kind there is no cursor, no
   pass and no database work: the dispatcher only waits to be told the settings changed.
@@ -1104,7 +1110,8 @@ handlers and routes, cron jobs registered by code, the queue's kinds and the set
   server after the answer that made it; rotation keeps the previous one for 24 hours.
 - **JavaScript limits** (`src/js/mod.rs`): QuickJS's interrupt handler checks a deadline per job
   (handlers: `hooks.timeout_seconds`; cron jobs: an hour; step functions: five minutes). The
-  deadline moves by the time a handler waits in `e.next()`. Each runtime has a memory limit. A
+  deadline moves by the time a handler waits in `e.next()` and in native calls, so it bounds
+  the time JavaScript runs. Each runtime has a memory limit. A
   runtime that was interrupted or ran out of memory is dropped and a fresh one started in its
   place, since its globals are in a state nobody chose.
 - **Extension settings** are a private section of the settings (`extensions`: values by page),

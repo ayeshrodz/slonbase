@@ -81,9 +81,10 @@ struct Job {
 }
 
 /// What stops a handler that runs too long. QuickJS asks its interrupt handler every so many
-/// operations; ours answers "stop" once the running job's deadline has passed. The time a
-/// handler waits in `e.next()` (the rest of the request: other handlers, the database) is not
-/// its own, so the deadline moves by it.
+/// operations; ours answers "stop" once the running job's deadline has passed. The limit is on
+/// the time JavaScript itself runs: what a handler waits for in `e.next()` (the rest of the
+/// request) and in native calls (a query, an HTTP request, `sleep`) is not its own, and has
+/// limits of its own, so the deadline moves by it.
 struct Limits {
     started: std::time::Instant,
     /// The deadline in milliseconds since `started`; 0 when the job has none.
@@ -375,11 +376,17 @@ fn start_runtime(
         let globals = ctx.globals();
         let js = |e: rquickjs::Error| e.to_string();
         let call_shared = shared.clone();
+        let call_limits = limits.clone();
         globals
             .set(
                 "__native_call",
                 Function::new(ctx.clone(), move |name: String, args: String| {
-                    native::call(&call_shared, &name, &args)
+                    // (what a handler waits for outside JavaScript, a query, a request, a
+                    // sleep, is bounded by that thing's own limits, not by the handler's)
+                    let waiting = call_limits.now();
+                    let result = native::call(&call_shared, &name, &args);
+                    call_limits.pause(call_limits.now() - waiting);
+                    result
                 })
                 .map_err(js)?,
             )

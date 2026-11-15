@@ -273,7 +273,9 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         return next.run(request).await;
     };
     let settings = core.settings();
-    if settings.logs.max_days == 0 {
+    // (logging off: nothing is collected; in development the answers still get their details)
+    let logging = settings.logs.max_days != 0;
+    if !logging && !core.dev {
         return next.run(request).await;
     }
 
@@ -307,6 +309,9 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         true => with_details(&context, response).await,
         false => response,
     };
+    if !logging {
+        return response;
+    }
 
     let status = response.status();
     // static dashboard files and successful health checks would mostly be noise

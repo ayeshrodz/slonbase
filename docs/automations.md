@@ -96,8 +96,9 @@ How it behaves:
 - **At most 1000 runs of one automation wait at once.** Changes beyond that are not run, and the
   history has an entry that says how many. More than 5000 changes at once (a bulk change) are
   not run past the first 5000.
-- **Not later.** Changes made while the automation is switched off, or while automations are
-  paused, don't start it afterwards. A restore or an import writes records without starting
+- **Not later.** Changes made before the automation was made or switched on, or while
+  automations are paused, don't start it afterwards (a change counts from when its transaction
+  began). A restore or an import writes records without starting
   anything.
 - Runs of the same automation for different changes can overlap (there are two workers), so
   don't rely on their order.
@@ -123,7 +124,9 @@ came from here and wasn't changed, with a library that exists for most languages
   give it to the receiver. Afterwards it is hidden. **Replace it** makes a new one; the old one
   keeps signing next to it for 24 hours (the header then has two signatures), so the receiver
   can switch without missing a delivery.
-- A status other than 2xx fails the step, and it is retried with the automation's retries.
+- A status other than 2xx fails the step, and it is retried with the automation's retries. A
+  redirect is not followed: it counts as a failure, so what is sent only goes to the address
+  you gave.
 - The webhook that tells you about failures is signed the same way, with a secret of its own.
   One saved before 2.7 is sent unsigned until the automation is saved again, and must be
   `https://` from then on.

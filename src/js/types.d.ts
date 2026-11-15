@@ -85,7 +85,7 @@ declare class DynamicModel {
 }
 
 declare function arrayOf<T>(model: T): T[];
-declare function unmarshal(data: any, into: any): void;
+declare function unmarshal<T>(data: any, into: T): T;
 
 // ------------------------------------------------------------------ errors
 
@@ -377,8 +377,8 @@ declare class MailerMessage {
 
 declare function sleep(milliseconds: number): void;
 declare function toString(value: any): string;
-declare function toBytes(value: any): number[];
-declare function readerToString(reader: any): string;
+declare function toBytes(value: any, maxBytes?: number): number[];
+declare function readerToString(reader: any, maxBytes?: number): string;
 declare function require(module: string): any;
 declare const __hooks: string;
 

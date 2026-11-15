@@ -569,8 +569,20 @@ pub(crate) fn unmask(config: &mut Value, saved: &JobDef) -> Result<(), String> {
                             "A signing secret was sent hidden but none is saved for the step: leave it empty and one is made.".into(),
                         ),
                     };
+                }
+                // the secret that was replaced goes on signing as long as the current one is
+                // the saved one, however it came back (hidden, or untouched by an update of
+                // something else)
+                let current = c
+                    .get("secret")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
+                if let Some(saved) =
+                    saved.filter(|w| !current.is_empty() && text(w, "secret") == current)
+                {
                     for key in ["previousSecret", "previousUntil"] {
-                        if let Some(v) = saved.and_then(|w| w.get(key)) {
+                        if let Some(v) = saved.get(key) {
                             c.insert(key.into(), v.clone());
                         }
                     }

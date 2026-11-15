@@ -24,6 +24,8 @@ function SettingsPage({ page, canSave }) {
   const [errors, setErrors] = useState({});
   const [busy, setBusy] = useState(false);
   const set = (name) => (value) => setValues((v) => ({ ...v, [name]: value }));
+  // (no editing while a save is on its way: its answer replaces the form's values)
+  const locked = !canSave || busy;
   const save = async (e) => {
     e.preventDefault();
     setBusy(true);
@@ -43,17 +45,17 @@ function SettingsPage({ page, canSave }) {
     const value = values[f.name];
     switch (f.type) {
       case "bool":
-        return html`<${Switch} checked=${!!value} onChange=${set(f.name)} label=${value ? "On" : "Off"} disabled=${!canSave} />`;
+        return html`<${Switch} checked=${!!value} onChange=${set(f.name)} label=${value ? "On" : "Off"} disabled=${locked} />`;
       case "select":
-        return html`<${Select} value=${value || ""} onChange=${set(f.name)} options=${[...(f.required ? [] : [{ value: "", label: "None" }]), ...f.options.map((o) => ({ value: o, label: o }))]} disabled=${!canSave} />`;
+        return html`<${Select} value=${value || ""} onChange=${set(f.name)} options=${[...(f.required && value ? [] : [{ value: "", label: f.required ? "Choose…" : "None" }]), ...f.options.map((o) => ({ value: o, label: o }))]} disabled=${locked} />`;
       case "textarea":
-        return html`<textarea class="input" rows="4" value=${value || ""} onInput=${(ev) => set(f.name)(ev.target.value)} disabled=${!canSave}></textarea>`;
+        return html`<textarea class="input" rows="4" value=${value || ""} onInput=${(ev) => set(f.name)(ev.target.value)} disabled=${locked}></textarea>`;
       case "number":
-        return html`<${Input} type="number" step="any" value=${value == null ? "" : value} onInput=${set(f.name)} disabled=${!canSave} />`;
+        return html`<${Input} type="number" step="any" value=${value == null ? "" : value} onInput=${set(f.name)} disabled=${locked} />`;
       case "secret":
-        return html`<${Input} type="password" autocomplete="off" value=${value || ""} onInput=${set(f.name)} onFocus=${(ev) => ev.target.select()} disabled=${!canSave} />`;
+        return html`<${Input} type="password" autocomplete="off" value=${value || ""} onInput=${set(f.name)} onFocus=${(ev) => ev.target.select()} disabled=${locked} />`;
       default:
-        return html`<${Input} value=${value || ""} onInput=${set(f.name)} disabled=${!canSave} />`;
+        return html`<${Input} value=${value || ""} onInput=${set(f.name)} disabled=${locked} />`;
     }
   };
   return html`<${Card} title=${page.title || page.name} icon="settings" subtitle=${html`Declared by a hook file; read there with <code>${`$app.settings().ext("${page.name}")`}</code>.`}>

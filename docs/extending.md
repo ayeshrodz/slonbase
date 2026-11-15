@@ -193,9 +193,9 @@ functions.
 - **Files:** uploaded and `$filesystem` files can be set on a file field before
   `$app.save(record)`. When they're mixed with stored file names, the names are kept and the
   files are appended.
-- **Limits:** a handler may run for `hooks.timeout_seconds` (60 by default; the time it waits
-  in `e.next()` is not counted, nor is time spent asleep or waiting for the database, since the
-  check happens while JavaScript runs). One that takes longer is stopped and its request fails.
+- **Limits:** a handler's own code may run for `hooks.timeout_seconds` (60 by default). What
+  it waits for is not counted: `e.next()`, a query, an HTTP request and `sleep` have limits of
+  their own. One that runs longer is stopped and its request fails.
   A cron job has an hour, a function run as an automation's step five minutes. Each runtime may
   use `hooks.memory_limit_mb` of memory (128 by default). A runtime whose handler was stopped,
   or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit.
@@ -252,11 +252,12 @@ that doesn't exist. Run it again after changing collections, or let development 
 
 ### Development mode
 
-`slonbase --dev` (or `SLONBASE_DEV=true`) is for working on hook files and collections on your
+`slonbase --dev` (or `SLONBASE_DEV=true`, or `dev = true` under `[server]`) is for working on hook files and collections on your
 own machine:
 
 - `types.d.ts` is rewritten whenever the collections change.
-- The SQL that runs is logged, with its values (to the server's output).
+- The SQL that runs is logged, with its values (to the server's output; `RUST_LOG`, when set,
+  decides what is logged instead).
 - An error's answer tells a **superuser** its details (`details`: the JavaScript error and its
   stack, a database error), which are otherwise only in the logs. Nobody else sees them.
 - The dashboard shows a banner on every page.

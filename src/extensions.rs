@@ -93,7 +93,19 @@ fn form_json(form: &crate::hooks::SettingsForm, saved: Option<&Map<String, Value
             json!(if set { crate::cron_jobs::MASK } else { "" }),
         );
     }
-    json!({ "name": form.name, "title": form.title, "fields": form.fields, "values": values })
+    // (a secret's default is a secret too: the form is shown without it)
+    let fields: Vec<crate::hooks::SettingsField> = form
+        .fields
+        .iter()
+        .map(|field| crate::hooks::SettingsField {
+            default: match field.kind == "secret" {
+                true => Value::Null,
+                false => field.default.clone(),
+            },
+            ..field.clone()
+        })
+        .collect();
+    json!({ "name": form.name, "title": form.title, "fields": fields, "values": values })
 }
 
 /// `GET /api/extensions/settings`: the settings pages extensions declared, with their values.
@@ -132,8 +144,9 @@ fn checked(
         let at = format!("values.{}", field.name);
         let kept = saved.and_then(|s| s.get(&field.name)).cloned();
         let value = match sent.get(&field.name) {
+            // (the mask stands for what the page showed: the saved value, or the default)
             Some(Value::String(v)) if field.kind == "secret" && v == crate::cron_jobs::MASK => {
-                kept.unwrap_or_else(|| json!(""))
+                kept.unwrap_or_else(|| field.default.clone())
             }
             Some(value) => value.clone(),
             None => kept.unwrap_or_else(|| field.default.clone()),

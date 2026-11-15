@@ -100,7 +100,19 @@ pub async fn guarded(
     body: Option<&str>,
     timeout: Duration,
 ) -> Result<Reply, String> {
-    request(method, url, headers, body, timeout, false).await
+    request(method, url, headers, body, timeout, false, true).await
+}
+
+/// [`guarded`] without following redirects: a redirect is the answer (its 3xx status). For a
+/// request whose body must not go anywhere but the address it was made for.
+pub async fn guarded_direct(
+    method: &str,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<&str>,
+    timeout: Duration,
+) -> Result<Reply, String> {
+    request(method, url, headers, body, timeout, false, false).await
 }
 
 /// Resolves a URL's host the way [`guarded`] would and refuses it when it isn't public; nothing
@@ -162,6 +174,7 @@ async fn request(
     body: Option<&str>,
     timeout: Duration,
     allow_private: bool,
+    follow: bool,
 ) -> Result<Reply, String> {
     let mut method = reqwest::Method::from_bytes(method.as_bytes())
         .map_err(|_| format!("Unknown method {method}."))?;
@@ -197,7 +210,7 @@ async fn request(
             .send()
             .await
             .map_err(|e| format!("The request failed: {}.", short(e)))?;
-        if response.status().is_redirection() {
+        if follow && response.status().is_redirection() {
             let Some(location) = response
                 .headers()
                 .get(reqwest::header::LOCATION)
@@ -345,6 +358,7 @@ mod tests {
             Some("{\"n\":1}"),
             Duration::from_secs(5),
             true,
+            true,
         )
         .await
         .unwrap();
@@ -353,6 +367,27 @@ mod tests {
         assert!(sent.starts_with("post /hook?a=1 "), "{sent}");
         assert!(sent.contains("x-token: s3cret"));
         assert!(sent.ends_with("{\"n\":1}"));
+    }
+
+    #[tokio::test]
+    async fn a_direct_request_does_not_follow_a_redirect() {
+        let (port, _seen) = serve(
+            "HTTP/1.1 307 Temporary Redirect\r\nlocation: http://93.184.216.34/\r\ncontent-length: 0\r\n\r\n",
+        )
+        .await;
+        let got = request(
+            "POST",
+            &format!("http://127.0.0.1:{port}/"),
+            &[],
+            Some("{}"),
+            Duration::from_secs(5),
+            true,
+            false,
+        )
+        .await
+        .unwrap();
+        // the redirect is the answer: the body went nowhere else
+        assert_eq!(got.status, 307);
     }
 
     #[tokio::test]
@@ -368,6 +403,7 @@ mod tests {
             &[],
             None,
             Duration::from_secs(5),
+            true,
             true,
         )
         .await;

@@ -718,10 +718,25 @@ async fn db_query(
     let lower = sql.to_ascii_lowercase();
     // statements that can't run in a transaction block keep a session search path, reset
     // before the connection goes back
-    let outside_transaction = lower.contains("concurrently")
-        || ["vacuum", "create database", "drop database", "alter system"]
-            .iter()
-            .any(|k| lower.trim_start().starts_with(k));
+    // (told by the command the statement is, not by a word anywhere in it: an UPDATE that
+    // mentions "concurrently" is an ordinary write, and runs in a transaction like the rest)
+    let head = lower
+        .split_whitespace()
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let outside_transaction = [
+        "create index concurrently",
+        "create unique index concurrently",
+        "drop index concurrently",
+        "vacuum",
+        "create database",
+        "drop database",
+        "alter system",
+    ]
+    .iter()
+    .any(|k| head.starts_with(k))
+        || (head.starts_with("reindex") && lower.contains("concurrently"));
     let result = if outside_transaction {
         client
             .batch_execute("SET search_path = slonbase, public")
