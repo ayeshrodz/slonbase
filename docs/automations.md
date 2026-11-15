@@ -104,7 +104,8 @@ How it behaves:
   don't rely on their order.
 
 A change waits in the database until it is turned into runs, for up to a day, so nothing is lost
-while no instance is up. Health warns when changes have been waiting for more than a minute.
+while no instance is up. One that is older than that when it is read (from a transaction left
+open for a day) is not run. Health warns when changes have been waiting for more than a minute.
 
 ## Signed webhooks
 

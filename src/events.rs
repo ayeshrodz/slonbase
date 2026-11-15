@@ -376,6 +376,8 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
                             {} AS at
                      FROM _slonbase.events e
                      WHERE e.collection_id = ANY($2)
+                       -- (older than a day: past what is kept, pauses included; not run)
+                       AND e.created >= now() - interval '{KEEP_HOURS} hours'
                        AND (e.xid >= pg_snapshot_xmax($1::text::pg_snapshot)
                             OR e.xid = ANY(ARRAY(SELECT pg_snapshot_xip($1::text::pg_snapshot))))
                      ORDER BY e.id LIMIT $3
