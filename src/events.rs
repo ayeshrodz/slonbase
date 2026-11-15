@@ -181,6 +181,10 @@ pub(crate) async fn sync_watch(core: &Core) -> anyhow::Result<()> {
         .await
         .map_err(crate::db::describe_pool_error)?;
     let tx = client.transaction().await?;
+    // (the lock before the settings are read: a save that commits in between would otherwise
+    // be undone by what was read before it)
+    tx.execute("SELECT pg_advisory_xact_lock($1)", &[&LOCK_KEY])
+        .await?;
     let stored = Settings::load(&tx, core.secrets_key()).await?;
     reconcile(&tx, &stored).await?;
     tx.commit().await?;
