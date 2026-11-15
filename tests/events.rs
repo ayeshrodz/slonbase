@@ -413,3 +413,169 @@ async fn a_chain_of_changes_ends() {
     .await;
     assert_eq!(runs["total"], 2, "{runs}");
 }
+
+#[tokio::test]
+async fn a_webhook_is_signed_with_a_secret_made_here() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let core = app.core().unwrap();
+    let hook = |name: &str, config: Value| {
+        json!({
+            "name": "Tell",
+            "expression": "0 0 29 2 *",
+            "type": "steps",
+            "config": { "steps": [{ "name": name, "type": "webhook", "config": config }] },
+        })
+    };
+    // only to https, and the address is typed
+    for url in [
+        "http://93.184.216.34/hook",
+        "https://{{ item.host }}/hook",
+        "https://127.0.0.1/hook",
+    ] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/automations",
+            Some(hook("tell", json!({ "url": url }))),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{url}: {res}");
+        assert!(
+            res["data"]["config"]["steps"]["0"]["config"]["url"].is_object(),
+            "{url}: {res}"
+        );
+    }
+    // a secret is made, shown this once, and hidden from then on
+    let saved = ok(
+        &app,
+        &token,
+        "POST",
+        "/api/automations",
+        hook("tell", json!({ "url": "https://93.184.216.34/hooks/{{ trigger.type }}", "payload": { "kind": "{{ trigger.type }}" } })),
+    )
+    .await;
+    let id = saved["id"].as_str().unwrap().to_string();
+    let first = saved["secrets"]["steps"]["tell"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(first.starts_with("whsec_"), "{saved}");
+    assert_eq!(saved["config"]["steps"][0]["config"]["secret"], "••••••••");
+    let (_, list) = call(&app, &token, "GET", "/api/automations", None).await;
+    assert!(!list.to_string().contains(&first), "{list}");
+    let stored = |core: &slonbase::core::Core| {
+        core.settings().cron_jobs[0].config["steps"][0]["config"].clone()
+    };
+    assert_eq!(stored(&core)["secret"], first.as_str());
+
+    // sent back hidden (and the step renamed): kept, nothing new is shown
+    let kept = ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "config": { "steps": [{ "name": "notify", "was": "tell", "type": "webhook", "config": {
+            "url": "https://93.184.216.34/hooks/x", "secret": "••••••••" } }] } }),
+    )
+    .await;
+    assert!(kept.get("secrets").is_none(), "{kept}");
+    assert_eq!(stored(&core)["secret"], first.as_str());
+
+    // replaced: a new one is shown, and the old one keeps signing for a day
+    let rotated = ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "config": { "steps": [{ "name": "notify", "type": "webhook", "config": {
+            "url": "https://93.184.216.34/hooks/x", "secret": "••••••••", "rotate": true } }] } }),
+    )
+    .await;
+    let second = rotated["secrets"]["steps"]["notify"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert_ne!(second, first);
+    assert_eq!(stored(&core)["secret"], second.as_str());
+    assert_eq!(stored(&core)["previousSecret"], first.as_str());
+    let shown = &rotated["config"]["steps"][0]["config"];
+    assert!(shown["previousUntil"].is_string(), "{rotated}");
+    assert!(shown.get("previousSecret").is_none(), "{rotated}");
+    // (and the old one stays through a later save)
+    ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{id}"),
+        json!({ "name": "Tell them", "config": { "steps": [{ "name": "notify", "type": "webhook", "config": {
+            "url": "https://93.184.216.34/hooks/x", "secret": "••••••••" } }] } }),
+    )
+    .await;
+    assert_eq!(stored(&core)["previousSecret"], first.as_str());
+    // a hidden secret with none saved, or one that isn't a secret, is refused
+    for secret in ["••••••••", "mine"] {
+        let (status, res) = call(
+            &app,
+            &token,
+            "POST",
+            "/api/automations",
+            Some(hook(
+                "other",
+                json!({ "url": "https://93.184.216.34/h", "secret": secret }),
+            )),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{secret}: {res}");
+    }
+
+    // a notice webhook is signed the same way
+    let mut noticed = hook("tell", json!({ "url": "https://93.184.216.34/hooks/x" }));
+    noticed["name"] = json!("Noticed");
+    noticed["notify"] = json!({ "webhook": "http://93.184.216.34/notice" });
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/automations",
+        Some(noticed.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["notify"]["webhook"].is_object(), "{res}");
+    noticed["notify"] = json!({ "webhook": "https://93.184.216.34/notice" });
+    let saved = ok(&app, &token, "POST", "/api/automations", noticed).await;
+    let notice = saved["secrets"]["notify"].as_str().unwrap().to_string();
+    assert!(notice.starts_with("whsec_"));
+    let other = saved["id"].as_str().unwrap();
+    let again = ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{other}"),
+        json!({ "notify": { "webhook": "••••••••" } }),
+    )
+    .await;
+    assert!(again["secrets"].get("notify").is_none(), "{again}");
+    let rotated = ok(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/automations/{other}"),
+        json!({ "notify": { "webhook": "••••••••", "rotateSecret": true } }),
+    )
+    .await;
+    assert_ne!(rotated["secrets"]["notify"], notice.as_str());
+    let settings = core.settings();
+    let notify = &settings
+        .cron_jobs
+        .iter()
+        .find(|j| j.id == other)
+        .unwrap()
+        .notify;
+    assert_eq!(notify.previous_secret, notice);
+    assert!(!notify.previous_until.is_empty());
+}
