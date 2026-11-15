@@ -10,9 +10,10 @@
 --
 -- `event_watchers` has each automation that watches, with the moment it began to (a change
 -- older than that is not its own). The cursor also holds what the watchers are (`watching`, so
--- a dispatcher that has not heard of a change to them stands back) and the last time
--- automations were paused (`paused_from`, `paused_to`: changes made then are not run). All of
--- it is written with the settings, in their transaction.
+-- a dispatcher that has not heard of a change to them stands back) and when automations were
+-- paused (`pauses`: `[{"from", "to"}]` for the last day, `to` missing while paused; changes
+-- made then are not run, however late they commit). All of it is written with the settings,
+-- in their transaction.
 ALTER TABLE _slonbase.events ADD COLUMN IF NOT EXISTS changed TEXT[];
 ALTER TABLE _slonbase.events ADD COLUMN IF NOT EXISTS origin TEXT;
 
@@ -27,8 +28,7 @@ CREATE TABLE IF NOT EXISTS _slonbase.event_cursor (
     one         BOOLEAN PRIMARY KEY DEFAULT true CHECK (one),
     snapshot    TEXT NOT NULL,
     watching    TEXT NOT NULL DEFAULT '',
-    paused_from TIMESTAMPTZ,
-    paused_to   TIMESTAMPTZ,
+    pauses      JSONB NOT NULL DEFAULT '[]',
     updated     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

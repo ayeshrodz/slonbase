@@ -1083,8 +1083,9 @@ handlers and routes, cron jobs registered by code, the queue's kinds and the set
   the dispatcher's lock: the save and these happen together or not at all, and no pass runs
   across them. It writes who watches and since when (`event_watchers`: a change older than an
   automation's `since` is not its own, however late a pass comes), creates the cursor with the
-  first watcher and removes it with the last, notes when automations were paused and went on
-  (changes made in between are not run), and stores a fingerprint of the watchers. A pass goes
+  first watcher and removes it with the last, keeps every pause of the last day (a change made
+  in one is not run, even when it is read after later pauses), and stores a fingerprint of the
+  watchers. A pass goes
   by its instance's copy of the settings, and only dispatches when that copy's fingerprint is
   the stored one: an instance that has yet to hear of a save stands back instead of moving
   the cursor past changes meant for an automation it doesn't know. The dispatcher runs the

@@ -116,7 +116,9 @@ async fn run(app: &Arc<App>, token: &str, id: &str, seen: u64) -> Value {
         eventually(async || {
             let (_, res) = call(app, token, "GET", &query, None).await;
             last = res["items"][0].clone();
-            res["total"].as_u64() == Some(seen + 1) && last["status"] != "running"
+            res["total"].as_u64() == Some(seen + 1)
+                && last["status"].is_string()
+                && last["status"] != "running"
         })
         .await,
         "the run ended: {last}"

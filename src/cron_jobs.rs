@@ -1485,34 +1485,45 @@ pub async fn update(
     let replacement = def.clone();
     let read = saved.revision;
     crate::settings::modify(&core, move |current| {
-        let mut settings = current.clone();
-        let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
-            return Err(ApiError::not_found());
-        };
-        if only_off {
-            // (switching off changes that and nothing else, whatever was saved meanwhile)
-            settings.cron_jobs[pos].enabled = false;
-            settings.cron_jobs[pos].updated = replacement.updated.clone();
-            settings.cron_jobs[pos].revision += 1;
-            return Ok(settings);
-        }
-        // what this request read is what it replaces: a save made meanwhile (a secret
-        // replaced, say) is not undone by one that didn't see it
-        // (counted, not timed: two saves can fall in the same millisecond)
-        if settings.cron_jobs[pos].revision != read {
-            return Err(ApiError::new(
-                StatusCode::CONFLICT,
-                "It was changed meanwhile: load it again and repeat the change.",
-            ));
-        }
-        settings.cron_jobs[pos] = JobDef {
-            revision: read + 1,
-            ..replacement
-        };
-        Ok(settings)
+        replaced(current, &id, read, replacement, only_off)
     })
     .await?;
     Ok(saved_answer(&core, &def, role, secrets))
+}
+
+/// The settings with job `id` replaced by `replacement`, made from the job's save `read`.
+/// Refused when the job was saved since (a secret replaced, say): what a request didn't see is
+/// not undone by it. Saves are counted, not timed, so two in the same millisecond still differ.
+/// Switching a job off (`only_off`) changes that and nothing else, whatever was saved meanwhile.
+fn replaced(
+    current: &crate::settings::Settings,
+    id: &str,
+    read: u64,
+    replacement: JobDef,
+    only_off: bool,
+) -> Result<crate::settings::Settings, ApiError> {
+    let mut settings = current.clone();
+    let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
+        return Err(ApiError::not_found());
+    };
+    let job = &mut settings.cron_jobs[pos];
+    if only_off {
+        job.enabled = false;
+        job.updated = replacement.updated;
+        job.revision += 1;
+        return Ok(settings);
+    }
+    if job.revision != read {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "It was changed meanwhile: load it again and repeat the change.",
+        ));
+    }
+    *job = JobDef {
+        revision: read + 1,
+        ..replacement
+    };
+    Ok(settings)
 }
 
 /// `DELETE /api/crons/{id}`: deletes a job (its history stays until it ages out).
@@ -1609,6 +1620,49 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_does_not_undo_one_it_did_not_see() {
+        // two requests read the same save, in the same millisecond: one replaces the notices'
+        // secret, the other renames the job
+        let same = "2026-01-01 00:00:00.000Z".to_string();
+        let job = JobDef {
+            id: "user:a".into(),
+            name: "A".into(),
+            enabled: true,
+            notify: Notify {
+                webhook: "https://example.com/h".into(),
+                secret: "whsec_old".into(),
+                ..Default::default()
+            },
+            updated: same.clone(),
+            revision: 3,
+            ..Default::default()
+        };
+        let mut settings = crate::settings::Settings::default();
+        settings.cron_jobs.push(job.clone());
+        let mut rotated = job.clone();
+        rotated.notify.secret = "whsec_new".into();
+        let settings = replaced(&settings, "user:a", 3, rotated, false).unwrap();
+        assert_eq!(settings.cron_jobs[0].revision, 4);
+        // the rename, made from the same save at the same time, is refused
+        let renamed = JobDef {
+            name: "B".into(),
+            ..job.clone()
+        };
+        let err = replaced(&settings, "user:a", 3, renamed, false).unwrap_err();
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(settings.cron_jobs[0].notify.secret, "whsec_new");
+        assert_eq!(settings.cron_jobs[0].updated, same);
+        // switching off works whatever was saved meanwhile, and keeps the rest
+        let off = replaced(&settings, "user:a", 3, job.clone(), true).unwrap();
+        assert!(!off.cron_jobs[0].enabled);
+        assert_eq!(off.cron_jobs[0].notify.secret, "whsec_new");
+        assert_eq!(off.cron_jobs[0].revision, 5);
+        // a job that is gone
+        let err = replaced(&settings, "user:b", 0, job, false).unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+    }
 
     #[test]
     fn the_history_of_a_call_has_no_response_content() {

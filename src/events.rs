@@ -92,7 +92,7 @@ pub(crate) fn state(settings: &Settings) -> (String, bool) {
 }
 
 fn time_sql(column: &str) -> String {
-    format!("to_char({column} AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')")
+    format!("to_char(({column}) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')")
 }
 
 /// Makes the dispatcher's tables say what `settings` say, in `tx`. It is called in the
@@ -147,28 +147,70 @@ pub(crate) async fn reconcile(
         &[&fingerprint(&settings.cron_jobs)],
     )
     .await?;
-    match settings.schedule.pause_jobs {
-        // paused, and not noted as such yet
-        true => {
-            tx.execute(
-                "UPDATE _slonbase.event_cursor
-                 SET paused_from = clock_timestamp(), paused_to = NULL
-                 WHERE paused_from IS NULL OR paused_to IS NOT NULL",
-                &[],
-            )
-            .await?;
-        }
-        // going on after a pause
-        false => {
-            tx.execute(
-                "UPDATE _slonbase.event_cursor SET paused_to = clock_timestamp()
-                 WHERE paused_from IS NOT NULL AND paused_to IS NULL",
-                &[],
-            )
-            .await?;
-        }
-    }
+    // the pauses: every one of the last day is kept, since a change that began in one can be
+    // read after several more (a transaction left open meanwhile)
+    let row = tx
+        .query_one(
+            &format!(
+                "SELECT pauses, {}, {} FROM _slonbase.event_cursor",
+                time_sql("clock_timestamp()"),
+                time_sql(&format!(
+                    "clock_timestamp() - interval '{KEEP_HOURS} hours'"
+                ))
+            ),
+            &[],
+        )
+        .await?;
+    let (stored, now, kept_from): (Value, String, String) = (row.get(0), row.get(1), row.get(2));
+    let pauses = noted_pause(
+        serde_json::from_value(stored).unwrap_or_default(),
+        settings.schedule.pause_jobs,
+        &now,
+        &kept_from,
+    );
+    tx.execute(
+        "UPDATE _slonbase.event_cursor SET pauses = $1",
+        &[&serde_json::to_value(&pauses)?],
+    )
+    .await?;
     Ok(())
+}
+
+/// A pause of automations: from when, and until when (none while it lasts). Times as
+/// [`time_sql`] writes them, so they compare as text.
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+struct Pause {
+    from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    to: Option<String>,
+}
+
+/// The pauses with the current state noted at `now`: one begins when automations are paused
+/// and none is open, the open one ends when they go on. Those that ended before `kept_from`
+/// are let go (a change older than that is no longer in the outbox).
+fn noted_pause(mut pauses: Vec<Pause>, paused: bool, now: &str, kept_from: &str) -> Vec<Pause> {
+    let open = pauses.last().is_some_and(|p| p.to.is_none());
+    match (paused, open) {
+        (true, false) => pauses.push(Pause {
+            from: now.to_string(),
+            to: None,
+        }),
+        (false, true) => {
+            if let Some(last) = pauses.last_mut() {
+                last.to = Some(now.to_string());
+            }
+        }
+        _ => {}
+    }
+    pauses.retain(|p| p.to.as_deref().is_none_or(|to| to >= kept_from));
+    pauses
+}
+
+/// Whether a change made at `at` was made while automations were paused.
+fn during_pause(pauses: &[Pause], at: &str) -> bool {
+    pauses
+        .iter()
+        .any(|p| at >= p.from.as_str() && p.to.as_deref().is_none_or(|to| at < to))
 }
 
 /// [`reconcile`] with the settings as stored, outside a save: what the dispatcher does when it
@@ -278,16 +320,12 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
         // another instance is at it
         return Ok(Pass::default());
     }
-    // the place kept, with what the watchers were when it was written and the last pause
+    // the place kept, with what the watchers were when it was written and the pauses
     let cursor = tx
         .query_opt(
-            &format!(
-                "SELECT snapshot, watching, {}, {},
-                        pg_snapshot_xmax(snapshot::pg_snapshot) <= pg_snapshot_xmax(pg_current_snapshot())
-                 FROM _slonbase.event_cursor",
-                time_sql("paused_from"),
-                time_sql("paused_to")
-            ),
+            "SELECT snapshot, watching, pauses,
+                    pg_snapshot_xmax(snapshot::pg_snapshot) <= pg_snapshot_xmax(pg_current_snapshot())
+             FROM _slonbase.event_cursor",
             &[],
         )
         .await?;
@@ -303,9 +341,9 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
             ..Default::default()
         });
     };
-    let (paused_from, paused_to): (Option<String>, Option<String>) = (cursor.get(2), cursor.get(3));
+    let pauses: Vec<Pause> = serde_json::from_value(cursor.get(2)).unwrap_or_default();
     // (a place from another database, after a restore elsewhere: from now on)
-    if !cursor.get::<_, bool>(4) {
+    if !cursor.get::<_, bool>(3) {
         tx.execute(
             "UPDATE _slonbase.event_cursor SET snapshot = pg_current_snapshot()::text, updated = now()",
             &[],
@@ -362,15 +400,11 @@ pub(crate) async fn pass(core: &Arc<Core>) -> anyhow::Result<Pass> {
     // while automations are paused nothing is queued, and the place still moves: what changed
     // meanwhile is not run when they go on
     let paused = settings.schedule.pause_jobs;
-    // (and what changed during a pause is not run however late it is read: after they went on)
-    let during_pause = |at: &str| {
-        (paused_from.is_some() || paused_to.is_some())
-            && paused_from.as_deref().is_none_or(|from| at >= from)
-            && paused_to.as_deref().is_none_or(|to| at < to)
-    };
+    // (and what changed during a pause is not run however late it is read: after they went on,
+    // or after more pauses)
     for event in events.iter().take(MAX_PER_PASS).filter(|_| !paused) {
         let at = event["at"].as_str().unwrap_or_default();
-        if during_pause(at) {
+        if during_pause(&pauses, at) {
             continue;
         }
         let (collection, action) = (
@@ -529,4 +563,36 @@ pub(crate) fn spawn(core: Weak<Core>) {
             tokio::time::sleep(SETTLE).await;
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const DAY_AGO: &str = "2026-01-01 00:00:00.000000";
+
+    #[test]
+    fn every_pause_is_kept() {
+        let at = |s: &str| format!("2026-01-02 {s}.000000");
+        // paused, going on, paused again and going on again: both are kept
+        let mut pauses = noted_pause(Vec::new(), true, &at("10:00:00"), DAY_AGO);
+        pauses = noted_pause(pauses, true, &at("10:00:30"), DAY_AGO);
+        pauses = noted_pause(pauses, false, &at("10:01:00"), DAY_AGO);
+        pauses = noted_pause(pauses, true, &at("11:00:00"), DAY_AGO);
+        pauses = noted_pause(pauses, false, &at("11:01:00"), DAY_AGO);
+        pauses = noted_pause(pauses, false, &at("11:02:00"), DAY_AGO);
+        assert_eq!(pauses.len(), 2);
+        // a change that began in the first pause is still one of a pause after the second
+        assert!(during_pause(&pauses, &at("10:00:10")));
+        assert!(during_pause(&pauses, &at("11:00:59")));
+        assert!(!during_pause(&pauses, &at("10:30:00")));
+        assert!(!during_pause(&pauses, &at("11:01:00")));
+        // one that is going on covers what comes after it
+        let open = noted_pause(pauses.clone(), true, &at("12:00:00"), DAY_AGO);
+        assert!(during_pause(&open, &at("23:59:59")));
+        // those that ended before the day kept are let go
+        let later = noted_pause(pauses, false, &at("12:00:00"), &at("10:30:00"));
+        assert_eq!(later.len(), 1);
+        assert_eq!(later[0].from, at("11:00:00"));
+    }
 }
