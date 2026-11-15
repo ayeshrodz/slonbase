@@ -606,7 +606,12 @@ pub(crate) fn unchanged(def: &JobDef, kept: &Value) -> Result<(), Failure> {
 
 /// Runs the steps of `def` for `record`'s run, continuing where an earlier attempt stopped.
 /// Returns what to record: each step with what it came to.
-pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<Value, Failure> {
+pub(crate) async fn run(
+    core: &Arc<Core>,
+    def: &JobDef,
+    record: &Run,
+    trigger: &Value,
+) -> Result<Value, Failure> {
     let steps = steps_of(&def.config);
     let kept = record
         .kept()
@@ -647,6 +652,7 @@ pub(crate) async fn run(core: &Arc<Core>, def: &JobDef, record: &Run) -> Result<
                 "item": item,
                 "index": index,
                 "automation": { "id": def.id, "name": def.name },
+                "trigger": trigger,
                 "now": at,
             })
         };

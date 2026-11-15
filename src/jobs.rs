@@ -93,6 +93,36 @@ pub(crate) async fn start_exclusive(
     }))
 }
 
+/// Starts a run of `job` for the queued job `queue_job`, whatever other runs of it are going,
+/// unless the queued job has a run already (it finished, and the instance stopped before the
+/// queue knew): `None` then. For runs that each answer a change of their own.
+pub(crate) async fn start_once(
+    core: &Arc<Core>,
+    kind: &str,
+    job: &str,
+    trigger: &str,
+    queue_job: i64,
+) -> anyhow::Result<Option<Run>> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    let row = client
+        .query_opt(
+            "INSERT INTO _slonbase.job_runs (kind, job, trigger, queue_job)
+             SELECT $1, $2, $3, $4
+             WHERE NOT EXISTS (SELECT 1 FROM _slonbase.job_runs WHERE queue_job = $4)
+             RETURNING id",
+            &[&kind, &job, &trigger, &queue_job],
+        )
+        .await?;
+    Ok(row.map(|row| Run {
+        core: core.clone(),
+        id: Some(row.get(0)),
+    }))
+}
+
 /// [`start`] for a run that belongs to a queued job, so a later attempt can [`resume`] it.
 pub(crate) async fn start_queued(
     core: &Arc<Core>,

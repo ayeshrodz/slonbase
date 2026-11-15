@@ -325,6 +325,8 @@ async fn run_on(
             .start()
             .await
             .map_err(failed)?;
+        // (what an automation's statement writes is marked as its own)
+        crate::origin::mark(&tx).await.map_err(failed)?;
         tx.batch_execute(&limits)
             .await
             .map_err(|e| ApiError::internal(e.into()))?;

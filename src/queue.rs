@@ -114,6 +114,12 @@ impl Queue {
         kinds
     }
 
+    /// Tells the workers a job was queued by other means than [`enqueue`] (in a transaction
+    /// of the caller's).
+    pub(crate) fn wake(&self) {
+        self.wake.notify_waiters();
+    }
+
     fn running(&self) -> Vec<i64> {
         self.running
             .lock()

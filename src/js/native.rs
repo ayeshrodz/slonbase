@@ -727,6 +727,7 @@ async fn db_query(
         // the search path for this query only, in its own transaction (so it stays correct
         // behind a pooler in transaction mode, which may change connections between statements)
         let tx = client.transaction().await.map_err(internal)?;
+        crate::origin::mark(&tx).await.map_err(internal)?;
         tx.batch_execute(crate::collections::view::SEARCH_PATH)
             .await
             .map_err(internal)?;

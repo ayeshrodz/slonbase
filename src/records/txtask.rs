@@ -41,7 +41,12 @@ impl TxHandle {
     ) {
         let effects = Arc::new(tokio::sync::Mutex::new(FileEffects::default()));
         let (sender, receiver) = mpsc::channel(1);
-        let worker = tokio::spawn(run_transaction(core.clone(), receiver, effects.clone()));
+        // (the transaction's task is the caller's work: it writes under the same chain)
+        let work = run_transaction(core.clone(), receiver, effects.clone());
+        let worker = match crate::origin::current() {
+            Some(chain) => tokio::spawn(crate::origin::scope(chain, work)),
+            None => tokio::spawn(work),
+        };
         (TxHandle(sender), effects, worker)
     }
 
@@ -94,6 +99,9 @@ async fn run_transaction(
         Ok(tx) => tx,
         Err(e) => return fail_all(jobs, ApiError::internal(e.into())).await,
     };
+    if let Err(e) = crate::origin::mark(&tx).await {
+        return fail_all(jobs, ApiError::internal(e.into())).await;
+    }
     while let Some(message) = jobs.recv().await {
         match message {
             TxMessage::Job(job) => {
