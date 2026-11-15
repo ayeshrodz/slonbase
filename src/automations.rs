@@ -34,7 +34,7 @@ use crate::cron_jobs::{self, JobDef};
 use crate::error::ApiError;
 use crate::jobs::Run;
 use crate::services::access::Access;
-use crate::services::{self, Failure, mail, outbound};
+use crate::services::{self, Failure, mail, outbound, webhook};
 use crate::templating::{self, Mode};
 use crate::validation::Errors;
 
@@ -54,9 +54,11 @@ const TYPES: &[&str] = &[
     "mail",
     "write",
     "cleanup",
+    "script",
+    "webhook",
 ];
 /// The steps that can run once per item of a list.
-const REPEATABLE: &[&str] = &["http", "email", "mail", "write"];
+const REPEATABLE: &[&str] = &["http", "email", "mail", "write", "script", "webhook"];
 const ACTIONS: &[&str] = &["create", "update", "delete"];
 
 /// One step, as it is stored.
@@ -272,6 +274,63 @@ async fn validate_step(core: &Arc<Core>, step: &Step, errors: &mut Errors) {
                 }
             }
         }
+        "webhook" => {
+            // as for a URL step: data may fill in the path, never choose the server
+            let url = text(c, "url").trim();
+            let fixed = match templating::is_template(url) {
+                true => fixed_origin(url),
+                false => Some(url),
+            };
+            match fixed {
+                Some(address) => {
+                    if let Err(message) = webhook::check(address).await {
+                        errors.invalid("config.url", message);
+                    }
+                }
+                None => errors.invalid(
+                    "config.url",
+                    "The address up to its path is typed, not built from data: https://example.com/hooks/{{ item.id }}.",
+                ),
+            }
+            if c.get("payload")
+                .is_some_and(|p| !p.is_object() && !p.is_null())
+            {
+                errors.invalid(
+                    "config.payload",
+                    "The payload is an object of names and values.",
+                );
+            }
+            if let Some(t) = cron_jobs::number(c, "timeoutSeconds")
+                && !(1..=60).contains(&t)
+            {
+                errors.invalid("config.timeoutSeconds", "Between 1 and 60 seconds.");
+            }
+            // (made by the server when the step is saved; checked here so a typed one is real)
+            let secret = text(c, "secret");
+            if !secret.is_empty() && !webhook::valid_secret(secret) {
+                errors.invalid(
+                    "config.secret",
+                    "Not a signing secret: leave it empty and one is made.",
+                );
+            }
+        }
+        "script" => {
+            let name = text(c, "function");
+            if !core.hooks.steps.contains_key(name) {
+                errors.invalid(
+                    "config.function",
+                    "Choose a function that a hook file registers with automationStep().",
+                );
+            }
+            if c.get("input")
+                .is_some_and(|i| !i.is_object() && !i.is_null())
+            {
+                errors.invalid(
+                    "config.input",
+                    "The input is an object of names and values.",
+                );
+            }
+        }
         "condition" => {
             let expression = text(c, "expression").trim();
             if expression.is_empty() || expression.chars().count() > 500 {
@@ -359,6 +418,23 @@ pub(crate) fn normalized(config: &Value) -> Value {
                     "params": c.get("params").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({})),
                 }),
                 "condition" => json!({ "expression": text(c, "expression").trim() }),
+                "webhook" => {
+                    let mut out = json!({
+                        "url": text(c, "url").trim(),
+                        "payload": c.get("payload").filter(|p| p.is_object()).cloned().unwrap_or_else(|| json!({})),
+                        "timeoutSeconds": cron_jobs::number(c, "timeoutSeconds").unwrap_or(30),
+                        "secret": text(c, "secret"),
+                    });
+                    if webhook::valid_secret(text(c, "previousSecret")) && !text(c, "previousUntil").is_empty() {
+                        out["previousSecret"] = json!(text(c, "previousSecret"));
+                        out["previousUntil"] = json!(text(c, "previousUntil"));
+                    }
+                    out
+                }
+                "script" => json!({
+                    "function": text(c, "function"),
+                    "input": c.get("input").filter(|d| d.is_object()).cloned().unwrap_or_else(|| json!({})),
+                }),
                 "email" => json!({
                     "template": text(c, "template"),
                     "to": c.get("to").cloned().unwrap_or_else(|| json!([])),
@@ -388,9 +464,61 @@ pub(crate) fn normalized(config: &Value) -> Value {
 pub(crate) fn masked(config: &Value) -> Value {
     let steps: Vec<Value> = steps_of(config)
         .iter()
-        .map(|step| step_json(step, cron_jobs::masked_config(&step.kind, &step.config)))
+        .map(|step| {
+            let mut config = cron_jobs::masked_config(&step.kind, &step.config);
+            if step.kind == "webhook"
+                && let Some(c) = config.as_object_mut()
+            {
+                // the signing secret is shown once, when it is made
+                if c.get("secret")
+                    .and_then(Value::as_str)
+                    .is_some_and(|s| !s.is_empty())
+                {
+                    c.insert("secret".into(), json!(cron_jobs::MASK));
+                }
+                c.remove("previousSecret");
+            }
+            step_json(step, config)
+        })
         .collect();
     json!({ "steps": steps })
+}
+
+/// Makes the signing secrets the webhook steps of `config` need, when a job is saved: one for
+/// a step that has none, and a new one for a step sent with `rotate`, whose old secret keeps
+/// signing next to it for a day. Returns the secrets made, by step name: they are shown this
+/// once.
+pub(crate) fn make_secrets(config: &mut Value) -> Vec<(String, String)> {
+    let mut made = Vec::new();
+    let Some(steps) = config.get_mut("steps").and_then(Value::as_array_mut) else {
+        return made;
+    };
+    for step in steps.iter_mut().filter(|s| text(s, "type") == "webhook") {
+        let name = text(step, "name").trim().to_string();
+        let Some(c) = step.get_mut("config").and_then(Value::as_object_mut) else {
+            continue;
+        };
+        let current = c
+            .get("secret")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        let rotate = c.remove("rotate").is_some_and(|r| r == true);
+        if rotate && webhook::valid_secret(&current) {
+            let until = chrono::Utc::now() + chrono::Duration::hours(webhook::ROTATION_HOURS);
+            c.insert("previousSecret".into(), json!(current));
+            c.insert(
+                "previousUntil".into(),
+                json!(crate::datetime::format(&until)),
+            );
+        } else if !current.is_empty() {
+            continue;
+        }
+        let secret = webhook::new_secret();
+        c.insert("secret".into(), json!(secret));
+        made.push((name, secret));
+    }
+    made
 }
 
 /// Puts the saved header values back where the mask came back, step by step (a step is the
@@ -427,6 +555,27 @@ pub(crate) fn unmask(config: &mut Value, saved: &JobDef) -> Result<(), String> {
         };
         if let Some(c) = step.get_mut("config") {
             cron_jobs::unmask_config(&kind, c, was_kind, was_config)?;
+            if kind == "webhook"
+                && let Some(c) = c.as_object_mut()
+            {
+                // what is kept of a signing secret is the server's: the saved one, or none
+                c.remove("previousSecret");
+                c.remove("previousUntil");
+                let saved = Some(was_config).filter(|_| was_kind == "webhook");
+                if c.get("secret").and_then(Value::as_str) == Some(cron_jobs::MASK) {
+                    match saved.map(|w| text(w, "secret")).filter(|s| !s.is_empty()) {
+                        Some(secret) => c.insert("secret".into(), json!(secret)),
+                        None => return Err(
+                            "A signing secret was sent hidden but none is saved for the step: leave it empty and one is made.".into(),
+                        ),
+                    };
+                    for key in ["previousSecret", "previousUntil"] {
+                        if let Some(v) = saved.and_then(|w| w.get(key)) {
+                            c.insert(key.into(), v.clone());
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -575,7 +724,7 @@ fn brief(step: &Step, output: &Value) -> Value {
         _ if !step.for_each.is_empty() => &["count"],
         "query" => &["count"],
         "sql" => &["count", "affectedRows"],
-        "http" => &["status"],
+        "http" | "webhook" => &["status"],
         "condition" => &["passed"],
         "email" | "mail" => &["sent"],
         "cleanup" => &["deleted"],
@@ -622,6 +771,50 @@ fn addresses(to: Option<&Value>, context: &Value) -> Result<Vec<String>, Failure
 /// Runs one step once and returns what it produced, for the steps after it. `done` is how many
 /// addresses an earlier attempt of this very step run already sent to: they are skipped, and
 /// each further one is kept with `record` as it is sent, so no address is mailed twice.
+/// What data filled into an address stays under the address that was typed.
+fn same_origin(typed: &str, built: &str) -> Result<(), Failure> {
+    let Some(origin) = fixed_origin(typed.trim()) else {
+        return Ok(());
+    };
+    let same = match (
+        reqwest::Url::parse(origin),
+        reqwest::Url::parse(built.trim()),
+    ) {
+        (Ok(typed), Ok(built)) => {
+            typed.scheme() == built.scheme()
+                && typed.host_str() == built.host_str()
+                && typed.port_or_known_default() == built.port_or_known_default()
+        }
+        _ => false,
+    };
+    match same {
+        true => Ok(()),
+        false => Err(bad(
+            "The address came to another server than the one typed.",
+        )),
+    }
+}
+
+/// The id of a webhook delivery: the same for every attempt of the same step (and item) of
+/// the same run, so a receiver can tell a retry from a new delivery.
+fn delivery_id(context: &Value, step: &str, run: Option<i64>) -> String {
+    use sha2::Digest;
+    let run = match run {
+        Some(id) => id.to_string(),
+        // (a run that couldn't be recorded has no id to go by)
+        None => crate::ids::random_id(15),
+    };
+    let of = format!(
+        "{}:{run}:{step}:{}",
+        context["automation"]["id"].as_str().unwrap_or_default(),
+        context["index"]
+    );
+    format!(
+        "msg_{}",
+        &hex::encode(sha2::Sha256::digest(of.as_bytes()))[..32]
+    )
+}
+
 async fn run_step(
     core: &Arc<Core>,
     step: &Step,
@@ -699,22 +892,7 @@ async fn run_step(
         }
         "http" => {
             let url = rendered_text("url")?;
-            // what data filled in stays under the address that was typed
-            if let Some(origin) = fixed_origin(text(c, "url").trim()) {
-                let same = match (reqwest::Url::parse(origin), reqwest::Url::parse(url.trim())) {
-                    (Ok(typed), Ok(built)) => {
-                        typed.scheme() == built.scheme()
-                            && typed.host_str() == built.host_str()
-                            && typed.port_or_known_default() == built.port_or_known_default()
-                    }
-                    _ => false,
-                };
-                if !same {
-                    return Err(bad(
-                        "The address came to another server than the one typed.",
-                    ));
-                }
-            }
+            same_origin(text(c, "url"), &url)?;
             let body = rendered_text("body")?;
             let headers: Vec<(String, String)> = match rendered("headers")? {
                 Value::Object(h) => h
@@ -758,6 +936,58 @@ async fn run_step(
                 "json": serde_json::from_str::<Value>(&reply.body).unwrap_or(Value::Null),
                 "text": reply.excerpt,
             }))
+        }
+        "webhook" => {
+            let url = rendered_text("url")?;
+            same_origin(text(c, "url"), &url)?;
+            let payload = match rendered("payload")? {
+                Value::Object(payload) if !payload.is_empty() => Value::Object(payload),
+                // nothing chosen: what the run is about
+                _ => json!({
+                    "automation": context["automation"],
+                    "at": context["now"],
+                    "trigger": context["trigger"],
+                    "item": context["item"],
+                }),
+            };
+            let now = crate::datetime::format(&chrono::Utc::now());
+            let mut secrets = vec![text(c, "secret")];
+            if text(c, "previousUntil") > now.as_str() {
+                secrets.push(text(c, "previousSecret"));
+            }
+            let timeout = cron_jobs::number(c, "timeoutSeconds")
+                .unwrap_or(30)
+                .clamp(1, 60);
+            let reply = webhook::deliver(
+                &url,
+                &secrets,
+                &delivery_id(context, &step.name, record.id()),
+                &payload.to_string(),
+                Duration::from_secs(timeout as u64),
+            )
+            .await?;
+            if !(200..300).contains(&reply.status) {
+                return Err(Failure::transient(format!(
+                    "The server answered {}.",
+                    reply.status
+                )));
+            }
+            Ok(json!({ "status": reply.status }))
+        }
+        "script" => {
+            let name = text(c, "function");
+            let Some(function) = core.hooks.steps.get(name).cloned() else {
+                return Err(bad(format!(
+                    "No hook file registers the function {name:?} (automationStep)."
+                )));
+            };
+            let input = rendered("input")?;
+            let mut about = context.as_object().cloned().unwrap_or_default();
+            about.remove("steps");
+            let result = function(core.clone(), input, Value::Object(about))
+                .await
+                .map_err(api_failure)?;
+            Ok(json!({ "result": result }))
         }
         "condition" => {
             let passed = templating::holds(text(c, "expression"), context).map_err(bad)?;

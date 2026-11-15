@@ -17,6 +17,7 @@ pub mod access;
 pub mod mail;
 pub mod outbound;
 pub mod sql;
+pub mod webhook;
 
 /// Why an operation of a service failed, and whether trying again could help: a missing
 /// setting or a refused address won't fix itself, a timeout or a busy database might.

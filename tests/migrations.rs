@@ -478,6 +478,7 @@ routerAdd("DELETE", "/api/js/collections", (e) => {
             dir: hooks.path().to_path_buf(),
             pool_size: 1,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )

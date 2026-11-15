@@ -1098,6 +1098,12 @@
     if (!(record instanceof Record)) throw new TypeError("$mails: expected a record");
     return [record._ref.name || record._ref.id, record.id];
   };
+  // the email templates of the dashboard (Automations, Templates)
+  const $templates = {
+    // sends the template to one address or a list, rendered with data; returns how many were sent
+    send: (id, to, data) => call("templateSend", String(id), Array.isArray(to) ? to.map(String) : [String(to)], data || {}),
+  };
+
   const $mails = {
     sendRecordVerification: (_app, record) => call("sendRecordMail", "verification", ...recordRef(record)),
     sendRecordPasswordReset: (_app, record) => call("sendRecordMail", "passwordReset", ...recordRef(record)),
@@ -1484,7 +1490,15 @@
     return e;
   }
 
+  // a function run as an automation's step: its input, the run's context, and what it returns
+  function stepEvent(data) {
+    const e = { app: $app, input: data.input, context: data.context || {}, result: null, next: () => {} };
+    e._state = () => ({ result: e.result === undefined ? null : e.result });
+    return e;
+  }
+
   const builders = {
+    step: stepEvent,
     recordRequest: recordRequestEvent,
     recordsList: listRequestEvent,
     record: recordEvent,
@@ -1704,6 +1718,11 @@
   };
   g.cronAdd = (id, expression, fn) => register("cron", "simple", fn, { id: String(id), expression: String(expression) });
   g.cronRemove = (id) => registrations.push({ kind: "cronRemove", id: String(id) });
+  // a function automations can run as a step: fn(input, context) returns the step's result
+  g.automationStep = (name, fn) => {
+    if (typeof fn !== "function") throw new TypeError("automationStep: the handler must be a function");
+    register("automationStep", "step", (e) => { e.result = fn(e.input, e.context); }, { id: String(name) });
+  };
 
   const $filesystem = {
     // a file from a string or an array of bytes, for a file field in $app.save()
@@ -1801,6 +1820,7 @@
     $http,
     $os,
     $mails,
+    $templates,
     $template,
     sleep,
     toString,

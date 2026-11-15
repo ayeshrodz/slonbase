@@ -130,6 +130,14 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
     hooks_watch: Option<bool>,
 
+    /// Seconds a JavaScript handler may run, 0 for no limit [default: 60].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_TIMEOUT")]
+    hooks_timeout: Option<u64>,
+
+    /// MB of memory one JavaScript runtime may use, 0 for no limit [default: 128].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_MEMORY")]
+    hooks_memory: Option<usize>,
+
     /// Directory with JavaScript migrations (`*.js`) [default: slonbase_migrations].
     #[arg(long, global = true, env = "SLONBASE_MIGRATIONS_DIR")]
     migrations_dir: Option<PathBuf>,
@@ -350,6 +358,8 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,
+        hooks_timeout: cli.hooks_timeout,
+        hooks_memory: cli.hooks_memory,
         migrations_dir: cli.migrations_dir,
         automigrate: cli.automigrate,
         projects_path: cli.projects_path,

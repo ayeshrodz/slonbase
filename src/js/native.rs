@@ -463,6 +463,29 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             }
             Ok(Value::Null)
         }
+        "templateSend" => {
+            let to: Vec<String> = match a.value(1) {
+                Value::Array(items) => items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if to.is_empty() {
+                return Err(bad("The message has no recipients."));
+            }
+            let data = match a.value(2) {
+                data @ Value::Object(_) => data,
+                _ => json!({}),
+            };
+            let sent = handle
+                .block_on(crate::templates::send(&core, &a.str(0), &to, &data))
+                .map_err(|f| match f.retry {
+                    true => internal(anyhow::anyhow!(f.message)),
+                    false => bad(f.message),
+                })?;
+            Ok(json!(sent))
+        }
         other => Err(bad(format!("Unknown native function {other:?}."))),
     }
 }

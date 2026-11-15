@@ -333,6 +333,11 @@ pub struct CronJob {
 
 type ReadyFn = dyn Fn(Arc<Core>) -> BoxFuture<()> + Send + Sync;
 pub(crate) type CronFn = dyn Fn(Arc<Core>) -> BoxFuture<Result<(), ApiError>> + Send + Sync;
+/// A function an automation's `script` step runs: it gets the step's input and the run's
+/// context (`automation`, `now`, `item`, `index`, `trigger`), and what it returns is the
+/// step's result.
+pub(crate) type StepFn =
+    dyn Fn(Arc<Core>, Value, Value) -> BoxFuture<Result<Value, ApiError>> + Send + Sync;
 
 /// All registered hooks.
 #[derive(Default)]
@@ -447,6 +452,7 @@ pub struct Hooks {
     /// A batch request, before its requests run: `next` runs `batch`.
     pub on_batch_request: Hook<DataEvent>,
     pub(crate) crons: Vec<CronJob>,
+    pub(crate) steps: std::collections::BTreeMap<String, Arc<StepFn>>,
     pub(crate) on_ready: Vec<Arc<ReadyFn>>,
 }
 
@@ -482,6 +488,39 @@ impl Hooks {
             run,
         });
         Ok(())
+    }
+
+    /// Registers a function that automations can run as a step (`automationStep` in hook
+    /// files): `f` gets the step's input and the run's context, and returns the step's result.
+    /// The name is what a step refers to: 1 to 60 letters, digits, `_`, `-` and `.`.
+    pub fn step<F, Fut>(&mut self, name: &str, f: F) -> anyhow::Result<()>
+    where
+        F: Fn(Arc<Core>, Value, Value) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value, ApiError>> + Send + 'static,
+    {
+        self.add_step(
+            name,
+            Arc::new(move |core, input, context| Box::pin(f(core, input, context))),
+        )
+    }
+
+    pub(crate) fn add_step(&mut self, name: &str, run: Arc<StepFn>) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            !name.is_empty()
+                && name.len() <= 60
+                && name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')),
+            "invalid step function name {name:?}: 1 to 60 letters, digits, _, - and ."
+        );
+        // registering a name again replaces it (as for cron jobs)
+        self.steps.insert(name.to_string(), run);
+        Ok(())
+    }
+
+    /// The names of the functions automations can run as a step.
+    pub fn steps(&self) -> Vec<&str> {
+        self.steps.keys().map(String::as_str).collect()
     }
 
     /// Removes a cron job.
@@ -654,7 +693,7 @@ pub async fn run_scheduled_crons(core: &Arc<Core>) {
 /// How long a run of a cron job registered by code is waited for. A job that hangs would
 /// otherwise hold its queue worker for good, and with it the other background work of the
 /// installation; after this the run is recorded as failed and the worker goes on.
-const CRON_RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3600);
+pub(crate) const CRON_RUN_LIMIT: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// The queue's kind for a run of a cron job registered by code.
 pub const CRON_QUEUE_KIND: &str = "cron.hook";

@@ -61,6 +61,15 @@ pub struct Notify {
     pub emails: Vec<String>,
     /// A public URL that gets a JSON `POST` (a secret, like a header value: shown masked).
     pub webhook: String,
+    /// What the `POST` is signed with (see [`services::webhook`]): made when the webhook is
+    /// saved, shown once. None for a webhook saved before 2.7, which is sent unsigned.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub secret: String,
+    /// The secret that was replaced, which keeps signing until `previous_until`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub previous_secret: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub previous_until: String,
 }
 
 impl Notify {
@@ -216,7 +225,7 @@ async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors)
         }
     }
     if !notify.webhook.is_empty() {
-        if let Err(message) = outbound::check(&notify.webhook).await {
+        if let Err(message) = services::webhook::check(&notify.webhook).await {
             errors.invalid("notify.webhook", message);
         }
     }
@@ -812,14 +821,36 @@ async fn deliver_notice(core: Arc<Core>, job: crate::queue::Job) -> Result<(), F
         return Ok(());
     } else {
         let body = notice_json(def, event, error, tries, at).to_string();
-        let reply = outbound::send(outbound::Request {
-            method: "POST",
-            url: &def.notify.webhook,
-            headers: &[("content-type".to_string(), "application/json".to_string())],
-            body: Some(&body),
-            timeout: Duration::from_secs(10),
-        })
-        .await;
+        let notify = &def.notify;
+        let reply = match services::webhook::valid_secret(&notify.secret) {
+            // signed; the queued job is the delivery, so its retries carry the same id
+            true => {
+                let mut secrets = vec![notify.secret.as_str()];
+                let now = crate::datetime::format(&chrono::Utc::now());
+                if notify.previous_until > now {
+                    secrets.push(&notify.previous_secret);
+                }
+                services::webhook::deliver(
+                    &notify.webhook,
+                    &secrets,
+                    &format!("msg_notice_{}", job.id),
+                    &body,
+                    Duration::from_secs(10),
+                )
+                .await
+            }
+            // a webhook saved before 2.7 has no secret: sent as it was then
+            false => {
+                outbound::send(outbound::Request {
+                    method: "POST",
+                    url: &notify.webhook,
+                    headers: &[("content-type".to_string(), "application/json".to_string())],
+                    body: Some(&body),
+                    timeout: Duration::from_secs(10),
+                })
+                .await
+            }
+        };
         match reply {
             Ok(reply) if !(200..300).contains(&reply.status) => Err(Failure::transient(format!(
                 "The server answered {}.",
@@ -1047,9 +1078,66 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
                 .unwrap_or_default()
                 .trim()
                 .to_string(),
+            // (the signing secret is the server's: never read from a request)
+            ..def.notify
         };
     }
     def
+}
+
+/// Makes the signing secrets a job needs when it is saved (see
+/// [`crate::automations::make_secrets`] for its steps): one for a notice webhook that has none
+/// or whose address changed, and a new one when the request asks to `rotateSecret`, whose old
+/// one keeps signing for a day. Returns what was made, to be shown this once.
+fn make_secrets(def: &mut JobDef, saved: Option<&JobDef>, body: &Map<String, Value>) -> Value {
+    let mut made = Map::new();
+    if def.kind == crate::automations::KIND {
+        let steps: Map<String, Value> = crate::automations::make_secrets(&mut def.config)
+            .into_iter()
+            .map(|(name, secret)| (name, json!(secret)))
+            .collect();
+        if !steps.is_empty() {
+            made.insert("steps".into(), Value::Object(steps));
+        }
+    }
+    let notify = &mut def.notify;
+    let same_address = saved.is_some_and(|s| s.notify.webhook == notify.webhook);
+    let rotate = body
+        .get("notify")
+        .and_then(|n| n.get("rotateSecret"))
+        .is_some_and(|r| r == true);
+    if notify.webhook.is_empty() {
+        notify.secret.clear();
+        notify.previous_secret.clear();
+        notify.previous_until.clear();
+    } else if same_address && rotate && services::webhook::valid_secret(&notify.secret) {
+        let until = chrono::Utc::now() + chrono::Duration::hours(services::webhook::ROTATION_HOURS);
+        notify.previous_secret =
+            std::mem::replace(&mut notify.secret, services::webhook::new_secret());
+        notify.previous_until = crate::datetime::format(&until);
+        made.insert("notify".into(), json!(notify.secret));
+    } else if !same_address || !services::webhook::valid_secret(&notify.secret) {
+        notify.secret = services::webhook::new_secret();
+        notify.previous_secret.clear();
+        notify.previous_until.clear();
+        made.insert("notify".into(), json!(notify.secret));
+    }
+    Value::Object(made)
+}
+
+/// A saved job as the API answers, with the secrets that were made for it (this once).
+fn saved_answer(core: &Core, def: &JobDef, role: Role, secrets: Value) -> Json<Value> {
+    let mut answer = listed(
+        def,
+        core.settings().timezone(),
+        chrono::Utc::now(),
+        None,
+        role,
+    );
+    if secrets.as_object().is_some_and(|s| !s.is_empty()) {
+        answer["secrets"] = secrets;
+    }
+    Json(answer)
 }
 
 /// A whole number sent as a number or as text.
@@ -1116,6 +1204,7 @@ pub async fn create(
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
+    let secrets = make_secrets(&mut def, None, &body);
     def.config = normalized(&def);
     // added to the jobs as stored: the limits are checked again there, so jobs made at the same
     // time all stay, and no more than the limit can be made
@@ -1139,13 +1228,7 @@ pub async fn create(
         Ok(settings)
     })
     .await?;
-    Ok(Json(listed(
-        &def,
-        core.settings().timezone(),
-        chrono::Utc::now(),
-        None,
-        role,
-    )))
+    Ok(saved_answer(&core, &def, role, secrets))
 }
 
 /// The config as stored: only the keys the type uses, with defaults filled in.
@@ -1225,6 +1308,10 @@ pub async fn update(
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
+    let secrets = match only_off {
+        true => json!({}),
+        false => make_secrets(&mut def, Some(&saved), &body),
+    };
     def.config = normalized(&def);
     def.updated = crate::datetime::format(&chrono::Utc::now());
     let replacement = def.clone();
@@ -1237,13 +1324,7 @@ pub async fn update(
         Ok(settings)
     })
     .await?;
-    Ok(Json(listed(
-        &def,
-        core.settings().timezone(),
-        chrono::Utc::now(),
-        None,
-        role,
-    )))
+    Ok(saved_answer(&core, &def, role, secrets))
 }
 
 /// `DELETE /api/crons/{id}`: deletes a job (its history stays until it ages out).

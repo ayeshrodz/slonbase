@@ -99,6 +99,7 @@ async fn app_with_hooks(tdb: &TestDb) -> (Arc<App>, String, tempfile::TempDir, t
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 2,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )

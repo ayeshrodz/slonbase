@@ -70,6 +70,7 @@ pub async fn list(State(app): State<Arc<App>>, auth: RequestAuth) -> Result<Json
     Ok(Json(json!({
         "hooks": { "files": loaded.files, "handlers": handlers, "routes": routes },
         "cronJobs": crons,
+        "stepFunctions": core.hooks.steps(),
         "jobKinds": kinds,
         "settingsSections": sections,
     })))

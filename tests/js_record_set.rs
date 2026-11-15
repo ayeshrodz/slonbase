@@ -96,6 +96,7 @@ async fn record_set_modifiers() {
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 1,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )

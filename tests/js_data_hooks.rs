@@ -163,6 +163,7 @@ async fn realtime_file_settings_and_backup_hooks() {
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 2,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )

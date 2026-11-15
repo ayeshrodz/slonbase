@@ -73,6 +73,11 @@ pub struct HooksConfig {
     pub pool_size: usize,
     /// Restart the server when the hook files change.
     pub watch: bool,
+    /// How long a JavaScript handler may run, in seconds (the time it waits in `e.next()` not
+    /// counted); 0 for no limit. A handler that takes longer is stopped and fails.
+    pub timeout_seconds: u64,
+    /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
+    pub memory_limit_mb: usize,
 }
 
 impl Default for HooksConfig {
@@ -81,6 +86,8 @@ impl Default for HooksConfig {
             dir: PathBuf::from("slonbase_hooks"),
             pool_size: 10,
             watch: true,
+            timeout_seconds: 60,
+            memory_limit_mb: 128,
         }
     }
 }
@@ -241,6 +248,8 @@ pub struct Overrides {
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
     pub hooks_watch: Option<bool>,
+    pub hooks_timeout: Option<u64>,
+    pub hooks_memory: Option<usize>,
     pub migrations_dir: Option<PathBuf>,
     pub automigrate: Option<bool>,
     pub projects_path: Option<PathBuf>,
@@ -339,6 +348,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(watch) = overrides.hooks_watch {
         effective.hooks.watch = watch;
+    }
+    if let Some(seconds) = overrides.hooks_timeout {
+        effective.hooks.timeout_seconds = seconds;
+    }
+    if let Some(mb) = overrides.hooks_memory {
+        effective.hooks.memory_limit_mb = mb;
     }
     if let Some(dir) = overrides.migrations_dir {
         effective.migrations.dir = dir;

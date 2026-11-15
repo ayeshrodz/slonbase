@@ -78,6 +78,7 @@ async fn validate_collection_and_mail_hooks() {
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 2,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )
