@@ -6,16 +6,17 @@
 
 // ------------------------------------------------------------------ records
 
-declare class Record<T = { [field: string]: any }> {
+// (the class is called RecordModel here because TypeScript has a type named Record of its
+// own; in hook files it is `Record`, as in PocketBase)
+
+declare class RecordModel<T = { [field: string]: any }> {
   constructor(collection?: Collection | string, data?: Partial<T>);
   id: string;
   collection(): Collection;
   isNew(): boolean;
   markAsNew(): void;
   get<K extends keyof T & string>(field: K): T[K];
-  get(field: string): any;
   set<K extends keyof T & string>(field: K, value: T[K]): void;
-  set(field: string, value: any): void;
   load(data: Partial<T>): void;
   getString(field: string): string;
   getInt(field: string): number;
@@ -38,8 +39,8 @@ declare class Record<T = { [field: string]: any }> {
   newEmailChangeToken(newEmail: string): string;
   newFileToken(): string;
   isSuperuser(): boolean;
-  expandedOne(field: string): Record | null;
-  expandedAll(field: string): Record[];
+  expandedOne(field: string): RecordModel | null;
+  expandedAll(field: string): RecordModel[];
   expand(): { [field: string]: any };
   hide(...fields: string[]): this;
   unhide(...fields: string[]): this;
@@ -47,6 +48,9 @@ declare class Record<T = { [field: string]: any }> {
   toJSON(): { [field: string]: any };
   clone(): this;
 }
+
+/** `new Record(collection, data)`: a new record of a collection. */
+declare const Record: typeof RecordModel;
 
 declare class Collection {
   constructor(data?: { [key: string]: any });
@@ -179,27 +183,27 @@ declare namespace slonbase {
     findCollectionByNameOrId(nameOrId: string): Collection;
     findAllCollections(...types: string[]): Collection[];
     importCollections(collections: any[], deleteMissing?: boolean): void;
-    findRecordById<N extends CollectionName>(collection: N, id: string): Record<Collections[N]>;
-    findRecordById(collection: string | Collection, id: string): Record;
-    findRecordsByIds<N extends CollectionName>(collection: N, ids: string[]): Record<Collections[N]>[];
-    findRecordsByIds(collection: string | Collection, ids: string[]): Record[];
-    findRecordsByFilter<N extends CollectionName>(collection: N, filter: string, sort?: string, limit?: number, offset?: number, params?: { [name: string]: any }): Record<Collections[N]>[];
-    findRecordsByFilter(collection: string | Collection, filter: string, sort?: string, limit?: number, offset?: number, params?: { [name: string]: any }): Record[];
-    findFirstRecordByFilter<N extends CollectionName>(collection: N, filter: string, params?: { [name: string]: any }): Record<Collections[N]>;
-    findFirstRecordByFilter(collection: string | Collection, filter: string, params?: { [name: string]: any }): Record;
-    findFirstRecordByData<N extends CollectionName>(collection: N, field: string, value: any): Record<Collections[N]>;
-    findFirstRecordByData(collection: string | Collection, field: string, value: any): Record;
-    findAuthRecordByEmail(collection: string | Collection, email: string): Record;
+    findRecordById<N extends CollectionName>(collection: N, id: string): RecordModel<Collections[N]>;
+    findRecordById(collection: string | Collection, id: string): RecordModel;
+    findRecordsByIds<N extends CollectionName>(collection: N, ids: string[]): RecordModel<Collections[N]>[];
+    findRecordsByIds(collection: string | Collection, ids: string[]): RecordModel[];
+    findRecordsByFilter<N extends CollectionName>(collection: N, filter: string, sort?: string, limit?: number, offset?: number, params?: { [name: string]: any }): RecordModel<Collections[N]>[];
+    findRecordsByFilter(collection: string | Collection, filter: string, sort?: string, limit?: number, offset?: number, params?: { [name: string]: any }): RecordModel[];
+    findFirstRecordByFilter<N extends CollectionName>(collection: N, filter: string, params?: { [name: string]: any }): RecordModel<Collections[N]>;
+    findFirstRecordByFilter(collection: string | Collection, filter: string, params?: { [name: string]: any }): RecordModel;
+    findFirstRecordByData<N extends CollectionName>(collection: N, field: string, value: any): RecordModel<Collections[N]>;
+    findFirstRecordByData(collection: string | Collection, field: string, value: any): RecordModel;
+    findAuthRecordByEmail(collection: string | Collection, email: string): RecordModel;
     countRecords(collection: string | Collection, filter?: string, params?: { [name: string]: any }): number;
-    save(model: Record | Collection): void;
-    delete(model: Record | Collection): void;
+    save(model: RecordModel | Collection): void;
+    delete(model: RecordModel | Collection): void;
     runInTransaction(fn: (txApp: App) => void): void;
     db(): Builder;
     settings(): Settings;
     createBackup(name?: string): void;
     restoreBackup(name: string): void;
     newMailClient(): { send(message: MailMessage): void };
-    logger(): Console;
+    logger(): { log(...a: any[]): void; info(...a: any[]): void; debug(...a: any[]): void; warn(...a: any[]): void; error(...a: any[]): void };
     isBootstrapped(): boolean;
   }
 
@@ -216,11 +220,11 @@ declare namespace slonbase {
     query: { [name: string]: string };
     headers: { [name: string]: string };
     body: { [name: string]: any };
-    auth: Record | null;
+    auth: RecordModel | null;
   }
 
   interface RequestEvent extends Event {
-    auth: Record | null;
+    auth: RecordModel | null;
     request: {
       method: string;
       url: { path: string; query(): { get(name: string): string } };
@@ -249,22 +253,22 @@ declare namespace slonbase {
     [key: string]: any;
   }
 
-  interface RecordRequestEvent extends RequestEvent { collection: Collection; record: Record; }
+  interface RecordRequestEvent extends RequestEvent { collection: Collection; record: RecordModel; }
   interface RecordsListRequestEvent extends RequestEvent {
     collection: Collection;
-    records: Record[];
-    result: { page: number; perPage: number; totalItems: number; totalPages: number; items: Record[] };
+    records: RecordModel[];
+    result: { page: number; perPage: number; totalItems: number; totalPages: number; items: RecordModel[] };
   }
-  interface RecordEvent extends Event { record: Record; collection?: Collection; [key: string]: any; }
+  interface RecordEvent extends Event { record: RecordModel; collection?: Collection; [key: string]: any; }
   interface RecordErrorEvent extends RecordEvent { error: ApiError; }
   interface CollectionEvent extends Event { collection: Collection; [key: string]: any; }
   interface CollectionErrorEvent extends CollectionEvent { error: ApiError; }
-  interface RecordAuthRequestEvent extends RequestEvent { collection: Collection; record: Record; token: string; meta: any; authMethod: string; }
-  interface RecordEnrichEvent extends Event { record: Record; requestInfo: RequestInfo; }
-  interface MailerEvent extends Event { message: MailMessage & { [key: string]: any }; record?: Record; collection?: Collection; meta?: any; }
+  interface RecordAuthRequestEvent extends RequestEvent { collection: Collection; record: RecordModel; token: string; meta: any; authMethod: string; }
+  interface RecordEnrichEvent extends Event { record: RecordModel; requestInfo: RequestInfo; }
+  interface MailerEvent extends Event { message: MailMessage & { [key: string]: any }; record?: RecordModel; collection?: Collection; meta?: any; }
   interface DataEvent extends RequestEvent {}
   /** A record or a collection (the "_collections" tag). */
-  interface ModelEvent extends Event { model: Record | Collection; [key: string]: any; }
+  interface ModelEvent extends Event { model: RecordModel | Collection; [key: string]: any; }
 
   type Handler<E> = (e: E) => void;
   type CollectionArg = string | Collection;
@@ -338,11 +342,11 @@ declare const $security: {
 };
 
 declare const $mails: {
-  sendRecordVerification(app: slonbase.App, record: Record): void;
-  sendRecordPasswordReset(app: slonbase.App, record: Record): void;
-  sendRecordChangeEmail(app: slonbase.App, record: Record, newEmail: string): void;
-  sendRecordOTP(app: slonbase.App, record: Record, otpId: string, password: string): void;
-  sendRecordAuthAlert(app: slonbase.App, record: Record, info?: any): void;
+  sendRecordVerification(app: slonbase.App, record: RecordModel): void;
+  sendRecordPasswordReset(app: slonbase.App, record: RecordModel): void;
+  sendRecordChangeEmail(app: slonbase.App, record: RecordModel, newEmail: string): void;
+  sendRecordOTP(app: slonbase.App, record: RecordModel, otpId: string, password: string): void;
+  sendRecordAuthAlert(app: slonbase.App, record: RecordModel, info?: any): void;
 };
 
 /** The email templates of the dashboard (Automations, Templates). */

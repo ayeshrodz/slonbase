@@ -928,7 +928,7 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
             json!({ "webhook": "http://127.0.0.1:9000/hook" }),
             "webhook",
         ),
-        (json!({ "webhook": "http://169.254.169.254/" }), "webhook"),
+        (json!({ "webhook": "https://169.254.169.254/" }), "webhook"),
         (json!({ "webhook": "file:///etc/passwd" }), "webhook"),
     ] {
         let (status, res) = call(
@@ -944,7 +944,7 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
     }
 
     // a webhook is a secret: shown hidden, and kept when the mask comes back
-    let notify = json!({ "emails": ["ops@example.com", "dev@example.com"], "webhook": "http://93.184.216.34/hooks/T0K3N" });
+    let notify = json!({ "emails": ["ops@example.com", "dev@example.com"], "webhook": "https://93.184.216.34/hooks/T0K3N" });
     let (status, res) = call(
         &app,
         &token,
@@ -970,7 +970,7 @@ async fn a_failing_job_tells_its_people_once_and_again_when_it_works() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(
         core.settings().cron_jobs[0].notify.webhook,
-        "http://93.184.216.34/hooks/T0K3N"
+        "https://93.184.216.34/hooks/T0K3N"
     );
     // no webhook from here on: the runs below must not call a real address
     let (status, _) = call(

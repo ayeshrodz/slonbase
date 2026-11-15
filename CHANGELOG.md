@@ -27,6 +27,33 @@ changes, listed in its **Upgrading** section.
   preview against sample data, and a test send. Values are escaped, and the body is put in the
   mail layout.
 
+- **Automations that run when a record changes.** Instead of a schedule, an automation can
+  start when a record of a collection is created, updated or deleted, whatever made the change
+  (the API, a hook, SQL, another program), optionally only if an expression holds. Its steps see
+  the change as `trigger` (`action`, `record`, and the `changed` fields of an update). Each
+  change starts each automation once, also across instances and restarts; a change an
+  automation makes doesn't start it again, and a chain of automations is at most three long.
+  See [automations](docs/automations.md#when-a-record-changes).
+- **Signed webhooks.** A "Send a signed webhook" step posts JSON to an `https://` address with a
+  [Standard Webhooks](https://www.standardwebhooks.com/) signature (`webhook-id`,
+  `webhook-timestamp`, `webhook-signature`), so its receiver can verify it. The secret is made
+  by the server and shown once; replacing it keeps the old one signing for 24 hours. The webhook
+  for failure notices is signed the same way.
+- **Functions of hook files as steps.** `automationStep("name", (input, context) => …)` in a
+  hook file registers a function that a "Run a hook function" step runs; what it returns is the
+  step's result.
+- **Templates sent through the API and from code.** `POST /api/templates/{id}/send` (developers,
+  admins and owners; API keys work) queues a template to up to 10 addresses, with an
+  `Idempotency-Key` and a limit of 100 emails a minute per caller; `$templates.send(id, to,
+  data)` does it from a hook file.
+- **Settings pages for extensions.** `settingsAdd(name, { title, fields })` in a hook file
+  declares a form the dashboard draws under Settings, Extensions. The values are stored with
+  the settings (encrypted with them, in backups, the same on every instance) and read with
+  `$app.settings().ext(name)`.
+- **Type definitions.** `slonbase types` writes `types.d.ts` with the hook API and a type for
+  the records of each collection, for completion and checks in an editor.
+- **Development mode.** `--dev` keeps `types.d.ts` up to date, logs the SQL that runs, tells
+  superusers the details of errors and shows a banner in the dashboard. Not for production.
 - **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
   with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
   its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
@@ -60,6 +87,13 @@ changes, listed in its **Upgrading** section.
   are converted at the first start, and read as they are from a backup made by an earlier
   version.
 
+- **JavaScript handlers have a time limit and runtimes a memory limit.** A handler may run for
+  60 seconds (`hooks.timeout_seconds`; the time it waits in `e.next()` isn't counted) and a
+  runtime may use 128 MB (`hooks.memory_limit_mb`); `0` turns either off. A handler that runs
+  longer is stopped and its request fails; the runtime is replaced. A cron job registered by
+  code is now really stopped after its hour, where before it was only no longer waited for.
+- **A failure notice's webhook must be `https://`** when an automation is saved, and is signed
+  from then on.
 - **Cron jobs are automations.** A cron job made in Settings, Cron jobs is an automation of one
   step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
   dashboard lists them under Automations; the old page's address leads there.
@@ -72,6 +106,14 @@ changes, listed in its **Upgrading** section.
 
 ### Upgrading
 
+- **Hooks that run long:** a JavaScript handler that needs more than 60 seconds of its own
+  (not counting `e.next()`, sleeping or waiting for the database) is now stopped. Raise
+  `hooks.timeout_seconds` (or set it to `0`) before upgrading if you have one. A hook file that
+  keeps more than 128 MB in memory needs a higher `hooks.memory_limit_mb`.
+- An automation whose failure notices go to an `http://` webhook keeps sending them, unsigned;
+  to save a change to it, move the webhook to `https://`.
+- Rust embedders: `HooksConfig` has two new fields (`timeout_seconds`, `memory_limit_mb`) and
+  `ServerConfig` one (`dev`); build them with `..Default::default()`.
 - A job that calls an `http://` address with a credential header keeps running as it is; to
   save a change to it, move it to `https://` (or drop the header).
 - Stop every instance before starting the new version, as for every upgrade: this version
