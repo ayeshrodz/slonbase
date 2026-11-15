@@ -621,6 +621,12 @@ async fn steps_are_checked_and_follow_the_rules_of_what_they_do() {
             json!([{ "name": "a", "type": "http", "config": { "url": "{{ item.url }}" } }]),
             "steps.0.config.url",
         ),
+        // a credential is only sent to an https:// address, also when the path is built
+        (
+            json!([{ "name": "a", "type": "http", "config": {
+                "url": "http://93.184.216.34/orders/{{ item.id }}", "headers": { "Authorization": "Bearer x" } } }]),
+            "steps.0.config.headers",
+        ),
         (
             json!([{ "name": "a", "type": "mail", "config": { "to": "{{ item.email", "subject": "s", "body": "b" } }]),
             "steps.0.config",
@@ -779,7 +785,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         "POST",
         "/api/crons",
         json!({ "name": "Ping", "expression": NEVER, "type": "http", "config": {
-            "url": "http://93.184.216.34/hook", "headers": { "Authorization": "Bearer T0K3N" } } }),
+            "url": "https://93.184.216.34/hook", "headers": { "Authorization": "Bearer T0K3N" } } }),
     )
     .await;
     let id = job["id"].as_str().unwrap().to_string();
@@ -803,7 +809,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         &format!("/api/automations/{id}"),
         json!({ "type": "steps", "config": { "steps": [
             { "name": "ping", "type": "http", "config": {
-                "url": "http://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
+                "url": "https://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
             { "name": "ok", "type": "condition", "config": { "expression": "steps.ping.status == 200" } },
         ] } }),
     )
@@ -827,7 +833,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         &format!("/api/automations/{id}"),
         json!({ "config": { "steps": [
             { "name": "webhook", "was": "ping", "type": "http", "config": {
-                "url": "http://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
+                "url": "https://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
         ] } }),
     )
     .await;
@@ -847,7 +853,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         &format!("/api/automations/{id}"),
         Some(json!({ "config": { "steps": [
             { "name": "other", "type": "http", "config": {
-                "url": "http://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
+                "url": "https://93.184.216.34/hook", "headers": { "Authorization": "••••••••" } } },
         ] } })),
     )
     .await;
@@ -865,7 +871,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         &format!("/api/automations/{id}"),
         Some(json!({ "config": { "steps": [
             { "name": "webhook", "type": "http", "config": {
-                "url": "http://93.184.216.34/hook",
+                "url": "https://93.184.216.34/hook",
                 "headers": { "Authorization": "••••••••", "X-New": "••••••••" } } },
         ] } })),
     )
@@ -880,7 +886,7 @@ async fn a_job_of_one_type_becomes_steps_and_keeps_its_secrets() {
         &format!("/api/automations/{id}"),
         Some(json!({ "config": { "steps": [
             { "name": "webhook", "type": "http", "config": {
-                "url": "http://93.184.216.35/other", "headers": { "Authorization": "••••••••" } } },
+                "url": "https://93.184.216.35/other", "headers": { "Authorization": "••••••••" } } },
         ] } })),
     )
     .await;

@@ -262,6 +262,28 @@ fn headers_of(config: &Value) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
+/// Whether a header's name says it carries a credential (`Authorization`, `Cookie`,
+/// `X-Api-Key`, `X-Auth-Token`, ...).
+fn credential_header(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    [
+        "auth",
+        "cookie",
+        "token",
+        "api-key",
+        "apikey",
+        "access-key",
+        "secret",
+        "password",
+        "passwd",
+        "session",
+        "signature",
+        "credential",
+    ]
+    .iter()
+    .any(|word| lower.contains(word))
+}
+
 pub(crate) async fn validate_http(config: &Value, errors: &mut Errors) {
     match outbound::check(text(config, "url").trim()).await {
         Ok(()) => {}
@@ -295,6 +317,16 @@ pub(crate) async fn validate_http(config: &Value, errors: &mut Errors) {
         {
             errors.invalid("config.headers", format!("{name} is set by the server."));
         }
+    }
+    // a credential is never sent in the clear: on a plain http address the first hop carries
+    // it unencrypted (the scheme as the request will see it, so `http:host` counts too)
+    if reqwest::Url::parse(text(config, "url").trim()).is_ok_and(|u| u.scheme() != "https")
+        && let Some((name, _)) = headers.iter().find(|(name, _)| credential_header(name))
+    {
+        errors.invalid(
+            "config.headers",
+            format!("{name} looks like a credential: it is only sent to an https:// address."),
+        );
     }
     if text(config, "body").len() > 20_000 {
         errors.invalid("config.body", "At most 20 000 characters.");

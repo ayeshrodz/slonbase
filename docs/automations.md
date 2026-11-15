@@ -54,7 +54,9 @@ Three things are never built from data, so data can't change what they do:
 
 - **The server a URL step calls** is typed: data can fill in the path and the query
   (`https://example.com/orders/{{ item.id }}`), not the scheme or the host, because the request
-  carries the step's saved headers.
+  carries the step's saved headers. A header that carries a credential (`Authorization`,
+  `Cookie`, `X-Api-Key`, ...) is only sent to an `https://` address: with `http://` the step
+  isn't saved.
 
 Records reach steps without the fields no API shows (password hashes, token keys), and system
 collections can't be read or written by a step.
