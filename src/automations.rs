@@ -561,7 +561,7 @@ pub(crate) fn unmask(config: &mut Value, saved: &JobDef) -> Result<(), String> {
                 // what is kept of a signing secret is the server's: the saved one, or none
                 c.remove("previousSecret");
                 c.remove("previousUntil");
-                let saved = Some(was_config).filter(|_| was_kind == "webhook");
+                let saved = (was_kind == "webhook").then_some(was_config);
                 if c.get("secret").and_then(Value::as_str) == Some(cron_jobs::MASK) {
                     match saved.map(|w| text(w, "secret")).filter(|s| !s.is_empty()) {
                         Some(secret) => c.insert("secret".into(), json!(secret)),

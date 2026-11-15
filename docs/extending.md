@@ -193,9 +193,76 @@ functions.
 - **Files:** uploaded and `$filesystem` files can be set on a file field before
   `$app.save(record)`. When they're mixed with stored file names, the names are kept and the
   files are appended.
+- **Limits:** a handler may run for `hooks.timeout_seconds` (60 by default; the time it waits
+  in `e.next()` is not counted, nor is time spent asleep or waiting for the database, since the
+  check happens while JavaScript runs). One that takes longer is stopped and its request fails.
+  A cron job has an hour, a function run as an automation's step five minutes. Each runtime may
+  use `hooks.memory_limit_mb` of memory (128 by default). A runtime whose handler was stopped,
+  or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit.
 - **Reloading:** when the hook files change, slonbase restarts itself. It's the same process,
   re-executed with the same arguments, after up to 5 seconds for open requests. Turn this off
   with `hooks.watch = false`.
+
+### Beyond handlers
+
+A hook file can also give the dashboard things to use:
+
+```js
+// a function automations run as a step (Automations, "Run a hook function")
+automationStep("score", (input, context) => ({ score: input.total > 1000 ? "high" : "normal" }));
+
+// a settings page under Settings, Extensions
+settingsAdd("billing", {
+  title: "Billing",
+  fields: [
+    { name: "currency", label: "Currency", type: "select", options: ["EUR", "USD"], default: "EUR" },
+    { name: "limit", label: "Limit", type: "number", default: 10 },
+    { name: "apiKey", label: "API key", type: "secret", required: true },
+  ],
+});
+routerAdd("GET", "/api/billing/currency", (e) => e.json(200, { currency: $app.settings().ext("billing").currency }));
+
+// an email template of the dashboard, sent from code
+onRecordAfterCreateSuccess((e) => {
+  $templates.send("welcome_template_id", e.record.email(), { name: e.record.get("name") });
+  e.next();
+}, "users");
+```
+
+- **Step functions** are described in [automations](automations.md#functions-of-hook-files).
+- **Settings pages:** field types are `text`, `textarea`, `number`, `bool`, `select` and
+  `secret`. The values are stored with the settings (encrypted with them, in backups, the same
+  on every instance). Developers see the pages, admins and owners change them
+  (`GET /api/extensions/settings`, `PATCH /api/extensions/settings/{name}`); a `secret` is never
+  sent back. `$app.settings().ext(name)` gives the values, with each field's `default` while
+  nothing is saved.
+
+### Types for your editor
+
+`slonbase types` writes `types.d.ts` (next to the storage directory: `slonbase_data/types.d.ts`
+by default; `--out` to choose) with the hook API and a type for the records of each collection.
+Put this at the top of a hook file:
+
+```js
+/// <reference path="../slonbase_data/types.d.ts" />
+```
+
+and an editor completes `$app.findRecordById("orders", id).get("total")` and marks a field name
+that doesn't exist. Run it again after changing collections, or let development mode do it.
+
+### Development mode
+
+`slonbase --dev` (or `SLONBASE_DEV=true`) is for working on hook files and collections on your
+own machine:
+
+- `types.d.ts` is rewritten whenever the collections change.
+- The SQL that runs is logged, with its values (to the server's output).
+- An error's answer tells a **superuser** its details (`details`: the JavaScript error and its
+  stack, a database error), which are otherwise only in the logs. Nobody else sees them.
+- The dashboard shows a banner on every page.
+
+It is not for production: the logs then hold the values of every statement. Started with an
+address other than this machine's, the server says so loudly in its log.
 
 Build with `--no-default-features` to leave the JavaScript engine out.
 
