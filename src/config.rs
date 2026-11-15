@@ -148,6 +148,11 @@ pub struct ServerConfig {
     /// never are). Turn it off when bandwidth costs nothing, to save its CPU.
     #[serde(skip_serializing_if = "is_true")]
     pub compression: bool,
+    /// Development mode (off by default; never for production): the type definitions of the
+    /// hook API and the collections are kept up to date in `types.d.ts`, the SQL that runs is
+    /// logged, and errors tell superusers their details.
+    #[serde(skip_serializing_if = "is_false")]
+    pub dev: bool,
     /// Address serving Prometheus metrics at `/metrics` (none by default). Keep it private:
     /// it isn't authenticated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -178,6 +183,7 @@ impl Default for ServerConfig {
             sql_console_writes: false,
             sql_console_role: None,
             compression: true,
+            dev: false,
             metrics_bind: None,
             http_ca_file: None,
             encryption_key: None,
@@ -245,6 +251,7 @@ pub struct Overrides {
     pub sql_console_writes: Option<bool>,
     pub sql_console_role: Option<String>,
     pub compression: Option<bool>,
+    pub dev: bool,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
     pub hooks_watch: Option<bool>,
@@ -339,6 +346,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(enabled) = overrides.compression {
         effective.server.compression = enabled;
+    }
+    if overrides.dev {
+        effective.server.dev = true;
     }
     if let Some(dir) = overrides.hooks_dir {
         effective.hooks.dir = dir;

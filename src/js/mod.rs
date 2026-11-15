@@ -10,6 +10,7 @@
 
 pub mod migrate;
 mod native;
+pub mod types;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

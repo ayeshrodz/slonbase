@@ -637,6 +637,9 @@ async fn health(
                     ip.map(|ip| ip.to_string()).unwrap_or_default().into(),
                 );
                 data.insert("possibleProxyHeader".into(), proxy_header.into());
+                if core.dev {
+                    data.insert("dev".into(), true.into());
+                }
             }
             match core.health.check(&core.pool).await {
                 Health::Up => Json(json!({

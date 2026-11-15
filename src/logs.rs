@@ -241,6 +241,32 @@ fn redact_url(url: &str) -> String {
     format!("{path}?{}", query.join("&"))
 }
 
+/// In development mode an error tells a superuser its details (what the logs hold): the
+/// answer's JSON gets a `details` value. Anyone else gets the answer as it is.
+async fn with_details(context: &LogContext, response: Response) -> Response {
+    let details = response
+        .extensions()
+        .get::<ErrorInfo>()
+        .and_then(|e| e.details.clone());
+    let superuser = context.0.lock().expect("log context lock").collection == "_superusers";
+    let (Some(details), true) = (details, superuser) else {
+        return response;
+    };
+    let (mut parts, body) = response.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 1 << 20).await else {
+        return Response::from_parts(parts, axum::body::Body::empty());
+    };
+    let body = match serde_json::from_slice::<Value>(&bytes) {
+        Ok(Value::Object(mut answer)) => {
+            answer.insert("details".into(), details.into());
+            parts.headers.remove(header::CONTENT_LENGTH);
+            axum::body::Body::from(Value::Object(answer).to_string())
+        }
+        _ => axum::body::Body::from(bytes),
+    };
+    Response::from_parts(parts, body)
+}
+
 /// Middleware logging each request once its response is ready.
 pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next: Next) -> Response {
     let Ok(core) = app.core() else {
@@ -277,6 +303,10 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     request.extensions_mut().insert(context.clone());
 
     let response = next.run(request).await;
+    let response = match core.dev {
+        true => with_details(&context, response).await,
+        false => response,
+    };
 
     let status = response.status();
     // static dashboard files and successful health checks would mostly be noise

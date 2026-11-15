@@ -118,6 +118,12 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_NO_COMPRESSION")]
     no_compression: bool,
 
+    /// Development mode (never for production): keeps the type definitions of the hook API
+    /// and the collections up to date in types.d.ts, logs the SQL that runs, and tells
+    /// superusers the details of errors.
+    #[arg(long, global = true, env = "SLONBASE_DEV")]
+    dev: bool,
+
     /// Directory with JavaScript hooks (`*.pb.js`) [default: slonbase_hooks].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_DIR")]
     hooks_dir: Option<PathBuf>,
@@ -283,6 +289,13 @@ enum Command {
         #[command(subcommand)]
         action: ProjectAction,
     },
+    /// Write the type definitions of the hook API and of each collection's records
+    /// (types.d.ts), for completion and checks in an editor.
+    Types {
+        /// Where to write them [default: types.d.ts next to the storage directory].
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Apply, revert or write JavaScript migrations (see docs/migrations.md).
     Migrate {
         #[command(subcommand)]
@@ -314,9 +327,18 @@ pub async fn run(extensions: Extensions) -> ExitCode {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
-                .with_filter(
-                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-                ),
+                .with_filter(EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                    // (asked for before the command line is read, which needs the logs)
+                    let dev = std::env::args().any(|a| a == "--dev")
+                        || std::env::var("SLONBASE_DEV")
+                            .is_ok_and(|v| !matches!(v.as_str(), "" | "0" | "false"));
+                    // in development the SQL that runs is logged too
+                    EnvFilter::new(if dev {
+                        "info,tokio_postgres=debug"
+                    } else {
+                        "info"
+                    })
+                })),
         )
         // warnings and errors also go to the logs shown in the dashboard
         .with(crate::logs::AppLogsLayer)
@@ -355,6 +377,7 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         sql_console_writes: cli.sql_console_writes.then_some(true),
         sql_console_role: cli.sql_console_role,
         compression: cli.no_compression.then_some(false),
+        dev: cli.dev,
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,
@@ -425,6 +448,17 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
             println!("Decrypted the backup.");
             Ok(())
         }
+        #[cfg(feature = "js")]
+        Command::Types { out } => {
+            let (core, cfg) =
+                offline_core_with_config(&cli.config, overrides, cli.project.as_deref()).await?;
+            let path = out.unwrap_or_else(|| crate::js::types::default_path(&cfg.storage.path));
+            crate::js::types::write(&core.registry(), &path)?;
+            println!("Wrote {}", path.display());
+            Ok(())
+        }
+        #[cfg(not(feature = "js"))]
+        Command::Types { .. } => anyhow::bail!("This build has no JavaScript hooks."),
         Command::Migrate { action } => {
             let (core, cfg) =
                 offline_core_with_config(&cli.config, overrides, cli.project.as_deref()).await?;
@@ -931,7 +965,55 @@ async fn serve(
     let bind = loaded.effective.server.bind.clone();
     let metrics_bind = loaded.effective.server.metrics_bind.clone();
     let hooks = loaded.effective.hooks.clone();
+    let dev = loaded.effective.server.dev;
+    #[cfg(feature = "js")]
+    let types_path = crate::js::types::default_path(&loaded.effective.storage.path);
     let app = App::with_extensions(loaded, setup_token, extensions)?;
+    if dev {
+        let local = bind
+            .rsplit_once(':')
+            .map(|(host, _)| host.trim_matches(['[', ']']))
+            .is_some_and(|host| {
+                host == "localhost"
+                    || host
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            });
+        if local {
+            tracing::warn!("development mode is on: not for production");
+        } else {
+            tracing::error!(
+                address = %bind,
+                "DEVELOPMENT MODE IS ON AND THE SERVER LISTENS BEYOND THIS MACHINE: errors tell superusers their details and the logs hold the SQL that runs, values included. Turn --dev off for anything but local development."
+            );
+        }
+        // the type definitions follow the collections
+        #[cfg(feature = "js")]
+        {
+            let app = app.clone();
+            tokio::spawn(async move {
+                let mut written = None;
+                loop {
+                    if let Ok(core) = app.core() {
+                        let generation = core.registry_generation();
+                        if written != Some(generation) {
+                            match crate::js::types::write(&core.registry(), &types_path) {
+                                Ok(true) => {
+                                    tracing::info!(path = %types_path.display(), "wrote the type definitions")
+                                }
+                                Ok(false) => {}
+                                Err(err) => {
+                                    tracing::warn!(error = %format!("{err:#}"), "failed to write the type definitions")
+                                }
+                            }
+                            written = Some(generation);
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            });
+        }
+    }
     std::sync::LazyLock::force(&crate::metrics::STARTED);
     if let Some(metrics_bind) = metrics_bind {
         let listener = tokio::net::TcpListener::bind(&metrics_bind)
