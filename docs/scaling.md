@@ -163,11 +163,18 @@ and idle project connections released after two minutes. Measured on one Postgre
 | 6 instances, 4 projects, PgBouncer | | 83, no errors |
 
 Background jobs (scheduled and manual runs of cron jobs and automations, their retries and
-notices, and the automatic backup) use the same pools by default, so under full load a job waits
-for a free connection like a request does. `database.job_connections` (say 2) gives them
-connections of their own instead, for the main database and for each project: a job then never
-waits for one an API request holds. They are opened when a job runs and closed when the queue is
-empty, and they add to the budget: **N × (18 + J + (5 + J) × P)** with `J` connections each.
+notices, and the automatic backup) take their connections out of the same budget, without
+competing with requests for them: of the 16, **2 are reserved for jobs while they run** (1 of a
+project's 4). While a job runs, requests have the other 14 and the job never takes one of them,
+so a long job can't make requests wait; and requests can't hold the reserved ones, so a busy API
+can't hold up a job (beyond the requests already using one when the job starts, a few
+milliseconds). While no job runs, requests use all 16. Both are pools of a fixed size, so the
+total never goes past `max_connections`.
+
+`database.job_connections` sets how many are reserved (never all: the API keeps at least one); 0
+turns the reserve off, and jobs then take the API's connections as they come. A job that finds
+the reserve in use for two seconds (another job's long statement) takes one of the API's rather
+than fail. `slonbase_db_connections` and the health page count both pools together.
 
 The levers, in the order to reach for them:
 

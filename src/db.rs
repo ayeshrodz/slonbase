@@ -77,6 +77,15 @@ pub fn connect(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
         .context("failed to build the connection pool")
 }
 
+/// The API's pool of an installation: [`connect`] with `max_connections` less the
+/// connections reserved for background jobs, which [`crate::core::Core::start`] opens in a
+/// pool of their own (see [`crate::connections`]).
+pub fn connect_api(url: &str, cfg: &DatabaseConfig) -> Result<Pool> {
+    let mut api = cfg.clone();
+    api.max_connections = cfg.api_connections();
+    connect(url, &api)
+}
+
 /// Opens a dedicated (non-pooled) connection that `LISTEN`s on `channel`. Notifications
 /// are forwarded to the returned receiver, which closes when the connection is lost.
 pub async fn listen(

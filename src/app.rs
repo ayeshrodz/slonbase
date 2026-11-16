@@ -177,7 +177,7 @@ impl App {
         };
 
         // fails only on configuration errors (bad URL, unreadable CA file)
-        let pool = db::connect(&url, &config.effective.database)?;
+        let pool = db::connect_api(&url, &config.effective.database)?;
         let key = crate::secrets::from_config(&config.effective)?;
 
         let mut delay = Duration::from_secs(1);

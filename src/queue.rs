@@ -12,10 +12,10 @@
 //!   The waiting job is a row like any other: it survives a restart.
 //! - **Once.** A job queued with a `dedupe` key exists once, whichever instance queues it
 //!   first: that is how a scheduled job runs once a minute across instances.
-//! - **Apart, when configured.** With `database.job_connections` set, workers take their
-//!   connections from a pool of their own ([`Core::job_pool`]), so background work never uses
-//!   a connection an API request is waiting for; what a job does through [`Core::db`] runs on
-//!   that pool too. Without it (the default) they share the API's pool.
+//! - **Apart.** Workers take their connections from the ones reserved for jobs (see
+//!   [`crate::connections`]), and so does what a job does through [`Core::db`]: a long job
+//!   never takes a connection an API request needs, and a busy API never holds up a job. While
+//!   a worker works, the reserve is the workers' alone; while none does, the API may use it.
 //! - **Quiet.** A worker with nothing to do holds no connection and asks nothing of the
 //!   database until a job is queued here or the next one is due; it looks once in a while for
 //!   jobs left by instances that stopped.
@@ -191,6 +191,8 @@ async fn worker(core: Weak<Core>, wake: Arc<tokio::sync::Notify>, instance: Stri
         tokio::pin!(woken);
         woken.as_mut().enable();
         let Some(strong) = core.upgrade() else { return };
+        // the reserved connections are the workers' from now until this worker sleeps
+        let working = strong.db().working();
         let wait = match claim(&strong, &instance).await {
             Ok(Some(job)) => {
                 run(&strong, job, &instance).await;
@@ -202,6 +204,7 @@ async fn worker(core: Weak<Core>, wake: Arc<tokio::sync::Notify>, instance: Stri
                 Duration::from_secs(30)
             }
         };
+        drop(working);
         drop(strong);
         tokio::select! {
             _ = &mut woken => {}
@@ -213,8 +216,8 @@ async fn worker(core: Weak<Core>, wake: Arc<tokio::sync::Notify>, instance: Stri
 /// Takes the next job that is due, or one whose lease ran out and that has attempts left.
 async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
     let client = core
-        .job_pool()
-        .get()
+        .db()
+        .for_jobs()
         .await
         .map_err(crate::db::describe_pool_error)?;
     // left by an instance that stopped, with no attempt left
@@ -265,13 +268,13 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
 }
 
 /// How long a worker that found nothing waits: until the next job is due or the next lease
-/// runs out, or a long while when the queue is empty. With an empty queue the workers' pool is
-/// emptied, so an instance with nothing to do holds no connection for it.
+/// runs out, or a long while when the queue is empty. With an empty queue the reserved
+/// connections nobody uses are closed, so an instance with nothing to do holds none for jobs.
 async fn next_wake(core: &Core) -> Duration {
     let next = async {
         let client = core
-            .job_pool()
-            .get()
+            .db()
+            .for_jobs()
             .await
             .map_err(crate::db::describe_pool_error)?;
         let row = client
@@ -288,10 +291,7 @@ async fn next_wake(core: &Core) -> Duration {
     match next.await {
         Ok(Some(seconds)) => Duration::from_secs_f64(seconds.clamp(0.5, IDLE_LOOK.as_secs_f64())),
         Ok(None) => {
-            // (the API's pool, when the workers share it, keeps its connections)
-            if core.has_job_pool() {
-                core.job_pool().retain(|_, _| false);
-            }
+            core.db().release_idle_reserve();
             IDLE_LOOK
         }
         Err(_) => Duration::from_secs(30),
@@ -323,10 +323,10 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
 }
 
 /// Renews the leases of the jobs this instance is running, all in one statement. It takes a
-/// connection from the workers' pool or, when the running jobs hold them all, from the API's:
-/// a lease must not run out because the work it protects is busy.
+/// reserved connection or, when the running jobs hold them all, one of the API's: a lease
+/// must not run out because the work it protects is busy.
 async fn renew_leases(core: Weak<Core>, instance: String) {
-    const WAIT: Duration = Duration::from_secs(3);
+    const WAIT: Duration = Duration::from_secs(10);
     loop {
         tokio::time::sleep(RENEW_EVERY).await;
         let Some(core) = core.upgrade() else { return };
@@ -334,14 +334,13 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
         if running.is_empty() {
             continue;
         }
+        let _working = core.db().working();
         let renewed = async {
-            let client = match tokio::time::timeout(WAIT, core.job_pool().get()).await {
-                Ok(Ok(client)) => client,
-                _ => tokio::time::timeout(WAIT, core.pool.get())
-                    .await
-                    .map_err(|_| anyhow::anyhow!("no connection was free"))?
-                    .map_err(crate::db::describe_pool_error)?,
-            };
+            // (a reserved connection, or the API's when the running jobs hold them all)
+            let client = tokio::time::timeout(WAIT, core.db().for_jobs())
+                .await
+                .map_err(|_| anyhow::anyhow!("no connection was free"))?
+                .map_err(crate::db::describe_pool_error)?;
             client
                 .execute(
                     &format!(
@@ -363,8 +362,8 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
 async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failure>) {
     let done = async {
         let client = core
-            .job_pool()
-            .get()
+            .db()
+            .for_jobs()
             .await
             .map_err(crate::db::describe_pool_error)?;
         match &result {

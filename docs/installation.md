@@ -385,8 +385,9 @@ doing: what worked on 2.6 works the same way on 2.7.
 
 - **Configuration:** every new setting is off or keeps the old behaviour by default:
   `hooks.timeout_seconds` and `hooks.memory_limit_mb` (limits of hook code), `server.dev`
-  (development mode) and `database.job_connections` (connections of their own for background
-  jobs; without it the connection budget is the same as 2.6's).
+  (development mode). The connection budget is the same as 2.6's: the connections
+  `database.job_connections` reserves for background jobs (2, or 1 of a project's) are part of
+  `max_connections`, and requests use them too while no job runs.
 - **Cron jobs** made in the dashboard become automations of one step, with their schedules,
   history and settings; `/api/crons` answers as before.
 - **Failure notices:** a notice webhook keeps its address. An `https://` one is signed from its

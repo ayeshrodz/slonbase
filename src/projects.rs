@@ -328,8 +328,7 @@ impl Projects {
             if let Mode::Ready { core } = project.app.mode() {
                 core.realtime.disconnect_all();
                 core.realtime.stop_listening();
-                core.pool.close();
-                core.job_pool().close();
+                core.db().close();
             }
             project.app.set_mode(Mode::Starting {
                 status: "the project was deleted".into(),
@@ -1147,6 +1146,11 @@ pub fn project_config(
         effective.database.user = role;
     }
     effective.database.max_connections = main.effective.projects.max_connections;
+    // a project reserves its own share for jobs (1 of its 4), none when the main one doesn't
+    effective.database.job_connections = match main.effective.database.job_connections {
+        Some(0) => Some(0),
+        _ => None,
+    };
     effective.storage.path = dir.join("storage");
     effective.backups.path = dir.join("backups");
     effective.hooks.dir = dir.join("hooks");

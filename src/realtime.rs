@@ -1620,7 +1620,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                         core.rate_limiter.prune();
                                         // idle connections are let go (many projects, many instances: each pool
                                         // would otherwise keep what it once needed)
-                                        core.pool.retain(|_, metrics| metrics.last_used() < IDLE_CONNECTION);
+                                        core.db().release_idle(IDLE_CONNECTION);
                                         crate::jobs::prune_hourly(&core).await;
                                         let max_days = core.settings().logs.max_days;
                                         if max_days > 0 {

@@ -208,7 +208,7 @@ pub async fn render(State(app): State<Arc<App>>) -> Response {
             "Instances sharing the database (this one included).",
             (core.realtime.other_instances() + 1).to_string(),
         );
-        let status = core.pool.status();
+        let status = core.db().status();
         let _ = writeln!(
             out,
             "# HELP slonbase_db_connections Pooled database connections."

@@ -151,9 +151,7 @@ async fn background_jobs_dont_use_the_apis_connections() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
-    // (connections of their own are asked for: by default jobs share the API's pool)
-    let (app, token, _dir, id) =
-        with_cleanup_job_in(&tdb, "[database]\njob_connections = 2\n").await;
+    let (app, token, _dir, id) = with_cleanup_job(&tdb).await;
     let core = app.core().unwrap();
     let client = db(&tdb).await;
 
@@ -219,6 +217,98 @@ async fn background_jobs_dont_use_the_apis_connections() {
         .get(0);
     assert_eq!(ok, 2);
     drop(held);
+}
+
+/// How many connections to the test's database are open, other than this test's own.
+async fn open_connections(client: &tokio_postgres::Client) -> i64 {
+    client
+        .query_one(
+            "SELECT count(*) FROM pg_stat_activity
+             WHERE datname = current_database() AND pid <> pg_backend_pid()",
+            &[],
+        )
+        .await
+        .unwrap()
+        .get(0)
+}
+
+#[tokio::test]
+async fn the_reserve_is_the_jobs_while_they_work_and_the_apis_otherwise() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // 4 connections: 3 for the API, 1 reserved for jobs (and no job of its own, so the
+    // workers only work when this test says so)
+    let (app, _token, _dir) = ready_app_with_file(&tdb, "[database]\nmax_connections = 4\n").await;
+    let core = app.core().unwrap();
+    let client = db(&tdb).await;
+    let db = core.db();
+    assert_eq!(db.reserved(), 1);
+    assert_eq!(core.pool.status().max_size, 3);
+    let now = Duration::from_millis(500);
+    // (the workers sleep: nothing is due)
+    tokio::time::sleep(Duration::from_millis(300)).await;
+
+    // no job running: the API has all four, and no more
+    let mut held = Vec::new();
+    for n in 0..4 {
+        let got = tokio::time::timeout(Duration::from_secs(5), db.get()).await;
+        held.push(got.unwrap_or_else(|_| panic!("connection {n}")).unwrap());
+    }
+    assert!(tokio::time::timeout(now, db.get()).await.is_err());
+    assert!(db.status().size <= 4);
+    drop(held);
+
+    // a worker working: the API has its three, the jobs the fourth
+    let working = db.working();
+    let mut held = Vec::new();
+    for n in 0..3 {
+        let got = tokio::time::timeout(Duration::from_secs(5), db.get()).await;
+        held.push(got.unwrap_or_else(|_| panic!("connection {n}")).unwrap());
+    }
+    assert!(
+        tokio::time::timeout(now, db.get()).await.is_err(),
+        "the API took a reserved connection while a job was running"
+    );
+    let job = tokio::time::timeout(now, db.for_jobs()).await;
+    let job = job.expect("a job waited for the API").unwrap();
+    // the budget holds: never more than the 4 (beside the 2 listeners)
+    assert!(db.status().size <= 4, "{:?}", db.status());
+    assert!(open_connections(&client).await <= 4 + 2);
+
+    // a second job while the first holds the reserve: one of the API's, after a short wait
+    drop(held.pop());
+    let started = std::time::Instant::now();
+    let second = tokio::time::timeout(Duration::from_secs(5), db.for_jobs()).await;
+    let second = second.expect("a second job waited for ever").unwrap();
+    assert!(started.elapsed() >= slonbase::connections::JOB_WAIT);
+    assert!(db.status().size <= 4);
+    drop((job, second, held, working));
+
+    // the workers done: the API has all four again
+    let mut held = Vec::new();
+    for n in 0..4 {
+        let got = tokio::time::timeout(Duration::from_secs(5), db.get()).await;
+        held.push(
+            got.unwrap_or_else(|_| panic!("connection {n} after the jobs"))
+                .unwrap(),
+        );
+    }
+    assert!(open_connections(&client).await <= 4 + 2);
+    drop(held);
+}
+
+#[tokio::test]
+async fn no_reserve_when_it_is_turned_off() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, _token, _dir) = ready_app_with_file(&tdb, "[database]\njob_connections = 0\n").await;
+    let core = app.core().unwrap();
+    assert_eq!(core.db().reserved(), 0);
+    assert_eq!(core.pool.status().max_size, 16);
+    // jobs take the API's connections, as before 2.7
+    let _job = core.db().for_jobs().await.unwrap();
 }
 
 #[tokio::test]
