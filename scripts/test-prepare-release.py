@@ -2,6 +2,11 @@
 """Runs scripts/prepare-release.py on a copy of the files it changes, for a release, release
 candidates and the release after them, and checks what it wrote. CI runs it.
 
+The copy is made a fixture first, so the checks hold wherever the checkout is (just after a
+release, with an empty "Unreleased"; at a candidate; between releases): Cargo.toml is set to the
+newest release in CHANGELOG.md (the one the docs pin), candidates' sections are removed, and
+"Unreleased" holds the notes below.
+
     python3 scripts/test-prepare-release.py
 """
 import pathlib
@@ -18,6 +23,8 @@ FILES = [
     "site/index.html", "scripts/prepare-release.py",
 ]
 failures = []
+NOTES = "### Added\n\n- A note to release.\n\n### Fixed\n\n- Another one."
+SECTION = r"(?m)^## \[(\d+\.\d+\.\d+(?:-rc\.\d+)?)\]"
 
 
 def check(ok, what):
@@ -26,11 +33,25 @@ def check(ok, what):
         print(f"FAIL: {what}", file=sys.stderr)
 
 
+def last_release(text):
+    found = [v for v in re.findall(SECTION, text) if "-" not in v]
+    return max(found, key=lambda v: tuple(map(int, v.split("."))))
+
+
 def copy():
     tmp = pathlib.Path(tempfile.mkdtemp())
     for name in FILES:
         (tmp / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(root / name, tmp / name)
+    log = (tmp / "CHANGELOG.md").read_text()
+    # no candidates' sections, and known notes under "Unreleased"
+    log = re.sub(r"(?ms)^## \[\d+\.\d+\.\d+-rc\.\d+\][^\n]*\n.*?(?=^## \[|^\[Unreleased\]: )", "", log)
+    log = re.sub(r"(?m)^\[\d+\.\d+\.\d+-rc\.\d+\]: .*\n", "", log)
+    log = re.sub(r"(?ms)(^## \[Unreleased\]\n).*?(?=^## \[)", lambda m: m.group(1) + "\n" + NOTES + "\n\n", log, count=1)
+    (tmp / "CHANGELOG.md").write_text(log)
+    cargo_toml = (tmp / "Cargo.toml").read_text()
+    (tmp / "Cargo.toml").write_text(
+        re.sub(r'(?m)^version = "[^"]+"', f'version = "{last_release(log)}"', cargo_toml, count=1))
     return tmp
 
 
@@ -57,17 +78,14 @@ def section(text, version):
 
 def main():
     base = cargo(copy())
-    major, minor, _ = map(int, base.split("-")[0].split("."))
-    if "-" in base:
-        print(f"Cargo.toml is at a release candidate ({base}): nothing to check from here")
-        return
+    major, minor, _ = map(int, base.split("."))
     nxt = f"{major}.{minor + 1}.0"
     lines_before = read(copy(), "packaging/supported-lines.txt")
 
     # a release candidate, a second one, then the release
-    tmp = copy()
+    tmp, fresh = copy(), copy()
     unreleased = section(read(tmp, "CHANGELOG.md"), "Unreleased")
-    check(unreleased, "the copied changelog has Unreleased notes to release")
+    check(unreleased == NOTES, f"the fixture's notes are under Unreleased: {unreleased!r}")
     out = run(tmp, f"{nxt}-rc.1")
     log = read(tmp, "CHANGELOG.md")
     check(cargo(tmp) == f"{nxt}-rc.1", f"Cargo.toml says {nxt}-rc.1: {cargo(tmp)}")
@@ -75,8 +93,9 @@ def main():
     check(section(log, "Unreleased") == unreleased, "the notes stay under Unreleased")
     check(f"[{nxt}-rc.1]: " in log and f"v{base}...v{nxt}-rc.1" in log, f"rc.1's compare link: {out}")
     check(read(tmp, "packaging/supported-lines.txt") == lines_before, "a candidate adds no supported line")
-    check(base in read(tmp, "docs/installation.md") and f"{nxt}-rc" not in read(tmp, "docs/installation.md"),
-          "a candidate leaves the pins alone")
+    pinned = ["docs/installation.md", "docs/extending.md", "docs/deployment.md", "docs/platforms.md", "site/index.html"]
+    check(all(read(tmp, name) == read(fresh, name) for name in pinned),
+          "a candidate leaves the pins and the home page alone")
     run(tmp, f"{nxt}-rc.1", ok=False)  # the same one twice
     run(tmp, f"{nxt}-rc.2", date="2027-01-20")
     log = read(tmp, "CHANGELOG.md")

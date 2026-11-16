@@ -25,6 +25,13 @@ cp "target/$target/release/slonbase" dist/slonbase
 for format in deb rpm; do
     VERSION=$version ARCH=$arch nfpm package -f packaging/nfpm.yaml -p "$format" -t dist/
 done
+# a release candidate's packages have the version 2.6.0~rc.1 (so that it sorts before 2.6.0 for
+# apt and dnf); their files are named after the release, 2.6.0-rc.1, as everything else is (and
+# as GitHub keeps release file names, which a ~ wouldn't be)
+for f in dist/*~*; do
+    [ -e "$f" ] || continue
+    mv "$f" "$(printf '%s' "$f" | tr '~' '-')"
+done
 
 mv dist/slonbase "dist/linux-$arch/slonbase"
 tar -czf "dist/slonbase-$version-linux-$arch.tar.gz" \

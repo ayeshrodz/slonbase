@@ -10,6 +10,9 @@ dist=${1:?usage: check-dist.sh <dist dir> <version>}
 version=${2:?usage: check-dist.sh <dist dir> <version>}
 fail=0
 bad() { echo "check-dist: $*" >&2; fail=1; }
+# the version inside the packages: a release candidate's (2.6.0-rc.1) is 2.6.0~rc.1, which apt
+# and dnf sort before 2.6.0 (see package.sh)
+package_version=$(printf '%s' "$version" | sed 's/-/~/')
 
 archives=0
 for tarball in "$dist"/slonbase-"$version"-linux-*.tar.gz; do
@@ -32,7 +35,7 @@ for deb in "$dist"/slonbase_"${version}"_*.deb; do
         usr/lib/systemd/system/slonbase.service etc/default/slonbase; do
         echo "$list" | grep -q " \./$f\$" || bad "$deb lacks /$f"
     done
-    [ "$(dpkg-deb -f "$deb" Version)" = "$version" ] || bad "$deb has the wrong version"
+    [ "$(dpkg-deb -f "$deb" Version)" = "$package_version" ] || bad "$deb has the wrong version"
 done
 for rpm in "$dist"/slonbase-"${version}"-1.*.rpm; do
     [ -e "$rpm" ] || continue
@@ -43,7 +46,7 @@ for rpm in "$dist"/slonbase-"${version}"-1.*.rpm; do
         usr/lib/systemd/system/slonbase.service etc/default/slonbase; do
         echo "$list" | grep -qx "/$f" || bad "$rpm lacks /$f"
     done
-    [ "$(rpm -qp --qf '%{VERSION}' "$rpm")" = "$version" ] || bad "$rpm has the wrong version"
+    [ "$(rpm -qp --qf '%{VERSION}' "$rpm")" = "$package_version" ] || bad "$rpm has the wrong version"
     [ "$(rpm -qp --qf '%{LICENSE}' "$rpm")" = "Apache-2.0" ] || bad "$rpm isn't licensed Apache-2.0"
 done
 [ "$packages" -gt 0 ] || bad "no .deb or .rpm for $version in $dist"
