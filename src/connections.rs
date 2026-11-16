@@ -4,9 +4,10 @@
 //! - **The API's pool** ([`Core::pool`](crate::core::Core::pool)) has `max_connections`
 //!   less the reserve.
 //! - **The reserve** (`database.job_connections`: 2 by default, 1 when `max_connections` is
-//!   below 8) belongs to the job queue's workers while they work: a long job never takes a
-//!   connection an API request needs, and a busy API never makes a job wait for one, beyond
-//!   the requests that hold one of the reserve's when the workers start.
+//!   below 8) belongs to the job queue's workers while they work: while the jobs fit in it, a
+//!   long job doesn't take a connection an API request needs, and a busy API doesn't make a
+//!   job wait for one, beyond the requests that hold one of the reserve's when the workers
+//!   start. (A job that needs more than the reserve: see [`JOB_WAIT`].)
 //! - **While no worker works**, API requests use the reserve too, once their own pool is in
 //!   use, so the API has every connection when there is nothing in the background.
 //!

@@ -13,9 +13,11 @@
 //! - **Once.** A job queued with a `dedupe` key exists once, whichever instance queues it
 //!   first: that is how a scheduled job runs once a minute across instances.
 //! - **Apart.** Workers take their connections from the ones reserved for jobs (see
-//!   [`crate::connections`]), and so does what a job does through [`Core::db`]: a long job
-//!   never takes a connection an API request needs, and a busy API never holds up a job. While
-//!   a worker works, the reserve is the workers' alone; while none does, the API may use it.
+//!   [`crate::connections`]), and so does what a job does through [`Core::db`]: while the jobs
+//!   fit in the reserve, a long job doesn't take a connection an API request needs, and a busy
+//!   API doesn't hold up a job (one that waits [`crate::connections::JOB_WAIT`] for the reserve
+//!   takes whichever connection frees first). While a worker works, the reserve is the workers'
+//!   alone; while none does, the API may use it.
 //! - **Quiet.** A worker with nothing to do holds no connection and asks nothing of the
 //!   database until a job is queued here or the next one is due; it looks once in a while for
 //!   jobs left by instances that stopped.
