@@ -165,9 +165,10 @@ and idle project connections released after two minutes. Measured on one Postgre
 Background jobs (scheduled and manual runs of cron jobs and automations, their retries and
 notices, and the automatic backup) take their connections out of the same budget, and by default
 don't compete with requests for them: of the 16, **2 are reserved for jobs while they run** (1 of
-a project's 4). While a job runs, requests have the other 14, so a long job doesn't make requests
-wait, and requests can't take the reserved ones, so a busy API doesn't hold up a job: it waits
-only for requests that were already using a reserved connection when it started. While no job
+a project's 4). While a job runs, requests have the other 14, so as long as the jobs fit in the
+reserve a long one doesn't make requests wait (see below for when they don't), and requests can't
+take the reserved ones, so a busy API doesn't hold up a job: it waits only for requests that were
+already using a reserved connection when it started. While no job
 runs, requests use all 16. Both are pools of a fixed size, so the total never goes past
 `max_connections`.
 
