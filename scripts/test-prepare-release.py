@@ -113,6 +113,20 @@ def main():
           f"the new line is supported: {read(tmp, 'packaging/supported-lines.txt')}")
     check(nxt in read(tmp, "docs/installation.md"), f"the pins move to {nxt}: {out}")
 
+    # examples of a candidate in the pinned docs stay as written through the releases after it
+    tmp = copy()
+    example = (f"\n`{nxt}-rc.1`, slonbase_{nxt}-rc.1_amd64.deb, slonbase-{nxt}-rc.1-1.x86_64.rpm, "
+               f":{nxt}-rc.1, SLONBASE_VERSION={nxt}-rc.1, /v{nxt}-rc.1/\n")
+    (tmp / "docs/installation.md").write_text(read(tmp, "docs/installation.md") + example)
+    run(tmp, nxt)
+    log = read(tmp, "CHANGELOG.md")
+    (tmp / "CHANGELOG.md").write_text(log.replace("## [Unreleased]\n", "## [Unreleased]\n\n### Fixed\n\n- A fix.\n", 1))
+    run(tmp, f"{major}.{minor + 1}.1", date="2027-02-01")
+    check(read(tmp, "docs/installation.md").endswith(example),
+          "the pins of later releases leave a candidate's examples alone: "
+          + read(tmp, "docs/installation.md")[-len(example):])
+    check(f"{major}.{minor + 1}.1" in read(tmp, "docs/installation.md"), "the later release moves the pins")
+
     # a release without candidates, as before
     tmp = copy()
     run(tmp, nxt)

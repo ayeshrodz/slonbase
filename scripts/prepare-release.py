@@ -145,7 +145,8 @@ def last_release():
 
 
 def pins(old, new):
-    pattern = re.compile(r"(?<=[v:/\-`\"])" + re.escape(fmt(old)) + r"(?![\d])")
+    # (a candidate's version, 2.6.0-rc.1, is an example of its own, never a pin)
+    pattern = re.compile(r"(?<=[v:/\-`\"])" + re.escape(fmt(old)) + r"(?![\d]|-rc\.)")
     changed = []
     for name in PINNED:
         path = root / name
