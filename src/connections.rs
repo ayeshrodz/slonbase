@@ -13,7 +13,8 @@
 //! Both are ordinary pools of fixed size, so the two together can never open more than
 //! `max_connections`, whatever the order of events. A job that finds the reserve held for
 //! [`JOB_WAIT`] (another job's long statement, with fewer reserved connections than workers)
-//! takes one of the API's rather than failing.
+//! then takes whichever connection frees first, the reserve's or the API's, rather than fail.
+//! A request whose own pool is in use waits likewise for either, while no worker works.
 
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -70,20 +71,35 @@ impl Connections {
         let Some(reserve) = self.reserve.get() else {
             return self.api.get().await;
         };
-        if !self.workers_busy() {
-            // the API's own first, then the reserve, without waiting for either
-            match self.api.timeout_get(&now(&self.api)).await {
-                Err(PoolError::Timeout(deadpool_postgres::TimeoutType::Wait)) => {}
-                answer => return answer,
+        if self.workers_busy() {
+            return self.api.get().await;
+        }
+        // the API's own first, then the reserve, without waiting for either
+        match self.api.timeout_get(&now(&self.api)).await {
+            Err(PoolError::Timeout(deadpool_postgres::TimeoutType::Wait)) => {}
+            answer => return answer,
+        }
+        if let Ok(object) = reserve.timeout_get(&now(reserve)).await {
+            // (a worker that began meanwhile has it: it goes back to the reserve)
+            if !self.workers_busy() {
+                return Ok(object);
             }
-            if let Ok(object) = reserve.timeout_get(&now(reserve)).await {
-                // (a worker that began meanwhile has it: it goes back to the reserve)
-                if !self.workers_busy() {
-                    return Ok(object);
+        }
+        // both in use: whichever frees one first (the reserve's only while no worker works)
+        let api = self.api.get();
+        tokio::pin!(api);
+        if !self.workers_busy() {
+            tokio::select! {
+                biased;
+                answer = &mut api => return answer,
+                Ok(object) = reserve.get() => {
+                    if !self.workers_busy() {
+                        return Ok(object);
+                    }
                 }
             }
         }
-        self.api.get().await
+        api.await
     }
 
     /// A connection for the job queue: one of the reserve, or after [`JOB_WAIT`] without one,
@@ -93,16 +109,18 @@ impl Connections {
         let Some(reserve) = self.reserve.get() else {
             return self.api.get().await;
         };
-        let mut timeouts = reserve.timeouts();
-        timeouts.wait = Some(JOB_WAIT);
-        match reserve.timeout_get(&timeouts).await {
-            Err(PoolError::Timeout(deadpool_postgres::TimeoutType::Wait)) => {
-                tracing::debug!(
-                    "every reserved connection is in use: a job takes one of the API's"
-                );
-                self.api.get().await
-            }
-            answer => answer,
+        let reserved = reserve.get();
+        tokio::pin!(reserved);
+        tokio::select! {
+            answer = &mut reserved => return answer,
+            _ = tokio::time::sleep(JOB_WAIT) => {}
+        }
+        // still none: whichever frees one first, the reserve or the API's pool
+        tracing::debug!("every reserved connection is in use: a job may take one of the API's");
+        tokio::select! {
+            biased;
+            answer = &mut reserved => answer,
+            answer = self.api.get() => answer,
         }
     }
 

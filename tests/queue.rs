@@ -299,6 +299,52 @@ async fn the_reserve_is_the_jobs_while_they_work_and_the_apis_otherwise() {
 }
 
 #[tokio::test]
+async fn a_waiting_request_or_job_takes_whichever_connection_frees_first() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, _token, _dir) = ready_app_with_file(&tdb, "[database]\nmax_connections = 4\n").await;
+    let core = app.core().unwrap();
+    let db = core.db();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let soon = Duration::from_secs(1);
+
+    // no job running, the API's three and the reserve's one in use: a request waiting for a
+    // connection gets the reserve's as soon as it is free, not only one of the API's
+    let mut api = Vec::new();
+    for _ in 0..3 {
+        api.push(core.pool.get().await.unwrap());
+    }
+    let reserved = db.get().await.unwrap();
+    let waiting = tokio::spawn({
+        let core = core.clone();
+        async move { core.db().get().await.map(drop) }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    drop(reserved);
+    let got = tokio::time::timeout(soon, waiting).await;
+    got.expect("the request didn't take the freed reserved connection")
+        .unwrap()
+        .unwrap();
+
+    // a job running and past its wait, the API's three still in use: it gets the reserved
+    // connection as soon as the other job lets it go
+    let working = db.working();
+    let first = db.for_jobs().await.unwrap();
+    let second = tokio::spawn({
+        let core = core.clone();
+        async move { core.db().for_jobs().await.map(drop) }
+    });
+    tokio::time::sleep(slonbase::connections::JOB_WAIT + Duration::from_millis(500)).await;
+    drop(first);
+    let got = tokio::time::timeout(soon, second).await;
+    got.expect("the job didn't take the freed reserved connection")
+        .unwrap()
+        .unwrap();
+    drop((working, api));
+}
+
+#[tokio::test]
 async fn no_reserve_when_it_is_turned_off() {
     let Some(tdb) = TestDb::create().await else {
         return;

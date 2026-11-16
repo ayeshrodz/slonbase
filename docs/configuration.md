@@ -107,9 +107,10 @@ Amazon RDS), pass it with `--database-ca-file`.
 `LISTEN` (realtime and projects), and each [project](projects.md) adds up to `projects.max_connections`
 (4) plus one more. N instances and P projects use at most N × (18 + 5 × P) connections, so with several
 instances keep the total below the server's `max_connections`: lower the pools, raise the limit,
-or use a pooler. Health warns from 80% of the limit. Background jobs get 2 of `max_connections`
-(1 of a project's) while they run, and requests the others, so neither waits for the other; see
-[the connection budget](scaling.md#the-connection-budget).
+or use a pooler. Health warns from 80% of the limit. Of `max_connections`,
+`database.job_connections` (by default 2, 1 of a project's) are reserved for background jobs
+while they run, and requests have the others, so neither waits for the other in the usual case;
+0 reserves none. See [the connection budget](scaling.md#the-connection-budget).
 
 **Behind a pooler:** a transaction-mode pooler (PgBouncer `pool_mode = transaction`, version 1.21
 or newer, with `max_prepared_statements` set) can carry the queries but not `LISTEN`. Set

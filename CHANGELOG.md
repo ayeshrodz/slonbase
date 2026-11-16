@@ -67,9 +67,10 @@ changes, listed in its **Upgrading** section.
   once a minute however many instances there are.
 - **Jobs and API requests don't take each other's connections, within the same budget.** Of
   `database.max_connections`, 2 are reserved for background jobs while they run (1 of a project's
-  4; `database.job_connections` sets how many, 0 turns it off): a long job never takes a
-  connection an API request needs, and a busy API never makes a job wait for one. While no job
-  runs, API requests use the reserved connections too. An instance opens no more connections than
+  4; `database.job_connections` sets how many, 0 turns it off): a long job doesn't take a
+  connection an API request needs, and a busy API doesn't make a job wait for one (a job that
+  needs more than the reserve takes one of the API's after two seconds). While no job runs, API
+  requests use the reserved connections too. An instance opens no more connections than
   before (`18 + 5 × projects`); see the [connection budget](docs/scaling.md#the-connection-budget).
 - **Retries survive a restart.** A failed run that is to be tried again waits in the queue, not
   in the memory of the instance that ran it: the retry happens after a restart too, and on

@@ -163,18 +163,21 @@ and idle project connections released after two minutes. Measured on one Postgre
 | 6 instances, 4 projects, PgBouncer | | 83, no errors |
 
 Background jobs (scheduled and manual runs of cron jobs and automations, their retries and
-notices, and the automatic backup) take their connections out of the same budget, without
-competing with requests for them: of the 16, **2 are reserved for jobs while they run** (1 of a
-project's 4). While a job runs, requests have the other 14 and the job never takes one of them,
-so a long job can't make requests wait; and requests can't hold the reserved ones, so a busy API
-can't hold up a job (beyond the requests already using one when the job starts, a few
-milliseconds). While no job runs, requests use all 16. Both are pools of a fixed size, so the
-total never goes past `max_connections`.
+notices, and the automatic backup) take their connections out of the same budget, and by default
+don't compete with requests for them: of the 16, **2 are reserved for jobs while they run** (1 of
+a project's 4). While a job runs, requests have the other 14, so a long job doesn't make requests
+wait, and requests can't take the reserved ones, so a busy API doesn't hold up a job: it waits
+only for requests that were already using a reserved connection when it started. While no job
+runs, requests use all 16. Both are pools of a fixed size, so the total never goes past
+`max_connections`.
 
-`database.job_connections` sets how many are reserved (never all: the API keeps at least one); 0
-turns the reserve off, and jobs then take the API's connections as they come. A job that finds
-the reserve in use for two seconds (another job's long statement) takes one of the API's rather
-than fail. `slonbase_db_connections` and the health page count both pools together.
+When jobs need more connections at once than are reserved (a project has 2 workers and 1
+reserved connection, and one job runs a long statement), a job that has waited two seconds takes
+whichever connection frees first, a reserved one or one of the API's, rather than fail; requests
+may then wait for the one it took. `database.job_connections` sets how many are reserved (never
+all: the API keeps at least one); 0 turns the reserve off, and jobs then take the API's
+connections as they come, as before 2.7. `slonbase_db_connections` and the health page count
+both pools together.
 
 The levers, in the order to reach for them:
 
