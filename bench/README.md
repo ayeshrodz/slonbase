@@ -124,6 +124,43 @@ of how much of slonbase's speed comes from PostgreSQL itself. How it was set up 
 - it runs on the same 3 CPUs as PostgreSQL, which also does the JSON building for it, so the
   database and the API layer compete for the same cores, as they do for slonbase.
 
+## What changed in 2.7
+
+2.7.0 against 2.6.2, both built from source here (`cargo build --release`, the same toolchain),
+on the same 4-vCPU cloud VM (Intel Xeon @ 2.30GHz) with PostgreSQL 16: two passes of `run.sh`,
+2.6.2 and 2.7 alternately, each scenario three times per pass, so each cell is the median of six
+runs and ± is half their spread. The raw runs are in `published/2.7.0/`.
+
+| Scenario | Clients | 2.6.2 req/s | 2.7.0 req/s | 2.7 / 2.6.2 | p99 ms (2.6.2 / 2.7) |
+|---|--:|--:|--:|--:|--:|
+| health | 32 | 44,846 ±7% | 41,377 ±11% | **0.92×** | 2.0 / 2.3 |
+| view one record | 32 | 21,960 ±8% | 20,367 ±11% | **0.93×** | 4.2 / 4.2 |
+| view one record (1 client) | 1 | 5,900 ±9% | 6,471 ±14% | **1.10×** | 0.4 / 0.4 |
+| list 30 | 32 | 10,087 ±7% | 10,008 ±6% | **0.99×** | 6.8 / 7.0 |
+| list 30, sorted | 32 | 9,049 ±9% | 8,037 ±8% | **0.89×** | 7.8 / 8.0 |
+| list 30, filtered | 32 | 8,837 ±9% | 9,112 ±7% | **1.03×** | 7.2 / 7.1 |
+| list 30, expand author | 32 | 4,842 ±14% | 4,777 ±15% | **0.99×** | 11.3 / 10.8 |
+| list 30, signed in | 32 | 7,137 ±5% | 7,477 ±6% | **1.05×** | 8.4 / 8.2 |
+| create record | 32 | 7,325 ±15% | 7,965 ±8% | **1.09×** | 9.3 / 8.4 |
+| sign in (bcrypt) | 8 | 48.5 ±2% | 48.6 ±1% | **1.00×** | 319 / 293 |
+
+Every difference is within the spread of the runs. Where the full passes put 2.7 behind (health,
+a single record), an interleaved check that started each version afresh six times on the same
+seeded database put it ahead on health (median 44,900 against 41,100 requests a second) and level
+on single records: the VM's speed drifts by more than the versions differ. Nothing 2.7 adds runs
+on a read; the event dispatcher and the job workers ask nothing of the database while no
+automation watches and no job is due.
+
+**Writes.** A first measurement had creates about 8% slower than 2.6.2. The record trigger of
+migration 23 looked up who watches the collection on every write, because PL/pgSQL evaluated the
+whole condition `TG_OP = 'UPDATE' AND EXISTS (...)`; 30,000 inserts in one statement took about
+a fifth longer in the database. Migration 24 checks the operation first, and inserts are back to
+2.6.2's speed (the table above is with it).
+
+**Footprint.** The binary is 26.9 MB (24.8 MB for 2.6.2, built the same way). Start-up (21 to
+32 ms), idle memory (43 to 50 MB) and peak memory over a whole pass (68 to 76 MB) vary as much
+between the two passes of one version as between the versions.
+
 ## What changed in 1.9
 
 **Health checks.** Each check ran `SELECT 1` on a pooled connection. The probe's outcome is now
