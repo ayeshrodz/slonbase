@@ -404,6 +404,28 @@ The changelog's **Upgrading** section for 2.7.0 lists the same points.
 new). Instances before 1.7 rely on a notification sent with each write to deliver realtime
 events, which 1.7 no longer sends (see [several instances](deployment.md#several-instances)).
 
+### Trying a release candidate
+
+Before some releases, a release candidate (`2.7.0-rc.1`) is published on the
+[releases page](https://github.com/ayeshrodz/slonbase/releases) as a pre-release. It is never in
+the apt and dnf repositories and never the image's `latest`, so nothing upgrades to it on its own:
+installing it is a choice. Try it on a copy of a real installation (restore a backup into a
+spare server, say) rather than on the one people depend on, and back up first as for any upgrade.
+
+- **Packages:** download the `.deb` or `.rpm` for your architecture from the candidate's
+  release page, check it against its `SHA256SUMS`, and install it over the installed version
+  with `sudo apt install ./slonbase_2.7.0-rc.1_amd64.deb` or
+  `sudo dnf install ./slonbase-2.7.0-rc.1-1.x86_64.rpm`. The service restarts with it, and the
+  configuration is kept.
+- **Docker:** use the candidate's tag (`ghcr.io/ayeshrodz/slonbase:2.7.0-rc.1`, or
+  `SLONBASE_VERSION=2.7.0-rc.1` with Compose).
+- **Binary:** replace the file with the one from the candidate's archive and restart.
+
+Afterwards, `sudo apt upgrade` or `sudo dnf upgrade` moves an installation from the repositories
+on to the release when it comes out (the package's version, `2.7.0~rc.1`, sorts before
+`2.7.0`), and to a later candidate only if you install it the same way. Going back to the
+previous release is the same as after any upgrade: restore the backup.
+
 ## Uninstalling
 
 - **Packages:** `sudo apt remove slonbase` / `sudo dnf remove slonbase`. The config and
