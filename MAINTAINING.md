@@ -27,8 +27,9 @@ came with this change, and the checklist at the end of this page).
 
 Maintainers release with a pull request:
 
-1. **Actions → Prepare release → Run workflow**, with the version (`2.5.2`; the branch is `main`,
-   or an older line's branch for a backport). It runs `scripts/prepare-release.py`, which
+1. **Actions → Prepare release → Run workflow**, with the version (`2.5.2`, or a candidate such
+   as `2.6.0-rc.1`, see [release candidates](#release-candidates); the branch is `main`, or an
+   older line's branch for a backport). It runs `scripts/prepare-release.py`, which
    - sets the version in `Cargo.toml` (and `Cargo.lock`);
    - turns the "Unreleased" entries of `CHANGELOG.md` into the version's section and rebuilds
      the compare links (it refuses an empty section);
@@ -141,7 +142,23 @@ skip anything by itself, because the tag is the marker. To resume:
    are already complete, and `latest` of the image only moves when its job succeeds.
 
 A pre-release (a version with a suffix such as `2.6.0-rc.1`) is published as a GitHub
-pre-release and never becomes `latest`, for the release page or for the image.
+pre-release and never becomes `latest`, for the release page or for the image, and it stays out
+of the apt and dnf repositories (`scripts/supported-releases.py` skips it), so no installation
+upgrades to it unless someone chooses it.
+
+### Release candidates
+
+Before a release worth trying out first (a new minor with migrations, say), release a candidate:
+**Prepare release** with `2.7.0-rc.1`. The script sets the version and copies the "Unreleased"
+notes into a `[2.7.0-rc.1]` section, which the candidate's release page shows; the notes stay
+under "Unreleased", and the pins, the home page and the supported lines are left as they are.
+Merging the pull request publishes the candidate. Fixes go in as usual, and another candidate is
+`2.7.0-rc.2`.
+
+When a candidate holds up, prepare the release (`2.7.0`) as any other: its candidates' sections
+are dropped (the release's section has every note), the pins move from the release before the
+candidates, and a new minor's line is added with the previous line's end date.
+`scripts/test-prepare-release.py` checks all of this on a copy of the files (CI runs it).
 
 ## Checklist: repository settings
 

@@ -14,6 +14,17 @@ It
   previous line its end date (three months from the release, the support policy), drops lines
   whose support has ended, and rewrites the table in SECURITY.md to match.
 A backport (a patch on an older line) only changes Cargo.toml and CHANGELOG.md.
+
+A release candidate (2.7.0-rc.1) is a pre-release: the Release workflow publishes it on its
+release page and as its image tag, never as the latest, and it stays out of the apt and dnf
+repositories. Preparing one
+- sets the version in Cargo.toml;
+- copies CHANGELOG.md's "Unreleased" notes into a section of its own ([2.7.0-rc.1]), and keeps
+  them under "Unreleased" for the release;
+- leaves the pins, the home page and the supported lines alone.
+Preparing the release itself (2.7.0) then drops its candidates' sections, so the changelog keeps
+one section per release, and treats the release before the candidates (2.6.2) as the previous
+one: the pins move from it, and a new minor's line is added.
 """
 import argparse
 import calendar
@@ -24,7 +35,7 @@ import sys
 
 root = pathlib.Path(__file__).resolve().parent.parent
 REPO = "https://github.com/ayeshrodz/slonbase"
-SEMVER = re.compile(r"(\d+)\.(\d+)\.(\d+)")
+SEMVER = re.compile(r"(\d+)\.(\d+)\.(\d+)(?:-rc\.([1-9]\d*))?")
 
 # Files that pin the current release in examples, and how a pin looks there: the version right
 # after one of these characters (v2.5.1, :2.5.1, /v2.5.1/, slonbase-2.5.1-, `2.5.1`, "v2.5.1"),
@@ -39,14 +50,25 @@ PINNED = [
 
 
 def parse(v):
+    """(major, minor, patch, rc): rc is the candidate's number, or 0 for a release."""
     m = SEMVER.fullmatch(v)
     if not m:
-        sys.exit(f"{v!r} is not a version like 2.5.2 (pre-releases are tagged by hand)")
-    return tuple(int(x) for x in m.groups())
+        sys.exit(f"{v!r} is not a version like 2.5.2 or 2.6.0-rc.1")
+    major, minor, patch, rc = m.groups()
+    return int(major), int(minor), int(patch), int(rc or 0)
 
 
 def fmt(v):
-    return ".".join(map(str, v))
+    return ".".join(map(str, v[:3])) + (f"-rc.{v[3]}" if v[3] else "")
+
+
+def order(v):
+    """Sorts a release after its candidates (2.6.0-rc.2 < 2.6.0)."""
+    return (*v[:3], 1 if v[3] == 0 else 0, v[3])
+
+
+def candidate(v):
+    return v[3] != 0
 
 
 def add_months(d, months):
@@ -72,28 +94,54 @@ def set_cargo_version(new):
     path.write_text(text)
 
 
+SECTION = r"(?m)^## \[(\d+\.\d+\.\d+(?:-rc\.\d+)?)\]"
+
+
 def changelog(new, today):
     path = root / "CHANGELOG.md"
     text = path.read_text()
     if f"## [{fmt(new)}]" in text:
         sys.exit(f"CHANGELOG.md already has a section for {fmt(new)}")
+    if not candidate(new):
+        # the release's candidates: their notes are the release's, under "Unreleased"
+        for v in re.findall(SECTION, text):
+            if candidate(parse(v)) and parse(v)[:3] == new[:3]:
+                at = text.index(f"## [{v}]")
+                nxt = re.search(r"(?m)^## \[", text[at + 1:])
+                end = at + 1 + nxt.start() if nxt else len(text)
+                text = text[:at] + text[end:]
     head = "## [Unreleased]\n"
     start = text.index(head) + len(head)
     nxt = re.search(r"(?m)^## \[", text[start:])
     body = text[start:start + nxt.start()] if nxt else text[start:]
     if not re.search(r"(?m)^- ", body):
         sys.exit("CHANGELOG.md's Unreleased section is empty: there is nothing to release")
-    text = text[:start] + f"\n## [{fmt(new)}] - {today.isoformat()}\n" + text[start:]
-    # the compare links at the end: one per version, against the next lower version
+    if candidate(new):
+        # a copy of the notes, which stay under "Unreleased" for the release
+        notes = body.strip("\n")
+        at = start + len(body)
+        text = text[:at].rstrip("\n") + f"\n\n## [{fmt(new)}] - {today.isoformat()}\n\n{notes}\n\n" + text[at:]
+    else:
+        text = text[:start] + f"\n## [{fmt(new)}] - {today.isoformat()}\n" + text[start:]
+    # the compare links at the end: one per version, against the next lower version (a
+    # candidate against the release before it, a release against the release before it)
     links_at = re.search(r"(?m)^\[Unreleased\]: ", text)
     body, _ = (text[:links_at.start()], text[links_at.start():]) if links_at else (text, "")
-    versions = sorted({parse(v) for v in re.findall(r"(?m)^## \[(\d+\.\d+\.\d+)\]", body)}, reverse=True)
+    versions = sorted({parse(v) for v in re.findall(SECTION, body)}, key=order, reverse=True)
     links = [f"[Unreleased]: {REPO}/compare/v{fmt(versions[0])}...HEAD"]
     for i, v in enumerate(versions):
-        older = versions[i + 1:]
+        older = [o for o in versions[i + 1:] if not candidate(o)]
         links.append(f"[{fmt(v)}]: {REPO}/compare/v{fmt(older[0])}...v{fmt(v)}" if older
                      else f"[{fmt(v)}]: {REPO}/releases/tag/v{fmt(v)}")
     path.write_text(body.rstrip("\n") + "\n\n" + "\n".join(links) + "\n")
+
+
+def last_release():
+    """The newest release (not a candidate) CHANGELOG.md has a section for."""
+    text = (root / "CHANGELOG.md").read_text()
+    found = [parse(v) for v in re.findall(SECTION, text)]
+    released = [v for v in found if not candidate(v)]
+    return max(released, key=order) if released else None
 
 
 def pins(old, new):
@@ -167,26 +215,34 @@ def main():
     ap.add_argument("--date", type=datetime.date.fromisoformat, default=datetime.date.today())
     args = ap.parse_args()
     new, old, today = parse(args.version), cargo_version(), args.date
+    # the release the docs pin and the line is counted from: after candidates, the one before
+    previous = old if not candidate(old) else (last_release() or old)
 
     _, lines = read_lines()
     newest_line = max(line for line, _ in lines)
     backport = (new[0], new[1]) < newest_line
-    if not backport and new <= old:
+    if not backport and order(new) <= order(old):
         sys.exit(f"{fmt(new)} is not newer than the current version {fmt(old)}")
     if backport and (new[0], new[1]) != (old[0], old[1]):
         sys.exit(f"{fmt(new)} is a backport: prepare it on its line's branch (Cargo.toml says {fmt(old)})")
+    if backport and candidate(new):
+        sys.exit(f"{fmt(new)}: candidates are for the newest line, not backports")
 
     set_cargo_version(new)
     changelog(new, today)
     summary = [f"Cargo.toml: {fmt(old)} -> {fmt(new)}", f"CHANGELOG.md: section [{fmt(new)}] - {today}"]
-    if not backport:
-        summary += [f"pins: {', '.join(pins(old, new)) or 'none'}"]
+    if candidate(new):
+        summary.append("a release candidate: the notes stay under Unreleased; pins, home page "
+                       "and supported lines unchanged")
+    elif not backport:
+        summary += [f"pins: {fmt(previous)} -> {fmt(new)}: {', '.join(pins(previous, new)) or 'none'}"]
         home_page_date(today)
-        if (new[0], new[1]) != (old[0], old[1]):
+        if (new[0], new[1]) != (previous[0], previous[1]):
             kept = new_line(new, today)
             summary.append("supported lines: " + ", ".join(
                 f"{a}.{b}" + (f" until {u}" if u else "") for (a, b), u in kept))
-    print(("backport " if backport else "") + "release " + fmt(new))
+    kind = "release candidate " if candidate(new) else ("backport release " if backport else "release ")
+    print(kind + fmt(new))
     for line in summary:
         print("  " + line)
 
