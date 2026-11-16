@@ -172,10 +172,12 @@ already using a reserved connection when it started. While no job
 runs, requests use all 16. Both are pools of a fixed size, so the total never goes past
 `max_connections`.
 
-When jobs need more connections at once than are reserved (a project has 2 workers and 1
-reserved connection, and one job runs a long statement), a job that has waited two seconds takes
-whichever connection frees first, a reserved one or one of the API's, rather than fail; requests
-may then wait for the one it took. `database.job_connections` sets how many are reserved (never
+A job that finds every reserved connection still in use after two seconds (jobs needing more at
+once than are reserved, as when a project's 2 workers share its 1 and one runs a long statement,
+or requests that were using the reserve when the job started and haven't finished) takes
+whichever connection frees first, a reserved one or one of the API's, rather than wait on the
+reserve alone; requests may then wait for the one it took. If both pools stay busy, the job waits
+as a request does, and fails as one does when the pool's 10-second wait runs out. `database.job_connections` sets how many are reserved (never
 all: the API keeps at least one); 0 turns the reserve off, and jobs then take the API's
 connections as they come, as before 2.7. `slonbase_db_connections` and the health page count
 both pools together.
