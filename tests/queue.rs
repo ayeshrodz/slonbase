@@ -44,7 +44,15 @@ async fn eventually(mut check: impl AsyncFnMut() -> bool) -> bool {
 
 /// An app with an `events` collection (three records) and a job that deletes the old ones.
 async fn with_cleanup_job(tdb: &TestDb) -> (Arc<App>, String, tempfile::TempDir, String) {
-    let (app, token, dir) = ready_app(tdb).await;
+    with_cleanup_job_in(tdb, "").await
+}
+
+/// [`with_cleanup_job`] with this configuration file.
+async fn with_cleanup_job_in(
+    tdb: &TestDb,
+    toml: &str,
+) -> (Arc<App>, String, tempfile::TempDir, String) {
+    let (app, token, dir) = ready_app_with_file(tdb, toml).await;
     let (status, res) = call(
         &app,
         &token,
@@ -143,7 +151,9 @@ async fn background_jobs_dont_use_the_apis_connections() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
-    let (app, token, _dir, id) = with_cleanup_job(&tdb).await;
+    // (connections of their own are asked for: by default jobs share the API's pool)
+    let (app, token, _dir, id) =
+        with_cleanup_job_in(&tdb, "[database]\njob_connections = 2\n").await;
     let core = app.core().unwrap();
     let client = db(&tdb).await;
 

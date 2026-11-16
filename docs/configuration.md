@@ -23,6 +23,7 @@ file, and then the defaults.
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | | | `database.statement_timeout` | `0` (seconds; 0: no limit) |
+| | | `database.job_connections` | `0` (background jobs share the pool; set it, say to 2, for connections of their own) |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--database-listen-url` | `SLONBASE_DATABASE_LISTEN_URL` | `database.listen_url` | none (the listeners use `database.url`) |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
@@ -67,6 +68,7 @@ sql_console = false
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"
 max_connections = 16
 # statement_timeout = 60   # seconds; ends a query that runs longer (backups are exempt)
+# job_connections = 2      # connections of their own for background jobs (0: share the pool)
 # ca_file = "/etc/ssl/certs/rds-global-bundle.pem"
 
 [storage]
@@ -105,7 +107,9 @@ Amazon RDS), pass it with `--database-ca-file`.
 `LISTEN` (realtime and projects), and each [project](projects.md) adds up to `projects.max_connections`
 (4) plus one more. N instances and P projects use at most N × (18 + 5 × P) connections, so with several
 instances keep the total below the server's `max_connections`: lower the pools, raise the limit,
-or use a pooler. Health warns from 80% of the limit.
+or use a pooler. Health warns from 80% of the limit. `database.job_connections` (0 by default)
+gives background jobs that many connections of their own, for the main database and each project,
+on top of these; see [the connection budget](scaling.md#the-connection-budget).
 
 **Behind a pooler:** a transaction-mode pooler (PgBouncer `pool_mode = transaction`, version 1.21
 or newer, with `max_prepared_statements` set) can carry the queries but not `LISTEN`. Set

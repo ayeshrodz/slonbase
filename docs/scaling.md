@@ -40,8 +40,7 @@ one, until a single machine's CPUs are the limit.
 
 One `slonbase serve`, one PostgreSQL database. Nothing to coordinate. Idle it holds about 3
 connections to PostgreSQL, and up to 18 under load (a pool of 16, `database.max_connections`,
-plus two that wait for notifications), or 20 while background jobs run (they have two
-connections of their own).
+plus two that wait for notifications).
 
 ## B. One instance, several projects, several servers
 
@@ -149,16 +148,10 @@ use of it is predictable:
 
 | | Connections per instance |
 |---|---|
-| The main database | up to `database.max_connections` (16), plus 2 for notifications, plus up to 2 for background jobs |
-| Each project | up to `projects.max_connections` (4), plus 1 for notifications, plus up to 2 for background jobs |
+| The main database | up to `database.max_connections` (16), plus 2 for notifications |
+| Each project | up to `projects.max_connections` (4), plus 1 for notifications |
 
-Background jobs (the job queue: scheduled and manual runs of cron jobs, their retries and
-notices, and the automatic backup) have connections of their own, so a job never takes one an API
-request is waiting for. They are opened
-when a job runs and closed when the queue is empty, so an installation that runs no jobs opens
-none.
-
-So **N instances and P projects use at most N × (20 + 7 × P)**, with connections opened on demand
+So **N instances and P projects use at most N × (18 + 5 × P)**, with connections opened on demand
 and idle project connections released after two minutes. Measured on one PostgreSQL 16 server:
 
 | Layout | Idle | Under load |
@@ -168,6 +161,13 @@ and idle project connections released after two minutes. Measured on one Postgre
 | 3 instances, 4 projects | 41 | 97 of 100 |
 | 6 instances, 4 projects | | 97 of 100, with HTTP 500 "too many clients" |
 | 6 instances, 4 projects, PgBouncer | | 83, no errors |
+
+Background jobs (scheduled and manual runs of cron jobs and automations, their retries and
+notices, and the automatic backup) use the same pools by default, so under full load a job waits
+for a free connection like a request does. `database.job_connections` (say 2) gives them
+connections of their own instead, for the main database and for each project: a job then never
+waits for one an API request holds. They are opened when a job runs and closed when the queue is
+empty, and they add to the budget: **N × (18 + J + (5 + J) × P)** with `J` connections each.
 
 The levers, in the order to reach for them:
 

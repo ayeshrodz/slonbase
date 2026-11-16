@@ -150,17 +150,20 @@ impl Core {
         app_logs: bool,
     ) -> Result<Arc<Self>> {
         let core = Self::load(pool, config, hooks).await?;
-        // background jobs get connections of their own, so they never take one from the API:
-        // two for the main installation, one for a project (opened when a job runs, closed
-        // when the queue is empty)
         let workers = if app_logs {
             MAIN_JOB_WORKERS
         } else {
             PROJECT_JOB_WORKERS
         };
-        let mut jobs_db = config.database.clone();
-        jobs_db.max_connections = workers;
-        let _ = core.job_pool.set(crate::db::connect(url, &jobs_db)?);
+        // background jobs get connections of their own when configured, so they never take
+        // one from the API (opened when a job runs, closed when the queue is empty); otherwise
+        // they share the API's pool
+        let own = config.database.job_connections;
+        if own > 0 {
+            let mut jobs_db = config.database.clone();
+            jobs_db.max_connections = own;
+            let _ = core.job_pool.set(crate::db::connect(url, &jobs_db)?);
+        }
         crate::queue::spawn_workers(&core, workers);
         if app_logs {
             crate::logs::capture_app_logs(&core.logs);
@@ -255,6 +258,11 @@ impl Core {
     /// The job workers' pool (the API's when this core has none of its own).
     pub(crate) fn job_pool(&self) -> &Pool {
         self.job_pool.get().unwrap_or(&self.pool)
+    }
+
+    /// Whether the job workers have a pool of their own (`database.job_connections`).
+    pub(crate) fn has_job_pool(&self) -> bool {
+        self.job_pool.get().is_some()
     }
 
     /// Where automigrate writes migration files, or `None` when it's off.

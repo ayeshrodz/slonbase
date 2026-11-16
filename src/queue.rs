@@ -12,9 +12,10 @@
 //!   The waiting job is a row like any other: it survives a restart.
 //! - **Once.** A job queued with a `dedupe` key exists once, whichever instance queues it
 //!   first: that is how a scheduled job runs once a minute across instances.
-//! - **Apart.** Workers take their connections from a pool of their own
-//!   ([`Core::job_pool`]), so background work never uses a connection an API request is
-//!   waiting for. What a job does through [`Core::db`] runs on that pool too.
+//! - **Apart, when configured.** With `database.job_connections` set, workers take their
+//!   connections from a pool of their own ([`Core::job_pool`]), so background work never uses
+//!   a connection an API request is waiting for; what a job does through [`Core::db`] runs on
+//!   that pool too. Without it (the default) they share the API's pool.
 //! - **Quiet.** A worker with nothing to do holds no connection and asks nothing of the
 //!   database until a job is queued here or the next one is due; it looks once in a while for
 //!   jobs left by instances that stopped.
@@ -287,7 +288,10 @@ async fn next_wake(core: &Core) -> Duration {
     match next.await {
         Ok(Some(seconds)) => Duration::from_secs_f64(seconds.clamp(0.5, IDLE_LOOK.as_secs_f64())),
         Ok(None) => {
-            core.job_pool().retain(|_, _| false);
+            // (the API's pool, when the workers share it, keeps its connections)
+            if core.has_job_pool() {
+                core.job_pool().retain(|_, _| false);
+            }
             IDLE_LOOK
         }
         Err(_) => Duration::from_secs(30),

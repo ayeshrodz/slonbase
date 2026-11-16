@@ -75,8 +75,10 @@ pub struct HooksConfig {
     pub watch: bool,
     /// How long a JavaScript handler may run, in seconds (the time it waits in `e.next()` not
     /// counted); 0 for no limit. A handler that takes longer is stopped and fails.
+    #[serde(skip_serializing_if = "is_zero")]
     pub timeout_seconds: u64,
     /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
+    #[serde(skip_serializing_if = "is_zero")]
     pub memory_limit_mb: usize,
 }
 
@@ -176,6 +178,12 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// (settings added in 2.7 are left out of a written file while they are 0, so the file stays
+/// one an earlier version reads)
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -212,6 +220,12 @@ pub struct DatabaseConfig {
     /// Extra PEM CA bundle to trust for TLS connections (e.g. a managed provider's CA).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_file: Option<PathBuf>,
+    /// Connections of their own for background jobs, beside `max_connections` (for the main
+    /// installation and for each project), so a job never waits for one the API is using.
+    /// 0, the default: jobs use the pool of `max_connections`, and an instance opens no more
+    /// connections than before this setting existed.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub job_connections: usize,
     /// Connects to this database instead of the URL's (set for projects, never saved).
     #[serde(skip)]
     pub dbname: Option<String>,
@@ -228,6 +242,7 @@ impl Default for DatabaseConfig {
             listen_url: None,
             statement_timeout: 0,
             ca_file: None,
+            job_connections: 0,
             dbname: None,
             user: None,
         }
@@ -484,6 +499,28 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, "[database]\nurll = \"typo\"\n").unwrap();
         assert!(load(&path, Overrides::default()).is_err());
+    }
+
+    #[test]
+    fn a_written_file_has_no_new_setting_left_at_its_default() {
+        // (so an earlier version, which refuses settings it doesn't know, still reads it)
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        save(&path, &Config::default()).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        for key in [
+            "timeout_seconds",
+            "memory_limit_mb",
+            "job_connections",
+            "dev",
+        ] {
+            assert!(!written.contains(key), "{key} in:\n{written}");
+        }
+        let mut set = Config::default();
+        set.database.job_connections = 2;
+        set.hooks.timeout_seconds = 30;
+        save(&path, &set).unwrap();
+        assert_eq!(load(&path, Overrides::default()).unwrap().file, set);
     }
 
     #[test]

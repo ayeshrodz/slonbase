@@ -415,13 +415,20 @@ pub async fn send_api(
             format!("At most {SENDS_PER_MINUTE} emails a minute can be sent this way."),
         ));
     }
-    // the send's id: what the key comes to for this template, or a new one
+    // the send's id: what the key comes to for this caller and template, or a new one (a key
+    // is the caller's own: another caller's use of the same key is another send)
     let send = match key {
-        Some(key) => {
-            hex::encode(sha2::Sha256::digest(format!("{id}\n{key}").as_bytes()))[..20].to_string()
-        }
+        Some(key) => hex::encode(sha2::Sha256::digest(
+            format!("{caller}\n{id}\n{key}").as_bytes(),
+        ))[..20]
+            .to_string(),
         None => crate::ids::random_id(20),
     };
+    // what was asked, so that a key used again for something else is refused rather than
+    // taken for a repeat of the first request
+    let asked = hex::encode(sha2::Sha256::digest(
+        json!({ "to": to, "data": data }).to_string().as_bytes(),
+    ));
     // all of the send or none of it: a failure midway leaves nothing queued, so asking again
     // can't send to the first addresses twice
     let mut client = core
@@ -442,13 +449,33 @@ pub async fn send_api(
                 &[
                     &SEND_KIND,
                     &id,
-                    &json!({ "to": address, "data": data, "send": send }),
+                    &json!({ "to": address, "data": data, "send": send, "request": asked }),
                     &format!("template-send:{send}:{n}"),
                     &SEND_ATTEMPTS,
                 ],
             )
             .await
             .map_err(|e| ApiError::internal(e.into()))?;
+    }
+    if key.is_some() {
+        // (read after the inserts, which wait for a concurrent send with the same key to
+        // commit: its emails are seen here)
+        let other = tx
+            .query_one(
+                "SELECT count(*) FROM _slonbase.jobs
+                 WHERE kind = $1 AND dedupe LIKE $2
+                   AND payload->>'request' IS DISTINCT FROM $3",
+                &[&SEND_KIND, &format!("template-send:{send}:%"), &asked],
+            )
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?
+            .get::<_, i64>(0);
+        if other > 0 {
+            return Err(ApiError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "The Idempotency-Key was already used for a different request.",
+            ));
+        }
     }
     tx.commit()
         .await
