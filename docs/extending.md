@@ -193,12 +193,14 @@ functions.
 - **Files:** uploaded and `$filesystem` files can be set on a file field before
   `$app.save(record)`. When they're mixed with stored file names, the names are kept and the
   files are appended.
-- **Limits:** a handler's own code may run for `hooks.timeout_seconds` (60 by default). What
+- **Limits:** a handler's own code may run for `hooks.timeout_seconds` (no limit by default;
+  60 is a sensible value). What
   it waits for is not counted: `e.next()`, a query, an HTTP request and `sleep` have limits of
   their own (set `database.statement_timeout` so a query that waits for a lock can't hold a
   runtime indefinitely). One that runs longer is stopped and its request fails.
   A cron job has an hour, a function run as an automation's step five minutes. Each runtime may
-  use `hooks.memory_limit_mb` of memory (128 by default). A runtime whose handler was stopped,
+  use `hooks.memory_limit_mb` of memory (no limit by default; 128 is a sensible value). A
+  runtime whose handler was stopped,
   or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit.
 - **Reloading:** when the hook files change, slonbase restarts itself. It's the same process,
   re-executed with the same arguments, after up to 5 seconds for open requests. Turn this off

@@ -312,7 +312,8 @@ async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors)
         }
     }
     if !notify.webhook.is_empty() {
-        if let Err(message) = services::webhook::check(&notify.webhook).await {
+        // (http as before; an https one is signed, see `make_secrets`)
+        if let Err(message) = outbound::check(&notify.webhook).await {
             errors.invalid("notify.webhook", message);
         }
     }
@@ -1259,7 +1260,10 @@ fn make_secrets(def: &mut JobDef, saved: Option<&JobDef>, body: &Map<String, Val
         .get("notify")
         .and_then(|n| n.get("rotateSecret"))
         .is_some_and(|r| r == true);
-    if notify.webhook.is_empty() {
+    // (a secret only for an https address: an http one is sent unsigned, as it always was,
+    // since a signature there would only prove what anyone on the way can read)
+    let https = reqwest::Url::parse(&notify.webhook).is_ok_and(|u| u.scheme() == "https");
+    if notify.webhook.is_empty() || !https {
         notify.secret.clear();
         notify.previous_secret.clear();
         notify.previous_until.clear();

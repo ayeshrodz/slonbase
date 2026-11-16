@@ -572,20 +572,25 @@ async fn a_webhook_is_signed_with_a_secret_made_here() {
         assert_eq!(status, StatusCode::BAD_REQUEST, "{secret}: {res}");
     }
 
-    // a notice webhook is signed the same way
+    // a notice webhook is signed the same way when it is https; an http one is saved as it
+    // always was, unsigned
     let mut noticed = hook("tell", json!({ "url": "https://93.184.216.34/hooks/x" }));
     noticed["name"] = json!("Noticed");
-    noticed["notify"] = json!({ "webhook": "http://93.184.216.34/notice" });
-    let (status, res) = call(
-        &app,
-        &token,
-        "POST",
-        "/api/automations",
-        Some(noticed.clone()),
-    )
-    .await;
-    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
-    assert!(res["data"]["notify"]["webhook"].is_object(), "{res}");
+    let mut plain = noticed.clone();
+    plain["name"] = json!("Noticed plainly");
+    plain["notify"] = json!({ "webhook": "http://93.184.216.34/notice" });
+    let saved = ok(&app, &token, "POST", "/api/automations", plain).await;
+    assert!(saved["secrets"].get("notify").is_none(), "{saved}");
+    let plain_id = saved["id"].as_str().unwrap().to_string();
+    let settings = core.settings();
+    let stored = &settings
+        .cron_jobs
+        .iter()
+        .find(|j| j.id == plain_id)
+        .unwrap()
+        .notify;
+    assert_eq!(stored.webhook, "http://93.184.216.34/notice");
+    assert!(stored.secret.is_empty());
     noticed["notify"] = json!({ "webhook": "https://93.184.216.34/notice" });
     let saved = ok(&app, &token, "POST", "/api/automations", noticed).await;
     let notice = saved["secrets"]["notify"].as_str().unwrap().to_string();

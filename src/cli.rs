@@ -136,11 +136,11 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
     hooks_watch: Option<bool>,
 
-    /// Seconds a JavaScript handler may run, 0 for no limit [default: 60].
+    /// Seconds a JavaScript handler may run, 0 for no limit [default: 0].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_TIMEOUT")]
     hooks_timeout: Option<u64>,
 
-    /// MB of memory one JavaScript runtime may use, 0 for no limit [default: 128].
+    /// MB of memory one JavaScript runtime may use, 0 for no limit [default: 0].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_MEMORY")]
     hooks_memory: Option<usize>,
 

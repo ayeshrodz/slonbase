@@ -86,8 +86,9 @@ impl Default for HooksConfig {
             dir: PathBuf::from("slonbase_hooks"),
             pool_size: 10,
             watch: true,
-            timeout_seconds: 60,
-            memory_limit_mb: 128,
+            // (off unless set: hooks that ran before keep running as they did)
+            timeout_seconds: 0,
+            memory_limit_mb: 0,
         }
     }
 }

@@ -128,9 +128,9 @@ came from here and wasn't changed, with a library that exists for most languages
 - A status other than 2xx fails the step, and it is retried with the automation's retries. A
   redirect is not followed: it counts as a failure, so what is sent only goes to the address
   you gave.
-- The webhook that tells you about failures is signed the same way, with a secret of its own.
-  One saved before 2.7 is sent unsigned until the automation is saved again, and must be
-  `https://` from then on.
+- The webhook that tells you about failures is signed the same way, with a secret of its own,
+  when its address is `https://` (from the automation's next save, for one saved before 2.7).
+  An `http://` one is sent unsigned, as before.
 
 Verifying in Node.js:
 

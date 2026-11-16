@@ -38,7 +38,7 @@ changes, listed in its **Upgrading** section.
   [Standard Webhooks](https://www.standardwebhooks.com/) signature (`webhook-id`,
   `webhook-timestamp`, `webhook-signature`), so its receiver can verify it. The secret is made
   by the server and shown once; replacing it keeps the old one signing for 24 hours. The webhook
-  for failure notices is signed the same way.
+  for failure notices is signed the same way when it is `https://`.
 - **Functions of hook files as steps.** `automationStep("name", (input, context) => …)` in a
   hook file registers a function that a "Run a hook function" step runs; what it returns is the
   step's result.
@@ -87,14 +87,13 @@ changes, listed in its **Upgrading** section.
   are converted at the first start, and read as they are from a backup made by an earlier
   version.
 
-- **JavaScript handlers have a time limit and runtimes a memory limit.** A handler may run for
-  60 seconds (`hooks.timeout_seconds`; the time JavaScript itself runs, not what it waits for
-  in `e.next()`, queries, HTTP requests or `sleep`) and a
-  runtime may use 128 MB (`hooks.memory_limit_mb`); `0` turns either off. A handler that runs
-  longer is stopped and its request fails; the runtime is replaced. A cron job registered by
-  code is now really stopped after its hour, where before it was only no longer waited for.
-- **A failure notice's webhook must be `https://`** when an automation is saved, and is signed
-  from then on.
+- **JavaScript handlers can have a time limit and runtimes a memory limit.** Both are off
+  unless set: `hooks.timeout_seconds` (the time JavaScript itself runs, not what it waits for
+  in `e.next()`, queries, HTTP requests or `sleep`) and `hooks.memory_limit_mb`. A handler that
+  runs longer is stopped and its request fails; the runtime is replaced. A cron job registered
+  by code is now really stopped after its hour, where before it was only no longer waited for.
+- **A failure notice's `https://` webhook is signed.** One saved with an `http://` address is
+  sent as before, unsigned.
 - **Cron jobs are automations.** A cron job made in Settings, Cron jobs is an automation of one
   step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
   dashboard lists them under Automations; the old page's address leads there.
@@ -107,13 +106,9 @@ changes, listed in its **Upgrading** section.
 
 ### Upgrading
 
-- **Hooks that run long:** a JavaScript handler whose own code runs for more than 60 seconds
-  (waiting in `e.next()`, for the database, for an HTTP request or in `sleep` is not counted)
-  is now stopped. Raise
-  `hooks.timeout_seconds` (or set it to `0`) before upgrading if you have one. A hook file that
-  keeps more than 128 MB in memory needs a higher `hooks.memory_limit_mb`.
-- An automation whose failure notices go to an `http://` webhook keeps sending them, unsigned;
-  to save a change to it, move the webhook to `https://`.
+- Nothing to do for hooks or failure notices: the new limits are off unless set, and notice
+  webhooks keep their addresses (an `https://` one is signed from its next save, and its
+  receiver may verify the signature or ignore it).
 - Rust embedders: `HooksConfig` has two new fields (`timeout_seconds`, `memory_limit_mb`) and
   `ServerConfig` one (`dev`); build them with `..Default::default()`.
 - A job that calls an `http://` address with a credential header keeps running as it is; to
