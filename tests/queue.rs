@@ -327,6 +327,24 @@ async fn a_waiting_request_or_job_takes_whichever_connection_frees_first() {
         .unwrap()
         .unwrap();
 
+    // a request begun while a job runs, the API's three in use: it gets the reserved connection
+    // as soon as the job is done
+    let working = db.working();
+    let waiting = tokio::spawn({
+        let core = core.clone();
+        async move { core.db().get().await.map(drop) }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(
+        !waiting.is_finished(),
+        "a request took the reserve while a job ran"
+    );
+    drop(working);
+    let got = tokio::time::timeout(soon, waiting).await;
+    got.expect("the request didn't take the reserve once the job was done")
+        .unwrap()
+        .unwrap();
+
     // a job running and past its wait, the API's three still in use: it gets the reserved
     // connection as soon as the other job lets it go
     let working = db.working();

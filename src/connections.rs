@@ -32,6 +32,9 @@ pub struct Connections {
     reserve: OnceLock<Pool>,
     /// How many workers (and lease renewals) are working: while any is, the reserve is theirs.
     working: AtomicUsize,
+    /// Told when the last worker stops, so requests waiting for a connection may take a
+    /// reserved one again.
+    idle: tokio::sync::Notify,
 }
 
 /// Held while a worker works: the reserve is the workers' until the last one is dropped.
@@ -39,7 +42,9 @@ pub struct Working<'a>(&'a Connections);
 
 impl Drop for Working<'_> {
     fn drop(&mut self) {
-        self.0.working.fetch_sub(1, Ordering::SeqCst);
+        if self.0.working.fetch_sub(1, Ordering::SeqCst) == 1 {
+            self.0.idle.notify_waiters();
+        }
     }
 }
 
@@ -49,6 +54,7 @@ impl Connections {
             api,
             reserve: OnceLock::new(),
             working: AtomicUsize::new(0),
+            idle: tokio::sync::Notify::new(),
         }
     }
 
@@ -71,35 +77,45 @@ impl Connections {
         let Some(reserve) = self.reserve.get() else {
             return self.api.get().await;
         };
-        if self.workers_busy() {
-            return self.api.get().await;
-        }
         // the API's own first, then the reserve, without waiting for either
         match self.api.timeout_get(&now(&self.api)).await {
             Err(PoolError::Timeout(deadpool_postgres::TimeoutType::Wait)) => {}
             answer => return answer,
         }
-        if let Ok(object) = reserve.timeout_get(&now(reserve)).await {
+        if !self.workers_busy()
+            && let Ok(object) = reserve.timeout_get(&now(reserve)).await
             // (a worker that began meanwhile has it: it goes back to the reserve)
-            if !self.workers_busy() {
-                return Ok(object);
-            }
+            && !self.workers_busy()
+        {
+            return Ok(object);
         }
-        // both in use: whichever frees one first (the reserve's only while no worker works)
+        // both in use: whichever frees one first, the reserve's only while no worker works
+        // (and when the last worker stops, the reserve is eligible again)
         let api = self.api.get();
         tokio::pin!(api);
-        if !self.workers_busy() {
-            tokio::select! {
-                biased;
-                answer = &mut api => return answer,
-                Ok(object) = reserve.get() => {
-                    if !self.workers_busy() {
-                        return Ok(object);
+        loop {
+            let idle = self.idle.notified();
+            tokio::pin!(idle);
+            // (registered before looking, so a worker stopping meanwhile isn't missed)
+            idle.as_mut().enable();
+            if self.workers_busy() {
+                tokio::select! {
+                    biased;
+                    answer = &mut api => return answer,
+                    _ = &mut idle => {}
+                }
+            } else {
+                tokio::select! {
+                    biased;
+                    answer = &mut api => return answer,
+                    Ok(object) = reserve.get() => {
+                        if !self.workers_busy() {
+                            return Ok(object);
+                        }
                     }
                 }
             }
         }
-        api.await
     }
 
     /// A connection for the job queue: one of the reserve, or after [`JOB_WAIT`] without one,
