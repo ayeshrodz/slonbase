@@ -134,6 +134,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "event_triggers",
         sql: include_str!("../migrations/0023_event_triggers.sql"),
     },
+    Migration {
+        version: 24,
+        name: "event_trigger_inserts",
+        sql: include_str!("../migrations/0024_event_trigger_inserts.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the versions that were applied.
