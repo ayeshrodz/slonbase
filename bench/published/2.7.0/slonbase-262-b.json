@@ -4,7 +4,7 @@
  "duration": "10s",
  "cpus": "4",
  "runs": 3,
- "note": "",
+ "note": "built from v2.6.2 (9d9b8e63106e086295f9b9b9de5158a9e0fa21fc)",
  "footprint": {
   "binaryBytes": 24834904,
   "startupMs": 24,

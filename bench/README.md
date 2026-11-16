@@ -129,7 +129,9 @@ of how much of slonbase's speed comes from PostgreSQL itself. How it was set up 
 2.7.0 against 2.6.2, both built from source here (`cargo build --release`, the same toolchain),
 on the same 4-vCPU cloud VM (Intel Xeon @ 2.30GHz) with PostgreSQL 16: two passes of `run.sh`,
 2.6.2 and 2.7 alternately, each scenario three times per pass, so each cell is the median of six
-runs and ± is half their spread. The raw runs are in `published/2.7.0/`.
+runs and ± is half their spread. The raw runs are in `published/2.7.0/`; each result's `note` names
+the commit it was built from (`v2.6.2`, and `419b57a` for 2.7.0, whose version still read 2.6.2
+before the release). Pass `BENCH_NOTE` to `run.sh` to record it the same way.
 
 | Scenario | Clients | 2.6.2 req/s | 2.7.0 req/s | 2.7 / 2.6.2 | p99 ms (2.6.2 / 2.7) |
 |---|--:|--:|--:|--:|--:|

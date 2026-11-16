@@ -479,6 +479,33 @@ async fn a_template_is_sent_from_code_and_through_the_api() {
     assert!(eventually(async || mailer.sent.lock().unwrap().len() == 5).await);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(mailer.sent.lock().unwrap().len(), 5);
+    // the same request with its members in another order is the same request
+    let reordered = [
+        ("authorization", format!("Bearer {token}")),
+        ("idempotency-key", "order-2".to_string()),
+    ];
+    let reordered: Vec<(&str, &str)> = reordered.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, sent) = request(
+        &app,
+        "POST",
+        &send,
+        &reordered,
+        Some(json!({ "to": "e2@example.com", "data": { "name": "Eve", "order": { "id": 1, "total": 2 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{sent}");
+    assert_eq!(sent["queued"], 1);
+    let (status, again) = request(
+        &app,
+        "POST",
+        &send,
+        &reordered,
+        Some(json!({ "data": { "order": { "total": 2, "id": 1 }, "name": "Eve" }, "to": "e2@example.com" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["duplicate"], true);
+    assert!(eventually(async || mailer.sent.lock().unwrap().len() == 6).await);
     // the key used again for another request is refused, not taken for a repeat (nothing of
     // it is queued)
     for other in [
@@ -490,7 +517,7 @@ async fn a_template_is_sent_from_code_and_through_the_api() {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{res}");
     }
     tokio::time::sleep(Duration::from_millis(500)).await;
-    assert_eq!(mailer.sent.lock().unwrap().len(), 5);
+    assert_eq!(mailer.sent.lock().unwrap().len(), 6);
 
     // developers may send, viewers may not
     for (role, want) in [

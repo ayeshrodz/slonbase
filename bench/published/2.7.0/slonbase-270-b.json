@@ -4,7 +4,7 @@
  "duration": "10s",
  "cpus": "4",
  "runs": 3,
- "note": "",
+ "note": "built from 419b57a8b46636f14cd6593e61095d316e6d7e7a, the 2.7.0 candidate (its Cargo.toml still says 2.6.2)",
  "footprint": {
   "binaryBytes": 26867800,
   "startupMs": 25,

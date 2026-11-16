@@ -426,9 +426,10 @@ pub async fn send_api(
     };
     // what was asked, so that a key used again for something else is refused rather than
     // taken for a repeat of the first request
-    let asked = hex::encode(sha2::Sha256::digest(
-        json!({ "to": to, "data": data }).to_string().as_bytes(),
-    ));
+    // (members sorted: the same data sent again in another order is the same request)
+    let mut request = json!({ "to": to, "data": data });
+    request.sort_all_objects();
+    let asked = hex::encode(sha2::Sha256::digest(request.to_string().as_bytes()));
     // all of the send or none of it: a failure midway leaves nothing queued, so asking again
     // can't send to the first addresses twice
     let mut client = core
@@ -459,13 +460,17 @@ pub async fn send_api(
     }
     if key.is_some() {
         // (read after the inserts, which wait for a concurrent send with the same key to
-        // commit: its emails are seen here)
+        // commit: its emails are seen here; every address a send can have is looked up, by
+        // the unique index, since its jobs are pruned one by one)
+        let keys: Vec<String> = (0..mail::MAX_RECIPIENTS)
+            .map(|n| format!("template-send:{send}:{n}"))
+            .collect();
         let other = tx
             .query_one(
                 "SELECT count(*) FROM _slonbase.jobs
-                 WHERE kind = $1 AND dedupe LIKE $2
+                 WHERE dedupe = ANY($2) AND kind = $1
                    AND payload->>'request' IS DISTINCT FROM $3",
-                &[&SEND_KIND, &format!("template-send:{send}:%"), &asked],
+                &[&SEND_KIND, &keys, &asked],
             )
             .await
             .map_err(|e| ApiError::internal(e.into()))?
