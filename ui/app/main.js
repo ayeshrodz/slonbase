@@ -310,6 +310,7 @@ function StatusBar() {
 function Shell() {
   const { path } = useStore(route);
   const theme = useStore(app, (s) => s.theme);
+  const health = useStore(app, (s) => s.health);
   const [palette, setPalette] = useState(false);
   const [collapsed, setCollapsed] = useState(storedCollapsed);
   const [navOpen, setNavOpen] = useState(false);
@@ -372,6 +373,7 @@ function Shell() {
   else if ((params = match("/settings/:section?", path))) page = html`<${Settings} section=${params.section || "general"} />`;
   else page = html`<div class="page"><div class="empty"><h3>Page not found</h3><a href="#/">Back to the overview</a></div></div>`;
 
+  const dev = !!(health && health.dev);
   return html`<div class=${cx("app", { collapsed, "nav-open": navOpen })}>
     <${Sidebar}
       path=${path}
@@ -392,6 +394,7 @@ function Shell() {
         <span class="spacer"></span>
         <button class="icon-btn" aria-label="Search" onClick=${() => setPalette(true)}><${Icon} name="search" size=${18} /></button>
       </header>
+      ${dev && html`<div class="dev-banner" role="status"><${Icon} name="code" size=${14} /> Development mode: errors show their details and the SQL that runs is logged. Not for production.</div>`}
       <main key=${path.split("/")[1]} class="fade-in app-page">${page}</main>
       <${StatusBar} />
     </div>

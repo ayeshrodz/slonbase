@@ -323,6 +323,7 @@ impl Core {
         let outcome = async {
             let mut client = self.client().await?;
             let tx = client.transaction().await.map_err(db_error)?;
+            crate::origin::mark(&tx).await.map_err(db_error)?;
             let record = save_in(self, &registry, &tx, &c, data, uploads, &mut effects).await?;
             tx.commit().await.map_err(db_error)?;
             Ok(record)
@@ -343,6 +344,7 @@ impl Core {
         let outcome = async {
             let mut client = self.client().await?;
             let tx = client.transaction().await.map_err(db_error)?;
+            crate::origin::mark(&tx).await.map_err(db_error)?;
             delete_in_tx(self, &registry, &tx, &c, id, &mut effects).await?;
             tx.commit().await.map_err(db_error)?;
             Ok(())

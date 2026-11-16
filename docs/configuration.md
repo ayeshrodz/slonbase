@@ -36,6 +36,9 @@ file, and then the defaults.
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
+| `--hooks-timeout` | `SLONBASE_HOOKS_TIMEOUT` | `hooks.timeout_seconds` | `0` (seconds a JavaScript handler may run; `0`: no limit) |
+| `--hooks-memory` | `SLONBASE_HOOKS_MEMORY` | `hooks.memory_limit_mb` | `0` (MB per JavaScript runtime; `0`: no limit) |
+| `--dev` | `SLONBASE_DEV` | `server.dev` | off ([development mode](extending.md#development-mode)) |
 | `--migrations-dir` | `SLONBASE_MIGRATIONS_DIR` | `migrations.dir` | `slonbase_migrations` |
 | `--automigrate` | `SLONBASE_AUTOMIGRATE` | `migrations.automigrate` | `false` |
 | `--projects-path` | `SLONBASE_PROJECTS_PATH` | `projects.path` | `slonbase_data/projects` |
@@ -77,6 +80,8 @@ path = "slonbase_data/backups"
 dir = "slonbase_hooks"
 pool_size = 10
 watch = true
+timeout_seconds = 0     # a handler that runs longer is stopped; 0 = no limit (e.g. 60)
+memory_limit_mb = 0     # per runtime; 0 = no limit (e.g. 128)
 
 [migrations]          # see migrations.md
 dir = "slonbase_migrations"

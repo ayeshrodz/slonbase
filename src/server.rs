@@ -122,6 +122,11 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/cron-preview", post(crate::cron_jobs::preview))
         .route("/api/jobs/runs", get(crate::jobs::runs))
         .route("/api/extensions", get(crate::extensions::list))
+        .route("/api/extensions/settings", get(crate::extensions::settings))
+        .route(
+            "/api/extensions/settings/{name}",
+            axum::routing::patch(crate::extensions::save_settings),
+        )
         .route("/api/team", get(crate::roles::list))
         .route("/api/team/me", get(crate::roles::me))
         .route(
@@ -160,6 +165,7 @@ fn app_router(app: Arc<App>) -> Router {
             axum::routing::patch(crate::templates::update).delete(crate::templates::delete),
         )
         .route("/api/templates/{id}/test", post(crate::templates::test))
+        .route("/api/templates/{id}/send", post(crate::templates::send_api))
         .route(
             "/api/collections/meta/scaffolds",
             get(collections::api::scaffolds),
@@ -631,6 +637,9 @@ async fn health(
                     ip.map(|ip| ip.to_string()).unwrap_or_default().into(),
                 );
                 data.insert("possibleProxyHeader".into(), proxy_header.into());
+                if core.dev {
+                    data.insert("dev".into(), true.into());
+                }
             }
             match core.health.check(&core.pool).await {
                 Health::Up => Json(json!({

@@ -65,6 +65,8 @@ pub struct Core {
     pub sql_console_writes: bool,
     /// The role the SQL console runs as (`SET LOCAL ROLE`), if not slonbase's own.
     pub sql_console_role: Option<String>,
+    /// Development mode (see [`crate::config::ServerConfig::dev`]).
+    pub dev: bool,
     /// The storage directory used unless S3 is enabled in the settings.
     local_storage: PathBuf,
     storage: RwLock<Arc<Storage>>,
@@ -202,6 +204,7 @@ impl Core {
         crate::cron_jobs::register(&mut handlers);
         crate::hooks::register_jobs(&mut handlers);
         crate::backups::register_jobs(&mut handlers);
+        crate::templates::register_jobs(&mut handlers);
         Ok(Arc::new(Self {
             pool,
             job_pool: Default::default(),
@@ -226,6 +229,7 @@ impl Core {
             sql_console: config.server.sql_console,
             sql_console_writes: config.server.sql_console_writes,
             sql_console_role: config.server.sql_console_role.clone(),
+            dev: config.server.dev,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
             schema_lock: tokio::sync::Mutex::new(()),

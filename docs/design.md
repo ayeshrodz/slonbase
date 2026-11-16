@@ -1061,6 +1061,73 @@ feature registers with them and leaves the request path (records, auth, rules, r
 `GET /api/extensions` (Settings, Extensions) lists what an instance has loaded: hook files,
 handlers and routes, cron jobs registered by code, the queue's kinds and the settings' sections.
 
+### Events: automations started by a record's change
+
+`src/events.rs`, `src/origin.rs`, migration 23.
+
+- **The source is the realtime outbox.** Every change of a collection table is already written
+  to `_slonbase.events` by a trigger, in the change's transaction, with its transaction id. An
+  automation with `trigger.type = "record"` is started from those rows, so changes by any writer
+  count and rolled-back ones never do. Nothing new is written per change, except for updates
+  of watched collections, which also record the names of the fields that changed (`changed`; the
+  trigger looks the collection up in `_slonbase.event_watchers`, one index probe per update).
+- **A durable cursor.** `_slonbase.event_cursor` holds a transaction snapshot: changes visible
+  in it were dispatched. One pass, under an advisory lock so one instance dispatches at a time,
+  reads the changes not visible in the snapshot (the query realtime's poller uses), inserts a
+  queued job for each automation they start, and stores the new snapshot, all in one
+  transaction. So a change is turned into runs exactly once whatever stops in between, and
+  transactions that commit out of order are neither skipped nor read twice (event ids don't
+  follow commit order; snapshots do).
+- **Boundaries are written with the settings.** `settings::modify` calls `events::reconcile`
+  in the transaction that saves the settings (when who watches, or the pause, changed), under
+  the dispatcher's lock: the save and these happen together or not at all, and no pass runs
+  across them. It writes who watches and since when (`event_watchers`: a change older than an
+  automation's `since` is not its own, however late a pass comes), creates the cursor with the
+  first watcher and removes it with the last, keeps every pause of the last day (a change made
+  in one is not run, even when it is read after later pauses), and stores a fingerprint of the
+  watchers. A pass goes
+  by its instance's copy of the settings, and only dispatches when that copy's fingerprint is
+  the stored one: an instance that has yet to hear of a save stands back instead of moving
+  the cursor past changes meant for an automation it doesn't know. The dispatcher runs the
+  same reconciliation from the stored settings when it starts and when it finds a mismatch,
+  which covers a restore and settings changed by other means.
+- **Pruning.** The outbox is pruned after five minutes as before, except rows the cursor has
+  not passed, which stay up to a day. Without an automation of this kind there is no cursor, no
+  pass and no database work: the dispatcher only waits to be told the settings changed.
+- **Runs** are queued jobs of the same kind as scheduled runs (`cron.user`, payload
+  `trigger: "record"` with the change), so retries, the history, notices and the kept state of
+  a retry are the same code. They are not exclusive per automation: each change has its run.
+- **Loops end by construction.** A run executes inside `origin::scope(chain)`, where the chain
+  is the automations the change came through plus this one. Every transaction that writes
+  records (the record service, the SQL console's, the JavaScript natives', the transaction task
+  of `runInTransaction`) calls `origin::mark`, which sets `slonbase.origin` for the transaction;
+  the trigger copies it into the event. The chain is a task-local, handed to a JavaScript
+  runtime's thread with the job it runs. The dispatcher starts no automation that is already in
+  an event's chain and nothing for a chain of three. What a run causes through another server
+  is not marked; the limit of 1000 waiting runs per automation bounds it.
+- **Bounds:** 5000 changes per pass, 1000 waiting runs per automation; what is dropped is
+  logged and, per automation, recorded in its history.
+
+### Signed webhooks, limits on JavaScript, extension settings
+
+- **Webhooks** (`src/services/webhook.rs`) follow Standard Webhooks: HMAC-SHA256 over
+  `id.timestamp.body` with a server-made `whsec_` secret, https only, through the guarded
+  outbound request. The delivery id is derived from the run, the step and the item, so retries
+  repeat it. A secret is stored with its step (the settings row is sealed) and never leaves the
+  server after the answer that made it; rotation keeps the previous one for 24 hours.
+- **JavaScript limits** (`src/js/mod.rs`): QuickJS's interrupt handler checks a deadline per job
+  (handlers: `hooks.timeout_seconds`; cron jobs: an hour; step functions: five minutes). The
+  deadline moves by the time a handler waits in `e.next()` and in native calls, so it bounds
+  the time JavaScript runs. Each runtime has a memory limit. A
+  runtime that was interrupted or ran out of memory is dropped and a fresh one started in its
+  place, since its globals are in a state nobody chose.
+- **Extension settings** are a private section of the settings (`extensions`: values by page),
+  so storage, sealing, backups and synchronization between instances are the settings'. A page's
+  form is declared by code at load (`Hooks::settings`, `settingsAdd`) and never stored.
+- **Type definitions** (`src/js/types.rs`): a hand-written declaration of the hook API
+  (`src/js/types.d.ts`; a test checks every hook of the prelude is declared) followed by a
+  record type per collection generated from the registry.
+
 ### Performance
 
 Where the time goes was measured, not guessed: CPU split between slonbase and PostgreSQL

@@ -10,6 +10,7 @@
 
 pub mod migrate;
 mod native;
+pub mod types;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -71,8 +72,66 @@ struct Job {
     event: String,
     /// Files the handler can use (`e.findUploadedFiles()`), by token.
     uploads: Vec<(String, Upload)>,
+    /// How long the handler may run (see [`Limits`]).
+    limit: Option<std::time::Duration>,
+    /// The chain of automations the handler runs for (see [`crate::origin`]).
+    chain: Option<String>,
     out: tokio::sync::mpsc::UnboundedSender<FromJs>,
     resume: mpsc::Receiver<String>,
+}
+
+/// What stops a handler that runs too long. QuickJS asks its interrupt handler every so many
+/// operations; ours answers "stop" once the running job's deadline has passed. The limit is on
+/// the time JavaScript itself runs: what a handler waits for in `e.next()` (the rest of the
+/// request) and in native calls (a query, an HTTP request, `sleep`) is not its own, and has
+/// limits of its own, so the deadline moves by it.
+struct Limits {
+    started: std::time::Instant,
+    /// The deadline in milliseconds since `started`; 0 when the job has none.
+    deadline: std::sync::atomic::AtomicU64,
+    /// The running job was stopped at its deadline.
+    stopped: std::sync::atomic::AtomicBool,
+}
+
+impl Limits {
+    fn new() -> Self {
+        Self {
+            started: std::time::Instant::now(),
+            deadline: Default::default(),
+            stopped: Default::default(),
+        }
+    }
+
+    fn now(&self) -> u64 {
+        self.started.elapsed().as_millis() as u64
+    }
+
+    fn start(&self, limit: Option<std::time::Duration>) {
+        use std::sync::atomic::Ordering;
+        self.stopped.store(false, Ordering::SeqCst);
+        let deadline = limit.map_or(0, |l| (self.now() + l.as_millis() as u64).max(1));
+        self.deadline.store(deadline, Ordering::SeqCst);
+    }
+
+    /// Whether the running job is past its deadline (asked by the runtime while it runs).
+    fn over(&self) -> bool {
+        use std::sync::atomic::Ordering;
+        let deadline = self.deadline.load(Ordering::Relaxed);
+        if deadline == 0 || self.now() < deadline {
+            return false;
+        }
+        self.stopped.store(true, Ordering::SeqCst);
+        true
+    }
+
+    /// Moves the deadline by the `waited` milliseconds that were not the handler's.
+    fn pause(&self, waited: u64) {
+        use std::sync::atomic::Ordering;
+        let deadline = self.deadline.load(Ordering::SeqCst);
+        if deadline != 0 {
+            self.deadline.store(deadline + waited, Ordering::SeqCst);
+        }
+    }
 }
 
 type NextFn = Box<dyn FnOnce(Value) -> BoxFuture<Result<Value, ApiError>> + Send>;
@@ -82,6 +141,9 @@ struct Pool {
     jobs: mpsc::Sender<Job>,
     workers: Arc<Workers>,
 }
+
+/// How long a function run as an automation's step may take.
+const STEP_LIMIT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Most runtimes, the extra ones included.
 const MAX_RUNTIMES: usize = 256;
@@ -102,6 +164,10 @@ struct Workers {
     queued: std::sync::atomic::AtomicUsize,
     /// Running runtimes.
     total: std::sync::atomic::AtomicUsize,
+    /// How long a handler may run, unless its job says otherwise.
+    timeout: Option<std::time::Duration>,
+    /// The most memory a runtime may use, in bytes (0: no limit).
+    memory_limit: usize,
 }
 
 impl Workers {
@@ -185,6 +251,17 @@ impl Pool {
         self.run_with(index, event, next, Vec::new()).await
     }
 
+    /// [`Pool::run`] with a time limit of its own (a cron job, a step) instead of the
+    /// handlers'.
+    async fn run_limited(
+        &self,
+        index: usize,
+        event: Value,
+        limit: std::time::Duration,
+    ) -> Result<Value, ApiError> {
+        self.send(index, event, None, Vec::new(), Some(limit)).await
+    }
+
     /// [`Pool::run`] with uploaded files for the handler.
     async fn run_with(
         &self,
@@ -192,6 +269,18 @@ impl Pool {
         event: Value,
         next: Option<NextFn>,
         uploads: Vec<(String, Upload)>,
+    ) -> Result<Value, ApiError> {
+        let limit = self.workers.timeout;
+        self.send(index, event, next, uploads, limit).await
+    }
+
+    async fn send(
+        &self,
+        index: usize,
+        event: Value,
+        next: Option<NextFn>,
+        uploads: Vec<(String, Upload)>,
+        limit: Option<std::time::Duration>,
     ) -> Result<Value, ApiError> {
         let (out, mut from_js) = tokio::sync::mpsc::unbounded_channel();
         let (resume_tx, resume) = mpsc::channel();
@@ -203,6 +292,8 @@ impl Pool {
                 index,
                 event: event.to_string(),
                 uploads,
+                limit,
+                chain: crate::origin::current(),
                 out,
                 resume,
             })
@@ -250,6 +341,9 @@ struct Registration {
     /// Mail hooks: the kind of email (`verification`, ...), or empty for all.
     #[serde(default)]
     mail: String,
+    /// A settings page (`settingsAdd`).
+    #[serde(default)]
+    form: Option<crate::hooks::SettingsForm>,
 }
 
 /// The running job's channels, used by `e.next()`.
@@ -267,24 +361,38 @@ fn start_runtime(
     shared: &Arc<Shared>,
     files: &[(String, String)],
     slot: &JobSlot,
+    limits: &Arc<Limits>,
+    memory_limit: usize,
 ) -> Result<(Runtime, Context, String), String> {
     let rt = Runtime::new().map_err(|e| e.to_string())?;
     rt.set_max_stack_size(4 << 20);
+    if memory_limit > 0 {
+        rt.set_memory_limit(memory_limit);
+    }
+    let asked = limits.clone();
+    rt.set_interrupt_handler(Some(Box::new(move || asked.over())));
     let ctx = Context::full(&rt).map_err(|e| e.to_string())?;
     let registrations = ctx.with(|ctx| -> Result<String, String> {
         let globals = ctx.globals();
         let js = |e: rquickjs::Error| e.to_string();
         let call_shared = shared.clone();
+        let call_limits = limits.clone();
         globals
             .set(
                 "__native_call",
                 Function::new(ctx.clone(), move |name: String, args: String| {
-                    native::call(&call_shared, &name, &args)
+                    // (what a handler waits for outside JavaScript, a query, a request, a
+                    // sleep, is bounded by that thing's own limits, not by the handler's)
+                    let waiting = call_limits.now();
+                    let result = native::call(&call_shared, &name, &args);
+                    call_limits.pause(call_limits.now() - waiting);
+                    result
                 })
                 .map_err(js)?,
             )
             .map_err(js)?;
         let next_slot = slot.clone();
+        let next_limits = limits.clone();
         globals
             .set(
                 "__native_next",
@@ -298,9 +406,12 @@ fn start_runtime(
                     if out.send(FromJs::Next(state)).is_err() {
                         return envelope(Err(ApiError::bad_request("The request was cancelled.")));
                     }
-                    resume.recv().unwrap_or_else(|_| {
+                    let waiting = next_limits.now();
+                    let result = resume.recv().unwrap_or_else(|_| {
                         envelope(Err(ApiError::bad_request("The request was cancelled.")))
-                    })
+                    });
+                    next_limits.pause(next_limits.now() - waiting);
+                    result
                 })
                 .map_err(js)?,
             )
@@ -356,7 +467,8 @@ fn worker(
     let _running = Running(&workers);
     let (shared, files) = (&workers.shared, &workers.files);
     let slot: JobSlot = Rc::new(RefCell::new(None));
-    let (rt, ctx) = match start_runtime(shared, files, &slot) {
+    let limits = Arc::new(Limits::new());
+    let (rt, ctx) = match start_runtime(shared, files, &slot, &limits, workers.memory_limit) {
         Ok((rt, ctx, registrations)) => {
             if let Some(report) = report {
                 let _ = report.send(Ok(registrations));
@@ -389,6 +501,8 @@ fn worker(
         workers.queued.fetch_sub(1, Ordering::SeqCst);
         *slot.borrow_mut() = Some((job.out.clone(), job.resume));
         native::set_uploads(job.uploads);
+        limits.start(job.limit);
+        crate::origin::set_thread(job.chain);
         let result = ctx.with(|ctx| {
             let run = || -> rquickjs::Result<String> {
                 let dispatch: Function = ctx.globals().get("__dispatch")?;
@@ -401,14 +515,56 @@ fn worker(
             })
         });
         // promises created by the handler
+        // (one that fails leaves the others unrun and the runtime in a state nobody chose,
+        // out of memory among the causes: the runtime is replaced)
+        let mut drained = true;
         while rt.is_job_pending() {
             if rt.execute_pending_job().is_err() {
+                drained = false;
                 break;
             }
         }
         slot.borrow_mut().take();
         native::set_uploads(Vec::new());
+        crate::origin::set_thread(None);
+        // a handler stopped midway, or one that ran out of memory, leaves the runtime in a
+        // state nobody chose (half-changed globals, a heap at its limit): the runtime is
+        // not used again, a fresh one takes its place
+        let stopped = limits.stopped.load(Ordering::SeqCst);
+        // (an error's text, not an answer's: a handler may well write those words)
+        let failed = result.starts_with("{\"err\"") && result.contains("out of memory");
+        let exhausted = !stopped && (!drained || failed);
+        limits.start(None);
+        let result = match (stopped, job.limit) {
+            (true, Some(limit)) => {
+                tracing::error!(
+                    seconds = limit.as_secs(),
+                    "a JavaScript handler ran too long and was stopped"
+                );
+                envelope(Err(ApiError::internal(anyhow::anyhow!(
+                    "A JavaScript handler was stopped after {} seconds.",
+                    limit.as_secs()
+                ))))
+            }
+            _ => result,
+        };
         let _ = job.out.send(FromJs::Done(result));
+        if stopped || exhausted {
+            if exhausted {
+                tracing::error!(
+                    "a JavaScript runtime ran out of memory, or a promise of a handler failed: it is replaced"
+                );
+            }
+            let name = std::thread::current()
+                .name()
+                .unwrap_or("slonbase-js")
+                .to_string();
+            drop((ctx, rt));
+            if let Err(err) = workers.spawn(name, None, idle_timeout) {
+                tracing::error!(error = %err, "failed to replace a JavaScript runtime");
+            }
+            return;
+        }
     }
 }
 
@@ -447,6 +603,10 @@ pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::
         idle: Default::default(),
         queued: Default::default(),
         total: Default::default(),
+        timeout: Some(config.timeout_seconds)
+            .filter(|s| *s > 0)
+            .map(std::time::Duration::from_secs),
+        memory_limit: config.memory_limit_mb.saturating_mul(1 << 20),
     });
     let (report_tx, report_rx) = tokio::sync::oneshot::channel();
     let mut report = Some(report_tx);
@@ -490,7 +650,7 @@ fn register(
                 .loaded
                 .routes
                 .push((reg.method.clone(), reg.path.clone())),
-            "cron" | "cronRemove" => {}
+            "cron" | "cronRemove" | "automationStep" | "settings" => {}
             kind => hooks
                 .loaded
                 .handlers
@@ -695,10 +855,29 @@ fn register(
                 &reg.expression,
                 Arc::new(move |_| {
                     let pool = pool.clone();
-                    Box::pin(async move { pool.run(index, json!({}), None).await.map(|_| ()) })
+                    Box::pin(async move {
+                        pool.run_limited(index, json!({}), crate::hooks::CRON_RUN_LIMIT)
+                            .await
+                            .map(|_| ())
+                    })
                 }),
             )?,
             "cronRemove" => hooks.remove_cron(&reg.id),
+            "settings" => hooks.settings(crate::hooks::SettingsForm {
+                name: reg.id.clone(),
+                ..reg.form.clone().unwrap_or_default()
+            })?,
+            "automationStep" => hooks.add_step(
+                &reg.id,
+                Arc::new(move |_, input, context| {
+                    let pool = pool.clone();
+                    Box::pin(async move {
+                        let event = json!({ "input": input, "context": context });
+                        let mut state = pool.run_limited(index, event, STEP_LIMIT).await?;
+                        Ok(state["result"].take())
+                    })
+                }),
+            )?,
             "ready" => hooks.on_ready(move |_| {
                 let pool = pool.clone();
                 async move {

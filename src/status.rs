@@ -348,6 +348,28 @@ pub async fn status(
             ));
         }
     }
+    // automations started by record changes: the dispatcher keeps up, or says so
+    if settings
+        .cron_jobs
+        .iter()
+        .any(|j| j.enabled && j.trigger.is_record())
+    {
+        match crate::events::behind(&core).await {
+            Ok(0) => {}
+            Ok(waiting) => checks.push(check(
+                "automations-behind",
+                "warn",
+                "Record changes are waiting to start automations",
+                format!(
+                    "{waiting} change(s) made more than a minute ago have not been turned into runs yet. Check the database connections and the logs; changes wait for up to a day."
+                ),
+                "#/automations",
+            )),
+            Err(err) => {
+                tracing::debug!(error = %format!("{err:#}"), "failed to read how far automations are behind")
+            }
+        }
+    }
     if settings.security.login_lockout.attempts == 0 {
         checks.push(check(
             "login-lockout",

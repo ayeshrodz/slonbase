@@ -24,6 +24,8 @@ const STEP_TYPES = [
   { value: "email", label: "Send a template", name: "send", gives: "sent", repeat: true },
   { value: "write", label: "Change a record", name: "save", gives: "id", repeat: true },
   { value: "http", label: "Call a URL", name: "call", gives: "status, json, text", repeat: true },
+  { value: "webhook", label: "Send a signed webhook", name: "hook", gives: "status", repeat: true },
+  { value: "script", label: "Run a hook function", name: "run", gives: "result", repeat: true },
   { value: "mail", label: "Send a plain email", name: "notify", gives: "sent", repeat: true },
   { value: "cleanup", label: "Clean up records", name: "cleanup", gives: "deleted" },
   { value: "sql", label: "Run SQL", name: "rows", gives: "rows, count, affectedRows", owner: true },
@@ -72,6 +74,11 @@ function formOf(type, c = {}) {
       return { action: c.action || "update", collection: c.collection || "", id: c.id || "", data: jsonText(c.data) };
     case "http":
       return { url: c.url || "", method: c.method || "GET", headers: headerLines(c.headers), body: c.body || "", timeout: String(c.timeoutSeconds || 30), expect: c.expectStatus ? String(c.expectStatus) : "" };
+    case "webhook":
+      // (the secret is the server's: sent back as it came, hidden, or asked to be replaced)
+      return { url: c.url || "", payload: jsonText(c.payload), timeout: String(c.timeoutSeconds || 30), secret: c.secret || "", rotate: false, previousUntil: c.previousUntil || "" };
+    case "script":
+      return { function: c.function || "", input: jsonText(c.input) };
     case "mail":
       return { to: Array.isArray(c.to) ? c.to.join(", ") : c.to || "", subject: c.subject || "", body: c.body || "" };
     case "cleanup":
@@ -96,6 +103,10 @@ function configOf(type, f) {
       return { action: f.action, collection: f.collection, id: f.id, data: jsonValue(f.data) };
     case "http":
       return { url: f.url, method: f.method, headers: headerObject(f.headers), body: f.body, timeoutSeconds: num(f.timeout), expectStatus: num(f.expect) };
+    case "webhook":
+      return { url: f.url, payload: jsonValue(f.payload), timeoutSeconds: num(f.timeout), secret: f.secret, rotate: f.rotate || undefined };
+    case "script":
+      return { function: f.function, input: jsonValue(f.input) };
     case "mail":
       return { to: f.to, subject: f.subject, body: f.body };
     case "cleanup":
@@ -145,7 +156,7 @@ const EXAMPLES = [
   { label: "Weekly email", fill: () => ({ name: "Weekly reminder", expression: "0 8 * * 1", steps: [{ type: "mail", config: { subject: "Weekly reminder", body: "A reminder for this week." } }] }) },
 ];
 
-function StepFields({ step, set, errors, at, collections, templates, sqlOn }) {
+function StepFields({ step, set, errors, at, collections, templates, sqlOn, functions }) {
   const f = step.f;
   const e = (key) => errors[`${at}.config.${key}`];
   const up = (key) => (value) => set({ f: { ...f, [key]: value } });
@@ -199,6 +210,23 @@ function StepFields({ step, set, errors, at, collections, templates, sqlOn }) {
           <${Field} label="Counts as success" error=${e("expectStatus")} help="A status code; empty means any 2xx"><${Input} type="number" min="100" max="599" value=${f.expect} onInput=${up("expect")} placeholder="2xx" /></${Field}>
         </div>
       </div>`;
+    case "webhook":
+      return html`<div class="stack">
+        <${Field} label="URL" error=${e("url")} help="An https:// address that gets a JSON POST, signed so its receiver can check it came from here (Standard Webhooks). Data can fill in the path, not the server."><${Input} class="mono" value=${f.url} onInput=${up("url")} placeholder="https://example.com/hooks/orders" /></${Field}>
+        <${Field} label="What to send" error=${e("payload")} help="JSON. Empty: what started the run (trigger) and the item.">${area("payload", 3, '{ "order": "{{ trigger.record.id }}" }')}</${Field}>
+        <div class="grid-2">
+          <${Field} label="Time limit (seconds)" error=${e("timeoutSeconds")}><${Input} type="number" min="1" max="60" value=${f.timeout} onInput=${up("timeout")} /></${Field}>
+          <${Field} label="Signing secret" error=${e("secret")} help=${f.secret ? (f.previousUntil ? `The one before it also signs until ${f.previousUntil}` : "Shown once, when it was made") : "Made when you save, and shown once"}>
+            ${f.secret ? html`<${Switch} checked=${f.rotate} onChange=${up("rotate")} label=${f.rotate ? "A new one is made when you save" : "Replace it"} />` : html`<span class="small muted">None yet</span>`}
+          </${Field}>
+        </div>
+      </div>`;
+    case "script":
+      return html`<div class="stack">
+        ${functions && functions.length === 0 && html`<${Callout} kind="info">No hook file registers a function yet: add <code>automationStep("name", (input, context) => …)</code> to a hook file.</${Callout}>`}
+        <${Field} label="Function" error=${e("function")} help="Registered in a hook file with automationStep(). What it returns is this step's result."><${Select} value=${f.function} onChange=${up("function")} options=${[{ value: "", label: "Choose…" }, ...(functions || []).map((n) => ({ value: n, label: n })), ...(f.function && !(functions || []).includes(f.function) ? [{ value: f.function, label: f.function }] : [])]} /></${Field}>
+        <${Field} label="Input" error=${e("input")} help="JSON, given to the function">${area("input", 3, '{ "id": "{{ trigger.record.id }}" }')}</${Field}>
+      </div>`;
     case "mail":
       return html`<div class="stack">
         <${Field} label="To" error=${e("to")} help="Up to 10 addresses, separated by commas. Sent through Settings → Mail."><${Input} value=${f.to} onInput=${up("to")} placeholder="ops@example.com" /></${Field}>
@@ -234,6 +262,15 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
   const [sqlOn, setSqlOn] = useState(null);
   const [name, setName] = useState(job ? (copyOf ? `Copy of ${job.name}`.slice(0, 60) : job.name) : "");
   const [expression, setExpression] = useState(job ? job.expression : "0 3 * * *");
+  // what starts it: its schedule, or a record's change
+  const byRecord = !!(job && job.trigger && job.trigger.type === "record");
+  const [starts, setStarts] = useState(byRecord ? "record" : "schedule");
+  const [watched, setWatched] = useState(byRecord ? job.trigger.collection || "" : "");
+  const [actions, setActions] = useState(byRecord ? job.trigger.actions || [] : ["create"]);
+  const [condition, setCondition] = useState(byRecord ? job.trigger.condition || "" : "");
+  const [functions, setFunctions] = useState(null);
+  const [made, setMade] = useState(null);
+  const [rotateNotice, setRotateNotice] = useState(false);
   const [steps, setSteps] = useState(() => stepsOf(job));
   const [retries, setRetries] = useState(job ? String(job.retries || 0) : "0");
   const [retryDelay, setRetryDelay] = useState(job && job.retries ? String(job.retryDelaySeconds) : "30");
@@ -245,6 +282,7 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
   const [busy, setBusy] = useState(false);
   useEffect(() => {
     api.get("/api/templates").then((r) => setTemplates(r.items || [])).catch(() => {});
+    api.get("/api/extensions").then((r) => setFunctions(r.stepFunctions || [])).catch(() => setFunctions([]));
   }, []);
   // SQL steps are for owners, and only when the server runs the SQL console
   useEffect(() => {
@@ -287,16 +325,17 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
     id: editing ? job.id : undefined,
     copyOf: copyOf || undefined,
     name,
-    expression,
+    expression: starts === "record" ? "" : expression,
+    trigger: starts === "record" ? { type: "record", collection: watched || first, actions, condition: condition.trim() } : { type: "schedule" },
     type: "steps",
     enabled,
-    notify: { emails: notifyEmails, webhook: notifyHook.trim() },
+    notify: { emails: notifyEmails, webhook: notifyHook.trim(), rotateSecret: rotateNotice || undefined },
     retries: Number(retries),
     retryDelaySeconds: retryDelay.trim() ? Number(retryDelay) : null,
     config: { steps: steps.map((s) => ({ name: s.name.trim(), was: s.was || undefined, type: s.type, forEach: s.forEach.trim() || undefined, config: configOf(s.type, s.f) })) },
   });
   // checked as it is being made (nothing is saved or run)
-  const signature = JSON.stringify([name, expression, steps.map((s) => [s.name, s.type, s.forEach, s.f]), retries, retryDelay, notifyEmails, notifyHook]);
+  const signature = JSON.stringify([name, expression, starts, watched, actions, condition, steps.map((s) => [s.name, s.type, s.forEach, s.f]), retries, retryDelay, notifyEmails, notifyHook]);
   useEffect(() => {
     // (an answer that comes back after the form changed again is not this form's)
     let stale = false;
@@ -321,11 +360,14 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
     e.preventDefault();
     setBusy(true);
     try {
-      if (editing) await api.patch(`/api/automations/${enc(job.id)}`, body());
-      else await api.post("/api/automations", body());
+      const saved = editing ? await api.patch(`/api/automations/${enc(job.id)}`, body()) : await api.post("/api/automations", body());
       toast(editing ? "Saved." : "Automation made.");
       onDone();
-      onClose();
+      // signing secrets made by this save are shown now, and never again
+      const secrets = saved && saved.secrets;
+      const list = secrets ? [...Object.entries(secrets.steps || {}).map(([step, secret]) => ({ label: `Step ${step}`, secret })), ...(secrets.notify ? [{ label: "Failure notices", secret: secrets.notify }] : [])] : [];
+      if (list.length) setMade(list);
+      else onClose();
     } catch (err) {
       setErrors(err.fieldErrors ? err.fieldErrors() : {});
       toast.error(err);
@@ -334,17 +376,41 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
     }
   };
   const examples = EXAMPLES.filter((x) => x.needs !== "template" || templates.length > 0);
+  const toggleAction = (a) => setActions((list) => (list.includes(a) ? list.filter((x) => x !== a) : [...list, a]));
+  if (made)
+    return html`<${Modal} onClose=${onClose} size="mid" labelledBy="sheet-title">
+      <${SheetHead} title="Signing secrets" subtitle="Give each to the receiver of its webhook. They are shown this once." onClose=${onClose} />
+      <div class="sheet-body stack">
+        <${Callout} kind="warn">Copy them now: they can't be shown again, only replaced.</${Callout}>
+        ${made.map((m) => html`<${Field} label=${m.label}><${Input} class="mono" value=${m.secret} readonly onFocus=${(ev) => ev.target.select()} /></${Field}>`)}
+        <div class="small muted">The receiver checks the <code>webhook-signature</code> header with it (Standard Webhooks: HMAC-SHA256 over id.timestamp.body).</div>
+        <div class="row"><span class="spacer"></span><${Button} variant="primary" onClick=${onClose}>Done</${Button}></div>
+      </div>
+    </${Modal}>`;
   return html`<${Modal} onClose=${onClose} size="mid" labelledBy="sheet-title">
-    <${SheetHead} title=${editing ? "Edit automation" : copyOf ? "Copy automation" : "New automation"} subtitle="Runs its steps in order on a schedule, on one instance, and shows in the history" onClose=${onClose} />
+    <${SheetHead} title=${editing ? "Edit automation" : copyOf ? "Copy automation" : "New automation"} subtitle="Runs its steps in order, on a schedule or when a record changes, and shows in the history" onClose=${onClose} />
     <form class="sheet-body stack" onSubmit=${submit}>
       ${!job && html`<div class="stack tight"><span class="small muted">Start from an example</span><div class="chips">${examples.map((x) => html`<button type="button" class="chip selectable outline" onClick=${() => start(x)}>${x.label}</button>`)}</div></div>`}
       <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Remind customers of overdue invoices”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
-      <${Field} label="Schedule" error=${errors.expression} help=${preview ? `${preview.description || "Custom schedule"}, on ${preview.timezone} time` : "minute hour day month weekday"}>
-        <${Input} class="mono" value=${expression} onInput=${setExpression} required />
-      </${Field}>
-      <div class="chips">
-        ${SCHEDULES.map(([label, value]) => html`<button type="button" class=${"chip selectable " + (expression === value ? "accent" : "outline")} onClick=${() => setExpression(value)}>${label}</button>`)}
-      </div>
+      <${Field} label="Runs" error=${errors["trigger.type"]}><${Select} value=${starts} onChange=${setStarts} options=${[{ value: "schedule", label: "On a schedule" }, { value: "record", label: "When a record changes" }]} /></${Field}>
+      ${starts === "schedule" &&
+      html`<${Field} label="Schedule" error=${errors.expression} help=${preview ? `${preview.description || "Custom schedule"}, on ${preview.timezone} time` : "minute hour day month weekday"}>
+          <${Input} class="mono" value=${expression} onInput=${setExpression} required />
+        </${Field}>
+        <div class="chips">
+          ${SCHEDULES.map(([label, value]) => html`<button type="button" class=${"chip selectable " + (expression === value ? "accent" : "outline")} onClick=${() => setExpression(value)}>${label}</button>`)}
+        </div>`}
+      ${starts === "record" &&
+      html`<div class="grid-2">
+          <${Field} label="Collection" error=${errors["trigger.collection"]} help="A change of one of its records starts a run, whatever made the change"><${Select} value=${collections.some((c) => c.id === watched) ? collections.find((c) => c.id === watched).name : watched || first} onChange=${setWatched} options=${collections.filter((c) => c.type !== "view").map((c) => ({ value: c.name, label: c.name }))} /></${Field}>
+          <${Field} label="When a record is" error=${errors["trigger.actions"]}>
+            <div class="chips" role="group" aria-label="Changes that start it">
+              ${[["create", "Created"], ["update", "Updated"], ["delete", "Deleted"]].map(([a, label]) => html`<button type="button" aria-pressed=${actions.includes(a)} class=${"chip selectable " + (actions.includes(a) ? "accent" : "outline")} onClick=${() => toggleAction(a)}>${label}</button>`)}
+            </div>
+          </${Field}>
+        </div>
+        <${Field} label="Only if" error=${errors["trigger.condition"]} help=${html`Optional. The steps see the change as <code>trigger</code>: <code>trigger.action</code>, <code>trigger.record</code> and, for an update, the changed fields in <code>trigger.changed</code>.`}><${Input} class="mono" value=${condition} onInput=${setCondition} placeholder=${'trigger.record.status == "paid" and "status" in trigger.changed'} /></${Field}>
+        <div class="small muted">A change this automation makes itself doesn't start it again. Changes made while it is off are not run later.</div>`}
       <div class="stack">
         <div class="row"><b>Steps</b><span class="small muted grow">Each step can use what the ones before it gave: <code>${"{{ steps.name.count }}"}</code></span></div>
         ${errors["config.steps"] && html`<span class="error small">${errors["config.steps"]}</span>`}
@@ -367,7 +433,7 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
             <div class="card-body stack">
               ${errors[`${at}.config`] && html`<span class="error small">${errors[`${at}.config`]}</span>`}
               ${t.repeat && html`<${Field} label="Once for each item of" error=${errors[`${at}.forEach`]} help="A list from an earlier step; each item is item in this step. Empty: the step runs once."><${Input} class="mono" value=${s.forEach} onInput=${(v) => change(s.uid, { forEach: v })} placeholder="steps.records.rows" /></${Field}>`}
-              <${StepFields} step=${s} set=${(patch) => change(s.uid, patch)} errors=${errors} at=${at} collections=${collections} templates=${templates} sqlOn=${sqlOn} />
+              <${StepFields} step=${s} set=${(patch) => change(s.uid, patch)} errors=${errors} at=${at} collections=${collections} templates=${templates} sqlOn=${sqlOn} functions=${functions} />
             </div>
           </div>`;
         })}
@@ -379,8 +445,9 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
         ${Number(retries) > 0 && html`<${Field} label="First retry after (seconds)" error=${errors.retryDelaySeconds} help="Then twice as long, at most 5 minutes"><${Input} type="number" min="1" max="300" value=${retryDelay} onInput=${setRetryDelay} /></${Field}>`}
       </div>
       <${Field} label="Tell me when it fails (email)" error=${errors["notify.emails"]} help="Up to 10 addresses, through Settings → Mail. One message when it starts failing, one when it works again."><${Input} value=${notifyEmails} onInput=${setNotifyEmails} placeholder="ops@example.com" /></${Field}>
-      <${Field} label="Tell me when it fails (webhook)" error=${errors["notify.webhook"]} help="A public URL that gets a JSON POST (event, job, error). Saved URLs are hidden; leave it as it is to keep it."><${Input} class="mono" value=${notifyHook} onInput=${setNotifyHook} placeholder="https://hooks.example.com/…" /></${Field}>
-      ${preview && preview.next && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
+      <${Field} label="Tell me when it fails (webhook)" error=${errors["notify.webhook"]} help="A public URL that gets a JSON POST (event, job, error), signed when it is https:// (its secret is shown once, when it is made). Saved URLs are hidden; leave it as it is to keep it."><${Input} class="mono" value=${notifyHook} onInput=${setNotifyHook} placeholder="https://hooks.example.com/…" /></${Field}>
+      ${editing && job.notify && job.notify.webhook && notifyHook === job.notify.webhook && html`<${Switch} checked=${rotateNotice} onChange=${setRotateNotice} label=${rotateNotice ? "A new signing secret for notices is made when you save" : "Replace the notices' signing secret"} />`}
+      ${preview && preview.next && preview.next.length > 0 && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
       <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
         <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${editing ? "Save" : "Make automation"}</${Button}></div>
     </form>
@@ -474,13 +541,13 @@ function AutomationList() {
         : jobs.length === 0
         ? html`<${Empty} icon="zap" title="No automations">${canMake ? "Make one with New automation, " : ""}add jobs with <code>cronAdd()</code> in a hook file, or schedule backups.</${Empty}>`
         : html`<div class="table-wrap"><table class="table crons-table">
-            <thead><tr><th>Automation</th><th>Schedule</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
+            <thead><tr><th>Automation</th><th>Runs</th><th>Next run</th><th>Last run</th><th></th></tr></thead>
             <tbody>
               ${jobs.map(
                 (j) => html`<tr key=${j.id} class=${cx({ on: selected === j.id })}>
                   <td><b class=${j.kind === "user" ? "small" : "mono small"}>${label(j)}</b><div class="tiny muted">${stepsLabel(j)}</div></td>
-                  <td><code>${j.expression}</code>${j.description && html`<div class="tiny muted">${j.description}</div>`}</td>
-                  <td>${j.next ? html`<span class="small">${relativeTime(j.next)}</span><div class="tiny muted mono" title=${`${formatDateIn(j.next, "UTC")}`}>${formatDateIn(j.next, j.timezone || zone)}</div>` : html`<span class="muted">never</span>`}</td>
+                  <td>${j.trigger && j.trigger.type === "record" ? html`<span class="small">${j.description}</span>` : html`<code>${j.expression}</code>${j.description && html`<div class="tiny muted">${j.description}</div>`}`}</td>
+                  <td>${j.next ? html`<span class="small">${relativeTime(j.next)}</span><div class="tiny muted mono" title=${`${formatDateIn(j.next, "UTC")}`}>${formatDateIn(j.next, j.timezone || zone)}</div>` : html`<span class="muted">${j.trigger && j.trigger.type === "record" && j.enabled ? "on a change" : "never"}</span>`}</td>
                   <td>${j.lastRun ? html`<${StatusChip} status=${j.lastRun.status} /><div class="tiny muted">${relativeTime(j.lastRun.started)} · ${ms(j.lastRun.durationMs)}</div>` : html`<span class="muted small">not yet</span>`}</td>
                   <td class="row tight end">
                     <${IconButton} icon="list" label="History" size="sm" onClick=${() => setSelected(selected === j.id ? "" : j.id)} />

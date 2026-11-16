@@ -732,7 +732,7 @@ pub fn write(dir: &Path, name: &str, up: &str, down: &str) -> Result<PathBuf> {
     std::fs::create_dir_all(dir).with_context(|| format!("failed to create {}", dir.display()))?;
     let path = new_file_name(dir, name);
     let body = format!(
-        "/// <reference path=\"../pb_data/types.d.ts\" />\nmigrate((app) => {{\n{up}\n}}, (app) => {{\n{down}\n}})\n"
+        "/// <reference path=\"../slonbase_data/types.d.ts\" />\nmigrate((app) => {{\n{up}\n}}, (app) => {{\n{down}\n}})\n"
     );
     std::fs::write(&path, body).with_context(|| format!("failed to write {}", path.display()))?;
     Ok(path)

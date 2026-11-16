@@ -200,6 +200,17 @@ for (const theme of ["light", "dark"]) {
     await page.waitForTimeout(800);
     await check(page, name, options, theme, failures);
   }
+  // the automation editor, started by a record's change, with the steps that have forms of
+  // their own (accessibility only)
+  await page.goto(`${base}/_/#/automations`);
+  await page.waitForLoadState("networkidle");
+  await page.getByRole("button", { name: "New automation" }).click();
+  await page.waitForSelector(".sheet-body");
+  await page.getByLabel("Runs").selectOption("record");
+  await page.getByRole("button", { name: "Send a signed webhook" }).click();
+  await page.getByRole("button", { name: "Run a hook function" }).click();
+  await page.waitForTimeout(800);
+  await check(page, "automation editor", { screenshot: false }, theme, failures);
   // a record open in the drawer
   await page.goto(`${base}/_/#/data/tasks/records`);
   await page.waitForSelector("tbody tr[data-row]");

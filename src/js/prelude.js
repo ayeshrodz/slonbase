@@ -560,6 +560,8 @@
 
   function settingsModel(raw) {
     Object.defineProperty(raw, "_settings", { value: true });
+    // the values of a settings page declared with settingsAdd(), with its defaults
+    Object.defineProperty(raw, "ext", { value: (name) => call("extSettings", String(name)) });
     return raw;
   }
 
@@ -1098,6 +1100,12 @@
     if (!(record instanceof Record)) throw new TypeError("$mails: expected a record");
     return [record._ref.name || record._ref.id, record.id];
   };
+  // the email templates of the dashboard (Automations, Templates)
+  const $templates = {
+    // sends the template to one address or a list, rendered with data; returns how many were sent
+    send: (id, to, data) => call("templateSend", String(id), Array.isArray(to) ? to.map(String) : [String(to)], data || {}),
+  };
+
   const $mails = {
     sendRecordVerification: (_app, record) => call("sendRecordMail", "verification", ...recordRef(record)),
     sendRecordPasswordReset: (_app, record) => call("sendRecordMail", "passwordReset", ...recordRef(record)),
@@ -1484,7 +1492,15 @@
     return e;
   }
 
+  // a function run as an automation's step: its input, the run's context, and what it returns
+  function stepEvent(data) {
+    const e = { app: $app, input: data.input, context: data.context || {}, result: null, next: () => {} };
+    e._state = () => ({ result: e.result === undefined ? null : e.result });
+    return e;
+  }
+
   const builders = {
+    step: stepEvent,
     recordRequest: recordRequestEvent,
     recordsList: listRequestEvent,
     record: recordEvent,
@@ -1704,6 +1720,18 @@
   };
   g.cronAdd = (id, expression, fn) => register("cron", "simple", fn, { id: String(id), expression: String(expression) });
   g.cronRemove = (id) => registrations.push({ kind: "cronRemove", id: String(id) });
+  // a settings page of the dashboard (Settings, Extensions): { title, fields: [{ name, label,
+  // type: "text" | "textarea" | "number" | "bool" | "select" | "secret", help, options,
+  // default, required }] }; read with $app.settings().ext(name)
+  g.settingsAdd = (name, form) => {
+    if (!form || !Array.isArray(form.fields)) throw new TypeError("settingsAdd: the form needs fields");
+    registrations.push({ kind: "settings", id: String(name), form: { title: String(form.title || name), fields: form.fields } });
+  };
+  // a function automations can run as a step: fn(input, context) returns the step's result
+  g.automationStep = (name, fn) => {
+    if (typeof fn !== "function") throw new TypeError("automationStep: the handler must be a function");
+    register("automationStep", "step", (e) => { e.result = fn(e.input, e.context); }, { id: String(name) });
+  };
 
   const $filesystem = {
     // a file from a string or an array of bytes, for a file field in $app.save()
@@ -1801,6 +1829,7 @@
     $http,
     $os,
     $mails,
+    $templates,
     $template,
     sleep,
     toString,

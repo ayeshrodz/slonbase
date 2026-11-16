@@ -195,6 +195,8 @@ pub struct Hub {
     announced: std::sync::atomic::AtomicBool,
     /// Wakes the poller reading new events (a write here, or a notice from elsewhere).
     poll: Arc<tokio::sync::Notify>,
+    /// Wakes what turns changes into runs of automations (see [`crate::events`]).
+    pub(crate) dispatch: Arc<tokio::sync::Notify>,
     /// Wakes the task telling the other instances that this one wrote.
     announce: Arc<tokio::sync::Notify>,
     /// Ends the listener and closes its connection (the core is being stopped).
@@ -226,6 +228,7 @@ impl Default for Hub {
             others: Default::default(),
             announced: Default::default(),
             poll: Default::default(),
+            dispatch: Default::default(),
             announce: Default::default(),
             stop_listening: Default::default(),
             ping_sent: Default::default(),
@@ -241,6 +244,7 @@ impl Default for Hub {
 pub fn written(core: &Core) {
     core.counts.changed();
     core.realtime.poll.notify_one();
+    core.realtime.dispatch.notify_one();
     core.realtime.announce.notify_one();
 }
 
@@ -250,6 +254,7 @@ impl Hub {
     /// totals go stale only if events turn up).
     pub(crate) fn maybe_written(&self) {
         self.poll.notify_one();
+        self.dispatch.notify_one();
         self.announce.notify_one();
     }
 
@@ -1510,6 +1515,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let delivery = spawn_delivery(weak.clone());
     spawn_poller(weak.clone(), delivery);
     spawn_announcer(weak.clone());
+    crate::events::spawn(weak.clone());
     tokio::spawn(async move {
         let mut delay = Duration::from_secs(1);
         let mut disconnected_at: Option<chrono::DateTime<chrono::Utc>> = None;
@@ -1536,6 +1542,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                 reload_settings(&core).await;
                 // (missed events: the poller reads them by snapshot, whatever happened)
                 core.realtime.poll.notify_one();
+                core.realtime.dispatch.notify_one();
             }
 
             let mut prune = tokio::time::interval(Duration::from_secs(60));
@@ -1543,98 +1550,100 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             let mut schedule = tokio::time::interval(Duration::from_secs(20));
             loop {
                 tokio::select! {
-                    _ = stop.notified() => return,
-                    notification = notifications.recv() => {
-                        let Some(notification) = notification else { break };
-                        let Some(core) = weak.upgrade() else { return };
-                        let payload = notification.payload();
-                        // something was written (`event:` from instances before 1.7): read it
-                        if payload.starts_with("event:") || payload == "changed" {
-                            core.counts.changed();
-                            core.realtime.poll.notify_one();
-                        }
-                        if payload == "collections" {
-                            reload_collections(&core).await;
-                        } else if payload == "settings" {
-                            reload_settings(&core).await;
-                        } else if payload == "restored" {
-                            // another instance restored a backup
-                            if let Err(err) = core.reload_after_restore().await {
-                                tracing::error!(error = %format!("{err:#}"), "failed to reload after a restore");
-                            }
-                        } else if let Some(data) = payload.strip_prefix("oauth2:") {
-                            let state = serde_json::from_str::<Value>(data)
-                                .ok()
-                                .and_then(|v| v["state"].as_str().map(str::to_string));
-                            if let Some(state) = state {
-                                send_to_client(&core, &state, OAUTH2_TOPIC, data.to_string());
-                            }
-                        } else if let Some(rest) = payload.strip_prefix("ping:") {
-                            // the self-test: this instance's own ping coming back
-                            if let Some((instance, n)) = rest.split_once(':') {
-                                if instance == core.realtime.instance {
-                                    if let Ok(n) = n.parse::<u64>() {
-                                        core.realtime.ping_seen.fetch_max(n, std::sync::atomic::Ordering::Relaxed);
+                                    _ = stop.notified() => return,
+                                    notification = notifications.recv() => {
+                                        let Some(notification) = notification else { break };
+                                        let Some(core) = weak.upgrade() else { return };
+                                        let payload = notification.payload();
+                                        // something was written (`event:` from instances before 1.7): read it
+                                        if payload.starts_with("event:") || payload == "changed" {
+                                            core.counts.changed();
+                                            core.realtime.poll.notify_one();
+                core.realtime.dispatch.notify_one();
+                                        }
+                                        if payload == "collections" {
+                                            reload_collections(&core).await;
+                                        } else if payload == "settings" {
+                                            reload_settings(&core).await;
+                                        } else if payload == "restored" {
+                                            // another instance restored a backup
+                                            if let Err(err) = core.reload_after_restore().await {
+                                                tracing::error!(error = %format!("{err:#}"), "failed to reload after a restore");
+                                            }
+                                        } else if let Some(data) = payload.strip_prefix("oauth2:") {
+                                            let state = serde_json::from_str::<Value>(data)
+                                                .ok()
+                                                .and_then(|v| v["state"].as_str().map(str::to_string));
+                                            if let Some(state) = state {
+                                                send_to_client(&core, &state, OAUTH2_TOPIC, data.to_string());
+                                            }
+                                        } else if let Some(rest) = payload.strip_prefix("ping:") {
+                                            // the self-test: this instance's own ping coming back
+                                            if let Some((instance, n)) = rest.split_once(':') {
+                                                if instance == core.realtime.instance {
+                                                    if let Ok(n) = n.parse::<u64>() {
+                                                        core.realtime.ping_seen.fetch_max(n, std::sync::atomic::Ordering::Relaxed);
+                                                    }
+                                                }
+                                            }
+                                        } else if payload == "instance" {
+                                            // an instance started: count it
+                                            heartbeat(&core).await;
+                                        } else if let Some(rest) = payload.strip_prefix("forward:") {
+                                            handle_forward(&core, rest);
+                                        } else if let Some(rest) = payload.strip_prefix("forwarded:") {
+                                            if let Some((id, held)) = rest.split_once(':') {
+                                                let waiting = id.parse().ok().and_then(|id: i64| {
+                                                    core.realtime.forwards.lock().expect("forwards lock").get(&id).cloned()
+                                                });
+                                                if let Some(waiting) = waiting {
+                                                    let _ = waiting.send(held == "1");
+                                                }
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                        } else if payload == "instance" {
-                            // an instance started: count it
-                            heartbeat(&core).await;
-                        } else if let Some(rest) = payload.strip_prefix("forward:") {
-                            handle_forward(&core, rest);
-                        } else if let Some(rest) = payload.strip_prefix("forwarded:") {
-                            if let Some((id, held)) = rest.split_once(':') {
-                                let waiting = id.parse().ok().and_then(|id: i64| {
-                                    core.realtime.forwards.lock().expect("forwards lock").get(&id).cloned()
-                                });
-                                if let Some(waiting) = waiting {
-                                    let _ = waiting.send(held == "1");
-                                }
-                            }
-                        }
-                    }
-                    _ = schedule.tick() => {
-                        let Some(core) = weak.upgrade() else { return };
-                        heartbeat(&core).await;
-                        // (off the listener's task: the answer comes back through it)
-                        let tester = weak.clone();
-                        tokio::spawn(async move {
-                            if let Some(core) = tester.upgrade() {
-                                check_sync(&core).await;
-                            }
-                        });
-                        crate::backups::run_scheduled(&core).await;
-                        crate::hooks::run_scheduled_crons(&core).await;
-                    }
-                    _ = prune.tick() => {
-                        let Some(core) = weak.upgrade() else { return };
-                        core.rate_limiter.prune();
-                        // idle connections are let go (many projects, many instances: each pool
-                        // would otherwise keep what it once needed)
-                        core.pool.retain(|_, metrics| metrics.last_used() < IDLE_CONNECTION);
-                        crate::jobs::prune_hourly(&core).await;
-                        let max_days = core.settings().logs.max_days;
-                        if max_days > 0 {
-                            if let Err(err) = crate::logs::cleanup(&core.pool, max_days, core.settings().logs.max_rows).await {
-                                tracing::debug!(error = %format!("{err:#}"), "failed to delete old logs");
-                            }
-                        }
-                        if let Ok(client) = core.db().get().await {
-                            let _ = client
-                                .batch_execute(&format!(
-                                    "DELETE FROM _slonbase.events WHERE created < now() - interval '{EVENT_RETENTION_SECS} seconds';
+                                    _ = schedule.tick() => {
+                                        let Some(core) = weak.upgrade() else { return };
+                                        heartbeat(&core).await;
+                                        // (off the listener's task: the answer comes back through it)
+                                        let tester = weak.clone();
+                                        tokio::spawn(async move {
+                                            if let Some(core) = tester.upgrade() {
+                                                check_sync(&core).await;
+                                            }
+                                        });
+                                        crate::backups::run_scheduled(&core).await;
+                                        crate::hooks::run_scheduled_crons(&core).await;
+                                    }
+                                    _ = prune.tick() => {
+                                        let Some(core) = weak.upgrade() else { return };
+                                        core.rate_limiter.prune();
+                                        // idle connections are let go (many projects, many instances: each pool
+                                        // would otherwise keep what it once needed)
+                                        core.pool.retain(|_, metrics| metrics.last_used() < IDLE_CONNECTION);
+                                        crate::jobs::prune_hourly(&core).await;
+                                        let max_days = core.settings().logs.max_days;
+                                        if max_days > 0 {
+                                            if let Err(err) = crate::logs::cleanup(&core.pool, max_days, core.settings().logs.max_rows).await {
+                                                tracing::debug!(error = %format!("{err:#}"), "failed to delete old logs");
+                                            }
+                                        }
+                                        if let Ok(client) = core.db().get().await {
+                                            let _ = client
+                                                .batch_execute(&format!(
+                                                    "{}
                                      DELETE FROM _slonbase.instances WHERE seen < now() - interval '10 minutes';
                                      DELETE FROM _slonbase.realtime_forwards WHERE created < now() - interval '1 minute';
                                      DELETE FROM _slonbase.rate_limits WHERE started < now() - interval '1 hour';
                                      DELETE FROM _slonbase.mail_sent WHERE sent_at < now() - interval '1 hour';
                                      DELETE FROM _slonbase.otps WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';
-                                     DELETE FROM _slonbase.mfas WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';"
-                                ))
-                                .await;
-                        }
-                    }
-                }
+                                     DELETE FROM _slonbase.mfas WHERE created < now() - interval '{AUTH_RETENTION_SECS} seconds';",
+                                                    crate::events::prune_sql(EVENT_RETENTION_SECS)
+                                                ))
+                                                .await;
+                                        }
+                                    }
+                                }
             }
             disconnected_at = Some(chrono::Utc::now());
             tracing::warn!("realtime listener disconnected, reconnecting");

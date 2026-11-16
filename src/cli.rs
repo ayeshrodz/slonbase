@@ -118,6 +118,12 @@ struct Cli {
     #[arg(long, global = true, env = "SLONBASE_NO_COMPRESSION")]
     no_compression: bool,
 
+    /// Development mode (never for production): keeps the type definitions of the hook API
+    /// and the collections up to date in types.d.ts, logs the SQL that runs, and tells
+    /// superusers the details of errors.
+    #[arg(long, global = true, env = "SLONBASE_DEV")]
+    dev: bool,
+
     /// Directory with JavaScript hooks (`*.pb.js`) [default: slonbase_hooks].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_DIR")]
     hooks_dir: Option<PathBuf>,
@@ -129,6 +135,14 @@ struct Cli {
     /// Restart when the hook files change [default: true].
     #[arg(long, global = true, env = "SLONBASE_HOOKS_WATCH")]
     hooks_watch: Option<bool>,
+
+    /// Seconds a JavaScript handler may run, 0 for no limit [default: 0].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_TIMEOUT")]
+    hooks_timeout: Option<u64>,
+
+    /// MB of memory one JavaScript runtime may use, 0 for no limit [default: 0].
+    #[arg(long, global = true, env = "SLONBASE_HOOKS_MEMORY")]
+    hooks_memory: Option<usize>,
 
     /// Directory with JavaScript migrations (`*.js`) [default: slonbase_migrations].
     #[arg(long, global = true, env = "SLONBASE_MIGRATIONS_DIR")]
@@ -275,6 +289,13 @@ enum Command {
         #[command(subcommand)]
         action: ProjectAction,
     },
+    /// Write the type definitions of the hook API and of each collection's records
+    /// (types.d.ts), for completion and checks in an editor.
+    Types {
+        /// Where to write them [default: types.d.ts next to the storage directory].
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Apply, revert or write JavaScript migrations (see docs/migrations.md).
     Migrate {
         #[command(subcommand)]
@@ -297,6 +318,9 @@ enum Command {
     },
 }
 
+/// Makes the logs include the SQL that runs (development mode), unless `RUST_LOG` is set.
+static LOG_SQL: std::sync::OnceLock<Box<dyn Fn() + Send + Sync>> = std::sync::OnceLock::new();
+
 /// Runs the command line (`serve`, `setup`, `health`) with the given extensions. Logs go
 /// to stderr (filtered with `RUST_LOG`) unless a tracing subscriber is already set.
 pub async fn run(extensions: Extensions) -> ExitCode {
@@ -306,9 +330,20 @@ pub async fn run(extensions: Extensions) -> ExitCode {
         .with(
             tracing_subscriber::fmt::layer()
                 .with_writer(std::io::stderr)
-                .with_filter(
-                    EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-                ),
+                .with_filter({
+                    // (replaceable: development mode, known once the configuration is read,
+                    // also logs the SQL that runs, unless RUST_LOG says what to log)
+                    let (filter, handle) = tracing_subscriber::reload::Layer::new(
+                        EnvFilter::try_from_default_env()
+                            .unwrap_or_else(|_| EnvFilter::new("info")),
+                    );
+                    let _ = LOG_SQL.set(Box::new(move || {
+                        if std::env::var_os("RUST_LOG").is_none() {
+                            let _ = handle.reload(EnvFilter::new("info,tokio_postgres=debug"));
+                        }
+                    }));
+                    filter
+                }),
         )
         // warnings and errors also go to the logs shown in the dashboard
         .with(crate::logs::AppLogsLayer)
@@ -347,9 +382,12 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
         sql_console_writes: cli.sql_console_writes.then_some(true),
         sql_console_role: cli.sql_console_role,
         compression: cli.no_compression.then_some(false),
+        dev: cli.dev,
         hooks_dir: cli.hooks_dir,
         hooks_pool_size: cli.hooks_pool,
         hooks_watch: cli.hooks_watch,
+        hooks_timeout: cli.hooks_timeout,
+        hooks_memory: cli.hooks_memory,
         migrations_dir: cli.migrations_dir,
         automigrate: cli.automigrate,
         projects_path: cli.projects_path,
@@ -415,6 +453,17 @@ async fn run_cli(extensions: Extensions) -> Result<()> {
             println!("Decrypted the backup.");
             Ok(())
         }
+        #[cfg(feature = "js")]
+        Command::Types { out } => {
+            let (core, cfg) =
+                offline_core_with_config(&cli.config, overrides, cli.project.as_deref()).await?;
+            let path = out.unwrap_or_else(|| crate::js::types::default_path(&cfg.storage.path));
+            crate::js::types::write(&core.registry(), &path)?;
+            println!("Wrote {}", path.display());
+            Ok(())
+        }
+        #[cfg(not(feature = "js"))]
+        Command::Types { .. } => anyhow::bail!("This build has no JavaScript hooks."),
         Command::Migrate { action } => {
             let (core, cfg) =
                 offline_core_with_config(&cli.config, overrides, cli.project.as_deref()).await?;
@@ -921,7 +970,61 @@ async fn serve(
     let bind = loaded.effective.server.bind.clone();
     let metrics_bind = loaded.effective.server.metrics_bind.clone();
     let hooks = loaded.effective.hooks.clone();
+    let dev = loaded.effective.server.dev;
+    #[cfg(feature = "js")]
+    let types_path = crate::js::types::default_path(&loaded.effective.storage.path);
     let app = App::with_extensions(loaded, setup_token, extensions)?;
+    if dev {
+        if let Some(log_sql) = LOG_SQL.get() {
+            log_sql();
+        }
+        let local = bind
+            .rsplit_once(':')
+            .map(|(host, _)| host.trim_matches(['[', ']']))
+            .is_some_and(|host| {
+                host == "localhost"
+                    || host
+                        .parse::<std::net::IpAddr>()
+                        .is_ok_and(|ip| ip.is_loopback())
+            });
+        if local {
+            tracing::warn!("development mode is on: not for production");
+        } else {
+            tracing::error!(
+                address = %bind,
+                "DEVELOPMENT MODE IS ON AND THE SERVER LISTENS BEYOND THIS MACHINE: errors tell superusers their details and the logs hold the SQL that runs, values included. Turn --dev off for anything but local development."
+            );
+        }
+        // the type definitions follow the collections
+        #[cfg(feature = "js")]
+        {
+            let app = app.clone();
+            tokio::spawn(async move {
+                let mut written = None;
+                loop {
+                    if let Ok(core) = app.core() {
+                        let generation = core.registry_generation();
+                        if written != Some(generation) {
+                            match crate::js::types::write(&core.registry(), &types_path) {
+                                Ok(wrote) => {
+                                    if wrote {
+                                        tracing::info!(path = %types_path.display(), "wrote the type definitions");
+                                    }
+                                    written = Some(generation);
+                                }
+                                // (tried again: the cause may pass, a full disk or a
+                                // directory that can't be written)
+                                Err(err) => {
+                                    tracing::warn!(error = %format!("{err:#}"), "failed to write the type definitions")
+                                }
+                            }
+                        }
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                }
+            });
+        }
+    }
     std::sync::LazyLock::force(&crate::metrics::STARTED);
     if let Some(metrics_bind) = metrics_bind {
         let listener = tokio::net::TcpListener::bind(&metrics_bind)

@@ -226,7 +226,7 @@ The guides are also on the documentation site, with search:
   backups, monitoring, security
 - [API](docs/api.md): endpoints, collections, filters and rules, files, realtime
 - [Extending](docs/extending.md): JavaScript hooks and the Rust library
-- [Automations](docs/automations.md): schedules with steps that pass data on, and email templates
+- [Automations](docs/automations.md): steps that pass data on, run on a schedule or when a record changes, signed webhooks, and email templates
 - [Migrations](docs/migrations.md): collections and data changes in code
 - [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
@@ -245,6 +245,7 @@ The guides are also on the documentation site, with search:
 | `slonbase superuser upsert\|update\|delete\|otp ...` | Manage superusers. `otp <email>` prints a one-time password for signing in with MFA when emails can't be sent. |
 | `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation. |
 | `slonbase migrate up\|down\|create\|collections\|list ...` | Apply, revert or write [migrations](docs/migrations.md). |
+| `slonbase types` | Write `types.d.ts`: the hook API and each collection's records, [for your editor](docs/extending.md#types-for-your-editor). |
 | `slonbase project list\|create\|delete ...` | Manage [projects](docs/projects.md); `--project <name>` runs `superuser`, `import-pocketbase` and `migrate` on one. |
 
 `slonbase --help` lists every option.

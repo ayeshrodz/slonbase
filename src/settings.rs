@@ -100,6 +100,10 @@ pub const SECTIONS: &[Section] = &[
         private: true,
         ..section("templates", "Email templates")
     },
+    Section {
+        private: true,
+        ..section("extensions", "Settings of extensions")
+    },
 ];
 
 /// The value at `pointer` when it is a string.
@@ -146,6 +150,9 @@ pub struct Settings {
     pub cron_jobs: Vec<crate::cron_jobs::JobDef>,
     /// The email templates automations send. Only `/api/templates` shows and changes them.
     pub templates: Vec<crate::templates::Template>,
+    /// The values of the settings pages hook files declare (`settingsAdd`), by page. Only
+    /// `/api/extensions/settings` shows and changes them.
+    pub extensions: std::collections::BTreeMap<String, Map<String, Value>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1226,6 +1233,14 @@ where
     next.save(&tx, core.secrets_key(), Some(&current))
         .await
         .map_err(ApiError::internal)?;
+    // who watches for record changes, and whether automations are paused, are written with
+    // the settings that say so: saved together, or not at all
+    let watching_changed = crate::events::state(&current) != crate::events::state(&next);
+    if watching_changed {
+        crate::events::reconcile(&tx, &next)
+            .await
+            .map_err(ApiError::internal)?;
+    }
     crate::realtime::notify(&tx, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
@@ -1233,6 +1248,9 @@ where
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     core.set_settings(next.clone());
+    if watching_changed {
+        core.realtime.dispatch.notify_one();
+    }
     Ok(next)
 }
 

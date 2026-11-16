@@ -185,6 +185,7 @@ async fn js_hooks() {
             dir: hooks_dir.path().to_path_buf(),
             pool_size: 2,
             watch: false,
+            ..Default::default()
         },
         &mut ext,
     )
@@ -383,7 +384,13 @@ async fn js_hooks() {
         .collect();
     assert_eq!(
         kinds,
-        ["backup.auto", "cron.hook", "cron.notice", "cron.user"]
+        [
+            "backup.auto",
+            "cron.hook",
+            "cron.notice",
+            "cron.user",
+            "template.send"
+        ]
     );
     assert!(
         loaded["settingsSections"]
@@ -446,6 +453,7 @@ async fn load_errors() {
         dir: dir.path().to_path_buf(),
         pool_size: 1,
         watch: false,
+        ..Default::default()
     };
     // no files: nothing to do
     slonbase::js::load(&config, &mut slonbase::Extensions::default())

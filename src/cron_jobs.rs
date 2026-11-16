@@ -61,6 +61,15 @@ pub struct Notify {
     pub emails: Vec<String>,
     /// A public URL that gets a JSON `POST` (a secret, like a header value: shown masked).
     pub webhook: String,
+    /// What the `POST` is signed with (see [`services::webhook`]): made when the webhook is
+    /// saved, shown once. None for a webhook saved before 2.7, which is sent unsigned.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub secret: String,
+    /// The secret that was replaced, which keeps signing until `previous_until`.
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub previous_secret: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub previous_until: String,
 }
 
 impl Notify {
@@ -68,6 +77,34 @@ impl Notify {
         self.emails.is_empty() && self.webhook.is_empty()
     }
 }
+
+/// What starts a job other than its schedule: a change of a record (see [`crate::events`]).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Trigger {
+    /// `record`, or empty for a job that runs on its schedule.
+    #[serde(rename = "type")]
+    pub kind: String,
+    /// The id of the collection whose changes start the job.
+    pub collection: String,
+    /// Which changes: `create`, `update`, `delete`.
+    pub actions: Vec<String>,
+    /// An expression over `trigger` (`trigger.record.status == "paid"`): the job only starts
+    /// for a change it holds for. Empty: every change.
+    pub condition: String,
+}
+
+impl Trigger {
+    pub fn is_record(&self) -> bool {
+        self.kind == "record"
+    }
+
+    fn is_schedule(&self) -> bool {
+        !self.is_record()
+    }
+}
+
+const TRIGGER_ACTIONS: &[&str] = &["create", "update", "delete"];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -85,8 +122,18 @@ pub struct JobDef {
     /// The wait before the first retry; each next one waits twice as long (at most 5 minutes).
     pub retry_delay_seconds: i64,
     pub notify: Notify,
+    /// What starts it instead of the schedule (then `expression` is empty).
+    #[serde(skip_serializing_if = "Trigger::is_schedule")]
+    pub trigger: Trigger,
     pub created: String,
     pub updated: String,
+    /// Counts the saves of the job: a change is made to the save it read, or refused.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub revision: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 fn text<'a>(config: &'a Value, key: &str) -> &'a str {
@@ -146,7 +193,9 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
             "Must not contain line breaks or other control characters.",
         );
     }
-    if crate::cron::Schedule::parse(&def.expression).is_none() {
+    if def.trigger.is_record() {
+        validate_trigger(core, def, &mut errors);
+    } else if crate::cron::Schedule::parse(&def.expression).is_none() {
         errors.invalid(
             "expression",
             "Not a cron expression: minute hour day month weekday, e.g. 0 3 * * *.",
@@ -185,6 +234,53 @@ pub async fn validate(core: &Arc<Core>, def: &JobDef, others: &[JobDef]) -> Erro
     errors
 }
 
+/// Checks what starts a job when that is a record's change.
+fn validate_trigger(core: &Arc<Core>, def: &JobDef, errors: &mut Errors) {
+    let trigger = &def.trigger;
+    if def.kind != crate::automations::KIND {
+        errors.invalid(
+            "trigger.type",
+            "Only an automation of steps can be started by a record's change.",
+        );
+    }
+    if !def.expression.is_empty() {
+        errors.invalid(
+            "expression",
+            "A job has a schedule or is started by a record's change, not both.",
+        );
+    }
+    match core.collection(&trigger.collection) {
+        Ok(c) if c.system || c.name.starts_with('_') => errors.invalid(
+            "trigger.collection",
+            "System collections can't start an automation.",
+        ),
+        Ok(c) if c.kind == CollectionKind::View => {
+            errors.invalid("trigger.collection", "A view has no changes of its own.")
+        }
+        Ok(_) => {}
+        Err(_) => errors.invalid("trigger.collection", "Choose a collection."),
+    }
+    if trigger.actions.is_empty()
+        || trigger
+            .actions
+            .iter()
+            .any(|a| !TRIGGER_ACTIONS.contains(&a.as_str()))
+    {
+        errors.invalid(
+            "trigger.actions",
+            "Choose create, update or delete (one or more).",
+        );
+    }
+    let condition = trigger.condition.trim();
+    if condition.chars().count() > 500 {
+        errors.invalid("trigger.condition", "At most 500 characters.");
+    } else if !condition.is_empty()
+        && let Err(message) = crate::templating::check_expression(condition)
+    {
+        errors.invalid("trigger.condition", message);
+    }
+}
+
 /// An email job runs at most this often: a schedule typed wrongly mustn't mail people every
 /// minute, and the mail settings' sender reputation is shared by everything that sends.
 const MIN_MAIL_GAP_MINUTES: i64 = 5;
@@ -216,6 +312,7 @@ async fn validate_notify(core: &Arc<Core>, notify: &Notify, errors: &mut Errors)
         }
     }
     if !notify.webhook.is_empty() {
+        // (http as before; an https one is signed, see `make_secrets`)
         if let Err(message) = outbound::check(&notify.webhook).await {
             errors.invalid("notify.webhook", message);
         }
@@ -536,7 +633,13 @@ pub(crate) fn stale(scheduled_for: &str, now: chrono::DateTime<chrono::Utc>) -> 
 /// closes it and tells the job's people.
 async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failure> {
     let manual = job.payload["trigger"] == "manual";
-    let trigger = if manual { "manual" } else { "schedule" };
+    // started by a record's change (see `events`): each change has a run of its own
+    let by_record = job.payload["trigger"] == "record";
+    let trigger = match (manual, by_record) {
+        (true, _) => "manual",
+        (_, true) => "record",
+        _ => "schedule",
+    };
     // (a history that can't be read is not a history that isn't there: tried again later)
     let resumed = crate::jobs::resume(&core, job.id)
         .await
@@ -545,7 +648,14 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
     let def = settings.cron_jobs.iter().find(|d| d.id == job.reference);
     // deleted, switched off or paused since it was queued: not run on its schedule
     let def = match def {
-        Some(def) if manual || (def.enabled && !settings.schedule.pause_jobs) => def.clone(),
+        Some(def)
+            if manual
+                || (def.enabled
+                    && !settings.schedule.pause_jobs
+                    && def.trigger.is_record() == by_record) =>
+        {
+            def.clone()
+        }
         _ => {
             if let Some(record) = resumed {
                 let why = "The job was removed or switched off before it could be tried again.";
@@ -558,16 +668,23 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
         Some(record) => record,
         None => {
             let scheduled_for = job.payload["minute"].as_str().unwrap_or_default();
-            if !manual && stale(scheduled_for, chrono::Utc::now()) {
+            if !manual && !by_record && stale(scheduled_for, chrono::Utc::now()) {
                 tracing::warn!(job = %def.id, scheduled_for, "a cron job's run waited too long: dropped");
                 return Ok(());
             }
             // (a run whose instance stopped doesn't count as going)
             let _ = crate::jobs::close_orphans(&core, crate::jobs::CRON, Some(&def.id)).await;
-            let started =
-                crate::jobs::start_exclusive(&core, crate::jobs::CRON, &def.id, trigger, job.id)
-                    .await
-                    .map_err(|e| Failure::transient(format!("{e:#}")))?;
+            let started = match by_record {
+                true => {
+                    crate::jobs::start_once(&core, crate::jobs::CRON, &def.id, trigger, job.id)
+                        .await
+                }
+                false => {
+                    crate::jobs::start_exclusive(&core, crate::jobs::CRON, &def.id, trigger, job.id)
+                        .await
+                }
+            }
+            .map_err(|e| Failure::transient(format!("{e:#}")))?;
             match started {
                 Some(record) => record,
                 None => {
@@ -593,11 +710,19 @@ async fn run_queued(core: Arc<Core>, job: crate::queue::Job) -> Result<(), Failu
                 .await
                 .map_err(|e| Failure::transient(format!("{e:#}")))?;
         }
+        let started_by = match by_record {
+            true => job.payload["event"].clone(),
+            false => json!({ "type": trigger }),
+        };
         match def.kind == crate::automations::KIND {
-            true => crate::automations::run(&core, &def, &record).await,
+            true => crate::automations::run(&core, &def, &record, &started_by).await,
             false => attempt(&core, &def).await,
         }
     };
+    // what the run writes carries the chain of automations it came through, so the changes
+    // it makes can't start it again
+    let chain = crate::origin::extended(job.payload["origin"].as_str(), &def.id);
+    let work = crate::origin::scope(chain, work);
     let result = match tokio::time::timeout(RUN_LIMIT, work).await {
         Ok(result) => result,
         Err(_) => Err(Failure::transient(format!(
@@ -812,14 +937,36 @@ async fn deliver_notice(core: Arc<Core>, job: crate::queue::Job) -> Result<(), F
         return Ok(());
     } else {
         let body = notice_json(def, event, error, tries, at).to_string();
-        let reply = outbound::send(outbound::Request {
-            method: "POST",
-            url: &def.notify.webhook,
-            headers: &[("content-type".to_string(), "application/json".to_string())],
-            body: Some(&body),
-            timeout: Duration::from_secs(10),
-        })
-        .await;
+        let notify = &def.notify;
+        let reply = match services::webhook::valid_secret(&notify.secret) {
+            // signed; the queued job is the delivery, so its retries carry the same id
+            true => {
+                let mut secrets = vec![notify.secret.as_str()];
+                let now = crate::datetime::format(&chrono::Utc::now());
+                if notify.previous_until > now {
+                    secrets.push(&notify.previous_secret);
+                }
+                services::webhook::deliver(
+                    &notify.webhook,
+                    &secrets,
+                    &format!("msg_notice_{}", job.id),
+                    &body,
+                    Duration::from_secs(10),
+                )
+                .await
+            }
+            // a webhook saved before 2.7 has no secret: sent as it was then
+            false => {
+                outbound::send(outbound::Request {
+                    method: "POST",
+                    url: &notify.webhook,
+                    headers: &[("content-type".to_string(), "application/json".to_string())],
+                    body: Some(&body),
+                    timeout: Duration::from_secs(10),
+                })
+                .await
+            }
+        };
         match reply {
             Ok(reply) if !(200..300).contains(&reply.status) => Err(Failure::transient(format!(
                 "The server answered {}.",
@@ -881,10 +1028,15 @@ pub async fn enqueue(
             reference: &def.id,
             payload: json!({ "trigger": trigger, "minute": minute }),
             dedupe,
-            max_attempts: 1 + def.retries.clamp(0, MAX_RETRIES) as i32,
+            max_attempts: attempts(def),
         },
     )
     .await
+}
+
+/// How many times a run of the job is tried.
+pub(crate) fn attempts(def: &JobDef) -> i32 {
+    1 + def.retries.clamp(0, MAX_RETRIES) as i32
 }
 
 /// Tells the queue what runs a dashboard job and what delivers its notices. A run uses the job
@@ -926,7 +1078,15 @@ pub(crate) fn listed(
         "name": def.name,
         "enabled": def.enabled,
         "expression": def.expression,
-        "description": crate::cron::Schedule::describe(&def.expression),
+        "description": match def.trigger.is_record() {
+            true => Some("When a record changes".to_string()),
+            false => crate::cron::Schedule::describe(&def.expression),
+        },
+        "trigger": match (def.trigger.is_record(), sees_settings) {
+            (true, true) => json!(def.trigger),
+            (true, false) => json!({ "type": "record" }),
+            (false, _) => json!({ "type": "schedule" }),
+        },
         "timezone": tz.name(),
         "next": next,
         "kind": "user",
@@ -1038,6 +1198,31 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
     if let Some(v) = body.get("retryDelaySeconds").and_then(whole) {
         def.retry_delay_seconds = v;
     }
+    if let Some(t) = body.get("trigger") {
+        let mut actions: Vec<String> = t
+            .get("actions")
+            .and_then(Value::as_array)
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default();
+        actions.sort();
+        actions.dedup();
+        def.trigger = match text(t, "type") {
+            "record" => Trigger {
+                kind: "record".into(),
+                collection: text(t, "collection").trim().to_string(),
+                actions,
+                condition: text(t, "condition").trim().to_string(),
+            },
+            _ => Trigger::default(),
+        };
+        if def.trigger.is_record() && body.get("expression").is_none() {
+            def.expression.clear();
+        }
+    }
     if let Some(n) = body.get("notify").and_then(Value::as_object) {
         def.notify = Notify {
             emails: mail::recipients(n.get("emails")),
@@ -1047,9 +1232,69 @@ fn read(body: &Map<String, Value>, base: JobDef) -> JobDef {
                 .unwrap_or_default()
                 .trim()
                 .to_string(),
+            // (the signing secret is the server's: never read from a request)
+            ..def.notify
         };
     }
     def
+}
+
+/// Makes the signing secrets a job needs when it is saved (see
+/// [`crate::automations::make_secrets`] for its steps): one for a notice webhook that has none
+/// or whose address changed, and a new one when the request asks to `rotateSecret`, whose old
+/// one keeps signing for a day. Returns what was made, to be shown this once.
+fn make_secrets(def: &mut JobDef, saved: Option<&JobDef>, body: &Map<String, Value>) -> Value {
+    let mut made = Map::new();
+    if def.kind == crate::automations::KIND {
+        let steps: Map<String, Value> = crate::automations::make_secrets(&mut def.config)
+            .into_iter()
+            .map(|(name, secret)| (name, json!(secret)))
+            .collect();
+        if !steps.is_empty() {
+            made.insert("steps".into(), Value::Object(steps));
+        }
+    }
+    let notify = &mut def.notify;
+    let same_address = saved.is_some_and(|s| s.notify.webhook == notify.webhook);
+    let rotate = body
+        .get("notify")
+        .and_then(|n| n.get("rotateSecret"))
+        .is_some_and(|r| r == true);
+    // (a secret only for an https address: an http one is sent unsigned, as it always was,
+    // since a signature there would only prove what anyone on the way can read)
+    let https = reqwest::Url::parse(&notify.webhook).is_ok_and(|u| u.scheme() == "https");
+    if notify.webhook.is_empty() || !https {
+        notify.secret.clear();
+        notify.previous_secret.clear();
+        notify.previous_until.clear();
+    } else if same_address && rotate && services::webhook::valid_secret(&notify.secret) {
+        let until = chrono::Utc::now() + chrono::Duration::hours(services::webhook::ROTATION_HOURS);
+        notify.previous_secret =
+            std::mem::replace(&mut notify.secret, services::webhook::new_secret());
+        notify.previous_until = crate::datetime::format(&until);
+        made.insert("notify".into(), json!(notify.secret));
+    } else if !same_address || !services::webhook::valid_secret(&notify.secret) {
+        notify.secret = services::webhook::new_secret();
+        notify.previous_secret.clear();
+        notify.previous_until.clear();
+        made.insert("notify".into(), json!(notify.secret));
+    }
+    Value::Object(made)
+}
+
+/// A saved job as the API answers, with the secrets that were made for it (this once).
+fn saved_answer(core: &Core, def: &JobDef, role: Role, secrets: Value) -> Json<Value> {
+    let mut answer = listed(
+        def,
+        core.settings().timezone(),
+        chrono::Utc::now(),
+        None,
+        role,
+    );
+    if secrets.as_object().is_some_and(|s| !s.is_empty()) {
+        answer["secrets"] = secrets;
+    }
+    Json(answer)
 }
 
 /// A whole number sent as a number or as text.
@@ -1116,7 +1361,9 @@ pub async fn create(
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
+    let secrets = make_secrets(&mut def, None, &body);
     def.config = normalized(&def);
+    stored_trigger(&core, &mut def);
     // added to the jobs as stored: the limits are checked again there, so jobs made at the same
     // time all stay, and no more than the limit can be made
     let added = def.clone();
@@ -1139,13 +1386,20 @@ pub async fn create(
         Ok(settings)
     })
     .await?;
-    Ok(Json(listed(
-        &def,
-        core.settings().timezone(),
-        chrono::Utc::now(),
-        None,
-        role,
-    )))
+    Ok(saved_answer(&core, &def, role, secrets))
+}
+
+/// The trigger as stored: the collection by its id (a name can change), and nothing of a
+/// trigger for a job on a schedule.
+fn stored_trigger(core: &Core, def: &mut JobDef) {
+    match def.trigger.is_record() {
+        true => {
+            if let Ok(collection) = core.collection(&def.trigger.collection) {
+                def.trigger.collection = collection.id.clone();
+            }
+        }
+        false => def.trigger = Trigger::default(),
+    }
 }
 
 /// The config as stored: only the keys the type uses, with defaults filled in.
@@ -1225,25 +1479,55 @@ pub async fn update(
     if !errors.is_empty() {
         return Err(invalid(&errors));
     }
+    let secrets = match only_off {
+        true => json!({}),
+        false => make_secrets(&mut def, Some(&saved), &body),
+    };
     def.config = normalized(&def);
+    stored_trigger(&core, &mut def);
     def.updated = crate::datetime::format(&chrono::Utc::now());
     let replacement = def.clone();
+    let read = saved.revision;
     crate::settings::modify(&core, move |current| {
-        let mut settings = current.clone();
-        let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
-            return Err(ApiError::not_found());
-        };
-        settings.cron_jobs[pos] = replacement;
-        Ok(settings)
+        replaced(current, &id, read, replacement, only_off)
     })
     .await?;
-    Ok(Json(listed(
-        &def,
-        core.settings().timezone(),
-        chrono::Utc::now(),
-        None,
-        role,
-    )))
+    Ok(saved_answer(&core, &def, role, secrets))
+}
+
+/// The settings with job `id` replaced by `replacement`, made from the job's save `read`.
+/// Refused when the job was saved since (a secret replaced, say): what a request didn't see is
+/// not undone by it. Saves are counted, not timed, so two in the same millisecond still differ.
+/// Switching a job off (`only_off`) changes that and nothing else, whatever was saved meanwhile.
+fn replaced(
+    current: &crate::settings::Settings,
+    id: &str,
+    read: u64,
+    replacement: JobDef,
+    only_off: bool,
+) -> Result<crate::settings::Settings, ApiError> {
+    let mut settings = current.clone();
+    let Some(pos) = settings.cron_jobs.iter().position(|j| j.id == id) else {
+        return Err(ApiError::not_found());
+    };
+    let job = &mut settings.cron_jobs[pos];
+    if only_off {
+        job.enabled = false;
+        job.updated = replacement.updated;
+        job.revision += 1;
+        return Ok(settings);
+    }
+    if job.revision != read {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "It was changed meanwhile: load it again and repeat the change.",
+        ));
+    }
+    *job = JobDef {
+        revision: read + 1,
+        ..replacement
+    };
+    Ok(settings)
 }
 
 /// `DELETE /api/crons/{id}`: deletes a job (its history stays until it ages out).
@@ -1306,18 +1590,23 @@ pub async fn preview(
         return Err(invalid(&errors));
     }
     let tz = core.settings().timezone();
-    let schedule = crate::cron::Schedule::parse(&def.expression).expect("validated");
     let mut next = Vec::new();
-    let mut after = chrono::Utc::now();
-    while next.len() < 5 {
-        let Some(t) = schedule.next_after(&after, tz) else {
-            break;
-        };
-        next.push(crate::datetime::format(&t));
-        after = t;
+    // (started by a record's change: there is no schedule to tell of)
+    if let Some(schedule) = crate::cron::Schedule::parse(&def.expression) {
+        let mut after = chrono::Utc::now();
+        while next.len() < 5 {
+            let Some(t) = schedule.next_after(&after, tz) else {
+                break;
+            };
+            next.push(crate::datetime::format(&t));
+            after = t;
+        }
     }
     let mut answer = json!({
-        "description": crate::cron::Schedule::describe(&def.expression),
+        "description": match def.trigger.is_record() {
+            true => Some("When a record changes".to_string()),
+            false => crate::cron::Schedule::describe(&def.expression),
+        },
         "timezone": tz.name(),
         "next": next,
     });
@@ -1335,6 +1624,49 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_save_does_not_undo_one_it_did_not_see() {
+        // two requests read the same save, in the same millisecond: one replaces the notices'
+        // secret, the other renames the job
+        let same = "2026-01-01 00:00:00.000Z".to_string();
+        let job = JobDef {
+            id: "user:a".into(),
+            name: "A".into(),
+            enabled: true,
+            notify: Notify {
+                webhook: "https://example.com/h".into(),
+                secret: "whsec_old".into(),
+                ..Default::default()
+            },
+            updated: same.clone(),
+            revision: 3,
+            ..Default::default()
+        };
+        let mut settings = crate::settings::Settings::default();
+        settings.cron_jobs.push(job.clone());
+        let mut rotated = job.clone();
+        rotated.notify.secret = "whsec_new".into();
+        let settings = replaced(&settings, "user:a", 3, rotated, false).unwrap();
+        assert_eq!(settings.cron_jobs[0].revision, 4);
+        // the rename, made from the same save at the same time, is refused
+        let renamed = JobDef {
+            name: "B".into(),
+            ..job.clone()
+        };
+        let err = replaced(&settings, "user:a", 3, renamed, false).unwrap_err();
+        assert_eq!(err.status, StatusCode::CONFLICT);
+        assert_eq!(settings.cron_jobs[0].notify.secret, "whsec_new");
+        assert_eq!(settings.cron_jobs[0].updated, same);
+        // switching off works whatever was saved meanwhile, and keeps the rest
+        let off = replaced(&settings, "user:a", 3, job.clone(), true).unwrap();
+        assert!(!off.cron_jobs[0].enabled);
+        assert_eq!(off.cron_jobs[0].notify.secret, "whsec_new");
+        assert_eq!(off.cron_jobs[0].revision, 5);
+        // a job that is gone
+        let err = replaced(&settings, "user:b", 0, job, false).unwrap_err();
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+    }
 
     #[test]
     fn the_history_of_a_call_has_no_response_content() {

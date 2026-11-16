@@ -463,6 +463,40 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             }
             Ok(Value::Null)
         }
+        "extSettings" => {
+            let name = a.str(0);
+            let Some(form) = core.hooks.settings_forms().iter().find(|f| f.name == name) else {
+                return Err(bad(format!(
+                    "No settings page {name:?} is declared (settingsAdd)."
+                )));
+            };
+            Ok(Value::Object(
+                form.values(core.settings().extensions.get(&name)),
+            ))
+        }
+        "templateSend" => {
+            let to: Vec<String> = match a.value(1) {
+                Value::Array(items) => items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            if to.is_empty() {
+                return Err(bad("The message has no recipients."));
+            }
+            let data = match a.value(2) {
+                data @ Value::Object(_) => data,
+                _ => json!({}),
+            };
+            let sent = handle
+                .block_on(crate::templates::send(&core, &a.str(0), &to, &data))
+                .map_err(|f| match f.retry {
+                    true => internal(anyhow::anyhow!(f.message)),
+                    false => bad(f.message),
+                })?;
+            Ok(json!(sent))
+        }
         other => Err(bad(format!("Unknown native function {other:?}."))),
     }
 }
@@ -684,10 +718,25 @@ async fn db_query(
     let lower = sql.to_ascii_lowercase();
     // statements that can't run in a transaction block keep a session search path, reset
     // before the connection goes back
-    let outside_transaction = lower.contains("concurrently")
-        || ["vacuum", "create database", "drop database", "alter system"]
-            .iter()
-            .any(|k| lower.trim_start().starts_with(k));
+    // (told by the command the statement is, not by a word anywhere in it: an UPDATE that
+    // mentions "concurrently" is an ordinary write, and runs in a transaction like the rest)
+    let head = lower
+        .split_whitespace()
+        .take(4)
+        .collect::<Vec<_>>()
+        .join(" ");
+    let outside_transaction = [
+        "create index concurrently",
+        "create unique index concurrently",
+        "drop index concurrently",
+        "vacuum",
+        "create database",
+        "drop database",
+        "alter system",
+    ]
+    .iter()
+    .any(|k| head.starts_with(k))
+        || (head.starts_with("reindex") && lower.contains("concurrently"));
     let result = if outside_transaction {
         client
             .batch_execute("SET search_path = slonbase, public")
@@ -704,6 +753,7 @@ async fn db_query(
         // the search path for this query only, in its own transaction (so it stays correct
         // behind a pooler in transaction mode, which may change connections between statements)
         let tx = client.transaction().await.map_err(internal)?;
+        crate::origin::mark(&tx).await.map_err(internal)?;
         tx.batch_execute(crate::collections::view::SEARCH_PATH)
             .await
             .map_err(internal)?;

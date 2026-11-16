@@ -73,6 +73,11 @@ pub struct HooksConfig {
     pub pool_size: usize,
     /// Restart the server when the hook files change.
     pub watch: bool,
+    /// How long a JavaScript handler may run, in seconds (the time it waits in `e.next()` not
+    /// counted); 0 for no limit. A handler that takes longer is stopped and fails.
+    pub timeout_seconds: u64,
+    /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
+    pub memory_limit_mb: usize,
 }
 
 impl Default for HooksConfig {
@@ -81,6 +86,9 @@ impl Default for HooksConfig {
             dir: PathBuf::from("slonbase_hooks"),
             pool_size: 10,
             watch: true,
+            // (off unless set: hooks that ran before keep running as they did)
+            timeout_seconds: 0,
+            memory_limit_mb: 0,
         }
     }
 }
@@ -141,6 +149,11 @@ pub struct ServerConfig {
     /// never are). Turn it off when bandwidth costs nothing, to save its CPU.
     #[serde(skip_serializing_if = "is_true")]
     pub compression: bool,
+    /// Development mode (off by default; never for production): the type definitions of the
+    /// hook API and the collections are kept up to date in `types.d.ts`, the SQL that runs is
+    /// logged, and errors tell superusers their details.
+    #[serde(skip_serializing_if = "is_false")]
+    pub dev: bool,
     /// Address serving Prometheus metrics at `/metrics` (none by default). Keep it private:
     /// it isn't authenticated.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,6 +184,7 @@ impl Default for ServerConfig {
             sql_console_writes: false,
             sql_console_role: None,
             compression: true,
+            dev: false,
             metrics_bind: None,
             http_ca_file: None,
             encryption_key: None,
@@ -238,9 +252,12 @@ pub struct Overrides {
     pub sql_console_writes: Option<bool>,
     pub sql_console_role: Option<String>,
     pub compression: Option<bool>,
+    pub dev: bool,
     pub hooks_dir: Option<PathBuf>,
     pub hooks_pool_size: Option<usize>,
     pub hooks_watch: Option<bool>,
+    pub hooks_timeout: Option<u64>,
+    pub hooks_memory: Option<usize>,
     pub migrations_dir: Option<PathBuf>,
     pub automigrate: Option<bool>,
     pub projects_path: Option<PathBuf>,
@@ -331,6 +348,9 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     if let Some(enabled) = overrides.compression {
         effective.server.compression = enabled;
     }
+    if overrides.dev {
+        effective.server.dev = true;
+    }
     if let Some(dir) = overrides.hooks_dir {
         effective.hooks.dir = dir;
     }
@@ -339,6 +359,12 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
     }
     if let Some(watch) = overrides.hooks_watch {
         effective.hooks.watch = watch;
+    }
+    if let Some(seconds) = overrides.hooks_timeout {
+        effective.hooks.timeout_seconds = seconds;
+    }
+    if let Some(mb) = overrides.hooks_memory {
+        effective.hooks.memory_limit_mb = mb;
     }
     if let Some(dir) = overrides.migrations_dir {
         effective.migrations.dir = dir;

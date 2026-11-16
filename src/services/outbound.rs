@@ -45,6 +45,24 @@ pub async fn send(request: Request<'_>) -> Result<Reply, Failure> {
     })
 }
 
+/// [`send`] without following redirects: a redirect is the answer. For a request whose body
+/// is meant for the address it was made for and nowhere else (a signed webhook).
+pub async fn send_direct(request: Request<'_>) -> Result<Reply, Failure> {
+    crate::http::guarded_direct(
+        request.method,
+        request.url,
+        request.headers,
+        request.body,
+        request.timeout,
+    )
+    .await
+    .map_err(|message| Failure {
+        retry: !crate::http::refused(&message),
+        message,
+        retry_in: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

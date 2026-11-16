@@ -64,7 +64,11 @@ platform on PostgreSQL: one Rust binary, with the dashboard built in.
   restore, and **a history of every backup and automation run**: when, how long, how it ended.
 - **[Automations](automations.md):** schedules with steps that pass data on (find records, send
   an email template to each, change them, call a URL), made in the dashboard with no code, with
-  retries that continue where a run failed.
+  retries that continue where a run failed. They run on a schedule or **when a record
+  changes**, can send **signed webhooks**, and can run functions of hook files.
+- **Email templates** sent by automations, from hook files, or by other systems through the API.
+- For hook files: **type definitions** for your editor (`slonbase types`), a **development
+  mode**, **settings pages** a hook file declares, and time and memory limits on handlers.
 - A one-command **installer**, `.deb` and `.rpm` packages from signed repositories, a Docker image
   and Compose file, and setups for Render, Railway, Fly.io, Coolify and Dokploy
   ([installation](installation.md), [platforms](platforms.md)).
