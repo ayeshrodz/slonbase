@@ -16,12 +16,12 @@ use crate::settings::Settings;
 use crate::storage::Storage;
 
 pub struct Core {
-    /// The connections of API requests. Take one with [`Core::db`], which answers with the
-    /// workers' pool instead while a background job is running.
+    /// The API's pool (`max_connections` less the connections reserved for background jobs).
+    /// Take a connection with [`Core::db`], which also uses the reserve while no job runs,
+    /// and the reserve itself on a worker.
     pub pool: Pool,
-    /// The connections of the job queue's workers, apart from the API's (set when the core
-    /// is started; without it, jobs use `pool`).
-    job_pool: std::sync::OnceLock<Pool>,
+    /// The API's pool and the job queue's reserve (see [`crate::connections`]).
+    connections: crate::connections::Connections,
     /// The job queue: what runs each kind of job, and what wakes the workers.
     pub(crate) queue: crate::queue::Queue,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
@@ -150,17 +150,25 @@ impl Core {
         app_logs: bool,
     ) -> Result<Arc<Self>> {
         let core = Self::load(pool, config, hooks).await?;
-        // background jobs get connections of their own, so they never take one from the API:
-        // two for the main installation, one for a project (opened when a job runs, closed
-        // when the queue is empty)
         let workers = if app_logs {
             MAIN_JOB_WORKERS
         } else {
             PROJECT_JOB_WORKERS
         };
-        let mut jobs_db = config.database.clone();
-        jobs_db.max_connections = workers;
-        let _ = core.job_pool.set(crate::db::connect(url, &jobs_db)?);
+        // the connections reserved for background jobs: what `max_connections` leaves beside
+        // the API's pool (none when the pool was made with all of them, as by an embedder's
+        // own `db::connect`)
+        let reserve = config
+            .database
+            .max_connections
+            .saturating_sub(core.pool.status().max_size)
+            .min(config.database.job_reserve());
+        if reserve > 0 {
+            let mut jobs_db = config.database.clone();
+            jobs_db.max_connections = reserve;
+            core.connections
+                .set_reserve(crate::db::connect(url, &jobs_db)?);
+        }
         crate::queue::spawn_workers(&core, workers);
         if app_logs {
             crate::logs::capture_app_logs(&core.logs);
@@ -206,8 +214,8 @@ impl Core {
         crate::backups::register_jobs(&mut handlers);
         crate::templates::register_jobs(&mut handlers);
         Ok(Arc::new(Self {
+            connections: crate::connections::Connections::new(pool.clone()),
             pool,
-            job_pool: Default::default(),
             queue: crate::queue::Queue::new(handlers),
             heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
@@ -241,20 +249,11 @@ impl Core {
         }))
     }
 
-    /// The pool to take a connection from: the API's, or the job workers' while a background
-    /// job is running (so what a job reads and writes never uses an API connection). Work a
-    /// job hands to another task, such as a hook handler, uses the API's.
-    pub fn db(&self) -> &Pool {
-        if crate::queue::on_worker() {
-            self.job_pool()
-        } else {
-            &self.pool
-        }
-    }
-
-    /// The job workers' pool (the API's when this core has none of its own).
-    pub(crate) fn job_pool(&self) -> &Pool {
-        self.job_pool.get().unwrap_or(&self.pool)
+    /// Where to take a connection from (`core.db().get()`): on a worker running a job, the
+    /// connections reserved for jobs; anywhere else, the API's, and the reserve too while no
+    /// job runs. Work a job hands to another task, such as a hook handler, is the API's.
+    pub fn db(&self) -> &crate::connections::Connections {
+        &self.connections
     }
 
     /// Where automigrate writes migration files, or `None` when it's off.

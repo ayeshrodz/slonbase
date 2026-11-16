@@ -237,7 +237,28 @@ pub async fn ready_app_configured(
     extensions: slonbase::Extensions,
     configure: impl FnOnce(&mut Overrides),
 ) -> (Arc<App>, String, tempfile::TempDir) {
+    ready_app_from(tdb, "", extensions, configure).await
+}
+
+/// [`ready_app`] started from a configuration file with this content.
+#[allow(dead_code)]
+pub async fn ready_app_with_file(
+    tdb: &TestDb,
+    toml: &str,
+) -> (Arc<App>, String, tempfile::TempDir) {
+    ready_app_from(tdb, toml, slonbase::Extensions::default(), |_| {}).await
+}
+
+async fn ready_app_from(
+    tdb: &TestDb,
+    toml: &str,
+    extensions: slonbase::Extensions,
+    configure: impl FnOnce(&mut Overrides),
+) -> (Arc<App>, String, tempfile::TempDir) {
     let (dir, config_path) = temp_config();
+    if !toml.is_empty() {
+        std::fs::write(&config_path, toml).unwrap();
+    }
     let app = new_app_configured(&config_path, Some(tdb.url.clone()), extensions, configure);
     app.bootstrap().await.unwrap();
     let token = app.setup_token().to_string();

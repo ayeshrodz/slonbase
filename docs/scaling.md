@@ -40,8 +40,7 @@ one, until a single machine's CPUs are the limit.
 
 One `slonbase serve`, one PostgreSQL database. Nothing to coordinate. Idle it holds about 3
 connections to PostgreSQL, and up to 18 under load (a pool of 16, `database.max_connections`,
-plus two that wait for notifications), or 20 while background jobs run (they have two
-connections of their own).
+plus two that wait for notifications).
 
 ## B. One instance, several projects, several servers
 
@@ -149,16 +148,10 @@ use of it is predictable:
 
 | | Connections per instance |
 |---|---|
-| The main database | up to `database.max_connections` (16), plus 2 for notifications, plus up to 2 for background jobs |
-| Each project | up to `projects.max_connections` (4), plus 1 for notifications, plus up to 2 for background jobs |
+| The main database | up to `database.max_connections` (16), plus 2 for notifications |
+| Each project | up to `projects.max_connections` (4), plus 1 for notifications |
 
-Background jobs (the job queue: scheduled and manual runs of cron jobs, their retries and
-notices, and the automatic backup) have connections of their own, so a job never takes one an API
-request is waiting for. They are opened
-when a job runs and closed when the queue is empty, so an installation that runs no jobs opens
-none.
-
-So **N instances and P projects use at most N × (20 + 7 × P)**, with connections opened on demand
+So **N instances and P projects use at most N × (18 + 5 × P)**, with connections opened on demand
 and idle project connections released after two minutes. Measured on one PostgreSQL 16 server:
 
 | Layout | Idle | Under load |
@@ -168,6 +161,26 @@ and idle project connections released after two minutes. Measured on one Postgre
 | 3 instances, 4 projects | 41 | 97 of 100 |
 | 6 instances, 4 projects | | 97 of 100, with HTTP 500 "too many clients" |
 | 6 instances, 4 projects, PgBouncer | | 83, no errors |
+
+Background jobs (scheduled and manual runs of cron jobs and automations, their retries and
+notices, and the automatic backup) take their connections out of the same budget, and by default
+don't compete with requests for them: of the 16, **2 are reserved for jobs while they run** (1 of
+a project's 4). While a job runs, requests have the other 14, so as long as the jobs fit in the
+reserve a long one doesn't make requests wait (see below for when they don't), and requests can't
+take the reserved ones, so a busy API doesn't hold up a job: it waits only for requests that were
+already using a reserved connection when it started. While no job
+runs, requests use all 16. Both are pools of a fixed size, so the total never goes past
+`max_connections`.
+
+A job that finds every reserved connection still in use after two seconds (jobs needing more at
+once than are reserved, as when a project's 2 workers share its 1 and one runs a long statement,
+or requests that were using the reserve when the job started and haven't finished) takes
+whichever connection frees first, a reserved one or one of the API's, rather than wait on the
+reserve alone; requests may then wait for the one it took. If both pools stay busy, the job waits
+as a request does, and fails as one does when the pool's 10-second wait runs out. `database.job_connections` sets how many are reserved (never
+all: the API keeps at least one); 0 turns the reserve off, and jobs then take the API's
+connections as they come, as before 2.7. `slonbase_db_connections` and the health page count
+both pools together.
 
 The levers, in the order to reach for them:
 

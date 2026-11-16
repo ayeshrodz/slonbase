@@ -106,7 +106,7 @@ pub async fn status(
     let (connections_used, connections_max): (i64, i64) = (connections.get(0), connections.get(1));
     let role_is_superuser = connections.get::<_, Option<bool>>(2).unwrap_or(false);
     drop(client);
-    let pool = core.pool.status();
+    let pool = core.db().status();
     let in_use = pool.size.saturating_sub(pool.available);
 
     checks.push(if latency_ms > 100.0 {

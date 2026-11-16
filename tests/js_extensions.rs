@@ -479,6 +479,45 @@ async fn a_template_is_sent_from_code_and_through_the_api() {
     assert!(eventually(async || mailer.sent.lock().unwrap().len() == 5).await);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(mailer.sent.lock().unwrap().len(), 5);
+    // the same request with its members in another order is the same request
+    let reordered = [
+        ("authorization", format!("Bearer {token}")),
+        ("idempotency-key", "order-2".to_string()),
+    ];
+    let reordered: Vec<(&str, &str)> = reordered.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, sent) = request(
+        &app,
+        "POST",
+        &send,
+        &reordered,
+        Some(json!({ "to": "e2@example.com", "data": { "name": "Eve", "order": { "id": 1, "total": 2 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{sent}");
+    assert_eq!(sent["queued"], 1);
+    let (status, again) = request(
+        &app,
+        "POST",
+        &send,
+        &reordered,
+        Some(json!({ "data": { "order": { "total": 2, "id": 1 }, "name": "Eve" }, "to": "e2@example.com" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{again}");
+    assert_eq!(again["duplicate"], true);
+    assert!(eventually(async || mailer.sent.lock().unwrap().len() == 6).await);
+    // the key used again for another request is refused, not taken for a repeat (nothing of
+    // it is queued)
+    for other in [
+        json!({ "to": "g@example.com", "data": { "name": "Eve" } }),
+        json!({ "to": ["e@example.com", "g@example.com"], "data": { "name": "Eve" } }),
+        json!({ "to": "e@example.com", "data": { "name": "Gus" } }),
+    ] {
+        let (status, res) = request(&app, "POST", &send, &headers, Some(other)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{res}");
+    }
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(mailer.sent.lock().unwrap().len(), 6);
 
     // developers may send, viewers may not
     for (role, want) in [
@@ -503,4 +542,43 @@ async fn a_template_is_sent_from_code_and_through_the_api() {
         .await;
         assert_eq!(status, want, "{role}: {res}");
     }
+
+    // a key is the caller's own: another superuser using the same one sends their email
+    let other = ok(
+        &app,
+        &token,
+        "POST",
+        "/api/collections/_superusers/records",
+        json!({ "email": "other@example.com", "password": "other-password-1", "passwordConfirm": "other-password-1" }),
+    )
+    .await;
+    assert!(other["id"].is_string(), "{other}");
+    let (status, signed_in) = request(
+        &app,
+        "POST",
+        "/api/collections/_superusers/auth-with-password",
+        &[],
+        Some(json!({ "identity": "other@example.com", "password": "other-password-1" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{signed_in}");
+    let theirs = [
+        (
+            "authorization",
+            format!("Bearer {}", signed_in["token"].as_str().unwrap()),
+        ),
+        ("idempotency-key", "order-1".to_string()),
+    ];
+    let headers: Vec<(&str, &str)> = theirs.iter().map(|(k, v)| (*k, v.as_str())).collect();
+    let (status, res) = request(
+        &app,
+        "POST",
+        &send,
+        &headers,
+        Some(json!({ "to": "h@example.com", "data": { "name": "Hal" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{res}");
+    assert_eq!(res["queued"], 1);
+    assert_ne!(res["id"], first["id"]);
 }

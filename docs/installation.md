@@ -379,6 +379,27 @@ for upgrades in place from the first release (0.1.0) and from the previous one: 
 old release with data, starts the new build on it, and checks the data, files, settings, old
 passwords and tokens, rules, realtime and backups (`compat/upgrade/run.sh`).
 
+**To 2.7:** stop every instance before starting the new version (2.7 stores settings and job
+schedules in a form 2.6 doesn't read, so the two must not run side by side). Nothing else needs
+doing: what worked on 2.6 works the same way on 2.7.
+
+- **Configuration:** every new setting is off or keeps the old behaviour by default:
+  `hooks.timeout_seconds` and `hooks.memory_limit_mb` (limits of hook code), `server.dev`
+  (development mode). The connection budget is the same as 2.6's: the connections
+  `database.job_connections` reserves for background jobs (2, or 1 of a project's) are part of
+  `max_connections`, and requests use them too while no job runs.
+- **Cron jobs** made in the dashboard become automations of one step, with their schedules,
+  history and settings; `/api/crons` answers as before.
+- **Failure notices:** a notice webhook keeps its address. An `https://` one is signed from its
+  next save (its receiver may check the signature or ignore it); an `http://` one is sent
+  unsigned, as before.
+- **A job that calls an `http://` address with a credential header** keeps running; saving a
+  change to it needs an `https://` address (or no such header).
+- **Rust embedders:** `HooksConfig`, `ServerConfig` and `DatabaseConfig` have new fields; build them
+  with `..Default::default()`.
+
+The changelog's **Upgrading** section for 2.7.0 lists the same points.
+
 **Several instances, to 1.7:** upgrade them all together (stop the old ones, then start the
 new). Instances before 1.7 rely on a notification sent with each write to deliver realtime
 events, which 1.7 no longer sends (see [several instances](deployment.md#several-instances)).

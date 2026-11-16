@@ -138,7 +138,7 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
         series.push(counts);
     }
     drop(client);
-    let pool = core.pool.status();
+    let pool = core.db().status();
     let settings = core.settings();
     let round = |v: f64| (v * 10.0).round() / 10.0;
     Ok(json!({

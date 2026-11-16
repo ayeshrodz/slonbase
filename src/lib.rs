@@ -29,6 +29,7 @@ pub mod backups;
 pub mod cli;
 pub mod collections;
 pub mod config;
+pub mod connections;
 pub mod core;
 pub mod count_cache;
 pub mod cron;

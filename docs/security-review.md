@@ -7,6 +7,9 @@ tests stay in the suite.
 
 To report a problem, see the [security policy](../SECURITY.md).
 
+- [Automations, events and hook files (2.7)](#automations-events-and-hook-files-27): record
+  triggers, signed webhooks, templates sent through the API, settings pages and limits of hook
+  code.
 - [Dashboard cron jobs (2.6)](#dashboard-cron-jobs-26): what the job types can reach, who can see
   and run them, and how settings are saved.
 - [Following up the audits (2.5.0)](#following-up-the-audits-250): open streams, route coverage,
@@ -18,6 +21,70 @@ To report a problem, see the [security policy](../SECURITY.md).
 - [The platform (1.1.0)](#the-platform-110): the data API, files, email, the dashboard and
   everything around them.
 - [Authentication (0.4.2)](#authentication-042): tokens and every way of signing in.
+
+## Automations, events and hook files (2.7)
+
+Everything 2.7 adds was reviewed against the code before the release: automations of steps,
+email templates, automations started by a record's change, signed webhooks, the template send
+API, settings pages and step functions of hook files, the limits of hook code and development
+mode. The finding below was reproduced with a test before it was fixed.
+
+### 1. An idempotency key was shared between callers (low)
+
+`POST /api/templates/{id}/send` with an `Idempotency-Key` queued nothing when the key had been
+used before for the same template, whoever had used it and whatever they had asked for. A second
+superuser who used the same key (a key such as `order-1` is easy to share by accident) had their
+emails silently dropped while the answer said `duplicate`, and a retry with other addresses or
+other data was taken for the first request. A key now belongs to the caller who used it, and the
+same key with a different request is refused with `422`, queuing nothing.
+
+### Checked and found sound
+
+- **What a record's change can reach.** The outbox never holds a collection's secret fields
+  (password hashes, token keys), nor names them among the changed fields of an update, so neither
+  steps nor webhooks see them. System collections and views can't start an automation, and steps
+  can't read or write a system collection, so an admin can't reach `_superusers`, `_otps` or
+  `_mfas` through an automation either.
+- **Data from a record in a step.** A record's values can fill in a step's text, addresses and
+  data, but never choose where a request goes (the scheme, host and port are those typed), never
+  become SQL (a statement can't be a template), and are escaped in an email's HTML. A subject
+  must come to one line, so no header can be added. Rendering is bounded in work and in size.
+- **Loops.** What a run writes carries the chain of automations it came through, and no
+  automation is started twice in a chain or beyond three, whatever writes in between. The
+  chain is set per transaction by the server; an API client has no way to set or clear it.
+- **Signed webhooks.** The signature follows Standard Webhooks (checked against its test
+  vector); the secret is made by the server, shown once, sealed with the settings and never
+  returned again (a masked value keeps it); redirects are not followed; the address is checked
+  as every outbound request is (public addresses only, connected to as checked).
+- **Templates sent through the API.** Developers and up; up to 10 addresses, each checked; data
+  at most 64 KB; rendered and checked before anything is queued; 100 emails a minute per caller,
+  counted in the database (shared by instances, refused when the counters can't be read).
+- **Settings pages of hook files.** Values are in a private section of the settings (sealed,
+  never in `/api/settings`); a secret, and a secret's default, is returned as a mask; values are
+  checked against the declared form (type, options, 10 000 characters); developers read, admins
+  and owners change.
+- **History and queue.** The history keeps counts and statuses, never rows, answers or record
+  data; what a run keeps for its next attempt is cleared when it ends and is never returned by
+  the API. The job kinds an instance runs are listed for developers; queued payloads are not
+  returned at all.
+- **Development mode.** Error details are added for superusers only; SQL is logged to the
+  process's own output, not to the logs shown in the dashboard; starting it bound beyond
+  loopback is logged as an error.
+- **Generated type definitions.** Collection and field names, select values and help texts are
+  quoted or escaped, so a collection can't break the file out of its types.
+
+### Advice
+
+- An automation started by a record's change runs with the server's reach, so whoever can create
+  or change records in its collection decides when it runs and with what data. A step that
+  emails an address from the record, say, sends mail for anyone the collection's create rule
+  lets in: keep such collections behind a rule or a rate limit.
+- A webhook step with no payload chosen sends what the run is about, the changed record with
+  it: every field that is not secret (hidden fields and emails whose owner hid them
+  included). Choose the payload when the receiver needs less.
+- The time and memory limits of hook code are off unless `hooks.timeout_seconds` and
+  `hooks.memory_limit_mb` are set, as hook code had no limits before. Set them where hook files
+  come from more than one author.
 
 ## Dashboard cron jobs (2.6)
 

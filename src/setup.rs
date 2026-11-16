@@ -95,7 +95,7 @@ pub async fn perform(
             if !errors.is_empty() {
                 return Err(SetupError::Validation(errors));
             }
-            let pool = db::connect(url, &loaded.effective.database)
+            let pool = db::connect_api(url, &loaded.effective.database)
                 .map_err(|e| SetupError::BadRequest(format!("{e:#}")))?;
             (pool, Some(url.to_string()))
         }

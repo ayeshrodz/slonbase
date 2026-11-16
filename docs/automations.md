@@ -174,7 +174,8 @@ give it, and can send you a test.
   admins and owners (an API key works). The request is checked at once (the template, the
   addresses, that it renders) and answered `202`; the emails are sent in the background, each
   address tried up to three times. An `Idempotency-Key` header makes a request safe to repeat
-  for seven days. One caller can queue 100 emails a minute.
+  for seven days (the key is the caller's own; used again with other addresses or data, it is
+  refused with `422`). One caller can queue 100 emails a minute.
 
 What sends email (either kind of step) can run at most every five minutes, and to at most ten
 addresses per step run.

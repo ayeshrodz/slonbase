@@ -75,8 +75,10 @@ pub struct HooksConfig {
     pub watch: bool,
     /// How long a JavaScript handler may run, in seconds (the time it waits in `e.next()` not
     /// counted); 0 for no limit. A handler that takes longer is stopped and fails.
+    #[serde(skip_serializing_if = "is_zero")]
     pub timeout_seconds: u64,
     /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
+    #[serde(skip_serializing_if = "is_zero")]
     pub memory_limit_mb: usize,
 }
 
@@ -176,6 +178,12 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// (settings added in 2.7 are left out of a written file while they are 0, so the file stays
+/// one an earlier version reads)
+fn is_zero<T: Default + PartialEq>(value: &T) -> bool {
+    *value == T::default()
+}
+
 impl Default for ServerConfig {
     fn default() -> Self {
         Self {
@@ -212,12 +220,34 @@ pub struct DatabaseConfig {
     /// Extra PEM CA bundle to trust for TLS connections (e.g. a managed provider's CA).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ca_file: Option<PathBuf>,
+    /// How many of the `max_connections` are reserved for background jobs while they run
+    /// (the API uses them too while none does; see [`crate::connections`]). Not set: 2, or 1
+    /// when `max_connections` is below 8. 0: jobs take the API's connections as they come.
+    /// Never more than `max_connections` less one. A project reserves 1 of its own, or none
+    /// when this is 0.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub job_connections: Option<usize>,
     /// Connects to this database instead of the URL's (set for projects, never saved).
     #[serde(skip)]
     pub dbname: Option<String>,
     /// Connects as this role instead of the URL's (projects with a role of their own).
     #[serde(skip)]
     pub user: Option<(String, String)>,
+}
+
+impl DatabaseConfig {
+    /// How many connections are reserved for background jobs (see `job_connections`).
+    pub fn job_reserve(&self) -> usize {
+        let wanted = self
+            .job_connections
+            .unwrap_or(if self.max_connections >= 8 { 2 } else { 1 });
+        wanted.min(self.max_connections.saturating_sub(1))
+    }
+
+    /// The size of the API's pool: `max_connections` less the reserve.
+    pub fn api_connections(&self) -> usize {
+        self.max_connections - self.job_reserve()
+    }
 }
 
 impl Default for DatabaseConfig {
@@ -228,6 +258,7 @@ impl Default for DatabaseConfig {
             listen_url: None,
             statement_timeout: 0,
             ca_file: None,
+            job_connections: None,
             dbname: None,
             user: None,
         }
@@ -484,6 +515,50 @@ mod tests {
         let path = dir.path().join("config.toml");
         fs::write(&path, "[database]\nurll = \"typo\"\n").unwrap();
         assert!(load(&path, Overrides::default()).is_err());
+    }
+
+    #[test]
+    fn the_job_reserve_is_part_of_max_connections() {
+        let with = |max, jobs| DatabaseConfig {
+            max_connections: max,
+            job_connections: jobs,
+            ..Default::default()
+        };
+        // not set: 2, or 1 for a small pool
+        assert_eq!(with(16, None).job_reserve(), 2);
+        assert_eq!(with(16, None).api_connections(), 14);
+        assert_eq!(with(8, None).job_reserve(), 2);
+        assert_eq!(with(7, None).job_reserve(), 1);
+        assert_eq!(with(4, None).api_connections(), 3);
+        // the API always keeps one
+        assert_eq!(with(1, None).job_reserve(), 0);
+        assert_eq!(with(2, Some(5)).job_reserve(), 1);
+        // 0: none reserved
+        assert_eq!(with(16, Some(0)).job_reserve(), 0);
+        assert_eq!(with(16, Some(0)).api_connections(), 16);
+        assert_eq!(with(16, Some(4)).job_reserve(), 4);
+    }
+
+    #[test]
+    fn a_written_file_has_no_new_setting_left_at_its_default() {
+        // (so an earlier version, which refuses settings it doesn't know, still reads it)
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        save(&path, &Config::default()).unwrap();
+        let written = fs::read_to_string(&path).unwrap();
+        for key in [
+            "timeout_seconds",
+            "memory_limit_mb",
+            "job_connections",
+            "dev",
+        ] {
+            assert!(!written.contains(key), "{key} in:\n{written}");
+        }
+        let mut set = Config::default();
+        set.database.job_connections = Some(2);
+        set.hooks.timeout_seconds = 30;
+        save(&path, &set).unwrap();
+        assert_eq!(load(&path, Overrides::default()).unwrap().file, set);
     }
 
     #[test]

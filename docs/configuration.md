@@ -23,6 +23,7 @@ file, and then the defaults.
 | `--database-url` | `SLONBASE_DATABASE_URL` | `database.url` | none (setup mode) |
 | `--database-max-connections` | `SLONBASE_DATABASE_MAX_CONNECTIONS` | `database.max_connections` | `16` |
 | | | `database.statement_timeout` | `0` (seconds; 0: no limit) |
+| | | `database.job_connections` | `2` (1 when `max_connections` is below 8): of `max_connections`, reserved for background jobs while they run; 0 for none |
 | `--database-ca-file` | `SLONBASE_DATABASE_CA_FILE` | `database.ca_file` | none |
 | `--database-listen-url` | `SLONBASE_DATABASE_LISTEN_URL` | `database.listen_url` | none (the listeners use `database.url`) |
 | `--storage-path` | `SLONBASE_STORAGE_PATH` | `storage.path` | `slonbase_data/storage` |
@@ -67,6 +68,7 @@ sql_console = false
 url = "postgres://slonbase:secret@127.0.0.1:5432/slonbase"
 max_connections = 16
 # statement_timeout = 60   # seconds; ends a query that runs longer (backups are exempt)
+# job_connections = 2      # of max_connections, reserved for jobs while they run (0: none)
 # ca_file = "/etc/ssl/certs/rds-global-bundle.pem"
 
 [storage]
@@ -105,7 +107,10 @@ Amazon RDS), pass it with `--database-ca-file`.
 `LISTEN` (realtime and projects), and each [project](projects.md) adds up to `projects.max_connections`
 (4) plus one more. N instances and P projects use at most N × (18 + 5 × P) connections, so with several
 instances keep the total below the server's `max_connections`: lower the pools, raise the limit,
-or use a pooler. Health warns from 80% of the limit.
+or use a pooler. Health warns from 80% of the limit. Of `max_connections`,
+`database.job_connections` (by default 2, 1 of a project's) are reserved for background jobs
+while they run, and requests have the others, so neither waits for the other in the usual case;
+0 reserves none. See [the connection budget](scaling.md#the-connection-budget).
 
 **Behind a pooler:** a transaction-mode pooler (PgBouncer `pool_mode = transaction`, version 1.21
 or newer, with `max_prepared_statements` set) can carry the queries but not `LISTEN`. Set

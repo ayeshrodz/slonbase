@@ -60,15 +60,19 @@ changes, listed in its **Upgrading** section.
 
 ### Changed
 
-- **Background jobs run from a durable queue, on connections of their own.** Scheduled and manual
+- **Background jobs run from a durable queue.** Scheduled and manual
   runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
   are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued
   by an instance that then stops is picked up by another, and a scheduled job is still queued
-  once a minute however many instances there are. The workers use their own connections (up to 2
-  for the main database and 2 per project, opened when a job runs and closed when the queue is
-  empty), so a job never takes a connection from API requests. The most connections an instance
-  can open is now `20 + 7 × projects` (it was `18 + 5 × projects`); see
-  [scaling](docs/scaling.md#the-connection-budget).
+  once a minute however many instances there are.
+- **Jobs and API requests don't take each other's connections, within the same budget.** Of
+  `database.max_connections`, 2 are reserved for background jobs while they run (1 of a project's
+  4; `database.job_connections` sets how many, 0 turns it off): while the jobs fit in the reserve,
+  a long job doesn't take a connection an API request needs, and a busy API doesn't make a job
+  wait for one. A job that finds the reserve in use for two seconds takes whichever connection
+  frees first, possibly one of the API's, which requests then wait for. While no job runs, API
+  requests use the reserved connections too. An instance opens no more connections than
+  before (`18 + 5 × projects`); see the [connection budget](docs/scaling.md#the-connection-budget).
 - **Retries survive a restart.** A failed run that is to be tried again waits in the queue, not
   in the memory of the instance that ran it: the retry happens after a restart too, and on
   whichever instance is free. A run is still one line of the history however many attempts it
@@ -116,8 +120,14 @@ changes, listed in its **Upgrading** section.
 - Stop every instance before starting the new version, as for every upgrade: this version
   changes how settings and job schedules are stored, and an instance of 2.6 doesn't read the
   new form.
-- A project's instance can now open up to 2 connections for background jobs (it was 1): count
-  `20 + 7 × projects` connections per instance.
+- The configuration file setup writes names the new
+  settings only when they are set, so going back to 2.6 by restoring a backup keeps a file 2.6
+  reads.
+- The connection budget is unchanged (`18 + 5 × projects` per instance): the connections reserved
+  for jobs are part of `database.max_connections`. While a job runs, API requests have 14 of the
+  16 (3 of a project's 4); set `database.job_connections = 0` to keep all of them for requests and
+  let jobs take theirs as they come, as before. Rust embedders building `DatabaseConfig` also use
+  `..Default::default()` for its new field.
 
 ## [2.6.2] - 2026-11-11
 

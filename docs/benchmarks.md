@@ -23,6 +23,10 @@ slonbase was ahead in every scenario measured, from 1.2 times PocketBase's throu
 (which bcrypt bounds) to 68 times on filtered lists, where PostgreSQL uses the index on the
 filtered column.
 
+2.7.0 against 2.6.2 on the same workloads differs by less than the runs' own spread in every
+scenario (creating records came out a little faster); the table and how it was measured are in
+[`bench/README.md`](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md#what-changed-in-27).
+
 ## Footprint
 
 | | slonbase 2.2.0 | PocketBase 0.40.6 | PostgREST 16.5 |
