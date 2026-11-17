@@ -303,6 +303,17 @@ async fn run_batch(
         requests.push(request);
     }
 
+    // deleting superusers is one step with checking that an owner remains (see the guard)
+    let deletes_superusers = requests.iter().any(|r| {
+        matches!(r.action, Action::Delete(_))
+            && r.collection.id == crate::collections::model::SUPERUSERS_COLLECTION_ID
+    });
+    let _one_at_a_time = if deletes_superusers {
+        Some(core.superuser_deletes.lock().await)
+    } else {
+        None
+    };
+
     let (tx, effects, worker) = TxHandle::start(core);
 
     let run = async {
@@ -313,7 +324,6 @@ async fn run_batch(
                 .map_err(|e| failed_at(i, e))?;
             done.push(item);
         }
-        tx.commit().await?;
         Ok(done)
     };
     let timeout = Duration::from_secs(timeout_secs.max(1));
@@ -322,6 +332,18 @@ async fn run_batch(
         Err(_) => Err(ApiError::bad_request(
             "Batch transaction failed: the batch took too long.",
         )),
+    };
+    // the commit isn't under the timeout: once it is sent, its outcome is awaited (a batch
+    // that committed is never reported as timed out, and the lock above is held until then)
+    let outcome = match outcome {
+        Ok(done) => {
+            async {
+                tx.commit().await?;
+                Ok(done)
+            }
+            .await
+        }
+        Err(e) => Err(e),
     };
     // without a commit, the transaction rolls back when its task ends
     drop(tx);
@@ -510,6 +532,9 @@ async fn run_request(
                                     .map(Some)
                             }
                             Action::Delete(id) => {
+                                if c.id == crate::collections::model::SUPERUSERS_COLLECTION_ID {
+                                    crate::roles::check_delete_in(&core, tx, &id).await?;
+                                }
                                 delete_in(&ctx, tx, &c, &id, effects).await.map(|_| None)
                             }
                             Action::Upsert => unreachable!("resolved above"),

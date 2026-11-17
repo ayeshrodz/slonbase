@@ -112,6 +112,23 @@ changes, listed in its **Upgrading** section.
   in it) and an `http://` address, since the request would carry it unencrypted. Other headers,
   such as `Content-Type`, may still go to `http://`.
 
+### Fixed
+
+- Two owners deleting each other at the same moment can no longer leave an installation without an
+  owner: the check that one remains and the delete are one step, and changing an owner's role
+  waits for a delete in progress (on one instance; several instances behind one database still
+  need the owners not to delete each other together).
+- A batch of requests deleting superusers is held to the same rule as deleting them one at a
+  time: it can no longer delete every owner.
+
+### Security
+
+- **Rate limits.** An IPv6 client is counted per /64 network (the smallest a provider assigns one
+  subscriber), so a client can't start over with a new counter by changing the last 64 bits of its
+  address. When the table of counters is full of running windows, the oldest tenth is dropped to
+  make room, instead of leaving new clients uncounted.
+- Restoring a backup reads at most 64 MiB of its manifest (a manifest lists the tables and columns), and refuses a larger one.
+
 ### Upgrading
 
 - Nothing to do for hooks or failure notices: the new limits are off unless set, and notice

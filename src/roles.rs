@@ -371,6 +371,8 @@ pub async fn set_role(
         .and_then(Value::as_str)
         .and_then(Role::parse)
         .ok_or_else(|| ApiError::bad_request("role must be owner, admin, developer or viewer."))?;
+    // not while a superuser is being deleted: the owners counted below must be the ones left
+    let _one_at_a_time = core.superuser_deletes.lock().await;
     let client = core
         .db()
         .get()
@@ -421,6 +423,19 @@ pub async fn check_delete(core: &Core, id: &str) -> Result<(), ApiError> {
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    check_delete_in(core, &client, id).await
+}
+
+/// The same check on `client`, a connection or a transaction: a batch deleting superusers
+/// asks it in its own transaction, which sees the deletes that came before in the batch.
+pub async fn check_delete_in(
+    core: &Core,
+    client: &impl deadpool_postgres::GenericClient,
+    id: &str,
+) -> Result<(), ApiError> {
+    if role_of(core, id) != Role::Owner {
+        return Ok(());
+    }
     let ids: Vec<String> = client
         .query("SELECT id FROM slonbase._superusers", &[])
         .await
