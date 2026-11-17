@@ -447,7 +447,15 @@ fn write_zip(path: &Path, manifest: &Manifest, dir: &Path, files: Option<&Path>)
         .compression_method(zip::CompressionMethod::Deflated)
         .large_file(true);
     zip.start_file(MANIFEST, options)?;
-    zip.write_all(&serde_json::to_vec_pretty(manifest)?)?;
+    let listing = serde_json::to_vec_pretty(manifest)?;
+    // a backup is restorable only if its manifest can be read back (see [`MAX_MANIFEST`])
+    anyhow::ensure!(
+        listing.len() as u64 <= MAX_MANIFEST,
+        "the schema is too large to back up: its listing takes {} MiB, more than {} MiB",
+        listing.len() >> 20,
+        MAX_MANIFEST >> 20
+    );
+    zip.write_all(&listing)?;
     for table in &manifest.tables {
         zip.start_file(&table.file, options)?;
         std::io::copy(&mut std::fs::File::open(dir.join(&table.file))?, &mut zip)?;
