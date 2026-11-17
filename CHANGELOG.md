@@ -115,8 +115,11 @@ changes, listed in its **Upgrading** section.
 ### Fixed
 
 - Two owners deleting each other at the same moment can no longer leave an installation without an
-  owner: the check that one remains and the delete are one step (on one instance; several
-  instances behind one database still need the owners not to delete each other together).
+  owner: the check that one remains and the delete are one step, and changing an owner's role
+  waits for a delete in progress (on one instance; several instances behind one database still
+  need the owners not to delete each other together).
+- A batch of requests deleting superusers is held to the same rule as deleting them one at a
+  time: it can no longer delete every owner.
 
 ### Security
 

@@ -470,3 +470,71 @@ async fn owners_deleting_each_other_leave_one() {
     assert_eq!(superuser_count(&app, survivor).await, 1);
     tdb.drop_db().await;
 }
+
+/// A batch deleting every owner is refused like the same deletes one at a time, and so is
+/// demoting the owner a delete would leave.
+#[tokio::test]
+async fn a_batch_cannot_delete_the_last_owners() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-owner@example.com", "owner").await;
+    let _viewer = member(&app, &first, "viewer-only@example.com", "viewer").await;
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (_, me) = as_(&app, &first, "GET", "/api/team/me", None).await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let urls: Vec<String> = [&me, &other]
+        .iter()
+        .map(|m| {
+            format!(
+                "/api/collections/_superusers/records/{}",
+                m["id"].as_str().unwrap()
+            )
+        })
+        .collect();
+    assert_eq!(superuser_count(&app, &first).await, 3);
+
+    let requests: Vec<Value> = urls
+        .iter()
+        .map(|url| json!({ "method": "DELETE", "url": url }))
+        .collect();
+    let (status, res) = as_(
+        &app,
+        &first,
+        "POST",
+        "/api/batch",
+        Some(json!({ "requests": requests })),
+    )
+    .await;
+    assert!(
+        !status.is_success(),
+        "both owners in one batch: {status} {res}"
+    );
+    assert_eq!(
+        superuser_count(&app, &first).await,
+        3,
+        "nothing was deleted"
+    );
+
+    // one of them is fine, as it is directly
+    let (status, res) = as_(
+        &app,
+        &first,
+        "POST",
+        "/api/batch",
+        Some(json!({ "requests": [{ "method": "DELETE", "url": urls[1] }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(superuser_count(&app, &first).await, 2);
+    tdb.drop_db().await;
+}
