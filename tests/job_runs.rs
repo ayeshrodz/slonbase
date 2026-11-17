@@ -150,6 +150,7 @@ async fn runs_that_pass_the_check_together_are_one_run() {
         .unwrap()
         .get(0);
     assert_eq!(rows, 1);
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -166,6 +167,7 @@ async fn a_job_started_twice_at_once_runs_once() {
     let runs = history(&app, &token, &id).await;
     assert_eq!(runs.len(), 1, "{runs:?}");
     assert_eq!(runs[0]["status"], "ok", "{runs:?}");
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -206,6 +208,7 @@ async fn a_run_left_by_an_earlier_version_doesnt_hold_up_the_job() {
         old["detail"].as_str().unwrap().contains("Interrupted"),
         "{old}"
     );
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -248,6 +251,7 @@ async fn a_run_whose_instance_stopped_doesnt_hold_up_the_job() {
         "{:?}",
         history(&app, &token, &id).await
     );
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -298,6 +302,7 @@ async fn a_run_that_is_going_still_holds_up_the_next() {
     let runs = history(&app, &token, &id).await;
     assert_eq!(runs.len(), 1, "{runs:?}");
     assert_eq!(runs[0]["status"], "running", "{runs:?}");
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -349,6 +354,7 @@ async fn a_job_waiting_to_try_again_leaves_its_worker_to_others() {
         assert_eq!(runs.len(), 1, "{runs:?}");
         assert_eq!(runs[0]["status"], "running", "{runs:?}");
     }
+    tdb.drop_db().await;
 }
 
 #[tokio::test]
@@ -386,4 +392,6 @@ async fn every_installation_prunes_on_its_own() {
             .get(0);
         assert_eq!(left, 0, "the {name} installation was not pruned in an hour");
     }
+    first.drop_db().await;
+    second.drop_db().await;
 }
