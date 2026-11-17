@@ -106,11 +106,12 @@ changes, listed in its **Upgrading** section.
   step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
   dashboard lists them under Automations; the old page's address leads there.
 
-- **A credential header is only sent to an `https://` address.** A job or step that calls a URL
-  can't be saved with a header that carries a credential (`Authorization`, `Cookie`, or a name
+- **A credential header can only be saved with an `https://` address.** A job or step that
+  calls a URL can't be saved with a header that carries a credential (`Authorization`, `Cookie`, or a name
   with `auth`, `token`, `api-key`, `secret`, `password`, `session`, `signature` or `credential`
-  in it) and an `http://` address, since the request would carry it unencrypted. Other headers,
-  such as `Content-Type`, may still go to `http://`.
+  in it) and an `http://` address, since the request would carry it unencrypted. A job saved
+  before keeps running as it is (see Upgrading). Other headers, such as `Content-Type`, may still
+  go to `http://`.
 
 ### Fixed
 
@@ -250,11 +251,12 @@ changes, listed in its **Upgrading** section.
   step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
   dashboard lists them under Automations; the old page's address leads there.
 
-- **A credential header is only sent to an `https://` address.** A job or step that calls a URL
-  can't be saved with a header that carries a credential (`Authorization`, `Cookie`, or a name
+- **A credential header can only be saved with an `https://` address.** A job or step that
+  calls a URL can't be saved with a header that carries a credential (`Authorization`, `Cookie`, or a name
   with `auth`, `token`, `api-key`, `secret`, `password`, `session`, `signature` or `credential`
-  in it) and an `http://` address, since the request would carry it unencrypted. Other headers,
-  such as `Content-Type`, may still go to `http://`.
+  in it) and an `http://` address, since the request would carry it unencrypted. A job saved
+  before keeps running as it is (see Upgrading). Other headers, such as `Content-Type`, may still
+  go to `http://`.
 
 ### Fixed
 
