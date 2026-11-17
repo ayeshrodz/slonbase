@@ -324,7 +324,6 @@ async fn run_batch(
                 .map_err(|e| failed_at(i, e))?;
             done.push(item);
         }
-        tx.commit().await?;
         Ok(done)
     };
     let timeout = Duration::from_secs(timeout_secs.max(1));
@@ -333,6 +332,18 @@ async fn run_batch(
         Err(_) => Err(ApiError::bad_request(
             "Batch transaction failed: the batch took too long.",
         )),
+    };
+    // the commit isn't under the timeout: once it is sent, its outcome is awaited (a batch
+    // that committed is never reported as timed out, and the lock above is held until then)
+    let outcome = match outcome {
+        Ok(done) => {
+            async {
+                tx.commit().await?;
+                Ok(done)
+            }
+            .await
+        }
+        Err(e) => Err(e),
     };
     // without a commit, the transaction rolls back when its task ends
     drop(tx);
