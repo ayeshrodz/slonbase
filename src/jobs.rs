@@ -52,11 +52,18 @@ pub(crate) async fn resume(core: &Arc<Core>, queue_job: i64) -> anyhow::Result<O
     }))
 }
 
-/// Starts a run of `job` for the queued job `queue_job` unless another run of it is going
-/// (started within the hour), or the queued job has a run already (it finished, and the
-/// instance stopped before the queue knew: the work is not done a second time): `None` then. The check and the start are one step (a lock on the
-/// job for the transaction), so two runs queued at the same moment can't both start.
-pub(crate) async fn start_exclusive(
+/// Starts a run of `job` for the queued job `queue_job` unless another run of it is going, or
+/// the queued job has a run already (it finished, and the instance stopped before the queue
+/// knew: the work is not done a second time): `None` then.
+///
+/// A run is going while the queued job that runs it is (waiting to try again, or running with
+/// its lease): the queue knows when an instance stopped, a clock doesn't. A history row with no
+/// queued job, or whose queued job ended, is a run an instance left behind, and doesn't count.
+///
+/// The check and the start are one step (a lock on the job for the transaction), so two runs
+/// queued at the same moment, on one instance or several, can't both start.
+#[doc(hidden)]
+pub async fn start_exclusive(
     core: &Arc<Core>,
     kind: &str,
     job: &str,
@@ -78,9 +85,10 @@ pub(crate) async fn start_exclusive(
         .query_opt(
             "INSERT INTO _slonbase.job_runs (kind, job, trigger, queue_job)
              SELECT $1, $2, $3, $4 WHERE NOT EXISTS (
-                 SELECT 1 FROM _slonbase.job_runs
-                 WHERE kind = $1 AND job = $2 AND status = 'running'
-                   AND started > now() - interval '1 hour')
+                 SELECT 1 FROM _slonbase.job_runs r
+                 WHERE r.kind = $1 AND r.job = $2 AND r.status = 'running'
+                   AND EXISTS (SELECT 1 FROM _slonbase.jobs j
+                               WHERE j.id = r.queue_job AND j.state IN ('queued', 'running')))
                AND NOT EXISTS (SELECT 1 FROM _slonbase.job_runs WHERE queue_job = $4)
              RETURNING id",
             &[&kind, &job, &trigger, &queue_job],
@@ -279,11 +287,16 @@ fn run_meta(mut meta: Value) -> Value {
     meta
 }
 
-/// [`prune`] on one call in 60 (the maintenance tick runs every minute).
-pub(crate) async fn prune_hourly(core: &Core) {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    static TICKS: AtomicU32 = AtomicU32::new(0);
-    if !TICKS.fetch_add(1, Ordering::Relaxed).is_multiple_of(60) {
+/// [`prune`] on one call in 60 of this installation (the maintenance tick of each runs every
+/// minute; the main installation and every project count their own).
+#[doc(hidden)]
+pub async fn prune_hourly(core: &Core) {
+    use std::sync::atomic::Ordering;
+    if !core
+        .maintenance_ticks
+        .fetch_add(1, Ordering::Relaxed)
+        .is_multiple_of(60)
+    {
         return;
     }
     if let Err(err) = crate::queue::prune(core).await {
@@ -298,7 +311,9 @@ pub(crate) async fn prune_hourly(core: &Core) {
 }
 
 /// Closes the runs whose queued job ended without them (its instance stopped on the last
-/// attempt): they would otherwise count as running.
+/// attempt), and the runs of a cron job that no queued job ever had (one that an earlier
+/// version was running when it was stopped for an upgrade; every run is queued since): they
+/// would otherwise show as running for a day.
 pub(crate) async fn close_orphans(
     core: &Core,
     kind: &str,
@@ -314,9 +329,13 @@ pub(crate) async fn close_orphans(
             "UPDATE _slonbase.job_runs r SET status = 'error', finished = now(), state = NULL,
                  detail = 'Interrupted: the instance running it stopped.'
              WHERE r.kind = $1 AND ($2::text IS NULL OR r.job = $2) AND r.status = 'running'
-               AND r.queue_job IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j
-                               WHERE j.id = r.queue_job AND j.state IN ('queued', 'running'))",
+               AND (
+                   (r.queue_job IS NOT NULL
+                    AND NOT EXISTS (SELECT 1 FROM _slonbase.jobs j
+                                    WHERE j.id = r.queue_job AND j.state IN ('queued', 'running')))
+                   OR (r.queue_job IS NULL AND r.kind = 'cron'
+                       AND r.started < now() - interval '10 minutes')
+               )",
             &[&kind, &job],
         )
         .await?;

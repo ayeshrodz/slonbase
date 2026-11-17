@@ -24,6 +24,10 @@ pub struct Core {
     connections: crate::connections::Connections,
     /// The job queue: what runs each kind of job, and what wakes the workers.
     pub(crate) queue: crate::queue::Queue,
+    /// Maintenance ticks of this installation (one a minute), counted for the hourly pruning
+    /// of its job history and queue: each installation counts its own, so none is skipped
+    /// because another one's ticks fall on the hour.
+    pub(crate) maintenance_ticks: std::sync::atomic::AtomicU32,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
     /// The others wait here rather than for a connection (see `http_policy`).
     pub(crate) heavy_writes: tokio::sync::Semaphore,
@@ -217,6 +221,7 @@ impl Core {
             connections: crate::connections::Connections::new(pool.clone()),
             pool,
             queue: crate::queue::Queue::new(handlers),
+            maintenance_ticks: Default::default(),
             heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
