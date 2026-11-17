@@ -497,8 +497,10 @@ fn write_zip(path: &Path, manifest: &Manifest, dir: &Path, files: Option<&Path>)
 // ---------------------------------------------------------------------------
 // restoring
 
-/// The most bytes read from a backup's manifest.
-const MAX_MANIFEST: u64 = 1 << 20;
+/// The most bytes read from a backup's manifest: it lists every table and column, so it grows
+/// with the schema (about 1 KB for a table of ten columns); this leaves room for installations
+/// of thousands of collections and still keeps a crafted archive from filling the memory.
+const MAX_MANIFEST: u64 = 64 << 20;
 
 /// Reads the manifest and checks the archive is a backup this version can restore.
 fn read_manifest(path: &Path) -> Result<Manifest, BackupError> {
@@ -506,10 +508,17 @@ fn read_manifest(path: &Path) -> Result<Manifest, BackupError> {
     let file = std::fs::File::open(path).map_err(|e| BackupError::Other(e.into()))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|_| invalid())?;
     let mut entry = archive.by_name(MANIFEST).map_err(|_| invalid())?;
-    // a manifest is a few hundred bytes: a larger one isn't one of ours
+    // read one byte past the limit: an entry that size or larger is refused, and reading an
+    // entry to its end is what makes the ZIP reader check its CRC
     let mut raw = String::new();
-    std::io::Read::read_to_string(&mut std::io::Read::take(&mut entry, MAX_MANIFEST), &mut raw)
-        .map_err(|_| invalid())?;
+    let read = std::io::Read::read_to_string(
+        &mut std::io::Read::take(&mut entry, MAX_MANIFEST + 1),
+        &mut raw,
+    )
+    .map_err(|_| invalid())?;
+    if read as u64 > MAX_MANIFEST {
+        return Err(invalid());
+    }
     let manifest: Manifest = serde_json::from_str(&raw).map_err(|_| invalid())?;
     if manifest.format != FORMAT {
         return Err(invalid());

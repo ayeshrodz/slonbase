@@ -124,7 +124,7 @@ changes, listed in its **Upgrading** section.
   subscriber), so a client can't start over with a new counter by changing the last 64 bits of its
   address. When the table of counters is full of running windows, the oldest tenth is dropped to
   make room, instead of leaving new clients uncounted.
-- Restoring a backup reads at most 1 MiB of its manifest.
+- Restoring a backup reads at most 64 MiB of its manifest (a manifest lists the tables and columns), and refuses a larger one.
 
 ### Upgrading
 

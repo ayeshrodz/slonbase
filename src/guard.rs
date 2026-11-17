@@ -359,10 +359,14 @@ async fn allow(core: &Core, limiter: String, ip: IpAddr, rule: &RateLimitRule) -
 
 /// The address a client is counted under: an IPv6 client is counted per /64, the smallest network
 /// a provider assigns to one subscriber, so one client can't take a fresh address for every
-/// request to start over with a new counter. IPv4 is counted per address.
+/// request to start over with a new counter. IPv4 is counted per address, also when it comes
+/// as an IPv4-mapped IPv6 one (`::ffff:192.0.2.1`).
 fn limit_key(ip: IpAddr) -> IpAddr {
     match ip {
         IpAddr::V6(v6) => {
+            if let Some(v4) = v6.to_ipv4_mapped() {
+                return IpAddr::V4(v4);
+            }
             let net = u128::from(v6) & (u128::MAX << 64);
             IpAddr::V6(std::net::Ipv6Addr::from(net))
         }
@@ -873,6 +877,14 @@ mod tests {
         assert_ne!(limit_key(a), limit_key(elsewhere));
         let v4: IpAddr = "10.0.0.1".parse().unwrap();
         assert_eq!(limit_key(v4), v4, "IPv4 per address");
+        let mapped: IpAddr = "::ffff:192.0.2.1".parse().unwrap();
+        let other: IpAddr = "::ffff:198.51.100.2".parse().unwrap();
+        assert_eq!(limit_key(mapped), "192.0.2.1".parse::<IpAddr>().unwrap());
+        assert_ne!(
+            limit_key(mapped),
+            limit_key(other),
+            "mapped IPv4 stay apart"
+        );
     }
 
     #[test]

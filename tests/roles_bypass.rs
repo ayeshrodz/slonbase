@@ -446,12 +446,27 @@ async fn owners_deleting_each_other_leave_one() {
         delete(first.clone(), second_id),
         delete(second.clone(), first_id)
     );
-    let mut got = [a, b];
-    got.sort_by_key(|s| s.as_u16());
-    assert_eq!(
-        got,
-        [StatusCode::NO_CONTENT, StatusCode::BAD_REQUEST],
-        "one delete goes through, the other is refused"
+    // one delete goes through; the other is refused (as the last owner, or, if the first
+    // had finished before its caller was authenticated, as no longer signed in)
+    let ok = [a, b]
+        .iter()
+        .filter(|s| **s == StatusCode::NO_CONTENT)
+        .count();
+    assert_eq!(ok, 1, "exactly one delete goes through: {a} and {b}");
+    let refused = if a == StatusCode::NO_CONTENT { b } else { a };
+    assert!(
+        matches!(
+            refused,
+            StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ),
+        "the other is refused: {refused}"
     );
+    // one owner remains, whichever it is
+    let survivor = if a == StatusCode::NO_CONTENT {
+        &first
+    } else {
+        &second
+    };
+    assert_eq!(superuser_count(&app, survivor).await, 1);
     tdb.drop_db().await;
 }
