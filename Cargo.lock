@@ -2203,7 +2203,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "slonbase"
-version = "2.7.0-rc.1"
+version = "2.7.0-rc.2"
 dependencies = [
  "anyhow",
  "axum",
