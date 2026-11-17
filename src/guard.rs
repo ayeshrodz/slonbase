@@ -144,9 +144,18 @@ impl RateLimiter {
             let t = unix_now();
             if self.swept_at.swap(t, std::sync::atomic::Ordering::Relaxed) != t {
                 windows.retain(|_, w| now.duration_since(w.started).as_secs() < w.duration);
+                // still full of running windows: the oldest tenth is dropped to make room (at
+                // most once a second, so a flood of new clients costs bounded memory and CPU)
+                if windows.len() >= MAX_WINDOWS {
+                    let mut started: Vec<Instant> = windows.values().map(|w| w.started).collect();
+                    let cut = started.len() / 10;
+                    let (_, cutoff, _) = started.select_nth_unstable(cut);
+                    let cutoff = *cutoff;
+                    windows.retain(|_, w| w.started > cutoff);
+                }
             }
-            // still full of running windows: clients already counted stay limited, a new one
-            // isn't tracked until room frees up (memory and CPU stay bounded under a flood)
+            // a flood within the same second: a new client isn't tracked until room frees up,
+            // clients already counted stay limited
             if windows.len() >= MAX_WINDOWS && !windows.contains_key(&(limiter.clone(), client)) {
                 return true;
             }
@@ -324,6 +333,7 @@ async fn shared_claim_mail(
 /// divided by the live instances, rounded up), so the instances together still allow about
 /// the configured number, and the failure is logged and shown in Health.
 async fn allow(core: &Core, limiter: String, ip: IpAddr, rule: &RateLimitRule) -> bool {
+    let ip = limit_key(ip);
     let others = core.realtime.other_instances();
     if others > 0 {
         match shared_allow(core, &limiter, ip, rule).await {
@@ -345,6 +355,19 @@ async fn allow(core: &Core, limiter: String, ip: IpAddr, rule: &RateLimitRule) -
         }
     }
     core.rate_limiter.allow(limiter, ip, rule)
+}
+
+/// The address a client is counted under: an IPv6 client is counted per /64, the smallest network
+/// a provider assigns to one subscriber, so one client can't take a fresh address for every
+/// request to start over with a new counter. IPv4 is counted per address.
+fn limit_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V6(v6) => {
+            let net = u128::from(v6) & (u128::MAX << 64);
+            IpAddr::V6(std::net::Ipv6Addr::from(net))
+        }
+        v4 => v4,
+    }
 }
 
 /// One instance's share of a limit across `instances`: at least 1 (so requests can still pass),
@@ -637,6 +660,8 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     let path = request.uri().path().to_string();
     // roles are written for collection names: a collection's id means the same thing
     let role_path = crate::roles::canonical_path(&path, &core.registry());
+    // held until the response is ready when a superuser is deleted (see below)
+    let mut _deleting = None;
     // what the superuser's role allows (owners: everything)
     if let Some(su) = &auth.superuser {
         let role = auth
@@ -656,9 +681,12 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
                 .into_response();
             }
         }
-        // there's always an owner
+        // there's always an owner: the check and the delete are one step (the lock is held
+        // until the response is ready), so two owners deleting each other at the same moment
+        // can't both pass
         if request.method() == Method::DELETE {
             if let Some(id) = role_path.strip_prefix("/api/collections/_superusers/records/") {
+                _deleting = Some(core.superuser_deletes.lock().await);
                 if let Err(err) = crate::roles::check_delete(&core, id).await {
                     return err.into_response();
                 }
@@ -834,6 +862,38 @@ mod tests {
         }
         let held = limiter.windows.lock().unwrap().len();
         assert!(held <= MAX_WINDOWS, "{held} counters held");
+    }
+
+    #[test]
+    fn an_ipv6_client_is_counted_per_network() {
+        let a: IpAddr = "2001:db8:1:2:aaaa::1".parse().unwrap();
+        let b: IpAddr = "2001:db8:1:2:bbbb::9".parse().unwrap();
+        let elsewhere: IpAddr = "2001:db8:1:3::1".parse().unwrap();
+        assert_eq!(limit_key(a), limit_key(b), "one /64");
+        assert_ne!(limit_key(a), limit_key(elsewhere));
+        let v4: IpAddr = "10.0.0.1".parse().unwrap();
+        assert_eq!(limit_key(v4), v4, "IPv4 per address");
+    }
+
+    #[test]
+    fn a_full_limiter_makes_room_for_new_clients() {
+        let limiter = RateLimiter::default();
+        let r = RateLimitRule {
+            duration: 3600,
+            max_requests: 1,
+            ..rule("/api/", "")
+        };
+        for n in 0..MAX_WINDOWS as u32 {
+            limiter.allow("a".into(), IpAddr::from(std::net::Ipv4Addr::from(n)), &r);
+        }
+        // the next new client finds the map full of running windows: the oldest are dropped,
+        // and the client is counted from then on
+        let newcomer: IpAddr = "203.0.113.7".parse().unwrap();
+        assert!(limiter.allow("a".into(), newcomer, &r));
+        assert!(
+            !limiter.allow("a".into(), newcomer, &r),
+            "the newcomer is counted"
+        );
     }
 
     #[test]

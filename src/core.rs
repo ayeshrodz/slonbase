@@ -28,6 +28,9 @@ pub struct Core {
     /// of its job history and queue: each installation counts its own, so none is skipped
     /// because another one's ticks fall on the hour.
     pub(crate) maintenance_ticks: std::sync::atomic::AtomicU32,
+    /// Held while a superuser is deleted, from checking that an owner remains until the delete
+    /// is done, so two deletes can't each leave the other owner behind.
+    pub(crate) superuser_deletes: tokio::sync::Mutex<()>,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
     /// The others wait here rather than for a connection (see `http_policy`).
     pub(crate) heavy_writes: tokio::sync::Semaphore,
@@ -222,6 +225,7 @@ impl Core {
             pool,
             queue: crate::queue::Queue::new(handlers),
             maintenance_ticks: Default::default(),
+            superuser_deletes: Default::default(),
             heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),

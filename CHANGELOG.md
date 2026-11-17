@@ -112,6 +112,20 @@ changes, listed in its **Upgrading** section.
   in it) and an `http://` address, since the request would carry it unencrypted. Other headers,
   such as `Content-Type`, may still go to `http://`.
 
+### Fixed
+
+- Two owners deleting each other at the same moment can no longer leave an installation without an
+  owner: the check that one remains and the delete are one step (on one instance; several
+  instances behind one database still need the owners not to delete each other together).
+
+### Security
+
+- **Rate limits.** An IPv6 client is counted per /64 network (the smallest a provider assigns one
+  subscriber), so a client can't start over with a new counter by changing the last 64 bits of its
+  address. When the table of counters is full of running windows, the oldest tenth is dropped to
+  make room, instead of leaving new clients uncounted.
+- Restoring a backup reads at most 1 MiB of its manifest.
+
 ### Upgrading
 
 - Nothing to do for hooks or failure notices: the new limits are off unless set, and notice

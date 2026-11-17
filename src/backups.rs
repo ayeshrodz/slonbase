@@ -497,14 +497,19 @@ fn write_zip(path: &Path, manifest: &Manifest, dir: &Path, files: Option<&Path>)
 // ---------------------------------------------------------------------------
 // restoring
 
+/// The most bytes read from a backup's manifest.
+const MAX_MANIFEST: u64 = 1 << 20;
+
 /// Reads the manifest and checks the archive is a backup this version can restore.
 fn read_manifest(path: &Path) -> Result<Manifest, BackupError> {
     let invalid = || BackupError::Invalid("The file isn't a slonbase backup.".into());
     let file = std::fs::File::open(path).map_err(|e| BackupError::Other(e.into()))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|_| invalid())?;
     let mut entry = archive.by_name(MANIFEST).map_err(|_| invalid())?;
+    // a manifest is a few hundred bytes: a larger one isn't one of ours
     let mut raw = String::new();
-    std::io::Read::read_to_string(&mut entry, &mut raw).map_err(|_| invalid())?;
+    std::io::Read::read_to_string(&mut std::io::Read::take(&mut entry, MAX_MANIFEST), &mut raw)
+        .map_err(|_| invalid())?;
     let manifest: Manifest = serde_json::from_str(&raw).map_err(|_| invalid())?;
     if manifest.format != FORMAT {
         return Err(invalid());

@@ -410,3 +410,48 @@ async fn only_owners_use_the_sql_console() {
     }
     tdb.drop_db().await;
 }
+
+/// Two owners deleting each other at the same moment: one of the deletes is refused, since
+/// the other owner is gone by then.
+#[tokio::test]
+async fn owners_deleting_each_other_leave_one() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-owner@example.com", "owner").await;
+    let (_, me) = as_(&app, &first, "GET", "/api/team/me", None).await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let (first_id, second_id) = (
+        me["id"].as_str().unwrap().to_string(),
+        other["id"].as_str().unwrap().to_string(),
+    );
+    assert_eq!(superuser_count(&app, &first).await, 2);
+
+    let delete = |token: String, id: String| {
+        let app = app.clone();
+        async move {
+            as_(
+                &app,
+                &token,
+                "DELETE",
+                &format!("/api/collections/_superusers/records/{id}"),
+                None,
+            )
+            .await
+            .0
+        }
+    };
+    let (a, b) = tokio::join!(
+        delete(first.clone(), second_id),
+        delete(second.clone(), first_id)
+    );
+    let mut got = [a, b];
+    got.sort_by_key(|s| s.as_u16());
+    assert_eq!(
+        got,
+        [StatusCode::NO_CONTENT, StatusCode::BAD_REQUEST],
+        "one delete goes through, the other is refused"
+    );
+    tdb.drop_db().await;
+}
