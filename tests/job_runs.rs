@@ -16,6 +16,11 @@ use slonbase::app::App;
 
 const NEVER: &str = "0 0 29 2 *";
 
+/// The SQL console allows two queries at a time in the whole process, and the tests of a file
+/// run side by side: the ones that run SQL jobs take turns, so one's queries don't fill the
+/// console while another waits for it.
+static CONSOLE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn call(
     app: &Arc<App>,
     token: &str,
@@ -103,6 +108,7 @@ async fn queue_idle(client: &tokio_postgres::Client, id: &str) -> bool {
 
 #[tokio::test]
 async fn runs_that_pass_the_check_together_are_one_run() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -155,6 +161,7 @@ async fn runs_that_pass_the_check_together_are_one_run() {
 
 #[tokio::test]
 async fn a_job_started_twice_at_once_runs_once() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -172,6 +179,7 @@ async fn a_job_started_twice_at_once_runs_once() {
 
 #[tokio::test]
 async fn a_run_left_by_an_earlier_version_doesnt_hold_up_the_job() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -213,6 +221,7 @@ async fn a_run_left_by_an_earlier_version_doesnt_hold_up_the_job() {
 
 #[tokio::test]
 async fn a_run_whose_instance_stopped_doesnt_hold_up_the_job() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -256,6 +265,7 @@ async fn a_run_whose_instance_stopped_doesnt_hold_up_the_job() {
 
 #[tokio::test]
 async fn a_run_that_is_going_still_holds_up_the_next() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -307,6 +317,7 @@ async fn a_run_that_is_going_still_holds_up_the_next() {
 
 #[tokio::test]
 async fn a_job_waiting_to_try_again_leaves_its_worker_to_others() {
+    let _console = CONSOLE.lock().await;
     let Some(tdb) = TestDb::create().await else {
         return;
     };
