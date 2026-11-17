@@ -150,6 +150,150 @@ changes, listed in its **Upgrading** section.
   let jobs take theirs as they come, as before. Rust embedders building `DatabaseConfig` also use
   `..Default::default()` for its new field.
 
+## [2.7.0-rc.2] - 2026-11-17
+
+### Added
+
+- **Automations.** A schedule with up to 20 steps, where each step can use what the steps before
+  it produced: find records, continue only if something holds, send an email template (once, or
+  once for each record), create, update or delete records, call a URL, run SQL. Made in the
+  dashboard under Automations (a page of its own, with the history of everything that ran) or
+  through `/api/automations`; see [automations](docs/automations.md).
+  - Data is passed on in Jinja expressions (`{{ steps.overdue.count }}`, `{{ item.email }}`). A
+    filter takes data only through its `{:name}` parameters and an SQL statement is run as
+    saved, so data can't change what either does.
+  - A retry continues at the step, the item and the address that failed, so an email that was
+    sent is not sent again (unless the server stops, or the database can't be written, in the
+    instant between sending it and noting it).
+  - The history shows what each step came to in numbers, never what was read.
+- **Email templates.** Emails written once (a subject and an HTML body in Jinja syntax) and sent
+  by automations with the data of each run, under Automations, Templates: an editor with a live
+  preview against sample data, and a test send. Values are escaped, and the body is put in the
+  mail layout.
+
+- **Automations that run when a record changes.** Instead of a schedule, an automation can
+  start when a record of a collection is created, updated or deleted, whatever made the change
+  (the API, a hook, SQL, another program), optionally only if an expression holds. Its steps see
+  the change as `trigger` (`action`, `record`, and the `changed` fields of an update). Each
+  change starts each automation once, also across instances and restarts; a change an
+  automation makes doesn't start it again, and a chain of automations is at most three long.
+  See [automations](docs/automations.md#when-a-record-changes).
+- **Signed webhooks.** A "Send a signed webhook" step posts JSON to an `https://` address with a
+  [Standard Webhooks](https://www.standardwebhooks.com/) signature (`webhook-id`,
+  `webhook-timestamp`, `webhook-signature`), so its receiver can verify it. The secret is made
+  by the server and shown once; replacing it keeps the old one signing for 24 hours. The webhook
+  for failure notices is signed the same way when it is `https://`.
+- **Functions of hook files as steps.** `automationStep("name", (input, context) => …)` in a
+  hook file registers a function that a "Run a hook function" step runs; what it returns is the
+  step's result.
+- **Templates sent through the API and from code.** `POST /api/templates/{id}/send` (developers,
+  admins and owners; API keys work) queues a template to up to 10 addresses, with an
+  `Idempotency-Key` and a limit of 100 emails a minute per caller; `$templates.send(id, to,
+  data)` does it from a hook file.
+- **Settings pages for extensions.** `settingsAdd(name, { title, fields })` in a hook file
+  declares a form the dashboard draws under Settings, Extensions. The values are stored with
+  the settings (encrypted with them, in backups, the same on every instance) and read with
+  `$app.settings().ext(name)`.
+- **Type definitions.** `slonbase types` writes `types.d.ts` with the hook API and a type for
+  the records of each collection, for completion and checks in an editor.
+- **Development mode.** `--dev` keeps `types.d.ts` up to date, logs the SQL that runs, tells
+  superusers the details of errors and shows a banner in the dashboard. Not for production.
+- **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
+  with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
+  its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
+
+### Changed
+
+- **Background jobs run from a durable queue.** Scheduled and manual
+  runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
+  are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued
+  by an instance that then stops is picked up by another, and a scheduled job is still queued
+  once a minute however many instances there are. A run counts as going while the queued job
+  that runs it does, so a run an instance left behind (one that 2.6 was running when it was
+  stopped for the upgrade included) never holds up the job's next run, and the history says it
+  was interrupted. Every installation, the main one and each project, prunes its job history
+  and queue on its own hour.
+- **Jobs and API requests don't take each other's connections, within the same budget.** Of
+  `database.max_connections`, 2 are reserved for background jobs while they run (1 of a project's
+  4; `database.job_connections` sets how many, 0 turns it off): while the jobs fit in the reserve,
+  a long job doesn't take a connection an API request needs, and a busy API doesn't make a job
+  wait for one. A job that finds the reserve in use for two seconds takes whichever connection
+  frees first, possibly one of the API's, which requests then wait for. While no job runs, API
+  requests use the reserved connections too. An instance opens no more connections than
+  before (`18 + 5 × projects`); see the [connection budget](docs/scaling.md#the-connection-budget).
+- **Retries survive a restart.** A failed run that is to be tried again waits in the queue, not
+  in the memory of the instance that ran it: the retry happens after a restart too, and on
+  whichever instance is free. A run is still one line of the history however many attempts it
+  takes. The same holds for the automatic backup's retries (after 1, 5 and 15 minutes).
+- **Failure and recovery notices are delivered one by one, and tried again.** Each address and
+  the webhook get their notice as a queued job of their own, tried up to 3 times; one that can't
+  be delivered no longer leaves the others unsent.
+- **A run of a cron job registered by code is waited for up to an hour.** One that takes longer
+  is recorded as failed, so a job that hangs can't hold up the installation's other background
+  work.
+- **A scheduled run that waited more than 10 minutes is dropped.** When the workers were busy or
+  no instance was up, the minutes that were missed are not run one after the other afterwards.
+- **Settings are stored a section a row.** Each section of the settings (`meta`, `smtp`,
+  `backups`, ...) is a row of its own in `_slonbase.params` (`settings:<section>`), and a change
+  writes only the sections it changes. `/api/settings` is unchanged. Settings stored as one value
+  are converted at the first start, and read as they are from a backup made by an earlier
+  version.
+
+- **JavaScript handlers can have a time limit and runtimes a memory limit.** Both are off
+  unless set: `hooks.timeout_seconds` (the time JavaScript itself runs, not what it waits for
+  in `e.next()`, queries, HTTP requests or `sleep`) and `hooks.memory_limit_mb`. A handler that
+  runs longer is stopped and its request fails; the runtime is replaced. A cron job registered
+  by code is now really stopped after its hour, where before it was only no longer waited for.
+- **A failure notice's `https://` webhook is signed.** One saved with an `http://` address is
+  sent as before, unsigned.
+- **Cron jobs are automations.** A cron job made in Settings, Cron jobs is an automation of one
+  step: it runs as before and keeps its id and history, and `/api/crons` is unchanged. The
+  dashboard lists them under Automations; the old page's address leads there.
+
+- **A credential header is only sent to an `https://` address.** A job or step that calls a URL
+  can't be saved with a header that carries a credential (`Authorization`, `Cookie`, or a name
+  with `auth`, `token`, `api-key`, `secret`, `password`, `session`, `signature` or `credential`
+  in it) and an `http://` address, since the request would carry it unencrypted. Other headers,
+  such as `Content-Type`, may still go to `http://`.
+
+### Fixed
+
+- Two owners deleting each other at the same moment can no longer leave an installation without an
+  owner: the check that one remains and the delete are one step, and changing an owner's role
+  waits for a delete in progress (on one instance; several instances behind one database still
+  need the owners not to delete each other together).
+- A batch of requests deleting superusers is held to the same rule as deleting them one at a
+  time: it can no longer delete every owner.
+
+### Security
+
+- **Rate limits.** An IPv6 client is counted per /64 network (the smallest a provider assigns one
+  subscriber), so a client can't start over with a new counter by changing the last 64 bits of its
+  address. When the table of counters is full of running windows, the oldest tenth is dropped to
+  make room, instead of leaving new clients uncounted.
+- Restoring a backup reads at most 64 MiB of its manifest (a manifest lists the tables and columns), and refuses a larger one.
+
+### Upgrading
+
+- Nothing to do for hooks or failure notices: the new limits are off unless set, and notice
+  webhooks keep their addresses (an `https://` one is signed from its next save, and its
+  receiver may verify the signature or ignore it).
+- Rust embedders: `HooksConfig` has two new fields (`timeout_seconds`, `memory_limit_mb`) and
+  `ServerConfig` one (`dev`); build them with `..Default::default()`.
+- A job that calls an `http://` address with a credential header keeps running as it is; to
+  save a change to it, move it to `https://` (or drop the header).
+- Stop every instance before starting the new version, as for every upgrade: this version
+  changes how settings and job schedules are stored, and an instance of 2.6 doesn't read the
+  new form.
+- The configuration file setup writes names the new
+  settings only when they are set, so going back to 2.6 by restoring a backup keeps a file 2.6
+  reads.
+- The connection budget is unchanged (`18 + 5 × projects` per instance): the connections reserved
+  for jobs are part of `database.max_connections`. While a job runs, API requests have 14 of the
+  16 (3 of a project's 4); set `database.job_connections = 0` to keep all of them for requests and
+  let jobs take theirs as they come, as before. Rust embedders building `DatabaseConfig` also use
+  `..Default::default()` for its new field.
+
 ## [2.7.0-rc.1] - 2026-11-16
 
 ### Added
@@ -1983,7 +2127,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.7.0-rc.1...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.7.0-rc.2...HEAD
+[2.7.0-rc.2]: https://github.com/ayeshrodz/slonbase/compare/v2.6.2...v2.7.0-rc.2
 [2.7.0-rc.1]: https://github.com/ayeshrodz/slonbase/compare/v2.6.2...v2.7.0-rc.1
 [2.6.2]: https://github.com/ayeshrodz/slonbase/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/ayeshrodz/slonbase/compare/v2.6.0...v2.6.1
