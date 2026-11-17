@@ -64,7 +64,11 @@ changes, listed in its **Upgrading** section.
   runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
   are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued
   by an instance that then stops is picked up by another, and a scheduled job is still queued
-  once a minute however many instances there are.
+  once a minute however many instances there are. A run counts as going while the queued job
+  that runs it does, so a run an instance left behind (one that 2.6 was running when it was
+  stopped for the upgrade included) never holds up the job's next run, and the history says it
+  was interrupted. Every installation, the main one and each project, prunes its job history
+  and queue on its own hour.
 - **Jobs and API requests don't take each other's connections, within the same budget.** Of
   `database.max_connections`, 2 are reserved for background jobs while they run (1 of a project's
   4; `database.job_connections` sets how many, 0 turns it off): while the jobs fit in the reserve,
