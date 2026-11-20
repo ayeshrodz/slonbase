@@ -414,6 +414,7 @@ pub async fn apply_in_with_views_pending(
                     Ok(()) => tx.batch_execute("RELEASE SAVEPOINT drop_view").await?,
                     Err(e) => {
                         tx.batch_execute("ROLLBACK TO SAVEPOINT drop_view").await?;
+                        tx.batch_execute("RELEASE SAVEPOINT drop_view").await?;
                         first_error.get_or_insert(e);
                         left.push(view);
                     }
@@ -445,6 +446,7 @@ pub async fn apply_in_with_views_pending(
                 Err(WriteError::Conflict(message)) => {
                     tx.batch_execute("ROLLBACK TO SAVEPOINT rebuild_view")
                         .await?;
+                    tx.batch_execute("RELEASE SAVEPOINT rebuild_view").await?;
                     left.push((view, pending, message));
                 }
                 Err(other) => return Err(other),
