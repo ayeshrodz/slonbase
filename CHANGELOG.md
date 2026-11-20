@@ -121,6 +121,9 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- An email template's subject without expressions is held to the 200 characters a rendered
+  subject may have when it is saved, instead of saving and then failing to render. A subject with
+  expressions may still be up to 300 characters, since what it renders to can be shorter.
 
 ### Security
 
