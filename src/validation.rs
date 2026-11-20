@@ -84,6 +84,26 @@ mod tests {
     use super::*;
 
     #[test]
+    fn an_error_at_a_parent_path_keeps_the_errors_below_it() {
+        // a field with an error of its own and errors in its items (`fields`, `fields.1.name`):
+        // the answer has the error's `code` and `message` and the items under their numbers,
+        // so a client shows both (the dashboard and the branding page read it so)
+        let mut e = Errors::new();
+        e.invalid("fields", "top");
+        e.invalid("fields.1.name", "nested");
+        assert_eq!(
+            Value::Object(e.to_json()),
+            json!({
+                "fields": {
+                    "code": "validation_invalid",
+                    "message": "top",
+                    "1": { "name": { "code": "validation_invalid", "message": "nested" } },
+                },
+            })
+        );
+    }
+
+    #[test]
     fn nests_paths() {
         let mut e = Errors::new();
         e.invalid("name", "bad name");

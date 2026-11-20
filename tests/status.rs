@@ -149,3 +149,42 @@ async fn the_errors_check_ignores_refused_requests() {
     drop(app);
     tdb.drop_db().await;
 }
+
+/// What application code writes to the log (`data` can hold anything) can't make the Health
+/// page or the projects overview fail.
+#[tokio::test]
+async fn odd_log_values_dont_break_health() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let auth = format!("Bearer {token}");
+    let headers = [("authorization", auth.as_str())];
+    let client = tdb.pool().get().await.unwrap();
+    for (n, data) in [
+        json!({ "type": "request", "status": "9999999999", "execTime": "1.2.3" }),
+        json!({ "type": "request", "status": "99999999999999999999", "execTime": "." }),
+        json!({ "type": "request", "status": 200, "execTime": format!("{}1", "9".repeat(400)) }),
+        json!({ "type": "request", "status": 500, "execTime": 12.5 }),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        client
+            .execute(
+                "INSERT INTO _slonbase.logs (id, created, level, message, data) VALUES ($1, now(), 8, '', $2)",
+                &[&format!("odd0000000{n:03}"), &data],
+            )
+            .await
+            .unwrap();
+    }
+    let (status, body) = request(&app, "GET", "/api/system/status", &headers, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, overview) = request(&app, "GET", "/api/projects/overview", &headers, None).await;
+    assert_eq!(status, StatusCode::OK, "{overview}");
+    assert!(
+        overview.to_string().contains("\"requests\""),
+        "the overview has its traffic: {overview}"
+    );
+    tdb.drop_db().await;
+}
