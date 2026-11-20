@@ -122,8 +122,11 @@ changes, listed in its **Upgrading** section.
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
 - Importing collections: a column that a view reads can be renamed (or dropped) in the same
-  import that updates the view's query; a view of the import is no longer refused for being made
-  again from its old query in between (it is rebuilt from it only when that still works).
+  import that updates the view's query, also when a new view reads the updated one; a view of
+  the import is no longer refused for being made again from its old query in between (it is
+  rebuilt from it only when that still works). Views that read other views are dropped and made
+  again in the order PostgreSQL allows, where a change to a table failed for some of them,
+  depending on the order of their ids.
 - A partial index whose condition names a column the collection doesn't have is refused as a
   validation error on `indexes`, not a server error from the database, and the flag of a system
   field can't be cleared by an update (which then allowed renaming or removing the field).

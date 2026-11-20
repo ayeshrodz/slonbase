@@ -288,6 +288,41 @@ async fn an_import_renames_a_column_and_updates_the_view_that_reads_it() {
     let (status, list) = go("GET", "/api/collections/copied_ids/records", None).await;
     assert_eq!(status, StatusCode::OK, "{list}");
     assert_eq!(list["totalItems"], 1, "{list}");
+    // a column is renamed again, the view that reads it is updated, and a new view reads that
+    // view: the updated one is made first
+    let mut fields = res_fields(&go).await;
+    for f in fields.as_array_mut().unwrap() {
+        if f["name"] == "title" {
+            f["name"] = json!("headline");
+        }
+    }
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": posts["id"], "name": "posts", "type": "base", "fields": fields },
+            { "id": titles["id"], "name": "post_titles", "type": "view",
+              "viewQuery": "SELECT id, headline FROM posts" },
+            { "name": "copied_titles", "type": "view",
+              "viewQuery": "SELECT id, headline FROM post_titles" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (status, list) = go("GET", "/api/collections/copied_titles/records", None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["items"][0]["headline"], "First", "{list}");
+    // and a view whose query is wrong is still refused, with its own error
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "name": "broken", "type": "view", "viewQuery": "SELECT nothing FROM nowhere" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"].to_string().contains("viewQuery"), "{res}");
     for (name, uri) in [
         ("post_ids", "/api/collections/post_ids/records"),
         ("post_other", "/api/collections/post_other/records"),

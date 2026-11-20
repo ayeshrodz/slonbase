@@ -267,35 +267,50 @@ pub async fn import(
     };
     let mut current = apply(changes, &pending).await?;
 
-    // then the views, inferred from their queries
+    // then the views, inferred from their queries. Each is made as soon as it is inferred, so a
+    // view that reads another one of the import finds it; one that can't be inferred yet (it
+    // reads a view that isn't made yet) waits for the others, and is refused with its error
+    // when none can be made
     if pairs.iter().any(|(_, c)| c.is_view()) {
-        for (i, (old, c)) in pairs.iter_mut().enumerate() {
-            infer_view(tx, c, old.as_deref(), &prefix(i), failed).await?;
-        }
-        let errors = validate_all(&mut pairs, &current, &|c| c.is_view());
-        if !errors.is_empty() {
-            return Err(ApiError::invalid_data(failed, &errors));
-        }
-        let mut views = changes_of(&pairs, true);
-        // a view that couldn't be rebuilt meanwhile is made now, even if its definition is the
-        // same
+        // (those the first pass couldn't rebuild are made even if their definition is the same)
         let unbuilt = unbuilt_views.lock().expect("unbuilt views lock").clone();
-        for (old, new) in pairs
+        let mut waiting: Vec<usize> = pairs
             .iter()
-            .filter(|(old, c)| c.is_view() && old.is_some() && unbuilt.contains(&c.id))
-        {
-            if !views.iter().any(|(_, v)| v.id == new.id) {
-                views.push((old.clone(), new.clone()));
-            }
-        }
-        let changes: Vec<Change> = views
-            .iter()
-            .map(|(old, new)| match old {
-                Some(old) => Change::Update { old, new },
-                None => Change::Create(new),
-            })
+            .enumerate()
+            .filter(|(_, (_, c))| c.is_view())
+            .map(|(i, _)| i)
             .collect();
-        current = apply(changes, &[]).await?;
+        while !waiting.is_empty() {
+            let before = waiting.len();
+            let mut still = Vec::new();
+            let mut first_error = None;
+            for i in waiting {
+                let (old, c) = &mut pairs[i];
+                if let Err(e) = infer_view(tx, c, old.as_deref(), &prefix(i), failed).await {
+                    first_error.get_or_insert(e);
+                    still.push(i);
+                    continue;
+                }
+                let id = c.id.clone();
+                let errors = validate_all(&mut pairs, &current, &|v| v.id == id);
+                if !errors.is_empty() {
+                    return Err(ApiError::invalid_data(failed, &errors));
+                }
+                let (old, new) = &pairs[i];
+                let change = match old {
+                    Some(old) if old.as_ref() == new && !unbuilt.contains(&new.id) => None,
+                    Some(old) => Some(Change::Update { old, new }),
+                    None => Some(Change::Create(new)),
+                };
+                if let Some(change) = change {
+                    current = apply(vec![change], &[]).await?;
+                }
+            }
+            if still.len() == before {
+                return Err(first_error.expect("a view that waits has an error"));
+            }
+            waiting = still;
+        }
     }
 
     let saved = pairs

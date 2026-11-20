@@ -371,19 +371,44 @@ pub async fn apply_in_with_views_pending(
                 Change::Update { new, .. } => new.id.as_str(),
             })
             .collect();
-        for view in load_with(tx, key)
+        let mut to_drop: Vec<Arc<Collection>> = load_with(tx, key)
             .await?
             .all()
             .iter()
-            .filter(|c| c.is_view())
-        {
-            if changed.contains(&view.id.as_str()) {
-                continue;
-            }
-            for statement in schema::drop(view) {
-                tx.batch_execute(&statement).await?;
-            }
+            .filter(|c| c.is_view() && !changed.contains(&c.id.as_str()))
+            .cloned()
+            .collect();
+        for view in &to_drop {
             rebuild.push((view.as_ref().clone(), pending_views.contains(&view.id)));
+        }
+        // a view that others read can only be dropped after them, and the collections come in
+        // no such order: the ones PostgreSQL refuses wait until the others are gone
+        while !to_drop.is_empty() {
+            let before = to_drop.len();
+            let mut left = Vec::new();
+            let mut first_error = None;
+            for view in to_drop {
+                tx.batch_execute("SAVEPOINT drop_view").await?;
+                let mut dropped = Ok(());
+                for statement in schema::drop(&view) {
+                    if let Err(e) = tx.batch_execute(&statement).await {
+                        dropped = Err(e);
+                        break;
+                    }
+                }
+                match dropped {
+                    Ok(()) => tx.batch_execute("RELEASE SAVEPOINT drop_view").await?,
+                    Err(e) => {
+                        tx.batch_execute("ROLLBACK TO SAVEPOINT drop_view").await?;
+                        first_error.get_or_insert(e);
+                        left.push(view);
+                    }
+                }
+            }
+            if left.len() == before {
+                return Err(first_error.expect("a view left has an error").into());
+            }
+            to_drop = left;
         }
     }
 
@@ -394,26 +419,35 @@ pub async fn apply_in_with_views_pending(
         }
         apply_one(tx, change, key).await?;
     }
-    for (mut view, pending) in rebuild {
-        if !pending {
-            rebuild_view(tx, &mut view, key).await?;
-            continue;
-        }
-        // a view the caller makes again from a new query is rebuilt from its old one when that
-        // still works (the views that read it need it), and left out when it doesn't
-        tx.batch_execute("SAVEPOINT rebuild_pending").await?;
-        match rebuild_view(tx, &mut view, key).await {
-            Ok(()) => {
-                tx.batch_execute("RELEASE SAVEPOINT rebuild_pending")
-                    .await?
+    // the views are made again the same way: one that reads another waits until it is there
+    // (a view of the caller's that its old query no longer allows is left out, see above)
+    while !rebuild.is_empty() {
+        let before = rebuild.len();
+        let mut left = Vec::new();
+        for (mut view, pending) in rebuild {
+            tx.batch_execute("SAVEPOINT rebuild_view").await?;
+            match rebuild_view(tx, &mut view, key).await {
+                Ok(()) => tx.batch_execute("RELEASE SAVEPOINT rebuild_view").await?,
+                Err(WriteError::Conflict(message)) => {
+                    tx.batch_execute("ROLLBACK TO SAVEPOINT rebuild_view")
+                        .await?;
+                    left.push((view, pending, message));
+                }
+                Err(other) => return Err(other),
             }
-            Err(WriteError::Conflict(_)) => {
-                tx.batch_execute("ROLLBACK TO SAVEPOINT rebuild_pending")
-                    .await?;
-                unbuilt_views.push(view.id.clone());
-            }
-            Err(other) => return Err(other),
         }
+        if left.len() == before {
+            // none could be made: what is left is broken
+            for (view, pending, message) in left {
+                if pending {
+                    unbuilt_views.push(view.id.clone());
+                } else {
+                    return Err(WriteError::Conflict(message));
+                }
+            }
+            break;
+        }
+        rebuild = left.into_iter().map(|(v, p, _)| (v, p)).collect();
     }
 
     let registry = load_with(tx, key).await?;
