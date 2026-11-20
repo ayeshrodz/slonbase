@@ -121,6 +121,13 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- A cron expression with a step past the end of its range (`5/4294967291 * * * *`) is one run
+  and not an overflow, and a schedule that doesn't exist (`99 99 * * 0`) is not described.
+- An `autogeneratePattern` of a negated class (`[^0-9]{5}`) gives characters outside it, and
+  `[^\n0-9]` no longer gives digits.
+- A log entry written by application code with an odd `status` or `execTime` can no longer
+  make Health or the projects overview fail, and a partitioned table of the `slonbase` schema
+  is counted once in the overview's records.
 - A schedule's `*/1` means the same as `*`: in a day field it no longer turns a weekly or monthly
   schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
   the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still

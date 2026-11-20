@@ -63,7 +63,11 @@ fn parse_field(raw: &str, min: u32, max: u32) -> Option<(u64, bool)> {
         let mut value = start;
         while value <= end {
             bits |= 1 << value;
-            value += step;
+            // (a step past the end of the range, however large, ends it)
+            let Some(next) = value.checked_add(step) else {
+                break;
+            };
+            value = next;
         }
     }
     Some((bits, restricted))
@@ -207,6 +211,9 @@ impl Schedule {
             "@yearly" | "@annually" => return Some("every year on January 1st at 00:00".into()),
             _ => {}
         }
+        // a schedule that doesn't parse (a time or a day that doesn't exist, a step of 0) isn't
+        // described
+        Schedule::parse(raw)?;
         let parts: Vec<&str> = raw.split_whitespace().collect();
         let [mi, h, d, mo, wd] = parts.as_slice() else {
             return None;
@@ -264,6 +271,30 @@ mod tests {
 
     fn at(y: i32, mo: u32, d: u32, h: u32, mi: u32) -> DateTime<Utc> {
         Utc.with_ymd_and_hms(y, mo, d, h, mi, 0).unwrap()
+    }
+
+    #[test]
+    fn a_step_past_the_end_of_the_range_is_one_run() {
+        // `5/4294967291` is minute 5 only: the step doesn't wrap around past u32::MAX
+        let schedule = Schedule::parse("5/4294967291 * * * *").unwrap();
+        let from = Utc.with_ymd_and_hms(2026, 11, 6, 7, 30, 15).unwrap();
+        assert_eq!(
+            schedule.next_after(&from, Tz::UTC),
+            Some(at(2026, 11, 6, 8, 5))
+        );
+        assert!(Schedule::parse("*/4294967295 * * * *").is_some());
+    }
+
+    #[test]
+    fn only_schedules_that_exist_are_described() {
+        assert_eq!(
+            Schedule::describe("30 3 * * 0").as_deref(),
+            Some("every Sunday at 03:30")
+        );
+        assert_eq!(Schedule::describe("99 99 * * 0"), None);
+        assert_eq!(Schedule::describe("0 24 * * *"), None);
+        assert_eq!(Schedule::describe("0 0 32 * *"), None);
+        assert_eq!(Schedule::describe("*/0 * * * *"), None);
     }
 
     #[test]
