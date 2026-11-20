@@ -325,8 +325,21 @@ pub async fn apply_all_with(
 /// in it. Other instances reload their collections when the transaction commits.
 pub async fn apply_in_with(
     tx: &deadpool_postgres::Transaction<'_>,
+    changes: Vec<Change<'_>>,
+    key: Option<&SecretsKey>,
+) -> Result<Applied, WriteError> {
+    apply_in_with_views_pending(tx, changes, key, &[]).await
+}
+
+/// [`apply_in_with`] for a change whose views (by id) are applied by the caller next: they are
+/// dropped with the others before the tables change, and not rebuilt from the queries they have
+/// now, which the change may be about to make wrong (a column a view reads is renamed, and
+/// the view's query is updated to the new name in the same import).
+pub async fn apply_in_with_views_pending(
+    tx: &deadpool_postgres::Transaction<'_>,
     mut changes: Vec<Change<'_>>,
     key: Option<&SecretsKey>,
+    pending_views: &[String],
 ) -> Result<Applied, WriteError> {
     // views go after the tables they read, and are dropped before them
     changes.sort_by_key(|change| match change {
@@ -366,7 +379,9 @@ pub async fn apply_in_with(
             for statement in schema::drop(view) {
                 tx.batch_execute(&statement).await?;
             }
-            rebuild.push(view.as_ref().clone());
+            if !pending_views.contains(&view.id) {
+                rebuild.push(view.as_ref().clone());
+            }
         }
     }
 

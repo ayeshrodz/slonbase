@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use super::indexes::Index;
+use super::indexes::{Index, Pred};
 use super::model::*;
 use super::store::Registry;
 use crate::filter::{Params, RequestInfo, Scope, to_sql};
@@ -538,6 +538,10 @@ fn prepare_fields(
             if previous.system && previous.name != field.name {
                 errors.invalid(path("name"), "System fields can't be renamed.");
             }
+            // the flag isn't the client's to clear: a system field stays one
+            if previous.system {
+                field.system = true;
+            }
         }
     }
 
@@ -795,6 +799,26 @@ fn prepare_indexes(
 
         let mut index = index;
         let mut ok = true;
+        // the columns of a partial index's condition are the collection's too: an unknown one
+        // would fail in the database, as a server error
+        for token in index.predicate.iter_mut().flatten() {
+            if let Pred::Column(column) = token {
+                match c.field(column) {
+                    Some(f) if f.storage() != Storage::Json => *column = f.name.clone(),
+                    Some(_) => {
+                        errors.invalid(
+                            &path,
+                            format!("JSON fields can't be used here ({column:?})."),
+                        );
+                        ok = false;
+                    }
+                    None => {
+                        errors.invalid(&path, format!("Unknown column {column:?}."));
+                        ok = false;
+                    }
+                }
+            }
+        }
         for (column, _) in index.columns.iter_mut() {
             match c.field(column) {
                 Some(f) if f.storage() != Storage::Json => *column = f.name.clone(),

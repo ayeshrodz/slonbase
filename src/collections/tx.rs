@@ -215,20 +215,28 @@ pub async fn import(
             .collect::<Vec<_>>()
     };
     let removed_files = std::sync::Mutex::new(Vec::new());
-    let apply = async |changes: Vec<Change<'_>>| -> Result<Registry, ApiError> {
-        if changes.is_empty() {
-            store::load_with(tx, key).await.map_err(ApiError::internal)
-        } else {
-            let applied = store::apply_in_with(tx, changes, key)
-                .await
-                .map_err(|e| write_error(e, failed))?;
-            removed_files
-                .lock()
-                .expect("removed files lock")
-                .extend(applied.removed_files);
-            Ok(applied.registry)
-        }
-    };
+    // the views of the import that exist already: the second pass applies them, so the first
+    // doesn't rebuild them from their stored queries
+    let imported_views: Vec<String> = pairs
+        .iter()
+        .filter(|(old, c)| c.is_view() && old.is_some())
+        .map(|(_, c)| c.id.clone())
+        .collect();
+    let apply =
+        async |changes: Vec<Change<'_>>, pending: &[String]| -> Result<Registry, ApiError> {
+            if changes.is_empty() {
+                store::load_with(tx, key).await.map_err(ApiError::internal)
+            } else {
+                let applied = store::apply_in_with_views_pending(tx, changes, key, pending)
+                    .await
+                    .map_err(|e| write_error(e, failed))?;
+                removed_files
+                    .lock()
+                    .expect("removed files lock")
+                    .extend(applied.removed_files);
+                Ok(applied.registry)
+            }
+        };
 
     // the tables (and the deletions)
     let errors = validate_all(&mut pairs, registry, &|c| !c.is_view());
@@ -241,7 +249,18 @@ pub async fn import(
         Some(old) => Change::Update { old, new },
         None => Change::Create(new),
     }));
-    let mut current = apply(changes).await?;
+    // (when the tables change, the views are dropped meanwhile: those of the import are made
+    // again below, from their new queries)
+    let touches_tables = changes.iter().any(|change| match change {
+        Change::Create(c) | Change::Delete(c) => !c.is_view(),
+        Change::Update { new, .. } => !new.is_view(),
+    });
+    let pending = if touches_tables {
+        imported_views.clone()
+    } else {
+        vec![]
+    };
+    let mut current = apply(changes, &pending).await?;
 
     // then the views, inferred from their queries
     if pairs.iter().any(|(_, c)| c.is_view()) {
@@ -252,7 +271,16 @@ pub async fn import(
         if !errors.is_empty() {
             return Err(ApiError::invalid_data(failed, &errors));
         }
-        let views = changes_of(&pairs, true);
+        let mut views = changes_of(&pairs, true);
+        // a view that was dropped meanwhile is made again even if its definition is the same
+        for (old, new) in pairs
+            .iter()
+            .filter(|(old, c)| c.is_view() && old.is_some() && pending.contains(&c.id))
+        {
+            if !views.iter().any(|(_, v)| v.id == new.id) {
+                views.push((old.clone(), new.clone()));
+            }
+        }
         let changes: Vec<Change> = views
             .iter()
             .map(|(old, new)| match old {
@@ -260,7 +288,7 @@ pub async fn import(
                 None => Change::Create(new),
             })
             .collect();
-        current = apply(changes).await?;
+        current = apply(changes, &[]).await?;
     }
 
     let saved = pairs
