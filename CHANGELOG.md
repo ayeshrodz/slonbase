@@ -121,6 +121,10 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- A schedule's `*/1` means the same as `*`: in a day field it no longer turns a weekly or monthly
+  schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
+  the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still
+  restrict their field.
 
 ### Security
 
