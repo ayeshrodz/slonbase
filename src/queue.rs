@@ -429,8 +429,10 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Fail
     }
 }
 
+/// A failure's message as stored: at most 4000 characters, and without NUL (PostgreSQL refuses
+/// it in text, so a message with one could never be recorded).
 fn short(message: &str) -> String {
-    message.chars().take(4000).collect()
+    message.chars().filter(|c| *c != '\0').take(4000).collect()
 }
 
 /// Deletes the jobs that finished more than a week ago.
@@ -450,4 +452,18 @@ pub(crate) async fn prune(core: &Core) -> Result<()> {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short;
+
+    #[test]
+    fn a_stored_message_has_no_nul_and_is_at_most_4000_characters() {
+        assert_eq!(short("it failed"), "it failed");
+        assert_eq!(short("bad\0 byte\0"), "bad byte");
+        let long = format!("{}\0{}", "a".repeat(3999), "b".repeat(10));
+        assert_eq!(short(&long).chars().count(), 4000);
+        assert!(!short(&long).contains('\0'));
+    }
 }
