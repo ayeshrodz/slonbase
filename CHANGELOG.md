@@ -140,6 +140,9 @@ changes, listed in its **Upgrading** section.
   can't start another core.
 - Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
   to one name at the same time can't both be saved; the answer to a change is the job as stored.
+- An email template's subject without expressions is held to the 200 characters a rendered
+  subject may have when it is saved, instead of saving and then failing to render. A subject with
+  expressions may still be up to 300 characters, since what it renders to can be shorter.
 - An automation's **Find records** step checks its sort against the collection when the
   automation is previewed or saved, as it already did for the filter, so an unknown sort field is
   reported on the step instead of failing when the automation runs.

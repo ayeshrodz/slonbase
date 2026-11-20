@@ -140,6 +140,10 @@ async fn templates_are_made_previewed_and_kept_while_in_use() {
             "subject",
         ),
         (
+            json!({ "name": "x", "subject": "S".repeat(201), "body": "b" }),
+            "subject",
+        ),
+        (
             json!({ "name": "x", "subject": "s", "body": "{% if a %}" }),
             "body",
         ),
@@ -236,6 +240,17 @@ async fn templates_are_made_previewed_and_kept_while_in_use() {
     )
     .await;
     assert_eq!(changed["description"], "For overdue invoices");
+    // a subject without expressions can't be longer than the rendered limit
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/templates/{id}"),
+        Some(json!({ "subject": "S".repeat(201) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(res["data"]["subject"].is_object(), "{res}");
     assert_eq!(changed["subject"], "Invoice overdue, {{ item.customer }}");
     let (_, list) = call(&app, &token, "GET", "/api/templates", None).await;
     assert_eq!(list["items"].as_array().unwrap().len(), 1);
