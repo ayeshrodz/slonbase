@@ -140,6 +140,9 @@ changes, listed in its **Upgrading** section.
   can't start another core.
 - Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
   to one name at the same time can't both be saved; the answer to a change is the job as stored.
+- An email template's subject without expressions is held to the 200 characters a rendered
+  subject may have when it is saved, instead of saving and then failing to render. A subject with
+  expressions may still be up to 300 characters, since what it renders to can be shorter.
 - Importing collections: a column that a view reads can be renamed (or dropped) in the same
   import that updates the view's query, also when a new view reads the updated one; a view of
   the import is no longer refused for being made again from its old query in between (it is
