@@ -39,7 +39,7 @@ async fn count_records(client: &deadpool_postgres::Object) -> anyhow::Result<(i6
         .query(
             "SELECT c.relname, c.reltuples FROM pg_class c
              JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = 'slonbase' AND c.relkind IN ('r', 'p')",
+             WHERE n.nspname = 'slonbase' AND c.relkind IN ('r', 'p') AND NOT c.relispartition",
             &[],
         )
         .await?;
@@ -98,12 +98,12 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
         .query_one(
             "WITH l AS (
                 SELECT level, data,
-                       CASE WHEN data->>'execTime' ~ '^[0-9.]+$' THEN (data->>'execTime')::float8 END AS ms
+                       CASE WHEN data->>'execTime' ~ '^[0-9]{1,15}(\\.[0-9]{1,15})?$' THEN (data->>'execTime')::float8 END AS ms
                 FROM _slonbase.logs WHERE created > now() - interval '24 hours'
              )
              SELECT count(*) FILTER (WHERE data->>'type' = 'request'),
                     count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
-                        OR CASE WHEN data->>'status' ~ '^[0-9]+$' THEN (data->>'status')::int >= 500 END)),
+                        OR CASE WHEN data->>'status' ~ '^[0-9]{1,9}$' THEN (data->>'status')::int >= 500 END)),
                     COALESCE(avg(ms) FILTER (WHERE data->>'type' = 'request'), 0)::float8,
                     COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0)::float8
              FROM l",

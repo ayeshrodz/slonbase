@@ -223,8 +223,10 @@ async fn background_jobs_dont_use_the_apis_connections() {
 async fn open_connections(client: &tokio_postgres::Client) -> i64 {
     client
         .query_one(
+            // client backends only: an autovacuum worker on this database isn't a connection
             "SELECT count(*) FROM pg_stat_activity
-             WHERE datname = current_database() AND pid <> pg_backend_pid()",
+             WHERE datname = current_database() AND pid <> pg_backend_pid()
+               AND backend_type = 'client backend'",
             &[],
         )
         .await
