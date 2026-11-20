@@ -242,7 +242,8 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
                  WHERE id = (
                      SELECT id FROM _slonbase.jobs
                      WHERE (state = 'queued' AND run_after <= now() AND id <> ALL($2))
-                        OR (state = 'running' AND locked_until < now() AND id <> ALL($2))
+                        OR (state = 'running' AND locked_until < now() AND id <> ALL($2)
+                            AND attempt < max_attempts)
                      ORDER BY run_after, id
                      FOR UPDATE SKIP LOCKED LIMIT 1
                  )
@@ -284,8 +285,9 @@ async fn next_wake(core: &Core) -> Duration {
                 "SELECT extract(epoch FROM min(
                      CASE WHEN state = 'queued' THEN run_after ELSE locked_until END
                  ) - now())::float8
-                 FROM _slonbase.jobs WHERE state IN ('queued', 'running')",
-                &[],
+                 FROM _slonbase.jobs WHERE state IN ('queued', 'running') AND id <> ALL($1)",
+                // (a job this instance is running renews its own lease: it's nothing to wake for)
+                &[&core.queue.running()],
             )
             .await?;
         anyhow::Ok(row.get::<_, Option<f64>>(0))
@@ -316,7 +318,18 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
             job.kind
         ))),
     };
-    finish(core, &job, instance, result).await;
+    // the lease keeps being renewed until the end is recorded: a job that ended and was still
+    // let go would be claimed again when the lease runs out, and run twice
+    let mut wait = Duration::from_secs(1);
+    for attempt in 1..=5 {
+        if finish(core, &job, instance, &result).await {
+            break;
+        }
+        if attempt < 5 {
+            tokio::time::sleep(wait).await;
+            wait *= 2;
+        }
+    }
     core.queue
         .running
         .lock()
@@ -361,14 +374,14 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
     }
 }
 
-async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failure>) {
+async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Failure>) -> bool {
     let done = async {
         let client = core
             .db()
             .for_jobs()
             .await
             .map_err(crate::db::describe_pool_error)?;
-        match &result {
+        match result {
             Ok(()) => {
                 client
                     .execute(
@@ -410,8 +423,12 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failu
         }
         anyhow::Ok(())
     };
-    if let Err(err) = done.await {
-        tracing::warn!(job = job.id, error = %format!("{err:#}"), "failed to record a job's end");
+    match done.await {
+        Ok(()) => true,
+        Err(err) => {
+            tracing::warn!(job = job.id, error = %format!("{err:#}"), "failed to record a job's end");
+            false
+        }
     }
 }
 

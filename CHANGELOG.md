@@ -121,6 +121,18 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- Job queue: a job whose lease ran out on its last attempt is no longer claimed once more, an
+  instance no longer wakes every half second for a lease it is renewing itself, and a job that
+  ended keeps its lease renewed until its end is recorded (a database error at that moment made
+  it run again 90 seconds later).
+- A realtime subscribe request forwarded to another instance leaves nothing behind when its
+  client gives up, and one the other instance couldn't run answers with an error and not "client
+  not found".
+- Setup: after a failing migration a second `POST /api/setup/complete` is refused at once and
+  can't start another core.
+- Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
+  to one name at the same time can't both be saved; the answer to a change shows the job as
+  stored, with its new revision.
 
 ### Security
 

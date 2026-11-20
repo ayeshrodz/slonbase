@@ -1349,7 +1349,14 @@ pub async fn create(
     // a copy keeps the secrets of the job it was made from (the form only has them masked)
     let kept = match body.get("copyOf").and_then(Value::as_str) {
         Some(from) => match snapshot.cron_jobs.iter().find(|j| j.id == from) {
-            Some(source) => unmask(&mut def, source),
+            Some(source) => {
+                // what a job of SQL hides from the others (its steps' secrets, its webhook) is
+                // not copied to a job of another kind by them
+                if crate::automations::does(source, &["sql"]) {
+                    owner_only(&core, &auth)?;
+                }
+                unmask(&mut def, source)
+            }
             None => return Err(ApiError::not_found()),
         },
         None => Ok(()),
@@ -1488,11 +1495,18 @@ pub async fn update(
     def.updated = crate::datetime::format(&chrono::Utc::now());
     let replacement = def.clone();
     let read = saved.revision;
-    crate::settings::modify(&core, move |current| {
+    let stored = crate::settings::modify(&core, move |current| {
         replaced(current, &id, read, replacement, only_off)
     })
     .await?;
-    Ok(saved_answer(&core, &def, role, secrets))
+    // the job as it was stored (its revision is the new one, and a job only switched off shows
+    // everything else as it is)
+    let shown = stored
+        .cron_jobs
+        .iter()
+        .find(|j| j.id == def.id)
+        .unwrap_or(&def);
+    Ok(saved_answer(&core, shown, role, secrets))
 }
 
 /// The settings with job `id` replaced by `replacement`, made from the job's save `read`.
@@ -1523,6 +1537,24 @@ fn replaced(
             "It was changed meanwhile: load it again and repeat the change.",
         ));
     }
+    // a new name is checked here, where the jobs are, and not before: two jobs renamed at
+    // the same time to one name can't both be saved
+    let renamed = !job
+        .name
+        .trim()
+        .eq_ignore_ascii_case(replacement.name.trim());
+    if renamed
+        && settings
+            .cron_jobs
+            .iter()
+            .enumerate()
+            .any(|(i, o)| i != pos && o.name.trim().eq_ignore_ascii_case(replacement.name.trim()))
+    {
+        let mut errors = Errors::new();
+        errors.invalid("name", "Another job has this name.");
+        return Err(invalid(&errors));
+    }
+    let job = &mut settings.cron_jobs[pos];
     *job = JobDef {
         revision: read + 1,
         ..replacement
@@ -1624,6 +1656,29 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rename_to_a_name_taken_meanwhile_is_refused() {
+        let job = |id: &str, name: &str| JobDef {
+            id: id.into(),
+            name: name.into(),
+            enabled: true,
+            ..Default::default()
+        };
+        let mut settings = crate::settings::Settings::default();
+        settings.cron_jobs.push(job("user:a", "A"));
+        settings.cron_jobs.push(job("user:b", "B"));
+        // `B` is renamed to `a`, which `A` has (the case doesn't matter)
+        let err = replaced(&settings, "user:b", 0, job("user:b", " a "), false).unwrap_err();
+        assert_eq!(err.status, StatusCode::BAD_REQUEST);
+        // a job saved without being renamed is saved, whatever the others are called
+        let mut twins = settings.clone();
+        twins.cron_jobs[1].name = "A".into();
+        let saved = replaced(&twins, "user:b", 0, job("user:b", "A"), false).unwrap();
+        assert_eq!(saved.cron_jobs[1].revision, 1);
+        // a new name nobody has is fine
+        assert!(replaced(&settings, "user:b", 0, job("user:b", "C"), false).is_ok());
+    }
 
     #[test]
     fn a_save_does_not_undo_one_it_did_not_see() {

@@ -266,6 +266,11 @@ pub async fn complete(
     if let Err(err) = app.migrate(&core).await {
         // the setup itself is done: keep trying the migrations in the background
         let message = format!("Setup completed, but a migration failed: {err:#}");
+        // out of the setup mode before the lock is let go: a second `complete` must not find
+        // the setup still open and start another core
+        app.set_mode(crate::app::Mode::Starting {
+            status: format!("{err:#}"),
+        });
         let app = app.clone();
         tokio::spawn(async move { app.migrate_and_ready(core).await });
         return Err(ApiError::bad_request(message));
