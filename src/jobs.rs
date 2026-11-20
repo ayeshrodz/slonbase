@@ -314,6 +314,25 @@ pub async fn prune_hourly(core: &Core) {
 /// attempt), and the runs of a cron job that no queued job ever had (one that an earlier
 /// version was running when it was stopped for an upgrade; every run is queued since): they
 /// would otherwise show as running for a day.
+/// Ends the run of the queued job `queue_job` that is still marked as running, with `detail`
+/// as its error: for a job whose handler stopped without recording its end (it panicked).
+pub async fn close_for_queue_job(core: &Core, queue_job: i64, detail: &str) -> anyhow::Result<()> {
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(crate::db::describe_pool_error)?;
+    client
+        .execute(
+            "UPDATE _slonbase.job_runs SET status = 'error', finished = now(), state = NULL,
+                 detail = $2
+             WHERE queue_job = $1 AND status = 'running'",
+            &[&queue_job, &detail],
+        )
+        .await?;
+    Ok(())
+}
+
 pub(crate) async fn close_orphans(
     core: &Core,
     kind: &str,
