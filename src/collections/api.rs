@@ -621,11 +621,9 @@ async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection
     let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &c, move || async move {
-        // free id and name, and relations to collections that still exist
+        // a free id, and validation as before (the name is free, relations' collections exist)
         still_holds(&lock_core, since, failed, |r| {
-            r.by_id(&new.id).is_none()
-                && r.get(&new.name).is_none()
-                && validate::prepare(&mut new.clone(), None, r).is_empty()
+            r.by_id(&new.id).is_none() && validate::prepare(&mut new.clone(), None, r).is_empty()
         })
         .await?;
         store::apply_with(&pool, Change::Create(&new), key.as_deref())
