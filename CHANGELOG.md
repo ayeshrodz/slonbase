@@ -132,6 +132,8 @@ changes, listed in its **Upgrading** section.
   schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
   the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still
   restrict their field.
+- The job history (`GET /api/jobs/runs`) reads its runs and its totals from one snapshot, so a
+  run that starts while the list is read is counted only if it is also listed.
 
 ### Security
 

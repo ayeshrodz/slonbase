@@ -420,7 +420,7 @@ pub async fn runs(
 ) -> Result<Json<Value>, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    let client = core
+    let mut client = core
         .db()
         .get()
         .await
@@ -428,6 +428,15 @@ pub async fn runs(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let empty = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
     let (kind, job, status) = (empty(&q.kind), empty(&q.job), empty(&q.status));
+    // the runs and the totals from one snapshot: a run that starts in between is in both or
+    // in neither
+    let client = client
+        .build_transaction()
+        .isolation_level(tokio_postgres::IsolationLevel::RepeatableRead)
+        .read_only(true)
+        .start()
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
     let rows = client
         .query(
             "SELECT * FROM _slonbase.job_runs
@@ -446,6 +455,10 @@ pub async fn runs(
              WHERE ($1::text IS NULL OR kind = $1) AND ($2::text IS NULL OR job = $2)",
             &[&kind, &job],
         )
+        .await
+        .map_err(|e| ApiError::internal(e.into()))?;
+    client
+        .commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
     Ok(Json(json!({
