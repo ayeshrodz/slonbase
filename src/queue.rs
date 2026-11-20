@@ -242,7 +242,8 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
                  WHERE id = (
                      SELECT id FROM _slonbase.jobs
                      WHERE (state = 'queued' AND run_after <= now() AND id <> ALL($2))
-                        OR (state = 'running' AND locked_until < now() AND id <> ALL($2))
+                        OR (state = 'running' AND locked_until < now() AND id <> ALL($2)
+                            AND attempt < max_attempts)
                      ORDER BY run_after, id
                      FOR UPDATE SKIP LOCKED LIMIT 1
                  )
@@ -284,8 +285,9 @@ async fn next_wake(core: &Core) -> Duration {
                 "SELECT extract(epoch FROM min(
                      CASE WHEN state = 'queued' THEN run_after ELSE locked_until END
                  ) - now())::float8
-                 FROM _slonbase.jobs WHERE state IN ('queued', 'running')",
-                &[],
+                 FROM _slonbase.jobs WHERE state IN ('queued', 'running') AND id <> ALL($1)",
+                // (a job this instance is running renews its own lease: it's nothing to wake for)
+                &[&core.queue.running()],
             )
             .await?;
         anyhow::Ok(row.get::<_, Option<f64>>(0))
@@ -308,7 +310,19 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
             let work = tokio::spawn(ON_WORKER.scope((), handler(core.clone(), job.clone())));
             match work.await {
                 Ok(result) => result,
-                Err(_) => Err(Failure::permanent("The job stopped unexpectedly.")),
+                Err(_) => {
+                    let why = "The job stopped unexpectedly.";
+                    // its run in the history ends now, not as "interrupted" when the next run
+                    // of the job looks; tried until it is recorded, like the job's own end
+                    // below, which keeps the lease until then
+                    let mut wait = Duration::from_secs(1);
+                    while let Err(err) = crate::jobs::close_for_queue_job(core, job.id, why).await {
+                        tracing::warn!(error = %format!("{err:#}"), "failed to record a job's end");
+                        tokio::time::sleep(wait).await;
+                        wait = (wait * 2).min(Duration::from_secs(30));
+                    }
+                    Err(Failure::permanent(why))
+                }
             }
         }
         None => Err(Failure::permanent(format!(
@@ -316,7 +330,15 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
             job.kind
         ))),
     };
-    finish(core, &job, instance, result).await;
+    // the lease keeps being renewed until the end is recorded: a job that ended and was still
+    // let go would be claimed again when the lease runs out, and run twice
+    // (with a wait that grows to half a minute, for as long as it takes: this instance can't
+    // claim anything either while the database is out of reach)
+    let mut wait = Duration::from_secs(1);
+    while !finish(core, &job, instance, &result).await {
+        tokio::time::sleep(wait).await;
+        wait = (wait * 2).min(Duration::from_secs(30));
+    }
     core.queue
         .running
         .lock()
@@ -361,14 +383,14 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
     }
 }
 
-async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failure>) {
+async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Failure>) -> bool {
     let done = async {
         let client = core
             .db()
             .for_jobs()
             .await
             .map_err(crate::db::describe_pool_error)?;
-        match &result {
+        match result {
             Ok(()) => {
                 client
                     .execute(
@@ -410,13 +432,19 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: Result<(), Failu
         }
         anyhow::Ok(())
     };
-    if let Err(err) = done.await {
-        tracing::warn!(job = job.id, error = %format!("{err:#}"), "failed to record a job's end");
+    match done.await {
+        Ok(()) => true,
+        Err(err) => {
+            tracing::warn!(job = job.id, error = %format!("{err:#}"), "failed to record a job's end");
+            false
+        }
     }
 }
 
+/// A failure's message as stored: at most 4000 characters, and without NUL (PostgreSQL refuses
+/// it in text, so a message with one could never be recorded).
 fn short(message: &str) -> String {
-    message.chars().take(4000).collect()
+    message.chars().filter(|c| *c != '\0').take(4000).collect()
 }
 
 /// Deletes the jobs that finished more than a week ago.
@@ -436,4 +464,18 @@ pub(crate) async fn prune(core: &Core) -> Result<()> {
         )
         .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::short;
+
+    #[test]
+    fn a_stored_message_has_no_nul_and_is_at_most_4000_characters() {
+        assert_eq!(short("it failed"), "it failed");
+        assert_eq!(short("bad\0 byte\0"), "bad byte");
+        let long = format!("{}\0{}", "a".repeat(3999), "b".repeat(10));
+        assert_eq!(short(&long).chars().count(), 4000);
+        assert!(!short(&long).contains('\0'));
+    }
 }
