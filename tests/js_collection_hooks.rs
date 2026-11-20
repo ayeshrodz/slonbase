@@ -59,10 +59,23 @@ onCollectionCreateExecute((e) => {
   }
 });
 
-// before it is saved: the change can't build on what it read any more
+// before it is saved: a collection of its own is fine, one with the same name isn't
 onCollectionCreateExecute((e) => {
   if (e.collection.name === "before_next") {
     $app.save(new Collection({ name: "before_next_companion" }));
+  }
+  if (e.collection.name === "clash" && e.collection.fields.some((f) => f.name === "outer")) {
+    $app.save(new Collection({ name: "clash" }));
+  }
+  e.next();
+});
+
+// a nested change that fails and is caught changes nothing
+onCollectionCreate((e) => {
+  if (e.collection.name === "caught") {
+    try {
+      $app.save(new Collection({ name: "" }));
+    } catch (err) {}
   }
   e.next();
 });
@@ -268,13 +281,43 @@ async fn collection_hooks_can_change_other_collections() {
         Some(json!({ "name": "before_next" })),
     )
     .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let all = names(&app, &token).await;
+    assert!(
+        all.contains(&"before_next".into()) && all.contains(&"before_next_companion".into()),
+        "{all:?}"
+    );
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "clash", "fields": [{ "name": "outer", "type": "text" }] })),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
     assert!(
         res["message"].as_str().unwrap().contains("A hook changed"),
         "{res}"
     );
-    let all = names(&app, &token).await;
-    assert!(!all.contains(&"before_next".into()), "{all:?}");
+    let (_, clash) = call(&app, &token, "GET", "/api/collections/clash", None).await;
+    assert!(
+        !clash["fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|f| f["name"] == "outer"),
+        "the hook's collection stays: {clash}"
+    );
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "caught" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
 
     // a restore from a collection hook is refused, not left waiting
     let (status, res) = call(

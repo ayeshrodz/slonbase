@@ -110,6 +110,26 @@ fn changed_by_hook(failed: &str) -> ApiError {
     ))
 }
 
+/// Fails the change when a hook changed collections since `since` (before `e.next()` in an
+/// execute hook) so that what it was checked against no longer `holds`. A nested change that
+/// failed, or changed only collections this one doesn't build on, lets it through.
+async fn still_holds(
+    core: &Core,
+    since: u64,
+    failed: &str,
+    holds: impl FnOnce(&Registry) -> bool,
+) -> Result<(), ApiError> {
+    if core.schema_lock.writes() == since {
+        return Ok(());
+    }
+    let registry = fresh_registry(core).await?;
+    if holds(&registry) {
+        Ok(())
+    } else {
+        Err(changed_by_hook(failed))
+    }
+}
+
 /// The registry to keep after a change saved as `applied`: a hook may have changed other
 /// collections after it (after `e.next()` in an execute hook), which `applied` doesn't have.
 async fn after_change(core: &Core, applied: Registry, since: u64) -> Result<Registry, ApiError> {
@@ -601,9 +621,10 @@ async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection
     let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &c, move || async move {
-        if lock_core.schema_lock.writes() != since {
-            return Err(changed_by_hook(failed));
-        }
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&new.id).is_none() && r.get(&new.name).is_none()
+        })
+        .await?;
         store::apply_with(&pool, Change::Create(&new), key.as_deref())
             .await
             .map(|applied| applied.registry)
@@ -750,9 +771,10 @@ async fn update_locked(
     );
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &new, move || async move {
-        if lock_core.schema_lock.writes() != since {
-            return Err(changed_by_hook(failed));
-        }
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&stored.id) == Some(&stored)
+        })
+        .await?;
         let change = Change::Update {
             old: &stored,
             new: &changed,
@@ -882,9 +904,10 @@ async fn delete_locked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiErro
     let (pool, deleted, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &c, move || async move {
-        if lock_core.schema_lock.writes() != since {
-            return Err(changed_by_hook(failed));
-        }
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&deleted.id) == Some(&deleted) && deletable(r, &deleted).is_ok()
+        })
+        .await?;
         store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
             .await
             .map(|applied| applied.registry)

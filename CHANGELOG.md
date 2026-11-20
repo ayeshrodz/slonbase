@@ -121,6 +121,12 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- A collection hook (`onCollectionCreate`, `onCollectionUpdate`, `onCollectionDelete`,
+  `onCollectionValidate` and the execute hooks) that saves, deletes or imports another
+  collection no longer leaves the request waiting forever: that change runs inside the one that
+  ran the hook. The outer change checks the collections again afterwards and fails, rather than
+  save over a collection a hook changed under it. Other collection changes still wait their turn,
+  and restoring a backup from a collection hook is refused instead of waiting.
 
 ### Security
 
