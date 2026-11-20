@@ -61,11 +61,6 @@ impl Errors {
         let mut root = Map::new();
         'issues: for (path, issue) in &self.0 {
             let parts: Vec<&str> = path.split('.').collect();
-            // an error already exists at a parent path (`fields`, for `fields.1.name`): keep that
-            // one, the leaf made for it can't hold the nested ones
-            if (1..parts.len()).any(|n| self.0.contains_key(&parts[..n].join("."))) {
-                continue;
-            }
             let mut node = &mut root;
             for part in &parts[..parts.len() - 1] {
                 let entry = node
@@ -73,6 +68,7 @@ impl Errors {
                     .or_insert_with(|| Value::Object(Map::new()));
                 match entry.as_object_mut() {
                     Some(child) => node = child,
+                    // an error already exists at a parent path, keep that one
                     None => continue 'issues,
                 }
             }
@@ -88,16 +84,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn an_error_at_a_parent_path_is_kept_whole() {
+    fn an_error_at_a_parent_path_keeps_the_errors_below_it() {
+        // a field with an error of its own and errors in its items (`fields`, `fields.1.name`):
+        // the answer has the error's `code` and `message` and the items under their numbers,
+        // so a client shows both (the dashboard and the branding page read it so)
         let mut e = Errors::new();
         e.invalid("fields", "top");
         e.invalid("fields.1.name", "nested");
-        e.invalid("other.x", "fine");
         assert_eq!(
             Value::Object(e.to_json()),
             json!({
-                "fields": { "code": "validation_invalid", "message": "top" },
-                "other": { "x": { "code": "validation_invalid", "message": "fine" } },
+                "fields": {
+                    "code": "validation_invalid",
+                    "message": "top",
+                    "1": { "name": { "code": "validation_invalid", "message": "nested" } },
+                },
             })
         );
     }
