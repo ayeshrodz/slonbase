@@ -122,8 +122,8 @@ changes, listed in its **Upgrading** section.
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
 - Importing collections: a column that a view reads can be renamed (or dropped) in the same
-  import that updates the view's query; the view is no longer made again from its old query in
-  between, which refused the import.
+  import that updates the view's query; a view of the import is no longer refused for being made
+  again from its old query in between (it is rebuilt from it only when that still works).
 - A partial index whose condition names a column the collection doesn't have is refused as a
   validation error on `indexes`, not a server error from the database, and the flag of a system
   field can't be cleared by an update (which then allowed renaming or removing the field).

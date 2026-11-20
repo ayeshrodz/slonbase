@@ -215,8 +215,9 @@ pub async fn import(
             .collect::<Vec<_>>()
     };
     let removed_files = std::sync::Mutex::new(Vec::new());
+    let unbuilt_views = std::sync::Mutex::new(Vec::<String>::new());
     // the views of the import that exist already: the second pass applies them, so the first
-    // doesn't rebuild them from their stored queries
+    // only rebuilds them from their stored queries when those still work
     let imported_views: Vec<String> = pairs
         .iter()
         .filter(|(old, c)| c.is_view() && old.is_some())
@@ -234,6 +235,10 @@ pub async fn import(
                     .lock()
                     .expect("removed files lock")
                     .extend(applied.removed_files);
+                unbuilt_views
+                    .lock()
+                    .expect("unbuilt views lock")
+                    .extend(applied.unbuilt_views);
                 Ok(applied.registry)
             }
         };
@@ -272,10 +277,12 @@ pub async fn import(
             return Err(ApiError::invalid_data(failed, &errors));
         }
         let mut views = changes_of(&pairs, true);
-        // a view that was dropped meanwhile is made again even if its definition is the same
+        // a view that couldn't be rebuilt meanwhile is made now, even if its definition is the
+        // same
+        let unbuilt = unbuilt_views.lock().expect("unbuilt views lock").clone();
         for (old, new) in pairs
             .iter()
-            .filter(|(old, c)| c.is_view() && old.is_some() && pending.contains(&c.id))
+            .filter(|(old, c)| c.is_view() && old.is_some() && unbuilt.contains(&c.id))
         {
             if !views.iter().any(|(_, v)| v.id == new.id) {
                 views.push((old.clone(), new.clone()));

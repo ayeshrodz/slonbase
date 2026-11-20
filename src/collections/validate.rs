@@ -800,18 +800,12 @@ fn prepare_indexes(
         let mut index = index;
         let mut ok = true;
         // the columns of a partial index's condition are the collection's too: an unknown one
-        // would fail in the database, as a server error
+        // would fail in the database, as a server error (a JSON column may be tested there,
+        // `WHERE meta IS NOT NULL`: only the indexed columns can't be JSON)
         for token in index.predicate.iter_mut().flatten() {
             if let Pred::Column(column) = token {
                 match c.field(column) {
-                    Some(f) if f.storage() != Storage::Json => *column = f.name.clone(),
-                    Some(_) => {
-                        errors.invalid(
-                            &path,
-                            format!("JSON fields can't be used here ({column:?})."),
-                        );
-                        ok = false;
-                    }
+                    Some(f) => *column = f.name.clone(),
                     None => {
                         errors.invalid(&path, format!("Unknown column {column:?}."));
                         ok = false;

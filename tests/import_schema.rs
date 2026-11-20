@@ -181,6 +181,16 @@ async fn a_slow_view_is_cut_off_by_the_statement_timeout() {
     tdb.drop_db().await;
 }
 
+/// The fields of `posts` as they are now.
+async fn res_fields<F, Fut>(go: &F) -> Value
+where
+    F: Fn(&'static str, &'static str, Option<Value>) -> Fut,
+    Fut: std::future::Future<Output = (StatusCode, Value)>,
+{
+    let (_, posts) = go("GET", "/api/collections/posts", None).await;
+    posts["fields"].clone()
+}
+
 /// A column that a view reads is renamed, and the view's query is updated to the new name in
 /// the same import: the view isn't rebuilt from the query it had.
 #[tokio::test]
@@ -256,6 +266,28 @@ async fn an_import_renames_a_column_and_updates_the_view_that_reads_it() {
     let (status, list) = go("GET", "/api/collections/post_titles/records", None).await;
     assert_eq!(status, StatusCode::OK, "{list}");
     assert_eq!(list["items"][0]["title"], "First", "{list}");
+    // a view added by an import that keeps another of its views unchanged and reads it, while a
+    // table changes
+    let mut fields = res_fields(&go).await;
+    fields
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "name": "note", "type": "text" }));
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": posts["id"], "name": "posts", "type": "base", "fields": fields },
+            { "id": ids["id"], "name": "post_ids", "type": "view",
+              "viewQuery": "SELECT id FROM posts" },
+            { "name": "copied_ids", "type": "view", "viewQuery": "SELECT id FROM post_ids" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (status, list) = go("GET", "/api/collections/copied_ids/records", None).await;
+    assert_eq!(status, StatusCode::OK, "{list}");
+    assert_eq!(list["totalItems"], 1, "{list}");
     for (name, uri) in [
         ("post_ids", "/api/collections/post_ids/records"),
         ("post_other", "/api/collections/post_other/records"),
@@ -306,6 +338,17 @@ async fn indexes_name_known_columns_and_system_fields_stay_system() {
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
 
+    // a JSON column can be tested in the condition (it just can't be indexed)
+    let (status, res) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "notes",
+                     "fields": [{ "name": "title", "type": "text" }, { "name": "meta", "type": "json" }],
+                     "indexes": ["CREATE INDEX idx_notes_title ON notes (title) WHERE meta IS NOT NULL"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
     // a system field stays one when an update says it isn't
     let (status, system) = go("GET", "/api/collections/_externalAuths", None).await;
     assert_eq!(status, StatusCode::OK, "{system}");
@@ -321,12 +364,13 @@ async fn indexes_name_known_columns_and_system_fields_stay_system() {
     for f in fields.as_array_mut().unwrap() {
         f["system"] = json!(false);
     }
-    let (_, res) = go(
+    let (status, res) = go(
         "PATCH",
         "/api/collections/_externalAuths",
         Some(json!({ "fields": fields })),
     )
     .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
     let (_, after) = go("GET", "/api/collections/_externalAuths", None).await;
     for name in &flagged {
         let field = after["fields"]

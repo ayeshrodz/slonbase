@@ -297,6 +297,9 @@ pub struct Applied {
     pub registry: Registry,
     /// The files of the file fields the changes removed (their columns are gone).
     pub removed_files: Vec<RemovedFile>,
+    /// The views (ids) the caller said it would make again, that couldn't be rebuilt from their
+    /// old queries: they are missing until it does.
+    pub unbuilt_views: Vec<String>,
 }
 
 /// Applies a validated change and returns the reloaded registry.
@@ -332,9 +335,9 @@ pub async fn apply_in_with(
 }
 
 /// [`apply_in_with`] for a change whose views (by id) are applied by the caller next: they are
-/// dropped with the others before the tables change, and not rebuilt from the queries they have
-/// now, which the change may be about to make wrong (a column a view reads is renamed, and
-/// the view's query is updated to the new name in the same import).
+/// rebuilt from the queries they have, and when the change made one of those wrong (a column a
+/// view reads is renamed, and the view's query is updated to the new name in the same import)
+/// the view is left out, and reported in [`Applied::unbuilt_views`].
 pub async fn apply_in_with_views_pending(
     tx: &deadpool_postgres::Transaction<'_>,
     mut changes: Vec<Change<'_>>,
@@ -358,7 +361,8 @@ pub async fn apply_in_with_views_pending(
         Change::Create(c) | Change::Delete(c) => !c.is_view(),
         Change::Update { new, .. } => !new.is_view(),
     });
-    let mut rebuild: Vec<Collection> = Vec::new();
+    let mut rebuild: Vec<(Collection, bool)> = Vec::new();
+    let mut unbuilt_views: Vec<String> = Vec::new();
     if touches_tables {
         let changed: Vec<&str> = changes
             .iter()
@@ -379,9 +383,7 @@ pub async fn apply_in_with_views_pending(
             for statement in schema::drop(view) {
                 tx.batch_execute(&statement).await?;
             }
-            if !pending_views.contains(&view.id) {
-                rebuild.push(view.as_ref().clone());
-            }
+            rebuild.push((view.as_ref().clone(), pending_views.contains(&view.id)));
         }
     }
 
@@ -392,8 +394,26 @@ pub async fn apply_in_with_views_pending(
         }
         apply_one(tx, change, key).await?;
     }
-    for mut view in rebuild {
-        rebuild_view(tx, &mut view, key).await?;
+    for (mut view, pending) in rebuild {
+        if !pending {
+            rebuild_view(tx, &mut view, key).await?;
+            continue;
+        }
+        // a view the caller makes again from a new query is rebuilt from its old one when that
+        // still works (the views that read it need it), and left out when it doesn't
+        tx.batch_execute("SAVEPOINT rebuild_pending").await?;
+        match rebuild_view(tx, &mut view, key).await {
+            Ok(()) => {
+                tx.batch_execute("RELEASE SAVEPOINT rebuild_pending")
+                    .await?
+            }
+            Err(WriteError::Conflict(_)) => {
+                tx.batch_execute("ROLLBACK TO SAVEPOINT rebuild_pending")
+                    .await?;
+                unbuilt_views.push(view.id.clone());
+            }
+            Err(other) => return Err(other),
+        }
     }
 
     let registry = load_with(tx, key).await?;
@@ -402,6 +422,7 @@ pub async fn apply_in_with_views_pending(
     Ok(Applied {
         registry,
         removed_files,
+        unbuilt_views,
     })
 }
 
