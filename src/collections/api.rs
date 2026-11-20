@@ -621,8 +621,11 @@ async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection
     let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &c, move || async move {
+        // free id and name, and relations to collections that still exist
         still_holds(&lock_core, since, failed, |r| {
-            r.by_id(&new.id).is_none() && r.get(&new.name).is_none()
+            r.by_id(&new.id).is_none()
+                && r.get(&new.name).is_none()
+                && validate::prepare(&mut new.clone(), None, r).is_empty()
         })
         .await?;
         store::apply_with(&pool, Change::Create(&new), key.as_deref())
@@ -773,6 +776,7 @@ async fn update_locked(
     let applied = execute_hook(core, hook, &new, move || async move {
         still_holds(&lock_core, since, failed, |r| {
             r.by_id(&stored.id) == Some(&stored)
+                && validate::prepare(&mut changed.clone(), Some(&stored), r).is_empty()
         })
         .await?;
         let change = Change::Update {
@@ -1307,8 +1311,8 @@ async fn import_locked(
             )));
         }
     }
-    let ids = |list: &[Arc<Collection>]| list.iter().map(|c| c.id.clone()).collect::<Vec<_>>();
-    if ids(&missing(&registry)) != ids(&deleted) {
+    // (whole collections: one a hook changed isn't the one its delete hook was shown)
+    if missing(&registry) != deleted {
         return Err(ApiError::bad_request(format!(
             "{failed} A hook changed the collections the import deletes."
         )));

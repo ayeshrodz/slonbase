@@ -11,6 +11,10 @@
 //! A change made with the token of the change holding the lock is nested in it; any other one
 //! waits its turn.
 //!
+//! The outer change's hold on the lock lasts until its nested changes end too: when it is
+//! dropped first (its request was cancelled while a hook still runs on a JavaScript thread), the
+//! nested change still running keeps the lock, and the last one to end lets it go.
+//!
 //! Nested changes run one at a time, too: one made while another nested change of the same
 //! outer change runs (two Rust handlers running theirs together) waits for it to end.
 //!
@@ -20,10 +24,10 @@
 
 use std::cell::Cell;
 use std::future::Future;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
-use tokio::sync::{MutexGuard, Notify};
+use tokio::sync::{Notify, OwnedMutexGuard};
 
 tokio::task_local! {
     static HELD: u64;
@@ -49,7 +53,7 @@ pub fn set_thread(token: Option<u64>) {
 #[derive(Default)]
 pub struct SchemaLock {
     /// Held by the outer change.
-    outer: tokio::sync::Mutex<()>,
+    outer: Arc<tokio::sync::Mutex<()>>,
     state: Mutex<State>,
     /// A change ended (a nested one waiting for its turn checks again).
     released: Notify,
@@ -62,6 +66,8 @@ struct State {
     held: Vec<u64>,
     /// Nested changes ended so far.
     writes: u64,
+    /// The outer change's hold, when it ended before the changes nested in it.
+    parked: Option<OwnedMutexGuard<()>>,
 }
 
 /// The lock is refused: the caller runs inside a collection change that can't let it in.
@@ -100,7 +106,7 @@ impl SchemaLock {
                 released.await;
             }
         }
-        let outer = self.outer.lock().await;
+        let outer = self.outer.clone().lock_owned().await;
         let token = self.token();
         self.state
             .lock()
@@ -127,7 +133,7 @@ impl SchemaLock {
         {
             return Err(Refused);
         }
-        let outer = self.outer.lock().await;
+        let outer = self.outer.clone().lock_owned().await;
         let token = self.token();
         self.state
             .lock()
@@ -138,6 +144,17 @@ impl SchemaLock {
             lock: self,
             token,
             outer: Some(outer),
+        })
+    }
+
+    /// Whether what runs here is part of the change holding the lock (a hook of it).
+    pub fn inside_change(&self) -> bool {
+        current().is_some_and(|token| {
+            self.state
+                .lock()
+                .expect("schema lock state")
+                .held
+                .contains(&token)
         })
     }
 
@@ -156,7 +173,7 @@ impl SchemaLock {
 pub struct SchemaGuard<'a> {
     lock: &'a SchemaLock,
     token: u64,
-    outer: Option<MutexGuard<'a, ()>>,
+    outer: Option<OwnedMutexGuard<()>>,
 }
 
 impl SchemaGuard<'_> {
@@ -168,15 +185,28 @@ impl SchemaGuard<'_> {
 
 impl Drop for SchemaGuard<'_> {
     fn drop(&mut self) {
-        {
+        let release = {
             let mut state = self.lock.state.lock().expect("schema lock state");
             state.held.retain(|held| *held != self.token);
-            if self.outer.is_none() {
-                state.writes += 1;
+            match self.outer.take() {
+                // nested changes still run: they keep the lock
+                Some(outer) if !state.held.is_empty() => {
+                    state.parked = Some(outer);
+                    None
+                }
+                Some(outer) => Some(outer),
+                None => {
+                    state.writes += 1;
+                    if state.held.is_empty() {
+                        state.parked.take()
+                    } else {
+                        None
+                    }
+                }
             }
-        }
+        };
         // the outer lock goes after the state is cleared, so the next change starts clean
-        self.outer.take();
+        drop(release);
         self.lock.released.notify_waiters();
     }
 }
@@ -276,6 +306,29 @@ mod tests {
         );
         drop(outer);
         drop(lock.exclusive().await.expect("free once the change ends"));
+    }
+
+    #[tokio::test]
+    async fn a_nested_change_keeps_the_lock_when_its_outer_change_ends_first() {
+        let lock = Arc::new(SchemaLock::default());
+        let outer = lock.acquire().await;
+        let nested = outer.scope(lock.acquire()).await;
+        assert!(nested.outer.is_none(), "nested");
+        // the request ends (cancelled) while the hook's change still runs
+        drop(outer);
+        let other = {
+            let lock = lock.clone();
+            tokio::spawn(async move {
+                let _guard = lock.acquire().await;
+            })
+        };
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!other.is_finished(), "waits for the nested change");
+        drop(nested);
+        tokio::time::timeout(Duration::from_secs(1), other)
+            .await
+            .expect("free once the nested change ends")
+            .unwrap();
     }
 
     #[test]

@@ -80,9 +80,25 @@ onCollectionCreate((e) => {
   e.next();
 });
 
+// a collection the new one relates to is deleted just before it is saved
+onCollectionCreateExecute((e) => {
+  if (e.collection.name === "related") $app.delete($app.findCollectionByNameOrId("target"));
+  e.next();
+});
+
+// the collection an import deletes is changed by its own delete hook
+onCollectionDelete((e) => {
+  if (e.collection.name === "doomed" && !e.collection.fields.some((f) => f.name === "flag")) {
+    const doomed = $app.findCollectionByNameOrId("doomed");
+    doomed.fields.push({ name: "flag", type: "bool" });
+    $app.save(doomed);
+  }
+  e.next();
+});
+
 // a restore can't run inside a collection change
 onCollectionCreate((e) => {
-  if (e.collection.name === "restores") $app.restoreBackup("nothing.zip");
+  if (e.collection.name === "restores") $app.restoreBackup("before_hooks.zip");
   e.next();
 });
 "#;
@@ -140,6 +156,45 @@ async fn collection_hooks_can_change_other_collections() {
     .await
     .unwrap();
     let (app, token, _dir) = ready_app_with(&tdb, ext).await;
+    // a real backup, so a restore from a hook gets as far as the lock
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/backups",
+        Some(json!({ "name": "before_hooks.zip" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+
+    // an import whose delete hook changes the collection it deletes fails
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "doomed" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [{ "name": "survivor", "type": "base", "fields": [] }], "deleteMissing": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res["message"].as_str().unwrap().contains("A hook changed"),
+        "{res}"
+    );
+    let all = names(&app, &token).await;
+    assert!(
+        all.contains(&"doomed".into()) && !all.contains(&"survivor".into()),
+        "{all:?}"
+    );
 
     // create: the hook creates the log collection inside the change
     let (status, res) = call(
@@ -328,8 +383,42 @@ async fn collection_hooks_can_change_other_collections() {
         Some(json!({ "name": "restores" })),
     )
     .await;
-    assert_ne!(status, StatusCode::OK, "{res}");
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res["message"]
+            .as_str()
+            .unwrap()
+            .contains("can't be restored from a collection hook"),
+        "{res}"
+    );
     assert!(!names(&app, &token).await.contains(&"restores".into()));
+
+    // a relation to a collection a hook deleted just before the save is refused
+    let (status, target) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "target" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{target}");
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "related", "fields": [
+            { "name": "to", "type": "relation", "collectionId": target["id"], "maxSelect": 1 },
+        ] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res["message"].as_str().unwrap().contains("A hook changed"),
+        "{res}"
+    );
+    assert!(!names(&app, &token).await.contains(&"related".into()));
 
     // and other changes still take turns with them
     let mut tasks = Vec::new();

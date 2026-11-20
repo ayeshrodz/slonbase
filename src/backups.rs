@@ -636,9 +636,16 @@ pub async fn restore(core: &Arc<Core>, name: &str) -> Result<(), BackupError> {
     Ok(())
 }
 
+/// Restoring a backup replaces every collection: never from inside a collection change.
+const RESTORE_IN_HOOK: &str = "A backup can't be restored from a collection hook.";
+
 async fn restore_unhooked(core: &Core, name: &str) -> Result<(), BackupError> {
     if !valid_name(name) {
         return Err(BackupError::Invalid("Invalid backup name.".into()));
+    }
+    // (the lock refuses it too; this says so before any work is done)
+    if core.schema_lock.inside_change() {
+        return Err(BackupError::Invalid(RESTORE_IN_HOOK.into()));
     }
     let source = storage(core);
     let locks = lock(core).await?;
@@ -721,7 +728,7 @@ async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Resul
         .schema_lock
         .exclusive()
         .await
-        .map_err(|_| anyhow::anyhow!("A backup can't be restored from a collection hook."))?;
+        .map_err(|_| anyhow::anyhow!(RESTORE_IN_HOOK))?;
     let mut client = core
         .db()
         .get()
