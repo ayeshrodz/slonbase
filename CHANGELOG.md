@@ -140,6 +140,9 @@ changes, listed in its **Upgrading** section.
   can't start another core.
 - Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
   to one name at the same time can't both be saved; the answer to a change is the job as stored.
+- An email template's subject without expressions is held to the 200 characters a rendered
+  subject may have when it is saved, instead of saving and then failing to render. A subject with
+  expressions may still be up to 300 characters, since what it renders to can be shorter.
 - A schedule's `*/1` means the same as `*`: in a day field it no longer turns a weekly or monthly
   schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
   the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still
