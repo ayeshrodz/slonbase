@@ -609,8 +609,10 @@ async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection
     let since = core.schema_lock.writes();
     before_hook(core, &core.hooks.on_collection_validate, c.clone()).await?;
     if core.schema_lock.writes() != since {
-        // validated again against what the hook changed
+        // inferred and validated again against what the hook changed (a view's fields take
+        // their visibility from the fields they read)
         let registry = fresh_registry(core).await?;
+        infer_view(core, &mut c, None, "", failed).await?;
         let errors = validate::prepare(&mut c, None, &registry);
         if !errors.is_empty() {
             return Err(ApiError::invalid_data(failed, &errors));
@@ -621,6 +623,10 @@ async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection
     let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &c, move || async move {
+        let mut new = new;
+        if lock_core.schema_lock.writes() != since {
+            infer_view(&lock_core, &mut new, None, "", failed).await?;
+        }
         // a free id, and validation as before (the name is free, relations' collections exist)
         still_holds(&lock_core, since, failed, |r| {
             r.by_id(&new.id).is_none() && validate::prepare(&mut new.clone(), None, r).is_empty()
@@ -757,6 +763,7 @@ async fn update_locked(
         if registry.by_id(id) != Some(&old) {
             return Err(changed_by_hook(failed));
         }
+        infer_view(core, &mut new, Some(&old), "", failed).await?;
         let errors = validate::prepare(&mut new, Some(&old), &registry);
         if !errors.is_empty() {
             return Err(ApiError::invalid_data(failed, &errors));
@@ -772,6 +779,10 @@ async fn update_locked(
     );
     let lock_core = core.clone();
     let applied = execute_hook(core, hook, &new, move || async move {
+        let mut changed = changed;
+        if lock_core.schema_lock.writes() != since {
+            infer_view(&lock_core, &mut changed, Some(&stored), "", failed).await?;
+        }
         still_holds(&lock_core, since, failed, |r| {
             r.by_id(&stored.id) == Some(&stored)
                 && validate::prepare(&mut changed.clone(), Some(&stored), r).is_empty()
@@ -910,17 +921,20 @@ async fn delete_locked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiErro
             r.by_id(&deleted.id) == Some(&deleted) && deletable(r, &deleted).is_ok()
         })
         .await?;
-        store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
+        let applied = store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
             .await
             .map(|applied| applied.registry)
-            .map_err(|e| write_error(e, failed))
+            .map_err(|e| write_error(e, failed))?;
+        // its files go now, before the handler goes on after `e.next()`: a collection it
+        // creates with the same id keeps the files it is given
+        if let Err(err) = lock_core.storage().delete_prefix(&deleted.id).await {
+            tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
+        }
+        Ok(applied)
     })
     .await?;
     after_change(core, applied, since).await?;
     after_hook(core, |h| &h.on_collection_after_delete_success, &c);
-    if let Err(err) = core.storage().delete_prefix(&c.id).await {
-        tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
-    }
     tracing::info!(collection = %c.name, "deleted collection");
     Ok(())
 }

@@ -96,6 +96,19 @@ onCollectionDelete((e) => {
   e.next();
 });
 
+// a field a view reads is hidden while the view is being created
+onCollectionValidate((e) => {
+  if (e.collection.name === "src_view") {
+    const src = $app.findCollectionByNameOrId("src");
+    const note = src.fields.find((f) => f.name === "note");
+    if (!note.hidden) {
+      note.hidden = true;
+      $app.save(src);
+    }
+  }
+  e.next();
+});
+
 // a restore can't run inside a collection change
 onCollectionCreate((e) => {
   if (e.collection.name === "restores") $app.restoreBackup("before_hooks.zip");
@@ -155,7 +168,8 @@ async fn collection_hooks_can_change_other_collections() {
     )
     .await
     .unwrap();
-    let (app, token, _dir) = ready_app_with(&tdb, ext).await;
+    // (views need the SQL console)
+    let (app, token, _dir) = ready_app_configured(&tdb, ext, |o| o.sql_console = Some(true)).await;
     // a real backup, so a restore from a hook gets as far as the lock
     let (status, res) = call(
         &app,
@@ -419,6 +433,42 @@ async fn collection_hooks_can_change_other_collections() {
         "{res}"
     );
     assert!(!names(&app, &token).await.contains(&"related".into()));
+
+    // a view takes the visibility its source fields have when it is saved, not before a hook
+    // changed them
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "src", "fields": [{ "name": "note", "type": "text" }],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, view) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({
+            "name": "src_view", "type": "view", "viewQuery": "SELECT id, note FROM src",
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{view}");
+    let note = view["fields"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["name"] == "note")
+        .cloned();
+    assert_eq!(
+        note.as_ref().map(|f| f["hidden"].clone()),
+        Some(json!(true)),
+        "{view}"
+    );
 
     // and other changes still take turns with them
     let mut tasks = Vec::new();
