@@ -121,6 +121,13 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- A cron expression with a step past the end of its range (`5/4294967291 * * * *`) is one run
+  and not an overflow, and a schedule that doesn't exist (`99 99 * * 0`) is not described.
+- An `autogeneratePattern` of a negated class (`[^0-9]{5}`) gives characters outside it, and
+  `[^\n0-9]` no longer gives digits.
+- A log entry written by application code with an odd `status` or `execTime` can no longer
+  make Health or the projects overview fail, and a partitioned table of the `slonbase` schema
+  is counted once in the overview's records.
 - Job queue: a job whose lease ran out on its last attempt is no longer claimed once more, an
   instance no longer wakes every half second for a lease it is renewing itself, and a job that
   ended keeps its lease renewed until its end is recorded (a database error at that moment made
