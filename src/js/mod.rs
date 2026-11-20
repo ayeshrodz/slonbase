@@ -76,6 +76,8 @@ struct Job {
     limit: Option<std::time::Duration>,
     /// The chain of automations the handler runs for (see [`crate::origin`]).
     chain: Option<String>,
+    /// The collection change the handler runs inside (see [`crate::collections::lock`]).
+    schema: Option<u64>,
     out: tokio::sync::mpsc::UnboundedSender<FromJs>,
     resume: mpsc::Receiver<String>,
 }
@@ -294,6 +296,7 @@ impl Pool {
                 uploads,
                 limit,
                 chain: crate::origin::current(),
+                schema: crate::collections::lock::current(),
                 out,
                 resume,
             })
@@ -503,6 +506,7 @@ fn worker(
         native::set_uploads(job.uploads);
         limits.start(job.limit);
         crate::origin::set_thread(job.chain);
+        crate::collections::lock::set_thread(job.schema);
         let result = ctx.with(|ctx| {
             let run = || -> rquickjs::Result<String> {
                 let dispatch: Function = ctx.globals().get("__dispatch")?;
@@ -527,6 +531,7 @@ fn worker(
         slot.borrow_mut().take();
         native::set_uploads(Vec::new());
         crate::origin::set_thread(None);
+        crate::collections::lock::set_thread(None);
         // a handler stopped midway, or one that ran out of memory, leaves the runtime in a
         // state nobody chose (half-changed globals, a heap at its limit): the runtime is
         // not used again, a fresh one takes its place

@@ -717,7 +717,11 @@ async fn restore_locked(core: &Core, name: &str, source: &Storage) -> Result<(),
 struct Unreadable(String);
 
 async fn restore_database(core: &Core, manifest: &Manifest, dir: &Path) -> Result<()> {
-    let _guard = core.schema_lock.lock().await;
+    let _guard = core
+        .schema_lock
+        .exclusive()
+        .await
+        .map_err(|_| anyhow::anyhow!("A backup can't be restored from a collection hook."))?;
     let mut client = core
         .db()
         .get()
