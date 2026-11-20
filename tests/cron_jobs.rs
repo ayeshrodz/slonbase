@@ -1579,3 +1579,70 @@ async fn names_and_mail_schedules_are_safe() {
         assert_eq!(status, StatusCode::NO_CONTENT);
     }
 }
+
+/// A copy of a job of SQL keeps what the job hides from admins, so making one needs an owner,
+/// whatever kind the copy is of; and the answer to switching a job off is the job as listed.
+#[tokio::test]
+async fn copying_a_sql_job_is_for_owners_and_answers_show_the_stored_job() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let (status, sql) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/crons",
+        Some(
+            json!({ "name": "Query", "expression": "0 3 * * *", "type": "sql",
+                     "config": { "statement": "SELECT 1" } }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{sql}");
+    let admin = key_for(&app, &token, "admin").await;
+    let copy = |from: &str, kind: &str| {
+        json!({ "name": format!("Copy {kind}"), "expression": "0 4 * * *", "type": kind,
+                "copyOf": from,
+                "config": { "url": "https://example.com/x", "method": "GET" } })
+    };
+    for kind in ["http", "sql"] {
+        let (status, res) = call(
+            &app,
+            &admin,
+            "POST",
+            "/api/crons",
+            Some(copy(sql["id"].as_str().unwrap(), kind)),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{kind}: {res}");
+    }
+
+    // switching a job off answers with the job as stored: its new revision, and off
+    let id = sql["id"].as_str().unwrap();
+    let (status, off) = call(
+        &app,
+        &token,
+        "PATCH",
+        &format!("/api/crons/{id}"),
+        Some(json!({ "enabled": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{off}");
+    assert_eq!(off["enabled"], false);
+    let (_, list) = call(&app, &token, "GET", "/api/crons", None).await;
+    let listed = list
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|j| j["id"] == id)
+        .cloned()
+        .unwrap();
+    // (the fields an answer has, compared as values that exist)
+    for key in ["id", "name", "enabled", "expression", "type"] {
+        assert!(!off[key].is_null(), "{key} is missing: {off}");
+        assert_eq!(off[key], listed[key], "{key}: {off} {listed}");
+    }
+    tdb.drop_db().await;
+}

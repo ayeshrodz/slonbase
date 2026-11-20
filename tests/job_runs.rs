@@ -406,3 +406,43 @@ async fn every_installation_prunes_on_its_own() {
     first.drop_db().await;
     second.drop_db().await;
 }
+
+#[tokio::test]
+async fn the_run_of_a_job_whose_handler_stopped_is_ended() {
+    let _console = CONSOLE.lock().await;
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, _token, _dir) = ready_app(&tdb).await;
+    let core = app.core().unwrap();
+    let client = db(&tdb).await;
+    let row = client
+        .query_one(
+            "INSERT INTO _slonbase.jobs (kind, ref, state, attempt, max_attempts, locked_by, locked_until)
+             VALUES ('cron.user', 'user:panics', 'running', 1, 1, 'test', now() + interval '1 hour')
+             RETURNING id",
+            &[],
+        )
+        .await
+        .unwrap();
+    let queue_job: i64 = row.get(0);
+    slonbase::jobs::start_exclusive(&core, "cron", "user:panics", "manual", queue_job)
+        .await
+        .unwrap()
+        .expect("started");
+    // (what the queue does when the handler's task ends without an answer)
+    slonbase::jobs::close_for_queue_job(&core, queue_job, "The job stopped unexpectedly.")
+        .await
+        .unwrap();
+    let row = client
+        .query_one(
+            "SELECT status, detail, finished IS NOT NULL FROM _slonbase.job_runs WHERE queue_job = $1",
+            &[&queue_job],
+        )
+        .await
+        .unwrap();
+    assert_eq!(row.get::<_, String>(0), "error");
+    assert_eq!(row.get::<_, String>(1), "The job stopped unexpectedly.");
+    assert!(row.get::<_, bool>(2));
+    tdb.drop_db().await;
+}

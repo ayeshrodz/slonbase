@@ -656,6 +656,12 @@ async fn forward(
         .lock()
         .expect("forwards lock")
         .insert(id, sender);
+    // taken out of the table when this returns or is dropped (the caller gave up and the
+    // request ended)
+    let _waiting = ForwardWaiting {
+        core: core.clone(),
+        id,
+    };
     let announced = notify_with(core, &format!("forward:{id}:{}:{client_id}", hub.instance)).await;
     let held = match announced {
         Ok(()) => tokio::time::timeout(FORWARD_TIMEOUT, async {
@@ -685,7 +691,6 @@ async fn forward(
         .unwrap_or(false),
         Err(_) => false,
     };
-    hub.forwards.lock().expect("forwards lock").remove(&id);
     let client = core.db().get().await.map_err(pool_error)?;
     let response: Option<Value> = client
         .query_opt(
@@ -697,8 +702,31 @@ async fn forward(
         .and_then(|row| row.get(0));
     Ok(match (held, response) {
         (true, Some(response)) => Some(stored_response(&response)),
+        // the instance that holds the client couldn't run the request: not a client that
+        // doesn't exist
+        (true, None) => Some(
+            ApiError::internal(anyhow::anyhow!("a forwarded realtime request failed"))
+                .into_response(),
+        ),
         _ => None,
     })
+}
+
+/// Takes a forwarded request's entry out of [`Hub::forwards`] when it is dropped.
+struct ForwardWaiting {
+    core: Arc<Core>,
+    id: i64,
+}
+
+impl Drop for ForwardWaiting {
+    fn drop(&mut self) {
+        self.core
+            .realtime
+            .forwards
+            .lock()
+            .expect("forwards lock")
+            .remove(&self.id);
+    }
 }
 
 async fn notify_with(core: &Core, payload: &str) -> anyhow::Result<()> {
