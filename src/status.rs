@@ -83,7 +83,7 @@ pub async fn status(
                     -- error outside requests (hooks, crons, mail). A 401 or 403 is logged at the
                     -- error level too (PocketBase's format), but it's the client's, not the server's.
                     count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
-                                                          OR CASE WHEN data->>'status' ~ '^[0-9]+$'
+                                                          OR CASE WHEN data->>'status' ~ '^[0-9]{1,9}$'
                                                                THEN (data->>'status')::int >= 500 END)),
                     count(*) FILTER (WHERE level >= 4 AND level < 8)
              FROM _slonbase.logs WHERE created > now() - interval '24 hours'",

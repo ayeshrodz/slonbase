@@ -196,7 +196,14 @@ fn random_char(ranges: &[(u32, u32)], bytes: bool) -> Result<char, String> {
     if past_ascii || size(ranges) > LARGE_CLASS {
         // `.` (anything but a newline, or anything with `s`) gives letters and digits
         let newline = ranges.iter().any(|&(a, b)| a <= 0x0A && 0x0A <= b);
-        let all_but_newline = !newline && ranges.first() == Some(&(0, 0x09));
+        // `.`: everything but the newline, as one range before it and one after it
+        let all_but_newline = !newline
+            && ranges.first() == Some(&(0, 0x09))
+            && ranges.get(1).is_some_and(|&(a, _)| a == 0x0B)
+            && ranges
+                .windows(2)
+                .skip(1)
+                .all(|w| w[0].1 + 1 == w[1].0 || (w[0].1 == 0xD7FF && w[1].0 == 0xE000));
         let everything = ranges.first().is_some_and(|&(a, _)| a == 0)
             && ranges
                 .windows(2)
@@ -239,6 +246,11 @@ fn random_char(ranges: &[(u32, u32)], bytes: bool) -> Result<char, String> {
 fn parse_pattern(pattern: &str) -> Option<(Vec<char>, usize)> {
     let rest = pattern.strip_prefix('[')?;
     let (class, rest) = rest.split_once(']')?;
+    // a negated class or an escape isn't a plain list of characters: the general generator
+    // reads those
+    if class.starts_with('^') || class.contains('\\') {
+        return None;
+    }
     let count = rest.strip_prefix('{')?.strip_suffix('}')?;
     let len: usize = count.parse().ok().filter(|n| (1..=255).contains(n))?;
 
@@ -311,6 +323,29 @@ mod tests {
         // the fast path keeps its exact shape, Unicode included
         let v = generate_from_pattern("[äöü]{8}").unwrap();
         assert!(v.chars().count() == 8 && v.chars().all(|c| "äöü".contains(c)));
+    }
+
+    #[test]
+    fn negated_and_escaped_classes_are_read_as_such() {
+        // `[^0-9]{5}` is five characters that aren't digits (it was digits and `^`)
+        for _ in 0..50 {
+            let v = generate_from_pattern("[^0-9]{5}").unwrap();
+            assert_eq!(v.chars().count(), 5);
+            assert!(v.chars().all(|c| !c.is_ascii_digit()), "{v:?}");
+        }
+        // a class that leaves out the newline and more than that isn't `.`
+        for _ in 0..50 {
+            let v = generate_from_pattern(r"[^\n0-9]{5}").unwrap();
+            assert!(v.chars().all(|c| c != '\n' && !c.is_ascii_digit()), "{v:?}");
+        }
+        // an escape in a class is the escape, not a backslash
+        for _ in 0..50 {
+            let v = generate_from_pattern(r"[\d]{5}").unwrap();
+            assert!(v.chars().all(|c| c.is_ascii_digit()), "{v:?}");
+        }
+        // `.` still gives letters and digits
+        let v = generate_from_pattern(".{20}").unwrap();
+        assert!(v.chars().all(|c| c.is_ascii_alphanumeric()), "{v:?}");
     }
 
     /// Generates `n` values and checks each against the pattern itself.
