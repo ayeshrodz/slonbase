@@ -138,6 +138,9 @@ changes, listed in its **Upgrading** section.
   address. When the table of counters is full of running windows, the oldest tenth is dropped to
   make room, instead of leaving new clients uncounted.
 - Restoring a backup reads at most 64 MiB of its manifest (a manifest lists the tables and columns), and refuses a larger one.
+- `lettre` (the SMTP client) is updated to 0.11.24, which fixes RUSTSEC-2026-0562: a panic on an
+  `EHLO` reply line of only white space, which a mail server could use to stop the task that
+  sends mail.
 
 ### Upgrading
 
