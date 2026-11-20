@@ -272,6 +272,13 @@ async fn validate_step(core: &Arc<Core>, step: &Step, errors: &mut Errors) {
                 if let Err(err) = core.count_records(name, text(c, "filter"), &params).await {
                     errors.invalid("config.filter", err.message);
                 }
+                // and the sort, as the step will run it
+                if let Ok(collection) = core.collection(name)
+                    && let Err(err) =
+                        crate::filter::sort::compile_sort(text(c, "sort"), &collection, "r", true)
+                {
+                    errors.invalid("config.sort", format!("Invalid sort: {err}."));
+                }
             }
         }
         "webhook" => {

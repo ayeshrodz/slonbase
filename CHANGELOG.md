@@ -121,6 +121,9 @@ changes, listed in its **Upgrading** section.
   need the owners not to delete each other together).
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
+- An automation's **Find records** step checks its sort against the collection when the
+  automation is previewed or saved, as it already did for the filter, so an unknown sort field is
+  reported on the step instead of failing when the automation runs.
 
 ### Security
 

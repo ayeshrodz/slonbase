@@ -583,6 +583,15 @@ async fn steps_are_checked_and_follow_the_rules_of_what_they_do() {
             json!([{ "name": "a", "type": "query", "config": { "collection": "invoices", "filter": "nope = 1" } }]),
             "steps.0.config.filter",
         ),
+        // the sort is compiled against the collection, as the step will run it
+        (
+            json!([{ "name": "a", "type": "query", "config": { "collection": "invoices", "sort": "missing_field" } }]),
+            "steps.0.config.sort",
+        ),
+        (
+            json!([{ "name": "a", "type": "query", "config": { "collection": "invoices", "sort": "-amount,-" } }]),
+            "steps.0.config.sort",
+        ),
         // data never becomes part of a filter or a statement
         (
             json!([{ "name": "a", "type": "query", "config": { "collection": "invoices", "filter": "customer = '{{ x }}'" } }]),
@@ -652,6 +661,24 @@ async fn steps_are_checked_and_follow_the_rules_of_what_they_do() {
         status,
         StatusCode::OK,
         "a path may be built from data: {res}"
+    );
+
+    for sort in ["amount", "-amount", "+customer,-amount", "@random"] {
+        let sorted = automation(json!([
+            { "name": "a", "type": "query", "config": { "collection": "invoices", "sort": sort } },
+        ]));
+        let (status, res) = call(&app, &token, "POST", "/api/cron-preview", Some(sorted)).await;
+        assert_eq!(status, StatusCode::OK, "{sort}: {res}");
+    }
+    // the same check when the preview is asked for
+    let unsorted = automation(json!([
+        { "name": "a", "type": "query", "config": { "collection": "invoices", "sort": "nope" } },
+    ]));
+    let (status, res) = call(&app, &token, "POST", "/api/cron-preview", Some(unsorted)).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{res}");
+    assert!(
+        res.pointer("/data/config/steps/0/config/sort").is_some(),
+        "{res}"
     );
 
     // more than 20 steps
