@@ -131,7 +131,8 @@ changes, listed in its **Upgrading** section.
 - Job queue: a job whose lease ran out on its last attempt is no longer claimed once more, an
   instance no longer wakes every half second for a lease it is renewing itself, and a job that
   ended keeps its lease renewed until its end is recorded (a database error at that moment made
-  it run again 90 seconds later).
+  it run again 90 seconds later). A job whose handler stopped unexpectedly ends its run in the
+  history then, instead of staying "running" until the job's next run called it interrupted.
 - A realtime subscribe request forwarded to another instance leaves nothing behind when its
   client gives up, and one the other instance couldn't run answers with an error and not "client
   not found".
