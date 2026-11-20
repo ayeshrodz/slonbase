@@ -313,9 +313,13 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
                 Err(_) => {
                     let why = "The job stopped unexpectedly.";
                     // its run in the history ends now, not as "interrupted" when the next run
-                    // of the job looks
-                    if let Err(err) = crate::jobs::close_for_queue_job(core, job.id, why).await {
+                    // of the job looks; tried until it is recorded, like the job's own end
+                    // below, which keeps the lease until then
+                    let mut wait = Duration::from_secs(1);
+                    while let Err(err) = crate::jobs::close_for_queue_job(core, job.id, why).await {
                         tracing::warn!(error = %format!("{err:#}"), "failed to record a job's end");
+                        tokio::time::sleep(wait).await;
+                        wait = (wait * 2).min(Duration::from_secs(30));
                     }
                     Err(Failure::permanent(why))
                 }
