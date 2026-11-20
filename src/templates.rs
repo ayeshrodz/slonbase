@@ -31,6 +31,8 @@ use crate::validation::Errors;
 const MAX_TEMPLATES: usize = 50;
 const MAX_BODY: usize = 100_000;
 const MAX_SAMPLE: usize = 20_000;
+/// The most characters a rendered subject may have.
+const MAX_SUBJECT: usize = 200;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
@@ -66,8 +68,10 @@ pub fn render(
         .map_err(|e| format!("Subject: {e}"))?
         .trim()
         .to_string();
-    if subject.is_empty() || subject.chars().count() > 200 || !mail::plain_line(&subject) {
-        return Err("Subject: must come to 1 to 200 characters on one line.".into());
+    if subject.is_empty() || subject.chars().count() > MAX_SUBJECT || !mail::plain_line(&subject) {
+        return Err(format!(
+            "Subject: must come to 1 to {MAX_SUBJECT} characters on one line."
+        ));
     }
     let body = templating::render(body, data, Mode::Html).map_err(|e| format!("Body: {e}"))?;
     let html = crate::mail::render(&crate::mail::wrap(settings, &body), settings, "");
@@ -105,6 +109,12 @@ pub async fn send(
     Ok(sent)
 }
 
+/// Whether a text has template code (`{{ }}`, `{% %}` or `{# #}`); one without renders to
+/// itself.
+fn has_template_syntax(source: &str) -> bool {
+    templating::is_template(source) || source.contains("{#")
+}
+
 fn validate(template: &Template, others: &[Template]) -> Errors {
     let mut errors = Errors::new();
     let name = template.name.trim();
@@ -122,6 +132,12 @@ fn validate(template: &Template, others: &[Template]) -> Errors {
     let subject = template.subject.trim();
     if subject.is_empty() || subject.chars().count() > 300 || !mail::plain_line(subject) {
         errors.invalid("subject", "Must be 1 to 300 characters on one line.");
+    } else if !has_template_syntax(subject) && subject.chars().count() > MAX_SUBJECT {
+        // a subject without expressions renders to itself, so it has the rendered limit
+        errors.invalid(
+            "subject",
+            format!("Without expressions, at most {MAX_SUBJECT} characters."),
+        );
     } else if let Err(message) = templating::check(subject) {
         errors.invalid("subject", message);
     }
@@ -540,6 +556,47 @@ mod tests {
         let mut lines = template("d");
         lines.subject = "one\ntwo".into();
         assert!(validate(&lines, &[]).contains("subject"));
+    }
+
+    #[test]
+    fn a_subject_without_expressions_is_held_to_the_rendered_limit() {
+        let settings = Settings::default();
+        let with = |subject: String| {
+            let mut t = template("a");
+            t.subject = subject;
+            t
+        };
+        for (length, ok) in [(200, true), (201, false), (300, false)] {
+            let t = with("S".repeat(length));
+            assert_eq!(validate(&t, &[]).is_empty(), ok, "{length}");
+            assert_eq!(
+                render(&settings, &t.subject, &t.body, &t.sample).is_ok(),
+                ok,
+                "{length}"
+            );
+        }
+        // surrounding spaces are trimmed before both checks
+        assert!(validate(&with(format!("  {}  ", "S".repeat(200))), &[]).is_empty());
+        // a longer source with expressions can render to a short subject
+        let t = with(format!("{{# {} #}}Hello {{{{ name }}}}", "x".repeat(250)));
+        assert!(validate(&t, &[]).is_empty());
+        assert_eq!(
+            render(&settings, &t.subject, &t.body, &t.sample)
+                .unwrap()
+                .subject,
+            "Hello Ann"
+        );
+        let t = with(format!(
+            "{{% if false %}}{}{{% endif %}}Hi",
+            "x".repeat(250)
+        ));
+        assert!(validate(&t, &[]).is_empty());
+        assert_eq!(
+            render(&settings, &t.subject, &t.body, &t.sample)
+                .unwrap()
+                .subject,
+            "Hi"
+        );
     }
 
     #[test]
