@@ -354,6 +354,20 @@ pub async fn apply_in_with_views_pending(
     tx.execute("SELECT pg_advisory_xact_lock($1)", &[&SCHEMA_LOCK_KEY])
         .await?;
 
+    // the views the change deletes go first: the views it keeps may read them (a kept view
+    // can't be dropped, to be made again, while one that reads it is still there)
+    let mut view_deletes = Vec::new();
+    changes.retain(|change| match change {
+        Change::Delete(c) if c.is_view() => {
+            view_deletes.push(*c);
+            false
+        }
+        _ => true,
+    });
+    for view in view_deletes {
+        apply_one(tx, &Change::Delete(view), key).await?;
+    }
+
     // Table changes run with the other view collections dropped, so PostgreSQL's view
     // dependencies never block them; the views are then recreated from their queries
     // (and their fields re-inferred). A view the change breaks fails the whole change.

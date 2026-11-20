@@ -418,3 +418,83 @@ async fn indexes_name_known_columns_and_system_fields_stay_system() {
     }
     tdb.drop_db().await;
 }
+
+/// Views that read other views in one import: a view the import deletes while a table changes
+/// and the view it read stays, and a new view listed before the existing view it reads is
+/// replaced.
+#[tokio::test]
+async fn views_that_read_views_are_ordered_in_an_import() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let auth = format!("Bearer {token}");
+    let go = |method: &'static str, uri: &'static str, body: Option<Value>| {
+        let (app, auth) = (app.clone(), auth.clone());
+        async move { request(&app, method, uri, &[("authorization", auth.as_str())], body).await }
+    };
+    let (status, posts) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "posts", "fields": [{ "name": "title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{posts}");
+    let (status, ids) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "post_ids", "type": "view", "viewQuery": "SELECT id FROM posts" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{ids}");
+    // a new view is listed before the existing view it reads, which gets a new query
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "name": "more_ids", "type": "view", "viewQuery": "SELECT id FROM post_ids" },
+            { "id": ids["id"], "name": "post_ids", "type": "view",
+              "viewQuery": "SELECT id FROM posts WHERE id != ''" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+
+    let (status, copied) = go(
+        "POST",
+        "/api/collections",
+        Some(
+            json!({ "name": "copied_ids", "type": "view", "viewQuery": "SELECT id FROM post_ids" }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{copied}");
+
+    // a table changes, a view that reads a kept view is deleted with the others missing
+    let mut fields = posts["fields"].clone();
+    fields
+        .as_array_mut()
+        .unwrap()
+        .push(json!({ "name": "note", "type": "text" }));
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": posts["id"], "name": "posts", "type": "base", "fields": fields },
+            { "id": ids["id"], "name": "post_ids", "type": "view",
+              "viewQuery": "SELECT id FROM posts WHERE id != ''" },
+        ], "deleteMissing": true })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (status, _) = go("GET", "/api/collections/post_ids/records", None).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = go("GET", "/api/collections/copied_ids", None).await;
+    assert_eq!(
+        status,
+        StatusCode::NOT_FOUND,
+        "the view the import left out is deleted"
+    );
+    tdb.drop_db().await;
+}

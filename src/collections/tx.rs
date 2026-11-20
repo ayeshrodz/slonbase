@@ -280,6 +280,9 @@ pub async fn import(
             .filter(|(_, (_, c))| c.is_view())
             .map(|(i, _)| i)
             .collect();
+        // the views that exist come first: a new view that reads one of them is made after it
+        // is replaced (a view can't be replaced while another reads it)
+        waiting.sort_by_key(|&i| pairs[i].0.is_none());
         while !waiting.is_empty() {
             let before = waiting.len();
             let mut still = Vec::new();
