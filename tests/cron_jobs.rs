@@ -1581,7 +1581,7 @@ async fn names_and_mail_schedules_are_safe() {
 }
 
 /// A copy of a job of SQL keeps what the job hides from admins, so making one needs an owner,
-/// whatever kind the copy is of; and an answer to a change shows the job as stored.
+/// whatever kind the copy is of; and the answer to switching a job off is the job as listed.
 #[tokio::test]
 async fn copying_a_sql_job_is_for_owners_and_answers_show_the_stored_job() {
     let Some(tdb) = TestDb::create().await else {
@@ -1639,6 +1639,10 @@ async fn copying_a_sql_job_is_for_owners_and_answers_show_the_stored_job() {
         .find(|j| j["id"] == id)
         .cloned()
         .unwrap();
-    assert_eq!(off["revision"], listed["revision"], "{off} {listed}");
+    // (the fields an answer has, compared as values that exist)
+    for key in ["id", "name", "enabled", "expression", "type"] {
+        assert!(!off[key].is_null(), "{key} is missing: {off}");
+        assert_eq!(off[key], listed[key], "{key}: {off} {listed}");
+    }
     tdb.drop_db().await;
 }

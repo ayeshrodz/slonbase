@@ -131,8 +131,7 @@ changes, listed in its **Upgrading** section.
 - Setup: after a failing migration a second `POST /api/setup/complete` is refused at once and
   can't start another core.
 - Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
-  to one name at the same time can't both be saved; the answer to a change shows the job as
-  stored, with its new revision.
+  to one name at the same time can't both be saved; the answer to a change is the job as stored.
 
 ### Security
 

@@ -320,15 +320,12 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
     };
     // the lease keeps being renewed until the end is recorded: a job that ended and was still
     // let go would be claimed again when the lease runs out, and run twice
+    // (with a wait that grows to half a minute, for as long as it takes: this instance can't
+    // claim anything either while the database is out of reach)
     let mut wait = Duration::from_secs(1);
-    for attempt in 1..=5 {
-        if finish(core, &job, instance, &result).await {
-            break;
-        }
-        if attempt < 5 {
-            tokio::time::sleep(wait).await;
-            wait *= 2;
-        }
+    while !finish(core, &job, instance, &result).await {
+        tokio::time::sleep(wait).await;
+        wait = (wait * 2).min(Duration::from_secs(30));
     }
     core.queue
         .running
