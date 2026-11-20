@@ -128,6 +128,18 @@ changes, listed in its **Upgrading** section.
 - A log entry written by application code with an odd `status` or `execTime` can no longer
   make Health or the projects overview fail, and a partitioned table of the `slonbase` schema
   is counted once in the overview's records.
+- Job queue: a job whose lease ran out on its last attempt is no longer claimed once more, an
+  instance no longer wakes every half second for a lease it is renewing itself, and a job that
+  ended keeps its lease renewed until its end is recorded (a database error at that moment made
+  it run again 90 seconds later). A job whose handler stopped unexpectedly ends its run in the
+  history then, instead of staying "running" until the job's next run called it interrupted.
+- A realtime subscribe request forwarded to another instance leaves nothing behind when its
+  client gives up, and one the other instance couldn't run answers with an error and not "client
+  not found".
+- Setup: after a failing migration a second `POST /api/setup/complete` is refused at once and
+  can't start another core.
+- Cron jobs: copying a job of SQL (`copyOf`) takes an owner, like making one; two jobs renamed
+  to one name at the same time can't both be saved; the answer to a change is the job as stored.
 - A schedule's `*/1` means the same as `*`: in a day field it no longer turns a weekly or monthly
   schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
   the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still
