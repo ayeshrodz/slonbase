@@ -61,6 +61,11 @@ impl Errors {
         let mut root = Map::new();
         'issues: for (path, issue) in &self.0 {
             let parts: Vec<&str> = path.split('.').collect();
+            // an error already exists at a parent path (`fields`, for `fields.1.name`): keep that
+            // one, the leaf made for it can't hold the nested ones
+            if (1..parts.len()).any(|n| self.0.contains_key(&parts[..n].join("."))) {
+                continue;
+            }
             let mut node = &mut root;
             for part in &parts[..parts.len() - 1] {
                 let entry = node
@@ -68,7 +73,6 @@ impl Errors {
                     .or_insert_with(|| Value::Object(Map::new()));
                 match entry.as_object_mut() {
                     Some(child) => node = child,
-                    // an error already exists at a parent path, keep that one
                     None => continue 'issues,
                 }
             }
@@ -82,6 +86,21 @@ impl Errors {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_error_at_a_parent_path_is_kept_whole() {
+        let mut e = Errors::new();
+        e.invalid("fields", "top");
+        e.invalid("fields.1.name", "nested");
+        e.invalid("other.x", "fine");
+        assert_eq!(
+            Value::Object(e.to_json()),
+            json!({
+                "fields": { "code": "validation_invalid", "message": "top" },
+                "other": { "x": { "code": "validation_invalid", "message": "fine" } },
+            })
+        );
+    }
 
     #[test]
     fn nests_paths() {
