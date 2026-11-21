@@ -823,3 +823,42 @@ async fn owners_change_with_the_smallest_pools() {
         tdb.drop_db().await;
     }
 }
+
+/// A viewer sees the settings without the details of the servers and addresses behind them;
+/// everyone else sees them as before.
+#[tokio::test]
+async fn a_viewer_does_not_see_the_infrastructure_in_the_settings() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, owner, _dir) = ready_app(&tdb).await;
+    let viewer = member(&app, &owner, "viewer-settings@example.com", "viewer").await;
+    let (status, res) = as_(
+        &app,
+        &owner,
+        "PATCH",
+        "/api/settings",
+        Some(json!({
+            "smtp": { "host": "smtp.internal.example", "username": "mailer", "port": 587 },
+            "trustedProxy": { "headers": ["X-Forwarded-For"], "peers": ["10.0.0.0/8"] },
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let (status, seen) = as_(&app, &owner, "GET", "/api/settings", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(seen["smtp"]["host"], "smtp.internal.example");
+    assert_eq!(seen["smtp"]["username"], "mailer");
+    assert_eq!(seen["trustedProxy"]["peers"], json!(["10.0.0.0/8"]));
+
+    let (status, seen) = as_(&app, &viewer, "GET", "/api/settings", None).await;
+    assert_eq!(status, StatusCode::OK, "{seen}");
+    assert_eq!(seen["smtp"]["host"], "");
+    assert_eq!(seen["smtp"]["username"], "");
+    assert_eq!(seen["smtp"]["port"], 587, "what isn't a detail stays");
+    assert_eq!(seen["trustedProxy"]["peers"], json!([]));
+    assert_eq!(seen["trustedProxy"]["headers"], json!(["X-Forwarded-For"]));
+    assert_eq!(seen["smtp"]["password"], "", "secrets are never returned");
+    tdb.drop_db().await;
+}

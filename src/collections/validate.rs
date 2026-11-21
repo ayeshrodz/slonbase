@@ -404,6 +404,46 @@ fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors
             Some(serde_json::Value::String(url)) if url.is_empty() || valid_url(url) => {}
             Some(_) => errors.invalid(key("extra.jwksURL"), "Must be an http(s) URL."),
         }
+        match provider.extra.get("requireSignature") {
+            None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {}
+            Some(serde_json::Value::Bool(true)) => {
+                let keys = provider
+                    .extra
+                    .get("jwksURL")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                if keys.is_empty() && provider.name != "apple" {
+                    errors.invalid(
+                        key("extra.jwksURL"),
+                        "Required when extra.requireSignature is set.",
+                    );
+                }
+                // a signature only means something when the keys and the token come over TLS:
+                // on a plain address, whoever is on the path can supply both
+                let plain = |url: &str| {
+                    !url.is_empty() && !url.to_ascii_lowercase().starts_with("https://")
+                };
+                if plain(keys) {
+                    errors.invalid(
+                        key("extra.jwksURL"),
+                        "Must be an https:// address when extra.requireSignature is set.",
+                    );
+                }
+                if plain(&provider.user_info_url) {
+                    errors.invalid(
+                        key("userInfoURL"),
+                        "Must be an https:// address when extra.requireSignature is set (and leave it empty to take the user from the signed token).",
+                    );
+                }
+                if plain(&provider.token_url) {
+                    errors.invalid(
+                        key("tokenURL"),
+                        "Must be an https:// address when extra.requireSignature is set.",
+                    );
+                }
+            }
+            Some(_) => errors.invalid(key("extra.requireSignature"), "Must be true or false."),
+        }
     }
     if oauth2.enabled && oauth2.providers.is_empty() {
         errors.add(

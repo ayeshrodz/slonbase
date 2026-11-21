@@ -57,6 +57,42 @@ changes, listed in its **Upgrading** section.
 - **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
   with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
   its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
+- **Configuration warnings.** Settings that are valid and allowed, and need something more to
+  be safe, now show as checks on the Health page (and in `GET /api/settings/warnings`, and in
+  the log at start): `trustedProxy.headers` without `trustedProxy.peers`, an OpenID Connect
+  provider without `extra.jwksURL`, and an empty `manageRule`, `updateRule` or `deleteRule` on
+  a collection that holds user accounts. Nothing changes in what slonbase does.
+- **`extra.requireSignature` for OpenID Connect providers.** With it set to `true`, a provider
+  without `extra.jwksURL` is refused when saved and when a token arrives, so an `id_token` is
+  never trusted without its signature being checked. Providers without it behave as before.
+- **Account lockout across addresses (opt-in).** `security.loginLockout.accountAttempts` (0, off,
+  by default) also counts an account's failed password sign-ins from every address together, so
+  a guesser who changes address for each try gets locked out too. Superusers are never locked
+  out this way. It is off for existing installations, whose lockout is unchanged.
+- **Guarded network calls from hooks (opt-in).** `hooks.guard_http = true` refuses what
+  `$http.send` and `$filesystem.fileFromURL` would send to this server or to a private network,
+  also through redirects, except to the hosts in `hooks.allow_hosts`. Off by default, so hooks
+  that call internal services are unchanged.
+- **A bounded wait for database reads from hooks (opt-in).** `hooks.db_wait_seconds` makes a
+  read from a hook that waits (for a row lock, say) fail in the hook after that many seconds,
+  instead of holding its JavaScript runtime. Writes are bounded by `database.statement_timeout`.
+  Off by default.
+- **A longer encryption key derives a key per value (opt-in).** A `server.encryption_key` of
+  more than 32 characters (`openssl rand -base64 48`) is no longer the AES key itself: each value
+  is sealed under its own key, derived with HKDF-SHA256 and a random salt. A key of exactly 32
+  characters keeps PocketBase's scheme, unchanged. `slonbase rekey --to <key>` moves an
+  installation between the two and rotates the key.
+- **Stored templates and automations are checked again.** One that would not be saved under
+  today's rules (a stricter limit, a renamed collection or field) is listed on the Health page
+  and in `GET /api/settings/warnings`, with what fails, instead of only failing when it runs.
+  The check runs at start and when the settings or the collections change, and changes
+  nothing.
+- **Read-only files for hooks (opt-in), for server-rendered pages.** With `hooks.files_dir` set,
+  hooks can use `$os.readFile`, `$os.dirFS`, `e.fileFS` and `$filepath` (`join`, `dir`, `base`,
+  `ext`, `toSlash`, `walkDir`, `glob`, ...), the APIs frameworks such as
+  [PocketPages](https://github.com/benallfree/pocketpages) use. Reads stay inside that directory
+  (`..` and links that lead out are refused); without the setting the calls fail and nothing
+  else changes.
 
 ### Changed
 
@@ -112,6 +148,25 @@ changes, listed in its **Upgrading** section.
   in it) and an `http://` address, since the request would carry it unencrypted. A job saved
   before keeps running as it is (see Upgrading). Other headers, such as `Content-Type`, may still
   go to `http://`.
+- **Limits on hook code for new installations.** A configuration file that setup creates now
+  starts with `hooks.timeout_seconds = 60` and `hooks.memory_limit_mb = 128`. Existing
+  configuration files are not changed. slonbase also logs a warning at start when hooks run
+  without limits, and when hooks exist and `database.statement_timeout` is 0.
+- **Uploads use bounded memory.** A file larger than the biggest limit of the collection's file
+  fields is read and dropped as it arrives instead of being held whole (it fails its field's
+  size check with the same error), and the uploads in memory share a budget of 8 times
+  `security.maxUploadMb` (at least 512 MB), so several large uploads at once don't add up
+  without end. Uploads within their limits are unaffected.
+- **A viewer no longer sees the infrastructure in `GET /api/settings`.** The SMTP host, user
+  name and local name, the S3 bucket, endpoint and access key (of storage and of backups),
+  `trustedProxy.peers` and `superuserIPs` come back empty for the viewer role; the keys stay, and
+  everything else is as before. Other roles are unchanged. What a viewer can read is listed
+  with the roles in the API documentation.
+- The documentation now says that collection changes made from hooks (`$app.save(collection)`,
+  `$app.delete(collection)`, `$app.importCollections(...)`) are not written to automigrate
+  files, and what to do instead.
+- The documentation says how many JavaScript runtimes (threads) a project with hooks starts
+  (`hooks.pool_size`, 10 by default, each project its own) and when to lower it.
 
 ### Fixed
 
@@ -183,6 +238,14 @@ changes, listed in its **Upgrading** section.
 - A partial index whose condition names a column the collection doesn't have is refused as a
   validation error on `indexes`, not a server error from the database, and the flag of a system
   field can't be cleared by an update (which then allowed renaming or removing the field).
+- A failure notice that could not be queued because the database refused the write for a moment
+  is tried again (after 1, 2, 4, 8 and 15 seconds) instead of only being logged. (The retries of
+  a job itself are carried by the queue, which records them until it succeeds.)
+- Importing collections: imports whose final set of views is valid no longer fail on the order the
+  views are written in or on views the import leaves out. A new view that reads an existing view
+  the import re-points is made after it, and a view the import doesn't mention that reads a view
+  it changes (or a table) is dropped and made again from its own query, instead of refusing the
+  import.
 
 ### Security
 
@@ -197,6 +260,9 @@ changes, listed in its **Upgrading** section.
 
 ### Upgrading
 
+- Viewers see less in `GET /api/settings` (see Changed): a dashboard or script that reads the
+  SMTP host, the S3 details or the proxy addresses with a viewer's token gets empty values; use
+  a developer or admin token for that.
 - Nothing to do for hooks or failure notices: the new limits are off unless set, and notice
   webhooks keep their addresses (an `https://` one is signed from its next save, and its
   receiver may verify the signature or ignore it).

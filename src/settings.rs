@@ -226,6 +226,11 @@ pub struct LoginLockout {
     pub attempts: u32,
     /// The window, in minutes (1 to 60).
     pub minutes: u32,
+    /// Failed sign-ins allowed in the window for an account from all addresses together
+    /// (0: off, the default). Counts failures whoever they come from, so someone who changes
+    /// address between guesses is stopped too, and so can someone who wants a user locked out
+    /// for the window; superusers are never locked out this way. Higher than `attempts`.
+    pub account_attempts: u32,
 }
 
 /// The lockout's default: on since 2.4 (older installations are switched on once, see
@@ -237,6 +242,7 @@ impl Default for LoginLockout {
         Self {
             attempts: DEFAULT_LOCKOUT_ATTEMPTS,
             minutes: 15,
+            account_attempts: 0,
         }
     }
 }
@@ -781,6 +787,40 @@ impl Settings {
     }
 }
 
+impl Settings {
+    /// [`Settings::public_json`] for a viewer: the same shape, without the details of the
+    /// installation's infrastructure (mail and storage servers, the proxies and the addresses
+    /// superusers may use). What is on or off stays visible. Passwords and secrets are never
+    /// returned, to anyone.
+    pub(crate) fn viewer_json(&self) -> Value {
+        let mut value = self.public_json();
+        fn blank(value: &mut Value, pointer: &str) {
+            if let Some(v) = value.pointer_mut(pointer) {
+                *v = match v {
+                    Value::Array(_) => Value::Array(Vec::new()),
+                    _ => Value::String(String::new()),
+                };
+            }
+        }
+        for pointer in [
+            "/smtp/host",
+            "/smtp/username",
+            "/smtp/localName",
+            "/s3/bucket",
+            "/s3/endpoint",
+            "/s3/accessKey",
+            "/backups/s3/bucket",
+            "/backups/s3/endpoint",
+            "/backups/s3/accessKey",
+            "/trustedProxy/peers",
+            "/superuserIPs",
+        ] {
+            blank(&mut value, pointer);
+        }
+        value
+    }
+}
+
 /// Keeps the stored secrets that an update left empty (`merged`: the settings' JSON with the
 /// update applied).
 fn keep_secrets(merged: &mut Value, current: &Value) {
@@ -902,6 +942,23 @@ fn validate(s: &Settings) -> Errors {
     }
     if sec.login_lockout.attempts > 0 && !(1..=60).contains(&sec.login_lockout.minutes) {
         errors.invalid("security.loginLockout.minutes", "Must be between 1 and 60.");
+    }
+    if sec.login_lockout.account_attempts > 10_000 {
+        errors.invalid(
+            "security.loginLockout.accountAttempts",
+            "Must be at most 10000.",
+        );
+    }
+    if sec.login_lockout.account_attempts > 0 {
+        if !(1..=60).contains(&sec.login_lockout.minutes) {
+            errors.invalid("security.loginLockout.minutes", "Must be between 1 and 60.");
+        }
+        if sec.login_lockout.account_attempts <= sec.login_lockout.attempts {
+            errors.invalid(
+                "security.loginLockout.accountAttempts",
+                "Must be higher than attempts (0 turns it off).",
+            );
+        }
     }
     if !(0..=MAX_SAFE_JSON_INT).contains(&s.files.default_max_size) {
         errors.invalid("files.defaultMaxSize", "Must be 0 or more.");
@@ -1088,6 +1145,12 @@ pub async fn get(
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
+    // a viewer sees what is on, not the details of the servers and addresses behind it
+    let shown = if auth.role == Some(crate::roles::Role::Viewer) {
+        core.settings().viewer_json()
+    } else {
+        core.settings().public_json()
+    };
     let request = request_info(
         &core,
         &auth,
@@ -1101,7 +1164,7 @@ pub async fn get(
         collection: None,
         auth,
         request: Some(request),
-        data: hooks::data([("settings", core.settings().public_json())]),
+        data: hooks::data([("settings", shown)]),
         response: None,
     };
     let listed = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1202,6 +1265,22 @@ fn request_info(
         auth,
         &core.registry(),
     ))
+}
+
+/// Changes the stored settings without the checks of the API (for tests: a definition saved
+/// under earlier, looser rules).
+#[doc(hidden)]
+pub async fn change_unchecked(
+    core: &Arc<Core>,
+    change: impl FnOnce(&mut Settings),
+) -> Result<(), ApiError> {
+    modify(core, |current| {
+        let mut settings = current.clone();
+        change(&mut settings);
+        Ok(settings)
+    })
+    .await
+    .map(|_| ())
 }
 
 /// Changes the settings as they are *stored* and saves the result.

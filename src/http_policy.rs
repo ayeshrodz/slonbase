@@ -125,7 +125,11 @@ pub async fn middleware(State(app): State<Arc<App>>, request: Request, next: Nex
             return response;
         }
         // a body without a length is cut off at the limit
-        let (parts, body) = request.into_parts();
+        let (mut parts, body) = request.into_parts();
+        // (the uploads of a form are held in memory up to this size: see `UploadBudget`)
+        parts
+            .extensions
+            .insert(crate::records::files::UploadLimitMb(security.max_upload_mb));
         Request::from_parts(
             parts,
             Body::new(http_body_util::Limited::new(body, limit as usize)),

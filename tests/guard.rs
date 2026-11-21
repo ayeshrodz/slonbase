@@ -497,3 +497,122 @@ async fn lockout_is_on_by_default_and_upgraded() {
 
     tdb.drop_db().await;
 }
+
+/// Sign-in failures of one account from many addresses lock it only when
+/// `loginLockout.accountAttempts` is set; superusers are never locked that way.
+#[tokio::test]
+async fn account_lockout_counts_failures_from_every_address_when_turned_on() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    let auth = format!("Bearer {admin}");
+    let headers = [("authorization", auth.as_str())];
+    // the address of a request is the one a proxy says
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/settings",
+        &headers,
+        Some(json!({ "trustedProxy": { "headers": ["X-Forwarded-For"] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let (status, res) = request(
+        &app,
+        "POST",
+        "/api/collections",
+        &headers,
+        Some(json!({ "name": "members", "type": "auth" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    for email in ["a@example.com", "b@example.com"] {
+        let (status, res) = request(
+            &app,
+            "POST",
+            "/api/collections/members/records",
+            &headers,
+            Some(json!({
+                "email": email, "password": "member-password-1",
+                "passwordConfirm": "member-password-1",
+            })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+    let sign_in =
+        |collection: &'static str, email: &'static str, password: &'static str, n: u32| {
+            let app = app.clone();
+            async move {
+                let ip = format!("203.0.113.{n}");
+                request(
+                    &app,
+                    "POST",
+                    &format!("/api/collections/{collection}/auth-with-password"),
+                    &[("x-forwarded-for", ip.as_str())],
+                    Some(json!({ "identity": email, "password": password })),
+                )
+                .await
+                .0
+            }
+        };
+
+    // off by default: failures from many addresses never lock the account
+    for n in 1..=12 {
+        assert_eq!(
+            sign_in("members", "a@example.com", "wrong-password", n).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        sign_in("members", "a@example.com", "member-password-1", 100).await,
+        StatusCode::OK
+    );
+
+    // it has to be higher than the limit per address
+    let (status, _) = request(
+        &app,
+        "PATCH",
+        "/api/settings",
+        &headers,
+        Some(json!({ "security": { "loginLockout": { "accountAttempts": 5 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    let (status, res) = request(
+        &app,
+        "PATCH",
+        "/api/settings",
+        &headers,
+        Some(json!({ "security": { "loginLockout": { "accountAttempts": 15 } } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // on: 15 failures from 15 addresses lock the account from a new one, not another account
+    for n in 1..=15 {
+        assert_eq!(
+            sign_in("members", "a@example.com", "wrong-password", n).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    assert_eq!(
+        sign_in("members", "a@example.com", "member-password-1", 101).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(
+        sign_in("members", "b@example.com", "member-password-1", 101).await,
+        StatusCode::OK
+    );
+
+    // superusers are not locked out by account
+    for n in 1..=16 {
+        let _ = sign_in("_superusers", ADMIN_EMAIL, "wrong-password", n).await;
+    }
+    assert_eq!(
+        sign_in("_superusers", ADMIN_EMAIL, ADMIN_PASSWORD, 102).await,
+        StatusCode::OK
+    );
+    tdb.drop_db().await;
+}

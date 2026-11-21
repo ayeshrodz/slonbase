@@ -1090,8 +1090,146 @@
     },
   };
 
+  // bytes from the base64 text a native gives
+  function base64Bytes(text) {
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const clean = String(text).replace(/=+$/, "");
+    const out = [];
+    let bits = 0;
+    let value = 0;
+    for (let i = 0; i < clean.length; i++) {
+      value = (value << 6) | alphabet.indexOf(clean[i]);
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out.push((value >> bits) & 0xff);
+      }
+    }
+    return out;
+  }
+
+  // read-only files inside hooks.files_dir (off unless it is set)
   const $os = {
     getenv: (name) => call("env", String(name)),
+    // the bytes of a file
+    readFile: (path) => base64Bytes(call("fsRead", String(path))),
+    // a directory to serve files from with e.fileFS
+    dirFS: (path) => ({ __dirFS: call("fsResolve", String(path)) }),
+  };
+
+  // Go's path/filepath, for slash-separated paths, and the walks that read directories
+  const cleanPath = (p) => {
+    if (p === "") return ".";
+    const rooted = p[0] === "/";
+    const out = [];
+    for (const part of p.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") {
+        if (out.length && out[out.length - 1] !== "..") out.pop();
+        else if (!rooted) out.push("..");
+      } else out.push(part);
+    }
+    const joined = out.join("/");
+    return rooted ? "/" + joined : joined || ".";
+  };
+  const globRegex = (segment) => {
+    let re = "^";
+    for (let i = 0; i < segment.length; i++) {
+      const c = segment[i];
+      if (c === "*") re += "[^/]*";
+      else if (c === "?") re += "[^/]";
+      else if (c === "[") {
+        const end = segment.indexOf("]", i + 1);
+        if (end < 0) throw new Error("syntax error in pattern");
+        let set = segment.slice(i + 1, end);
+        if (set[0] === "^") set = "^" + set.slice(1);
+        re += "[" + set.replace(/\\/g, "\\\\") + "]";
+        i = end;
+      } else if (c === "\\" && i + 1 < segment.length) re += segment[++i].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      else re += c.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    }
+    return new RegExp(re + "$");
+  };
+  const $filepath = {
+    join: (...parts) => {
+      const used = parts.filter((p) => p !== "");
+      return used.length ? cleanPath(used.join("/")) : "";
+    },
+    clean: cleanPath,
+    base: (p) => {
+      if (p === "") return ".";
+      const trimmed = p.replace(/\/+$/, "");
+      if (trimmed === "") return "/";
+      return trimmed.slice(trimmed.lastIndexOf("/") + 1);
+    },
+    dir: (p) => {
+      const at = p.lastIndexOf("/");
+      return cleanPath(p.slice(0, at + 1));
+    },
+    ext: (p) => {
+      for (let i = p.length - 1; i >= 0 && p[i] !== "/"; i--) if (p[i] === ".") return p.slice(i);
+      return "";
+    },
+    toSlash: (p) => p.replace(/\\/g, "/"),
+    fromSlash: (p) => p,
+    isAbs: (p) => p[0] === "/",
+    // calls fn(path, entry, err) for the root and each file and directory under it, in order
+    walkDir: (root, fn) => {
+      const entry = (name, isDir) => ({ name: () => name, isDir: () => isDir });
+      const walk = (path, d) => {
+        fn(path, d, null);
+        if (!d.isDir()) return;
+        let entries;
+        try {
+          entries = call("fsList", path);
+        } catch (err) {
+          fn(path, d, err);
+          return;
+        }
+        for (const e of entries) walk($filepath.join(path, e.name), entry(e.name, e.isDir));
+      };
+      const stat = call("fsStat", String(root));
+      walk(String(root), entry($filepath.base(String(root)), stat.isDir));
+    },
+    // the paths that match a pattern (*, ? and [...] within one name), in order
+    glob: (pattern) => {
+      const parts = String(pattern).split("/");
+      let paths = [parts[0] === "" ? "/" : ""];
+      for (let i = parts[0] === "" ? 1 : 0; i < parts.length; i++) {
+        const part = parts[i];
+        const next = [];
+        for (const base of paths) {
+          if (!/[*?\[]/.test(part)) {
+            const candidate = base === "" ? part : $filepath.join(base, part);
+            try {
+              call("fsStat", candidate);
+              next.push(candidate);
+            } catch (_) {}
+            continue;
+          }
+          let entries;
+          try {
+            entries = call("fsList", base === "" ? "." : base);
+          } catch (_) {
+            continue;
+          }
+          const re = globRegex(part);
+          for (const e of entries) if (re.test(e.name)) next.push(base === "" ? e.name : $filepath.join(base, e.name));
+        }
+        paths = next;
+      }
+      return paths;
+    },
+  };
+
+  const MIME = {
+    ".html": "text/html; charset=utf-8", ".htm": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8", ".mjs": "text/javascript; charset=utf-8",
+    ".json": "application/json", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml",
+    ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".webp": "image/webp", ".ico": "image/x-icon", ".avif": "image/avif",
+    ".woff": "font/woff", ".woff2": "font/woff2", ".ttf": "font/ttf", ".pdf": "application/pdf",
+    ".wasm": "application/wasm", ".map": "application/json", ".md": "text/markdown; charset=utf-8",
   };
 
   // the auth emails, as the auth endpoints send them (the first argument, the app, is
@@ -1192,6 +1330,25 @@
     };
     e.blob = (status, contentType, data) => {
       e._response = { status, body: toString(data), contentType, headers: e._headers };
+    };
+    // serves a file of a directory from $os.dirFS(...), read only
+    e.fileFS = (fs, name) => {
+      if (!fs || typeof fs.__dirFS !== "string") throw new TypeError("fileFS: expected a filesystem from $os.dirFS");
+      const root = fs.__dirFS;
+      const path = $filepath.join(root, String(name));
+      // (like Go's os.DirFS: a name never leaves the directory)
+      if (path !== root && !path.startsWith(root.replace(/\/+$/, "") + "/")) {
+        throw new NotFoundError("The requested resource wasn't found.");
+      }
+      let stat;
+      try {
+        stat = call("fsStat", path, root);
+      } catch (_) {
+        throw new NotFoundError("The requested resource wasn't found.");
+      }
+      if (stat.isDir) throw new NotFoundError("The requested resource wasn't found.");
+      const contentType = MIME[$filepath.ext(path).toLowerCase()] || "application/octet-stream";
+      e._response = { status: 200, bodyBase64: call("fsRead", path, root), contentType, headers: e._headers };
     };
     e.error = (status, message, data) => new ApiError(status, message, data);
     e.badRequestError = (message, data) => new BadRequestError(message, data);
@@ -1828,6 +1985,7 @@
     $security,
     $http,
     $os,
+    $filepath,
     $mails,
     $templates,
     $template,

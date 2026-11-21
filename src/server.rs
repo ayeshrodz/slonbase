@@ -83,6 +83,7 @@ fn app_router(app: Arc<App>) -> Router {
         .route("/api/setup/complete", post(setup::complete))
         .route("/api/settings", get(settings::get).patch(settings::update))
         .route("/api/settings/test/s3", post(settings::test_s3))
+        .route("/api/settings/warnings", get(crate::warnings::list))
         .route("/api/settings/test/email", post(settings::test_email))
         .route("/api/settings/mail/preview", post(settings::mail_preview))
         .route(

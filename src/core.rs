@@ -40,6 +40,9 @@ pub struct Core {
     settings: RwLock<Arc<Settings>>,
     /// Bumped by every settings replacement (held while replacing them).
     settings_generation: std::sync::Mutex<u64>,
+    /// What the last check of the stored templates and automations found (see
+    /// [`crate::warnings::stored`]).
+    pub(crate) stored_check: std::sync::Mutex<crate::warnings::StoredCheck>,
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
@@ -183,6 +186,9 @@ impl Core {
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         core.hooks.ready(&core).await;
         crate::settings::reloaded(&core);
+        // the stored templates and automations are checked against today's rules, and what is
+        // found is logged (and shown with the other warnings)
+        crate::warnings::check_stored_in_background(&core, true);
         Ok(core)
     }
 
@@ -220,7 +226,7 @@ impl Core {
         crate::hooks::register_jobs(&mut handlers);
         crate::backups::register_jobs(&mut handlers);
         crate::templates::register_jobs(&mut handlers);
-        Ok(Arc::new(Self {
+        let core = Arc::new(Self {
             connections: crate::connections::Connections::new(pool.clone()),
             pool,
             queue: crate::queue::Queue::new(handlers),
@@ -231,6 +237,7 @@ impl Core {
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
             settings_generation: std::sync::Mutex::new(0),
+            stored_check: Default::default(),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
             logs,
@@ -255,7 +262,19 @@ impl Core {
                 .automigrate
                 .then(|| config.migrations.dir.clone()),
             hooks,
-        }))
+        });
+        crate::warnings::log(&core);
+        // a query that waits for a lock has no end of its own, and a hook that makes one holds
+        // its runtime until it is released
+        #[cfg(feature = "js")]
+        if config.database.statement_timeout == 0 && crate::js::has_hook_files(&config.hooks.dir) {
+            tracing::warn!(
+                "database.statement_timeout is 0, so a query made by a hook that waits for a \
+                 lock is not stopped; set it (30000 ms is a sensible value) or set \
+                 hooks.db_wait_seconds."
+            );
+        }
+        Ok(core)
     }
 
     /// Where to take a connection from (`core.db().get()`): on a worker running a job, the

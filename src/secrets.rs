@@ -3,9 +3,16 @@
 //! (`server.encryption_key`), they're stored sealed, so a database dump, a read-only role or a
 //! backup doesn't give them away without the key.
 //!
-//! The format is PocketBase's (`PB_ENCRYPTION`): AES-256-GCM with the key's 32 bytes as they
-//! are, a random 12-byte nonce before the ciphertext, all in standard base64. Stored values are
-//! `{"sealed": "<base64>"}`; anything else is a plain value, sealed on the next start with a key.
+//! The format is PocketBase's (`PB_ENCRYPTION`) for a key of exactly 32 characters:
+//! AES-256-GCM with the key's 32 bytes as they are, a random 12-byte nonce before the
+//! ciphertext, all in standard base64. Stored values are `{"sealed": "<base64>"}`; anything else
+//! is a plain value, sealed on the next start with a key.
+//!
+//! A key **longer** than 32 characters (a random one, such as `openssl rand -base64 48`) is
+//! not used as the AES key: each value is sealed under its own key, derived from it with
+//! HKDF-SHA256 and a random salt, and stored as `v2.<base64 of salt, nonce and ciphertext>`. The
+//! scheme follows from the key's length, so existing installations (32 characters) are
+//! unchanged; `slonbase rekey --to <longer key>` moves one to it, and back.
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
@@ -25,7 +32,39 @@ pub const SEALED_PREFIX: &str = "settings:";
 const KEY_HINT: &str =
     "set the encryption key (--encryption-key, SLONBASE_ENCRYPTION_KEY or server.encryption_key)";
 
-pub struct SecretsKey(LessSafeKey);
+pub struct SecretsKey {
+    /// The key itself, for a key of exactly [`KEY_LENGTH`] characters (PocketBase's scheme).
+    direct: Option<LessSafeKey>,
+    /// A longer key, from which each value's own key is derived.
+    master: Option<Vec<u8>>,
+}
+
+/// The prefix of a value sealed with a derived key.
+const DERIVED_PREFIX: &str = "v2.";
+const DERIVED_SALT_LEN: usize = 16;
+const DERIVED_INFO: &[u8] = b"slonbase secrets v2";
+/// The least a longer key may be (it is one: more than [`KEY_LENGTH`]).
+const MAX_KEY_LENGTH: usize = 1024;
+
+struct KeyLen(usize);
+
+impl ring::hkdf::KeyType for KeyLen {
+    fn len(&self) -> usize {
+        self.0
+    }
+}
+
+/// The AES key of one value: HKDF-SHA256 of the master key with the value's salt.
+fn derive(master: &[u8], salt: &[u8]) -> LessSafeKey {
+    let mut out = [0u8; KEY_LENGTH];
+    ring::hkdf::Salt::new(ring::hkdf::HKDF_SHA256, salt)
+        .extract(master)
+        .expand(&[DERIVED_INFO], KeyLen(KEY_LENGTH))
+        .expect("HKDF gives 32 bytes")
+        .fill(&mut out)
+        .expect("HKDF gives 32 bytes");
+    LessSafeKey::new(UnboundKey::new(&AES_256_GCM, &out).expect("a 32-byte key"))
+}
 
 /// The stored values need a key that wasn't given, or another one: a configuration error,
 /// which retrying won't fix.
@@ -39,13 +78,16 @@ impl std::fmt::Debug for SecretsKey {
     }
 }
 
-/// Checks a key: exactly [`KEY_LENGTH`] bytes.
+/// Checks a key: [`KEY_LENGTH`] characters (PocketBase's scheme), or more (a derived key).
 pub fn check_key(key: &str) -> Result<()> {
-    if key.len() != KEY_LENGTH {
+    if key.len() < KEY_LENGTH {
         bail!(
-            "the encryption key must be exactly {KEY_LENGTH} characters (it's {}); `openssl rand -hex 16` makes one",
+            "the encryption key must be at least {KEY_LENGTH} characters (it's {}); `openssl rand -hex 16` makes one of 32, `openssl rand -base64 48` a longer one, from which every value's key is derived",
             key.len()
         );
+    }
+    if key.len() > MAX_KEY_LENGTH {
+        bail!("the encryption key must be at most {MAX_KEY_LENGTH} characters");
     }
     Ok(())
 }
@@ -63,38 +105,87 @@ pub fn from_config(config: &crate::config::Config) -> Result<Option<SecretsKey>>
 impl SecretsKey {
     pub fn new(key: &str) -> Result<Self> {
         check_key(key)?;
-        let key = UnboundKey::new(&AES_256_GCM, key.as_bytes()).expect("a 32-byte key");
-        Ok(Self(LessSafeKey::new(key)))
+        if key.len() == KEY_LENGTH {
+            let key = UnboundKey::new(&AES_256_GCM, key.as_bytes()).expect("a 32-byte key");
+            return Ok(Self {
+                direct: Some(LessSafeKey::new(key)),
+                master: None,
+            });
+        }
+        Ok(Self {
+            direct: None,
+            master: Some(key.as_bytes().to_vec()),
+        })
     }
 
-    /// Seals `plain` (base64 of nonce, ciphertext and tag).
+    /// Seals `plain`: base64 of nonce, ciphertext and tag, or, with a derived key,
+    /// `v2.` and base64 of salt, nonce, ciphertext and tag.
     pub fn seal(&self, plain: &[u8]) -> String {
+        let random = SystemRandom::new();
         let mut nonce = [0u8; NONCE_LEN];
-        SystemRandom::new()
+        random
             .fill(&mut nonce)
             .expect("the system's random number generator");
         let mut data = plain.to_vec();
-        self.0
-            .seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut data)
+        let mut out = Vec::new();
+        let derived;
+        let key = match (&self.direct, &self.master) {
+            (Some(key), _) => key,
+            (None, Some(master)) => {
+                let mut salt = [0u8; DERIVED_SALT_LEN];
+                random
+                    .fill(&mut salt)
+                    .expect("the system's random number generator");
+                out.extend_from_slice(&salt);
+                derived = derive(master, &salt);
+                &derived
+            }
+            (None, None) => unreachable!("a key has a scheme"),
+        };
+        key.seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut data)
             .expect("AES-GCM seals any length we store");
-        let mut out = nonce.to_vec();
+        out.extend_from_slice(&nonce);
         out.extend_from_slice(&data);
-        B64.encode(out)
+        match self.master {
+            Some(_) => format!("{DERIVED_PREFIX}{}", B64.encode(out)),
+            None => B64.encode(out),
+        }
     }
 
-    /// Opens what [`Self::seal`] (or PocketBase) sealed; `None` when the key is wrong or the
-    /// value was changed.
+    /// Opens what [`Self::seal`] (or PocketBase) sealed; `None` when the key is wrong, the value
+    /// was changed, or it was sealed under the other scheme (see the module's documentation).
     pub fn open(&self, sealed: &str) -> Option<Vec<u8>> {
-        let data = B64.decode(sealed.trim()).ok()?;
-        if data.len() < NONCE_LEN {
-            return None;
-        }
-        let (nonce, rest) = data.split_at(NONCE_LEN);
-        let mut rest = rest.to_vec();
-        let nonce = Nonce::try_assume_unique_for_key(nonce).ok()?;
-        let plain = self.0.open_in_place(nonce, Aad::empty(), &mut rest).ok()?;
-        Some(plain.to_vec())
+        let sealed = sealed.trim();
+        let (derived, encoded) = match sealed.strip_prefix(DERIVED_PREFIX) {
+            Some(rest) => (true, rest),
+            None => (false, sealed),
+        };
+        let data = B64.decode(encoded).ok()?;
+        let (key, rest) = match (derived, &self.direct, &self.master) {
+            (false, Some(key), _) => (key, data.as_slice()),
+            (true, _, Some(master)) => {
+                if data.len() < DERIVED_SALT_LEN {
+                    return None;
+                }
+                let (salt, rest) = data.split_at(DERIVED_SALT_LEN);
+                return open_with(&derive(master, salt), rest);
+            }
+            _ => return None,
+        };
+        open_with(key, rest)
     }
+}
+
+/// Opens `nonce ‖ ciphertext ‖ tag` with `key`.
+fn open_with(key: &LessSafeKey, data: &[u8]) -> Option<Vec<u8>> {
+    if data.len() < NONCE_LEN {
+        return None;
+    }
+    let (nonce, rest) = data.split_at(NONCE_LEN);
+    let mut rest = rest.to_vec();
+    let nonce = Nonce::try_assume_unique_for_key(nonce).ok()?;
+    let plain = key.open_in_place(nonce, Aad::empty(), &mut rest).ok()?;
+    Some(plain.to_vec())
 }
 
 /// The stored form of a param's value: sealed with the key, or as it is without one.
@@ -390,10 +481,67 @@ mod tests {
     }
 
     #[test]
-    fn keys_must_be_32_bytes() {
+    fn keys_are_32_characters_or_more() {
         assert!(SecretsKey::new("short").is_err());
-        assert!(SecretsKey::new(&format!("{KEY}x")).is_err());
+        assert!(SecretsKey::new(&KEY[..31]).is_err());
+        assert!(SecretsKey::new(&"k".repeat(MAX_KEY_LENGTH + 1)).is_err());
         assert!(check_key(KEY).is_ok());
+        // longer: a derived key
+        assert!(check_key(&format!("{KEY}x")).is_ok());
+        assert!(
+            SecretsKey::new(&format!("{KEY}x"))
+                .unwrap()
+                .master
+                .is_some()
+        );
+        assert!(SecretsKey::new(KEY).unwrap().direct.is_some());
+    }
+
+    #[test]
+    fn a_longer_key_seals_each_value_under_a_key_of_its_own() {
+        let long = format!("{KEY}-and-more-to-make-it-a-longer-key");
+        let key = SecretsKey::new(&long).unwrap();
+        let sealed = key.seal(b"hello");
+        assert!(sealed.starts_with("v2."), "{sealed}");
+        assert_ne!(
+            sealed,
+            key.seal(b"hello"),
+            "a fresh salt and nonce each time"
+        );
+        assert_eq!(key.open(&sealed).unwrap(), b"hello");
+        // not readable with another key, with the 32 characters it starts with, or changed
+        let other = SecretsKey::new(&format!("{KEY}-another-longer-key-of-the-same-sort")).unwrap();
+        assert!(other.open(&sealed).is_none());
+        assert!(SecretsKey::new(KEY).unwrap().open(&sealed).is_none());
+        let mut bytes = B64.decode(sealed.strip_prefix("v2.").unwrap()).unwrap();
+        *bytes.last_mut().unwrap() ^= 1;
+        assert!(key.open(&format!("v2.{}", B64.encode(bytes))).is_none());
+        assert!(key.open("v2.").is_none());
+        assert!(key.open("v2.AAAA").is_none());
+        // a value sealed under the PocketBase scheme isn't opened by a derived key (rekey moves
+        // them), nor the other way round
+        let direct = SecretsKey::new(KEY).unwrap();
+        let old = direct.seal(b"hello");
+        assert!(!old.starts_with("v2."));
+        assert!(key.open(&old).is_none());
+        assert_eq!(direct.open(&old).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn stored_values_under_a_longer_key() {
+        let key = SecretsKey::new(&format!("{KEY}-and-more-to-make-it-a-longer-key")).unwrap();
+        let value = json!({ "smtp": { "password": "p" } });
+        let stored = to_stored(&value, Some(&key));
+        assert!(is_sealed(&stored));
+        assert!(!stored.to_string().contains("\"p\""));
+        assert_eq!(from_stored(stored, Some(&key), "settings").unwrap(), value);
+        // text columns too
+        let text = seal_text("a-role-password", Some(&key));
+        assert!(text.starts_with("sealed:v2."), "{text}");
+        assert_eq!(
+            open_text(&text, Some(&key), "project secrets").unwrap(),
+            "a-role-password"
+        );
     }
 
     // the layout PocketBase's `security.Encrypt` writes (`gcm.Seal(nonce, nonce, data, nil)`
@@ -403,7 +551,9 @@ mod tests {
         let key = SecretsKey::new(KEY).unwrap();
         let nonce = [7u8; NONCE_LEN];
         let mut data = br#"{"a":1}"#.to_vec();
-        key.0
+        key.direct
+            .as_ref()
+            .unwrap()
             .seal_in_place_append_tag(Nonce::assume_unique_for_key(nonce), Aad::empty(), &mut data)
             .unwrap();
         let mut layout = nonce.to_vec();

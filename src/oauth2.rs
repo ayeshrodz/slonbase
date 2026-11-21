@@ -517,7 +517,8 @@ impl Provider {
         if self.pkce && !verifier.is_empty() {
             form.push(("code_verifier", verifier));
         }
-        let mut request = client()
+        let mut request = self
+            .client()
             .post(&self.token_url)
             .timeout(TIMEOUT)
             .header("accept", "application/json");
@@ -595,6 +596,23 @@ impl Provider {
         download(url, &own_hosts).await
     }
 
+    /// The client for the requests that decide who signs in: with `requireSignature`, redirects
+    /// may not leave `https://`.
+    fn client(&self) -> &'static reqwest::Client {
+        if self.requires_signature() {
+            crate::http::https_only_redirects()
+        } else {
+            client()
+        }
+    }
+
+    fn requires_signature(&self) -> bool {
+        self.extra
+            .get("requireSignature")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
     /// Fetches the provider's user with an access token.
     pub async fn user(&self, token: &Token) -> Result<AuthUser> {
         let raw = if self.kind == Kind::Apple
@@ -605,14 +623,16 @@ impl Provider {
                 .context("invalid id_token")?
         } else if self.kind == Kind::Twitch {
             // Twitch's API wants the client id along with the token
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[("client-id", &self.client_id)],
             )
             .await?
         } else if self.kind == Kind::Trakt {
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[
@@ -622,7 +642,8 @@ impl Provider {
             )
             .await?
         } else if self.kind == Kind::Notion {
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[("notion-version", "2022-06-28")],
@@ -630,6 +651,7 @@ impl Provider {
             .await?
         } else if self.kind == Kind::Linear {
             post_json(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &json!({ "query": "query Me { viewer { id displayName name email avatarUrl active } }" }),
@@ -637,13 +659,14 @@ impl Provider {
             .await?
         } else if self.kind == Kind::Monday {
             post_json(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &json!({ "query": "query { me { id enabled name email is_verified photo_small } }" }),
             )
             .await?
         } else {
-            get_json(&self.user_info_url, &token.access_token).await?
+            get_json_via(self.client(), &self.user_info_url, &token.access_token).await?
         };
         // accounts their provider reports as disabled don't sign in
         let inactive = match self.kind {
@@ -666,7 +689,8 @@ impl Provider {
         if self.kind == Kind::Bitbucket {
             // the emails are separate: use the confirmed primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
-            if let Ok(emails) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(emails) = get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails["values"]
                     .as_array()
                     .into_iter()
@@ -686,7 +710,9 @@ impl Provider {
                 }
                 _ => format!("{}/emails", self.user_info_url.trim_end_matches('/')),
             };
-            if let Ok(Value::Array(emails)) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(Value::Array(emails)) =
+                get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails
                     .iter()
                     .find(|e| match self.kind {
@@ -707,7 +733,9 @@ impl Provider {
         if self.kind == Kind::Github && user.email.is_empty() {
             // a private email: ask for the verified primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
-            if let Ok(Value::Array(emails)) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(Value::Array(emails)) =
+                get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails
                     .iter()
                     .find(|e| e["primary"] == true && e["verified"] == true)
@@ -728,7 +756,8 @@ impl Provider {
 
     /// The claims of a valid `id_token` (`now` in Unix seconds): the audience must include the
     /// client id, the times must hold (within [`ID_TOKEN_LEEWAY`]), and with the `issuers` and
-    /// `jwksURL` extra options, the issuer must be one of them and the signature valid.
+    /// `jwksURL` extra options, the issuer must be one of them and the signature valid. With the
+    /// `requireSignature` extra option, a provider without `jwksURL` is refused.
     /// Apple's are always checked: `exp` is required, the issuer is Apple and the signature is
     /// verified with Apple's keys.
     async fn id_token_claims(&self, id_token: &str, now: i64) -> Result<Value> {
@@ -793,6 +822,9 @@ impl Provider {
             _ if apple => APPLE_JWKS,
             _ => "",
         };
+        if jwks_url.is_empty() && self.requires_signature() {
+            bail!("the provider requires a signed token and has no jwksURL");
+        }
         if !jwks_url.is_empty() {
             let kid = jwt
                 .header
@@ -802,7 +834,9 @@ impl Provider {
             if kid.is_empty() {
                 bail!("the token has no kid header");
             }
-            let keys = get_json(jwks_url, "").await.context("fetching the JWKS")?;
+            let keys = get_json_via(self.client(), jwks_url, "")
+                .await
+                .context("fetching the JWKS")?;
             let key = keys["keys"]
                 .as_array()
                 .into_iter()
@@ -1292,13 +1326,18 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
 }
 
 /// GETs JSON, with the access token if there's one (none for the JWKS).
-async fn get_json(url: &str, access_token: &str) -> Result<Value> {
-    get_json_with(url, access_token, &[]).await
+async fn get_json_via(client: &reqwest::Client, url: &str, access_token: &str) -> Result<Value> {
+    get_json_with_via(client, url, access_token, &[]).await
 }
 
 /// POSTs a JSON body (a GraphQL query) with the access token, for JSON.
-async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value> {
-    let response = client()
+async fn post_json(
+    client: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+    body: &Value,
+) -> Result<Value> {
+    let response = client
         .post(url)
         .timeout(TIMEOUT)
         .header("accept", "application/json")
@@ -1316,9 +1355,13 @@ async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value>
     serde_json::from_slice(&body).context("invalid JSON response")
 }
 
-/// [`get_json`] with more headers.
-async fn get_json_with(url: &str, access_token: &str, headers: &[(&str, &str)]) -> Result<Value> {
-    let mut request = client()
+async fn get_json_with_via(
+    client: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+    headers: &[(&str, &str)],
+) -> Result<Value> {
+    let mut request = client
         .get(url)
         .timeout(TIMEOUT)
         .header("accept", "application/json");
@@ -1535,6 +1578,115 @@ mod tests {
         .unwrap()
     }
 
+    #[test]
+    fn a_provider_that_requires_a_signature_does_not_follow_redirects_off_https() {
+        let strict = std::ptr::from_ref(crate::http::https_only_redirects());
+        let shared = std::ptr::from_ref(crate::http::client());
+        for name in ["oidc", "twitch", "linear"] {
+            let make = |extra: Value| {
+                Provider::new(&OAuth2Provider {
+                    name: name.into(),
+                    client_id: "client-1".into(),
+                    auth_url: "https://id.example.com/auth".into(),
+                    token_url: "https://id.example.com/token".into(),
+                    extra: extra.as_object().unwrap().clone(),
+                    ..Default::default()
+                })
+                .unwrap()
+            };
+            assert_eq!(
+                std::ptr::from_ref(make(json!({ "requireSignature": true })).client()),
+                strict,
+                "{name} with requireSignature"
+            );
+            assert_eq!(
+                std::ptr::from_ref(make(json!({})).client()),
+                shared,
+                "{name} without it keeps the shared client"
+            );
+        }
+    }
+
+    /// A local server that answers every path but `/end` with a redirect to `/end` over plain
+    /// HTTP, and counts the requests that reach `/end`.
+    async fn redirecting_server() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::Ordering;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let reply = if head.contains(" /end ") {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}".to_string()
+                    } else {
+                        format!(
+                            "HTTP/1.1 302 Found\r\nlocation: http://{addr}/end\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        )
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    #[tokio::test]
+    async fn the_user_requests_of_a_provider_that_requires_a_signature_do_not_leave_https() {
+        use std::sync::atomic::Ordering;
+        let (base, hits) = redirecting_server().await;
+        let token = Token {
+            id_token: String::new(),
+            email: String::new(),
+            access_token: "at".into(),
+            refresh_token: String::new(),
+            expiry: String::new(),
+        };
+        // a plain GET, a GET with extra headers, a GraphQL POST, and one with a separate
+        // email lookup
+        for name in [
+            "github",
+            "twitch",
+            "trakt",
+            "notion",
+            "linear",
+            "monday",
+            "bitbucket",
+        ] {
+            for required in [true, false] {
+                hits.store(0, Ordering::SeqCst);
+                let provider = Provider::new(&OAuth2Provider {
+                    name: name.into(),
+                    client_id: "client-1".into(),
+                    token_url: "https://id.example.com/token".into(),
+                    user_info_url: format!("{base}/me"),
+                    extra: json!({ "requireSignature": required })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ..Default::default()
+                })
+                .unwrap();
+                let _ = provider.user(&token).await;
+                if required {
+                    assert_eq!(hits.load(Ordering::SeqCst), 0, "{name} followed a redirect");
+                } else {
+                    assert!(hits.load(Ordering::SeqCst) > 0, "{name} without it follows");
+                }
+            }
+        }
+    }
+
     const NOW: i64 = 1_800_000_000;
 
     #[tokio::test]
@@ -1610,6 +1762,31 @@ mod tests {
                 .await
                 .is_err(),
             "no iss"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_requires_a_signature_is_refused_without_its_keys() {
+        let token = jwt(
+            json!({ "alg": "none" }),
+            json!({ "sub": "u1", "aud": "client-1", "exp": NOW + 60 }),
+            |_| b"x".to_vec(),
+        );
+        // not required (the default): the token is trusted as it comes from the provider
+        assert!(oidc(json!({})).id_token_claims(&token, NOW).await.is_ok());
+        assert!(
+            oidc(json!({ "requireSignature": false }))
+                .id_token_claims(&token, NOW)
+                .await
+                .is_ok()
+        );
+        let err = oidc(json!({ "requireSignature": true }))
+            .id_token_claims(&token, NOW)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("requires a signed token"),
+            "{err:#}"
         );
     }
 

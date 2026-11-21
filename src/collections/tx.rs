@@ -260,7 +260,16 @@ pub async fn import(
         Change::Create(c) | Change::Delete(c) => !c.is_view(),
         Change::Update { new, .. } => !new.is_view(),
     });
-    let pending = if touches_tables {
+    // (the views that exist may wait for the import's own views: one the import doesn't mention
+    // can read a view it changes, and is made again after it)
+    let pending = if touches_tables && pairs.iter().any(|(_, c)| c.is_view()) {
+        registry
+            .all()
+            .iter()
+            .filter(|c| c.is_view())
+            .map(|c| c.id.clone())
+            .collect()
+    } else if touches_tables {
         imported_views.clone()
     } else {
         vec![]
@@ -273,7 +282,14 @@ pub async fn import(
     // when none can be made
     if pairs.iter().any(|(_, c)| c.is_view()) {
         // (those the first pass couldn't rebuild are made even if their definition is the same)
-        let unbuilt = unbuilt_views.lock().expect("unbuilt views lock").clone();
+        // (read each time: applying a view can leave others that read it unbuilt)
+        let is_unbuilt = |id: &str| {
+            unbuilt_views
+                .lock()
+                .expect("unbuilt views lock")
+                .iter()
+                .any(|u| u == id)
+        };
         let mut waiting: Vec<usize> = pairs
             .iter()
             .enumerate()
@@ -283,11 +299,58 @@ pub async fn import(
         // the views that exist come first: a new view that reads one of them is made after it
         // is replaced (a view can't be replaced while another reads it)
         waiting.sort_by_key(|&i| pairs[i].0.is_none());
+        // the views the import leaves out: made again after the import's own (they may read
+        // views it changes, and are still refused then if what they read is wrong)
+        let left_out: Vec<String> = registry
+            .all()
+            .iter()
+            .filter(|c| c.is_view() && !pairs.iter().any(|(_, p)| p.id == c.id))
+            .map(|c| c.id.clone())
+            .collect();
+        // (after a round with no progress in which some views only waited, they are all tried)
+        let mut force = false;
         while !waiting.is_empty() {
             let before = waiting.len();
             let mut still = Vec::new();
             let mut first_error = None;
+            // a view whose query names another view that is still to be made waits for it: a
+            // new view that reads one that exists is made after that one is replaced, which
+            // PostgreSQL refuses while it is read (the names are looked for in the text, so a
+            // false match only delays a view; when every view waits, they are all tried)
+            let mut remaining: std::collections::HashSet<usize> = waiting.iter().copied().collect();
+            let names: Vec<(usize, String, String)> = waiting
+                .iter()
+                .map(|&i| {
+                    (
+                        i,
+                        pairs[i].1.name.to_lowercase(),
+                        pairs[i]
+                            .1
+                            .view_query
+                            .clone()
+                            .unwrap_or_default()
+                            .to_lowercase(),
+                    )
+                })
+                .collect();
+            let blocked = |i: usize, remaining: &std::collections::HashSet<usize>| {
+                let query = names
+                    .iter()
+                    .find(|(j, _, _)| *j == i)
+                    .map(|(_, _, q)| q.as_str())
+                    .unwrap_or_default();
+                names
+                    .iter()
+                    .any(|(j, name, _)| *j != i && remaining.contains(j) && mentions(query, name))
+            };
+            let all_blocked = force || waiting.iter().all(|&i| blocked(i, &remaining));
+            let mut waited = false;
             for i in waiting {
+                if !all_blocked && blocked(i, &remaining) {
+                    waited = true;
+                    still.push(i);
+                    continue;
+                }
                 let (old, c) = &mut pairs[i];
                 if let Err(e) = infer_view(tx, c, old.as_deref(), &prefix(i), failed).await {
                     first_error.get_or_insert(e);
@@ -301,18 +364,104 @@ pub async fn import(
                 }
                 let (old, new) = &pairs[i];
                 let change = match old {
-                    Some(old) if old.as_ref() == new && !unbuilt.contains(&new.id) => None,
+                    Some(old) if old.as_ref() == new && !is_unbuilt(&new.id) => None,
                     Some(old) => Some(Change::Update { old, new }),
                     None => Some(Change::Create(new)),
                 };
                 if let Some(change) = change {
-                    current = apply(vec![change], &[]).await?;
+                    // the views of the import that are still to come may read this one: they
+                    // are dropped meanwhile and made from their own new queries when their turn
+                    // comes (one the import leaves out must be made again from its query now)
+                    let coming: Vec<String> = remaining
+                        .iter()
+                        .filter(|j| **j != i)
+                        .map(|j| pairs[*j].1.id.clone())
+                        .chain(left_out.iter().cloned())
+                        .collect();
+                    current = apply(vec![change], &coming).await?;
                 }
+                remaining.remove(&i);
             }
+            if still.len() == before && waited && !force {
+                // none was made, but some only waited for another: try them all once
+                force = true;
+                waiting = still;
+                continue;
+            }
+            force = false;
             if still.len() == before {
-                return Err(first_error.expect("a view that waits has an error"));
+                return Err(first_error.unwrap_or_else(|| {
+                    ApiError::bad_request(format!(
+                        "{failed} The views of the import read each other in a circle."
+                    ))
+                }));
             }
             waiting = still;
+        }
+        // the views the import doesn't mention that could not be made again before (they read a
+        // view of the import): made now, from the queries they have, one that reads another
+        // waiting for it
+        let unbuilt: Vec<String> = unbuilt_views.lock().expect("unbuilt views lock").clone();
+        let mut omitted: Vec<Arc<Collection>> = unbuilt
+            .iter()
+            .filter(|id| !pairs.iter().any(|(_, c)| &c.id == *id))
+            .filter_map(|id| registry.by_id(id).cloned())
+            .collect();
+        while !omitted.is_empty() {
+            let before = omitted.len();
+            let mut left = Vec::new();
+            let mut first_error = None;
+            for view in omitted {
+                // (one that is there already was made again as a side effect of an earlier one)
+                let present: bool = tx
+                    .query_one(
+                        "SELECT to_regclass($1) IS NOT NULL",
+                        &[&super::schema::table_ref(&view.name)],
+                    )
+                    .await
+                    .map_err(db_error)?
+                    .get(0);
+                if present {
+                    continue;
+                }
+                tx.batch_execute("SAVEPOINT omitted_view")
+                    .await
+                    .map_err(db_error)?;
+                match apply(
+                    vec![Change::Update {
+                        old: &view,
+                        new: &view,
+                    }],
+                    &[],
+                )
+                .await
+                {
+                    Ok(next) => {
+                        current = next;
+                        tx.batch_execute("RELEASE SAVEPOINT omitted_view")
+                            .await
+                            .map_err(db_error)?;
+                    }
+                    Err(e) => {
+                        tx.batch_execute("ROLLBACK TO SAVEPOINT omitted_view")
+                            .await
+                            .map_err(db_error)?;
+                        tx.batch_execute("RELEASE SAVEPOINT omitted_view")
+                            .await
+                            .map_err(db_error)?;
+                        first_error.get_or_insert(e);
+                        left.push(view);
+                    }
+                }
+            }
+            if left.len() == before {
+                let why = first_error.map(|e| e.message).unwrap_or_default();
+                return Err(ApiError::bad_request(format!(
+                    "{failed} The view {:?}, which the import leaves out, can't be made again with the changes: {why}",
+                    left[0].name
+                )));
+            }
+            omitted = left;
         }
     }
 
@@ -325,6 +474,20 @@ pub async fn import(
         saved,
         deleted,
         removed_files: removed_files.into_inner().expect("removed files lock"),
+    })
+}
+
+/// Whether `query` (lower case) names `name` (lower case) as an identifier: not as part of a
+/// longer word.
+pub(super) fn mentions(query: &str, name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    query.match_indices(name).any(|(at, _)| {
+        let before = query[..at].chars().next_back();
+        let after = query[at + name.len()..].chars().next();
+        !before.is_some_and(word) && !after.is_some_and(word)
     })
 }
 

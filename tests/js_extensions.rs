@@ -97,6 +97,7 @@ async fn app_with_hooks(tdb: &TestDb) -> (Arc<App>, String, tempfile::TempDir, t
             watch: false,
             timeout_seconds: 1,
             memory_limit_mb: 48,
+            ..Default::default()
         },
         &mut ext,
     )

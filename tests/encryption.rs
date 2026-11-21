@@ -272,7 +272,28 @@ async fn settings_and_signing_secret_encrypted_at_rest() {
             .is_err(),
         "the old key no longer opens them"
     );
-    slonbase::secrets::rekey(&mut client, Some(&to), None)
+    // to a longer key, whose values are sealed each under a key derived from it
+    let longer = slonbase::secrets::SecretsKey::new(&format!(
+        "{OTHER_KEY}-a-longer-key-of-48-characters-or-more"
+    ))
+    .unwrap();
+    slonbase::secrets::rekey(&mut client, Some(&to), Some(&longer))
+        .await
+        .unwrap();
+    let (settings, secret) = params(&tdb).await;
+    assert!(
+        settings["sealed"].as_str().unwrap().starts_with("v2.")
+            && secret["sealed"].as_str().unwrap().starts_with("v2."),
+        "{settings}"
+    );
+    assert!(
+        members_data(&tdb).await["oauth2"]["providers"][0]["clientSecret"]["sealed"]
+            .as_str()
+            .unwrap()
+            .starts_with("v2.")
+    );
+    // and back to none
+    slonbase::secrets::rekey(&mut client, Some(&longer), None)
         .await
         .unwrap();
     drop(client);

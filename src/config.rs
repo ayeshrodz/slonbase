@@ -80,6 +80,26 @@ pub struct HooksConfig {
     /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
     #[serde(skip_serializing_if = "is_zero")]
     pub memory_limit_mb: usize,
+    /// Refuse what `$http.send` and `$filesystem.fileFromURL` would send to this server or to a
+    /// private network (loopback, private, link-local and metadata addresses), the way the
+    /// dashboard's cron jobs are. Off unless set: hooks that call internal services keep working.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub guard_http: bool,
+    /// The longest a database read made from a hook may take, in seconds; 0 for no limit (the
+    /// default). Past it the call fails in the hook instead of waiting, for example, for a row
+    /// lock held elsewhere, which would hold a JavaScript runtime until it is released. Writes
+    /// are not bounded this way (see `database.statement_timeout`).
+    #[serde(skip_serializing_if = "is_zero")]
+    pub db_wait_seconds: u64,
+    /// A directory hooks may read files from (`$os.readFile`, `$os.dirFS`, `$filepath.walkDir`
+    /// and `glob`, `e.fileFS`): read only, and only inside it (a path that leads out of it, by
+    /// `..` or a link, is refused). Off unless set. Relative paths are read from it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_dir: Option<PathBuf>,
+    /// With `guard_http`: hosts (names or addresses) hooks may still call although they are
+    /// private, such as an internal service.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow_hosts: Vec<String>,
 }
 
 impl Default for HooksConfig {
@@ -91,6 +111,10 @@ impl Default for HooksConfig {
             // (off unless set: hooks that ran before keep running as they did)
             timeout_seconds: 0,
             memory_limit_mb: 0,
+            guard_http: false,
+            allow_hosts: Vec::new(),
+            db_wait_seconds: 0,
+            files_dir: None,
         }
     }
 }
@@ -307,6 +331,11 @@ pub struct Loaded {
     /// True when the database URL comes from a flag or env var,
     /// so the setup wizard must not ask for (or save) one.
     pub database_url_locked: bool,
+    /// True when a flag or an environment variable sets the hook time limit (a 0 is the
+    /// operator's choice: no limit).
+    pub hook_timeout_overridden: bool,
+    /// The same for the hook memory limit.
+    pub hook_memory_overridden: bool,
 }
 
 pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
@@ -321,6 +350,8 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
 
     let mut effective = file.clone();
     let database_url_locked = overrides.database_url.is_some();
+    let hook_timeout_overridden = overrides.hooks_timeout.is_some();
+    let hook_memory_overridden = overrides.hooks_memory.is_some();
     if let Some(bind) = overrides.bind {
         effective.server.bind = bind;
     }
@@ -419,6 +450,8 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
         file,
         effective,
         database_url_locked,
+        hook_timeout_overridden,
+        hook_memory_overridden,
     })
 }
 
@@ -549,6 +582,10 @@ mod tests {
         for key in [
             "timeout_seconds",
             "memory_limit_mb",
+            "guard_http",
+            "allow_hosts",
+            "db_wait_seconds",
+            "files_dir",
             "job_connections",
             "dev",
         ] {

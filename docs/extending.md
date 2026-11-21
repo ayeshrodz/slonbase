@@ -47,7 +47,7 @@ cronAdd("cleanup", "0 3 * * *", () => {
 | `onRecordAfter{Create,Update,Delete}Success` | After the change is committed, in the background |
 | `onRecordAfter{Create,Update,Delete}Error` | After a write failed, in the background: `e.record` (what a create would have written, or the stored record with an update's data), `e.error` (an `ApiError`). Validation and hook errors count, and so do writes a failed transaction undid (the other requests of a failed batch). Requests the rules refuse don't. |
 | `onCollection{Create,Update,Delete}`, `onCollectionAfter{Create,Update,Delete}Success` | Changes through the collections API, imports included |
-| `onCollectionValidate`, `onCollection{Create,Update,Delete}Execute`, `onCollectionAfter{Create,Update,Delete}Error` | Collection changes through the API (imports run only the hooks above): after validation, around the schema change (`e.next()` applies it), and after a failure (`e.error`). Changes to `e.collection` in these are ignored; make them in `onCollectionCreate`. A collection hook can save, delete or import other collections (`$app.save(collection)`): that change runs inside the one that ran the hook. The outer change then checks the collections again, and fails rather than save over a collection the hook changed under it. Restoring a backup from a collection hook is refused. |
+| `onCollectionValidate`, `onCollection{Create,Update,Delete}Execute`, `onCollectionAfter{Create,Update,Delete}Error` | Collection changes through the API (imports run only the hooks above): after validation, around the schema change (`e.next()` applies it), and after a failure (`e.error`). Changes to `e.collection` in these are ignored; make them in `onCollectionCreate`. A collection hook can save, delete or import other collections (`$app.save(collection)`): that change runs inside the one that ran the hook. The outer change then checks the collections again, and fails rather than save over a collection the hook changed under it. Restoring a backup from a collection hook is refused. Collection changes a hook makes are not written to [automigrate](migrations.md#automigrate) files. |
 | `onModel{Create,Update,Delete,Validate}`, `onModel{Create,Update,Delete}Execute`, `onModelAfter{Create,Update,Delete}{Success,Error}` | The record and collection hooks above for any model: `e.model` is the record or the collection. Tags are collection names, and `"_collections"` for collections; untagged handlers see both. They run inside the record or collection hooks' `e.next()`, as in PocketBase. |
 | `onRecordAuthRequest` | Every sign-in, token refresh and impersonation, before the MFA check. A handler can change `e.record` (in the response only), `e.token` and `e.meta` (`e.authMethod` says how the record signed in), or throw. |
 | `onRecordAuthWithPasswordRequest`, `onRecordAuthWithOAuth2Request`, `onRecordAuthWithOTPRequest`, `onRecordAuthRefreshRequest` | Around each sign-in. `e.record` is null when no record matched the identity, and a handler can set it, to find records its own way. Password: `e.identity`, `e.identityField`, `e.password`; OAuth2: `e.providerName`, `e.oauth2User`, `e.createData`, `e.isNewRecord`; OTP: `e.otp`. |
@@ -105,6 +105,13 @@ those collections.
 - `$http.send({url, method, headers, body, timeout})`.
 - `$security`: `randomString`, `randomStringWithAlphabet`, `randomStringByRegex`, `sha256`, `sha512`, `hs256`,
   `md5`, `equal`, ...
+- `$os.readFile(path)`, `$os.dirFS(path)`, `e.fileFS(fs, name)` and `$filepath`
+  (`join`, `clean`, `base`, `dir`, `ext`, `toSlash`, `fromSlash`, `isAbs`, `walkDir`, `glob`):
+  read-only access to files, **only inside the directory set with `hooks.files_dir`** (off
+  unless it is set; relative paths are read from it, and a path that leads out of it, by `..` or
+  a link, is refused). It is what server-rendered page frameworks such as PocketPages need.
+  `e.fileFS` sends a file with its type from the extension; a name never leaves the directory
+  of the `dirFS`.
 - `$os.getenv`, `console.log/info/warn/error`, and `require()` for modules in the hooks
   directory.
 - `toString`, `toBytes(value, maxBytes)` and `readerToString` (text is UTF-8; readers are
@@ -201,7 +208,22 @@ functions.
   A cron job has an hour, a function run as an automation's step five minutes. Each runtime may
   use `hooks.memory_limit_mb` of memory (no limit by default; 128 is a sensible value). A
   runtime whose handler was stopped,
-  or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit.
+  or that ran out of memory, is replaced by a fresh one. Set either to `0` for no limit. A new
+  installation starts with 60 seconds and 128 MB; a configuration that exists is never changed,
+  and slonbase logs a warning at start when hooks run with neither limit. A database call
+  from a hook that waits for a lock holds its runtime until the lock is released; set
+  `database.statement_timeout`, which the database enforces for every statement, writes
+  included. `hooks.db_wait_seconds` also makes a **read** from a hook (find, count, auth tokens)
+  fail in the hook after that many seconds (no limit by default); writes and raw SQL are not
+  bounded by it, since a write that is dropped may still commit.
+- **Network calls:** `$http.send` and `$filesystem.fileFromURL` reach what the server can reach,
+  as in PocketBase, and hook files are the operator's. When a hook builds an address from data
+  (a user's URL), set `hooks.guard_http = true`: calls to this server or to private networks
+  (loopback, private, link-local and metadata addresses, also through redirects and DNS) are
+  then refused, except to the hosts in `hooks.allow_hosts` (an internal service, by name or
+  address). A guarded call is not sent through an outbound proxy from the environment (the
+  proxy would resolve the name itself). Migration files are not guarded. It is off by default, so hooks that call internal
+  services keep working.
 - **Reloading:** when the hook files change, slonbase restarts itself. It's the same process,
   re-executed with the same arguments, after up to 5 seconds for open requests. Turn this off
   with `hooks.watch = false`.

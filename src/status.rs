@@ -295,6 +295,17 @@ pub async fn status(
             "#/settings/backups",
         ));
     }
+    // settings that are allowed, and need something more to be safe
+    let stored = crate::warnings::stored(&core);
+    for warning in crate::warnings::collect(&core).iter().chain(stored.iter()) {
+        checks.push(check(
+            &format!("config-{}-{}", warning.code, warning.subject),
+            "warn",
+            warning.title,
+            warning.message.clone(),
+            warning.link,
+        ));
+    }
     if !encrypted {
         checks.push(check(
             "backup-encryption",

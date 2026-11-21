@@ -145,6 +145,9 @@ export function Security({ s }) {
         <${Field} label="For (minutes)" error=${s.errors["security.loginLockout.minutes"]} help="The window failures are counted in, and how long the lockout lasts">
           <${Input} type="number" min="1" max="60" value=${sec.loginLockout.minutes} onInput=${(v) => s.set("security.loginLockout.minutes", Number(v))} />
         </${Field}>
+        <${Field} label="Lock an account after (failures, any address)" error=${s.errors["security.loginLockout.accountAttempts"]} help="Failures for one account from all addresses together, so changing address doesn't help a guesser; 0 is off. Anyone can use it to lock a user out for the window, and superusers are never locked this way. Must be higher than the limit per address">
+          <${Input} type="number" min="0" max="10000" value=${sec.loginLockout.accountAttempts || 0} onInput=${(v) => s.set("security.loginLockout.accountAttempts", Number(v))} />
+        </${Field}>
         <${Field} label="One auth email per (seconds)" error=${s.errors["security.authEmailInterval"]} help="Verification, password reset, email change and one-time passwords, per account">
           <${Input} type="number" min="5" max="86400" value=${sec.authEmailInterval} onInput=${(v) => s.set("security.authEmailInterval", Number(v))} />
         </${Field}>

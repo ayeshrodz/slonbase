@@ -1,6 +1,7 @@
 //! The native functions behind the prelude's `$app`, `$http`, `$security`, `$os` and
 //! `require` (called as `__native_call(name, argsJson)`).
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -73,18 +74,61 @@ fn file_from_path(path: &str) -> Result<Value, ApiError> {
 /// Longest download of `$filesystem.fileFromURL` (seconds).
 const FILE_URL_TIMEOUT: u64 = 60;
 
+/// Runs a call that reads from the database to its end, or, with `hooks.db_wait_seconds`, for at
+/// most that long: past it the call fails in the hook (a handler that waits for a row lock would
+/// hold its runtime until the lock is released). Only reads are bounded this way: a write that
+/// is dropped may still commit, and must not be reported as having timed out (a write is bounded
+/// by `database.statement_timeout`, which the database itself enforces).
+fn block<T>(
+    shared: &Shared,
+    handle: &tokio::runtime::Handle,
+    call: impl std::future::Future<Output = Result<T, ApiError>>,
+) -> Result<T, ApiError> {
+    match shared.db_wait {
+        Some(limit) => handle.block_on(async {
+            tokio::time::timeout(limit, call).await.unwrap_or_else(|_| {
+                Err(bad(format!(
+                    "The database didn't answer within hooks.db_wait_seconds ({} s).",
+                    limit.as_secs()
+                )))
+            })
+        }),
+        None => handle.block_on(call),
+    }
+}
+
+/// What hooks may reach over the network (`hooks.guard_http`, `hooks.allow_hosts`).
+pub(super) struct HttpGuard {
+    pub(super) enabled: bool,
+    /// Lowercase hosts that may be reached although they are private.
+    pub(super) allow_hosts: Vec<String>,
+}
+
 /// `$filesystem.fileFromURL(url)`: downloads a file (http or https, up to the size limit).
-async fn file_from_url(url: &str) -> Result<Value, ApiError> {
+async fn file_from_url(url: &str, guard: &HttpGuard) -> Result<Value, ApiError> {
     let parsed = reqwest::Url::parse(url).map_err(|_| bad("fileFromURL: invalid URL."))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(bad("fileFromURL: only http and https URLs are supported."));
     }
-    let mut response = crate::http::client()
-        .get(parsed.clone())
-        .timeout(Duration::from_secs(FILE_URL_TIMEOUT))
-        .send()
+    let mut response = if guard.enabled {
+        crate::http::send_for_hook(
+            reqwest::Method::GET,
+            parsed.as_str(),
+            &[],
+            None,
+            Duration::from_secs(FILE_URL_TIMEOUT),
+            &guard.allow_hosts,
+        )
         .await
-        .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?;
+        .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?
+    } else {
+        crate::http::client()
+            .get(parsed.clone())
+            .timeout(Duration::from_secs(FILE_URL_TIMEOUT))
+            .send()
+            .await
+            .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?
+    };
     if !response.status().is_success() {
         return Err(bad(format!(
             "fileFromURL: the server answered {}.",
@@ -264,11 +308,17 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             return Ok(Value::Null);
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
+        "fsRead" => return fs_read(shared, &a.str(0), &a.str(1)),
+        "fsList" => return fs_list(shared, &a.str(0)),
+        "fsStat" => return fs_stat(shared, &a.str(0), &a.str(1)),
+        "fsResolve" => return fs_path(shared, &a.str(0)).map(|p| json!(p.to_string_lossy())),
         "readTextFile" => return read_text_file(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
         "fileFromPath" => return file_from_path(&a.str(0)),
-        "fileFromURL" => return handle.block_on(file_from_url(&a.str(0))),
-        "http" => return handle.block_on(http(&a)),
+        "fileFromURL" => {
+            return handle.block_on(file_from_url(&a.str(0), &shared.http_guard));
+        }
+        "http" => return handle.block_on(http(&a, &shared.http_guard)),
         _ => {}
     }
 
@@ -330,28 +380,35 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 .map(|c| collection_json(c))
                 .collect(),
         )),
-        "findRecordById" => Ok(handle
-            .block_on(core.find_record_by_id(&a.str(0), &a.str(1)))?
-            .map(Value::Object)
-            .unwrap_or(Value::Null)),
+        "findRecordById" => {
+            Ok(
+                block(shared, handle, core.find_record_by_id(&a.str(0), &a.str(1)))?
+                    .map(Value::Object)
+                    .unwrap_or(Value::Null),
+            )
+        }
         "findRecordsByFilter" => {
-            let records = handle.block_on(core.find_records_by_filter(
-                &a.str(0),
-                &a.str(1),
-                &a.str(2),
-                a.int(3),
-                a.int(4),
-                &a.object(5),
-            ))?;
+            let records = block(
+                shared,
+                handle,
+                core.find_records_by_filter(
+                    &a.str(0),
+                    &a.str(1),
+                    &a.str(2),
+                    a.int(3),
+                    a.int(4),
+                    &a.object(5),
+                ),
+            )?;
             Ok(Value::Array(
                 records.into_iter().map(Value::Object).collect(),
             ))
         }
-        "countRecords" => Ok(json!(handle.block_on(core.count_records(
-            &a.str(0),
-            &a.str(1),
-            &a.object(2)
-        ))?)),
+        "countRecords" => Ok(json!(block(
+            shared,
+            handle,
+            core.count_records(&a.str(0), &a.str(1), &a.object(2))
+        )?)),
         "save" => {
             let mut data = a.object(1);
             let uploads = take_files(&mut data)?;
@@ -364,7 +421,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             Ok(Value::Null)
         }
         "validatePassword" => {
-            let values = handle.block_on(stored_values(&core, &a.str(0), &a.str(1)))?;
+            let values = block(shared, handle, stored_values(&core, &a.str(0), &a.str(1)))?;
             let hash = values
                 .get(FIELD_PASSWORD)
                 .and_then(Value::as_str)
@@ -378,14 +435,14 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             )))
         }
         "authToken" => {
-            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(0), &a.str(1)))?;
             Ok(Value::String(record.issue_auth_token(&core, None, true)))
         }
         // record.newVerificationToken(), newPasswordResetToken(), newEmailChangeToken(email),
         // newFileToken(), newStaticAuthToken(seconds)
         "recordToken" => {
             use crate::auth::TokenType;
-            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(0), &a.str(1)))?;
             let kind = match a.str(2).as_str() {
                 "verification" => TokenType::Verification,
                 "passwordReset" => TokenType::PasswordReset,
@@ -412,7 +469,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             use crate::records::{auth_api, otp};
             // the emails are sent in the background, on the async runtime
             let _runtime = handle.enter();
-            let record = handle.block_on(auth_record(&core, &a.str(1), &a.str(2)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(1), &a.str(2)))?;
             if record.email().is_empty() {
                 return Err(bad("The record has no email."));
             }
@@ -519,6 +576,89 @@ fn read_text_file(shared: &Shared, path: &str) -> Result<Value, ApiError> {
         .map_err(|e| bad(format!("Failed to read {}: {e}.", path.display())))
 }
 
+/// The most a hook may read from a file at once.
+const MAX_FILE_READ: u64 = 32 * 1024 * 1024;
+/// The most entries of one directory a hook is given.
+const MAX_DIR_ENTRIES: usize = 10_000;
+
+/// A path a hook gave, as a real path inside `hooks.files_dir` (relative paths are read from
+/// it); a path that leads out of it, by `..` or a link, is refused.
+fn fs_path(shared: &Shared, path: &str) -> Result<PathBuf, ApiError> {
+    fs_path_within(shared, path, "")
+}
+
+/// [`fs_path`], and, when `within` is a directory (a `dirFS`), the real path must be inside it
+/// too, so a link in it can't lead to a sibling that is only inside `hooks.files_dir`.
+fn fs_path_within(shared: &Shared, path: &str, within: &str) -> Result<PathBuf, ApiError> {
+    let root = shared.files_dir.as_ref().ok_or_else(|| {
+        bad("File access is off: set hooks.files_dir to the directory hooks may read.")
+    })?;
+    let given = Path::new(path);
+    let joined = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        root.join(given)
+    };
+    let real = std::fs::canonicalize(&joined).map_err(|e| bad(format!("{path}: {e}.")))?;
+    if !real.starts_with(root) {
+        return Err(bad(format!("{path} is outside hooks.files_dir.")));
+    }
+    if !within.is_empty() {
+        let narrow = fs_path(shared, within)?;
+        if !real.starts_with(&narrow) {
+            return Err(bad(format!(
+                "{path} is outside the directory it is served from."
+            )));
+        }
+    }
+    Ok(real)
+}
+
+/// `$os.readFile(path)`: a file's bytes, as base64.
+fn fs_read(shared: &Shared, path: &str, within: &str) -> Result<Value, ApiError> {
+    use base64::Engine;
+    let real = fs_path_within(shared, path, within)?;
+    let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    if !meta.is_file() {
+        return Err(bad(format!("{path} isn't a file.")));
+    }
+    if meta.len() > MAX_FILE_READ {
+        return Err(bad(format!("{path} is too large to read.")));
+    }
+    let bytes = std::fs::read(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    Ok(Value::String(
+        base64::engine::general_purpose::STANDARD.encode(bytes),
+    ))
+}
+
+/// The entries of a directory, by name: `[{name, isDir}]`.
+fn fs_list(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+    let real = fs_path(shared, path)?;
+    let mut entries: Vec<(String, bool)> = std::fs::read_dir(&real)
+        .map_err(|e| bad(format!("{path}: {e}.")))?
+        .flatten()
+        .take(MAX_DIR_ENTRIES)
+        .map(|e| {
+            let is_dir = e.path().is_dir();
+            (e.file_name().to_string_lossy().to_string(), is_dir)
+        })
+        .collect();
+    entries.sort();
+    Ok(Value::Array(
+        entries
+            .into_iter()
+            .map(|(name, is_dir)| json!({ "name": name, "isDir": is_dir }))
+            .collect(),
+    ))
+}
+
+/// A file's or directory's kind and size.
+fn fs_stat(shared: &Shared, path: &str, within: &str) -> Result<Value, ApiError> {
+    let real = fs_path_within(shared, path, within)?;
+    let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    Ok(json!({ "isDir": meta.is_dir(), "size": meta.len() }))
+}
+
 /// A record of an auth collection, with its secrets.
 async fn auth_record(core: &Core, collection: &str, id: &str) -> Result<AuthRecord, ApiError> {
     let c = core.collection(collection)?;
@@ -608,27 +748,45 @@ fn resolve_module(shared: &Shared, path: &str) -> Result<Value, ApiError> {
     Ok(json!({ "path": resolved.to_string_lossy(), "source": source }))
 }
 
-async fn http(a: &Args<'_>) -> Result<Value, ApiError> {
+async fn http(a: &Args<'_>, guard: &HttpGuard) -> Result<Value, ApiError> {
     let url = a.str(0);
     let method = reqwest::Method::from_bytes(a.str(1).as_bytes())
         .map_err(|_| bad("Invalid HTTP method."))?;
     let timeout = (a.int(4).max(1) as u64).min(MAX_HTTP_TIMEOUT);
-    let mut request = crate::http::client()
-        .request(method, &url)
-        .timeout(Duration::from_secs(timeout));
-    for (name, value) in a.object(2) {
-        if let Some(value) = value.as_str() {
-            request = request.header(name, value);
-        }
-    }
     let body = a.str(3);
-    if !body.is_empty() {
-        request = request.body(body);
-    }
-    let response = request
-        .send()
+    let response = if guard.enabled {
+        let headers: Vec<(String, String)> = a
+            .object(2)
+            .into_iter()
+            .filter_map(|(name, value)| Some((name, value.as_str()?.to_string())))
+            .collect();
+        crate::http::send_for_hook(
+            method,
+            &url,
+            &headers,
+            Some(body).filter(|b| !b.is_empty()),
+            Duration::from_secs(timeout),
+            &guard.allow_hosts,
+        )
         .await
-        .map_err(|e| bad(format!("The HTTP request failed: {e}")))?;
+        .map_err(|e| bad(format!("The HTTP request failed: {e}")))?
+    } else {
+        let mut request = crate::http::client()
+            .request(method, &url)
+            .timeout(Duration::from_secs(timeout));
+        for (name, value) in a.object(2) {
+            if let Some(value) = value.as_str() {
+                request = request.header(name, value);
+            }
+        }
+        if !body.is_empty() {
+            request = request.body(body);
+        }
+        request
+            .send()
+            .await
+            .map_err(|e| bad(format!("The HTTP request failed: {e}")))?
+    };
     let status = response.status().as_u16();
     let mut headers = Map::new();
     for (name, value) in response.headers() {
