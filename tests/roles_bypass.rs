@@ -666,10 +666,10 @@ async fn owners_deleting_each_other_through_small_pools_leave_one() {
 async fn two_instances_delete_each_other(
     tdb: &TestDb,
     first_app: &Arc<App>,
-    first: &String,
+    first: &str,
     second_app: &Arc<App>,
 ) {
-    let (first_app, first) = (first_app.clone(), first.clone());
+    let (first_app, first) = (first_app.clone(), first.to_string());
     let second_app = second_app.clone();
     let second = member(&first_app, &first, "second-owner@example.com", "owner").await;
     // (a viewer, who remains whatever happens: the owners are what must not run out)
