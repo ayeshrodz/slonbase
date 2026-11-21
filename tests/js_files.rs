@@ -93,6 +93,13 @@ async fn hooks_read_files_only_inside_the_configured_directory() {
     )
     .unwrap();
     std::fs::write(outside.path().join("secret.txt"), "TOP-SECRET-CONTENT").unwrap();
+    // a link in a served directory to a file that is inside hooks.files_dir, but not in it
+    std::fs::write(files.path().join("private.txt"), "PRIVATE-CONTENT").unwrap();
+    std::os::unix::fs::symlink(
+        files.path().join("private.txt"),
+        files.path().join("public/peek.txt"),
+    )
+    .unwrap();
     std::os::unix::fs::symlink(
         outside.path().join("secret.txt"),
         files.path().join("link.txt"),
@@ -142,7 +149,9 @@ async fn hooks_read_files_only_inside_the_configured_directory() {
             "pages/about.html",
             "pages/blog/post.html",
             "pages/index.html",
-            "public/logo.png"
+            "private.txt",
+            "public/logo.png",
+            "public/peek.txt"
         ])
     );
     let res = get(&app, "/api/ft/glob?pattern=pages/*.html").await;
@@ -161,6 +170,10 @@ async fn hooks_read_files_only_inside_the_configured_directory() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(headers["content-type"], "image/png");
     assert_eq!(bytes, [0u8, 255, 128, 10, 200]);
+    let (status, _, bytes) =
+        raw_request(&app, "GET", "/api/ft/serve/peek.txt", &[], Vec::new()).await;
+    assert_ne!(status, StatusCode::OK, "a link out of the served directory");
+    assert!(!String::from_utf8_lossy(&bytes).contains("PRIVATE-CONTENT"));
     let (status, _, _) = raw_request(&app, "GET", "/api/ft/serve/nope.png", &[], Vec::new()).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     let (status, _, _) =

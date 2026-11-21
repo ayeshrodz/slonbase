@@ -429,6 +429,12 @@ fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors
                         "Must be an https:// address when extra.requireSignature is set.",
                     );
                 }
+                if plain(&provider.user_info_url) {
+                    errors.invalid(
+                        key("userInfoURL"),
+                        "Must be an https:// address when extra.requireSignature is set (and leave it empty to take the user from the signed token).",
+                    );
+                }
                 if plain(&provider.token_url) {
                     errors.invalid(
                         key("tokenURL"),

@@ -299,6 +299,16 @@ pub async fn import(
         // the views that exist come first: a new view that reads one of them is made after it
         // is replaced (a view can't be replaced while another reads it)
         waiting.sort_by_key(|&i| pairs[i].0.is_none());
+        // the views the import leaves out: made again after the import's own (they may read
+        // views it changes, and are still refused then if what they read is wrong)
+        let left_out: Vec<String> = registry
+            .all()
+            .iter()
+            .filter(|c| c.is_view() && !pairs.iter().any(|(_, p)| p.id == c.id))
+            .map(|c| c.id.clone())
+            .collect();
+        // (after a round with no progress in which some views only waited, they are all tried)
+        let mut force = false;
         while !waiting.is_empty() {
             let before = waiting.len();
             let mut still = Vec::new();
@@ -333,9 +343,11 @@ pub async fn import(
                     .iter()
                     .any(|(j, name, _)| *j != i && remaining.contains(j) && mentions(query, name))
             };
-            let all_blocked = waiting.iter().all(|&i| blocked(i, &remaining));
+            let all_blocked = force || waiting.iter().all(|&i| blocked(i, &remaining));
+            let mut waited = false;
             for i in waiting {
                 if !all_blocked && blocked(i, &remaining) {
+                    waited = true;
                     still.push(i);
                     continue;
                 }
@@ -364,11 +376,19 @@ pub async fn import(
                         .iter()
                         .filter(|j| **j != i)
                         .map(|j| pairs[*j].1.id.clone())
+                        .chain(left_out.iter().cloned())
                         .collect();
                     current = apply(vec![change], &coming).await?;
                 }
                 remaining.remove(&i);
             }
+            if still.len() == before && waited && !force {
+                // none was made, but some only waited for another: try them all once
+                force = true;
+                waiting = still;
+                continue;
+            }
+            force = false;
             if still.len() == before {
                 return Err(first_error.unwrap_or_else(|| {
                     ApiError::bad_request(format!(
@@ -435,7 +455,11 @@ pub async fn import(
                 }
             }
             if left.len() == before {
-                return Err(first_error.expect("a view left has an error"));
+                let why = first_error.map(|e| e.message).unwrap_or_default();
+                return Err(ApiError::bad_request(format!(
+                    "{failed} The view {:?}, which the import leaves out, can't be made again with the changes: {why}",
+                    left[0].name
+                )));
             }
             omitted = left;
         }

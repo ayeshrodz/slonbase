@@ -308,9 +308,9 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             return Ok(Value::Null);
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
-        "fsRead" => return fs_read(shared, &a.str(0)),
+        "fsRead" => return fs_read(shared, &a.str(0), &a.str(1)),
         "fsList" => return fs_list(shared, &a.str(0)),
-        "fsStat" => return fs_stat(shared, &a.str(0)),
+        "fsStat" => return fs_stat(shared, &a.str(0), &a.str(1)),
         "fsResolve" => return fs_path(shared, &a.str(0)).map(|p| json!(p.to_string_lossy())),
         "readTextFile" => return read_text_file(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
@@ -584,6 +584,12 @@ const MAX_DIR_ENTRIES: usize = 10_000;
 /// A path a hook gave, as a real path inside `hooks.files_dir` (relative paths are read from
 /// it); a path that leads out of it, by `..` or a link, is refused.
 fn fs_path(shared: &Shared, path: &str) -> Result<PathBuf, ApiError> {
+    fs_path_within(shared, path, "")
+}
+
+/// [`fs_path`], and, when `within` is a directory (a `dirFS`), the real path must be inside it
+/// too, so a link in it can't lead to a sibling that is only inside `hooks.files_dir`.
+fn fs_path_within(shared: &Shared, path: &str, within: &str) -> Result<PathBuf, ApiError> {
     let root = shared.files_dir.as_ref().ok_or_else(|| {
         bad("File access is off: set hooks.files_dir to the directory hooks may read.")
     })?;
@@ -597,13 +603,21 @@ fn fs_path(shared: &Shared, path: &str) -> Result<PathBuf, ApiError> {
     if !real.starts_with(root) {
         return Err(bad(format!("{path} is outside hooks.files_dir.")));
     }
+    if !within.is_empty() {
+        let narrow = fs_path(shared, within)?;
+        if !real.starts_with(&narrow) {
+            return Err(bad(format!(
+                "{path} is outside the directory it is served from."
+            )));
+        }
+    }
     Ok(real)
 }
 
 /// `$os.readFile(path)`: a file's bytes, as base64.
-fn fs_read(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+fn fs_read(shared: &Shared, path: &str, within: &str) -> Result<Value, ApiError> {
     use base64::Engine;
-    let real = fs_path(shared, path)?;
+    let real = fs_path_within(shared, path, within)?;
     let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
     if !meta.is_file() {
         return Err(bad(format!("{path} isn't a file.")));
@@ -639,8 +653,8 @@ fn fs_list(shared: &Shared, path: &str) -> Result<Value, ApiError> {
 }
 
 /// A file's or directory's kind and size.
-fn fs_stat(shared: &Shared, path: &str) -> Result<Value, ApiError> {
-    let real = fs_path(shared, path)?;
+fn fs_stat(shared: &Shared, path: &str, within: &str) -> Result<Value, ApiError> {
+    let real = fs_path_within(shared, path, within)?;
     let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
     Ok(json!({ "isDir": meta.is_dir(), "size": meta.len() }))
 }

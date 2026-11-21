@@ -147,10 +147,8 @@ pub async fn perform(
             {
                 updated.file.hooks.timeout_seconds = 60;
                 updated.file.hooks.memory_limit_mb = 128;
-                if updated.effective.hooks.timeout_seconds == 0 {
+                if !updated.hook_limits_overridden {
                     updated.effective.hooks.timeout_seconds = 60;
-                }
-                if updated.effective.hooks.memory_limit_mb == 0 {
                     updated.effective.hooks.memory_limit_mb = 128;
                 }
             }

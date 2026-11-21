@@ -692,3 +692,67 @@ async fn imports_rename_views_drop_columns_and_change_chains_of_views() {
     let _ = things;
     tdb.drop_db().await;
 }
+
+/// A view the import leaves out reads a view of the import that reads a view the import changes:
+/// the final definitions are valid, so the import is too.
+#[tokio::test]
+async fn an_omitted_reader_of_views_the_import_changes_is_made_again_last() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let auth = format!("Bearer {token}");
+    let go = |method: &'static str, uri: &str, body: Option<Value>| {
+        let (app, auth) = (app.clone(), auth.clone());
+        let uri: &'static str = Box::leak(uri.to_string().into_boxed_str());
+        async move { request(&app, method, uri, &[("authorization", auth.as_str())], body).await }
+    };
+    let make = |body: Value| {
+        let go = &go;
+        async move {
+            let (status, res) = go("POST", "/api/collections", Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+            res
+        }
+    };
+    make(json!({ "name": "things", "fields": [
+        { "name": "title", "type": "text" }, { "name": "note", "type": "text" },
+    ] }))
+    .await;
+    let view =
+        |name: &str, query: &str| json!({ "name": name, "type": "view", "viewQuery": query });
+    let a = make(view("o_a", "SELECT id, title FROM things")).await;
+    let b = make(view("o_b", "SELECT id, title FROM o_a")).await;
+    make(view("o_c", "SELECT id, title FROM o_b")).await;
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": a["id"], "name": "o_a", "type": "view", "viewQuery": "SELECT id, note FROM things" },
+            { "id": b["id"], "name": "o_b", "type": "view",
+              "viewQuery": "SELECT id, note AS title FROM o_a" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (status, _) = go("GET", "/api/collections/o_c/records", None).await;
+    assert_eq!(status, StatusCode::OK, "the view left out is made again");
+
+    // one that is left out and can't be made again still fails the import
+    make(view("o_d", "SELECT id, note FROM o_a")).await;
+    let (status, _) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": a["id"], "name": "o_a", "type": "view", "viewQuery": "SELECT id, title FROM things" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "o_d would read a column o_a no longer has"
+    );
+    tdb.drop_db().await;
+}

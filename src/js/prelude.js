@@ -1342,13 +1342,13 @@
       }
       let stat;
       try {
-        stat = call("fsStat", path);
+        stat = call("fsStat", path, root);
       } catch (_) {
         throw new NotFoundError("The requested resource wasn't found.");
       }
       if (stat.isDir) throw new NotFoundError("The requested resource wasn't found.");
       const contentType = MIME[$filepath.ext(path).toLowerCase()] || "application/octet-stream";
-      e._response = { status: 200, bodyBase64: call("fsRead", path), contentType, headers: e._headers };
+      e._response = { status: 200, bodyBase64: call("fsRead", path, root), contentType, headers: e._headers };
     };
     e.error = (status, message, data) => new ApiError(status, message, data);
     e.badRequestError = (message, data) => new BadRequestError(message, data);

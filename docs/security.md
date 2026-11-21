@@ -80,7 +80,9 @@ change nothing by themselves:
   is reached over TLS, and its signature is not checked. Use an `https://` `tokenURL` (slonbase
   does not require it by default), and set `extra.jwksURL` to check the signature too. With
   `extra.requireSignature` set to `true`, slonbase refuses the provider unless `jwksURL` is set,
-  and requires `tokenURL` and `jwksURL` to be `https://`.
+  and requires `tokenURL`, `jwksURL` and `userInfoURL` to be `https://`. A provider with a
+  `userInfoURL` takes the user from that endpoint, **not** from the signed token, so leave
+  `userInfoURL` empty to rely on the signature for sign-in.
 - **An empty `manageRule`, `updateRule` or `deleteRule` on a collection that holds accounts:**
   as in PocketBase, an empty rule allows everyone, guests included (on an auth collection, an
   empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it
