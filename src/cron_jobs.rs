@@ -891,22 +891,56 @@ async fn queue_notices(
         targets.push(json!({ "webhook": true }));
     }
     for (n, target) in targets.into_iter().enumerate() {
-        let queued = crate::queue::enqueue(
-            core,
-            crate::queue::NewJob {
-                kind: NOTICE_KIND,
-                reference: &def.id,
-                payload: json!({
-                    "event": event.name(), "error": error, "tries": tries, "at": at,
-                    "target": target,
-                }),
-                dedupe: Some(&format!("notice:{run}:{n}")),
-                max_attempts: NOTICE_ATTEMPTS,
-            },
-        )
+        let dedupe = format!("notice:{run}:{n}");
+        // (the same notice is never queued twice, so a try that did reach the database and was
+        // not told so is safe to repeat)
+        let queued = with_retries(NOTICE_QUEUE_WAITS, || {
+            crate::queue::enqueue(
+                core,
+                crate::queue::NewJob {
+                    kind: NOTICE_KIND,
+                    reference: &def.id,
+                    payload: json!({
+                        "event": event.name(), "error": error, "tries": tries, "at": at,
+                        "target": target,
+                    }),
+                    dedupe: Some(&dedupe),
+                    max_attempts: NOTICE_ATTEMPTS,
+                },
+            )
+        })
         .await;
         if let Err(err) = queued {
-            tracing::warn!(job = %def.id, error = %format!("{err:#}"), "failed to queue a cron job's notice");
+            tracing::error!(job = %def.id, error = %format!("{err:#}"), "failed to queue a cron job's notice, after trying again");
+        }
+    }
+}
+
+/// The waits before each new try of queueing a notice (the database may refuse writes for a
+/// moment).
+const NOTICE_QUEUE_WAITS: &[Duration] = &[
+    Duration::from_secs(1),
+    Duration::from_secs(2),
+    Duration::from_secs(4),
+    Duration::from_secs(8),
+    Duration::from_secs(15),
+];
+
+/// Runs `attempt`, and again after each of `waits` while it fails; the last error when it still
+/// fails after them.
+async fn with_retries<T, F, Fut>(waits: &[Duration], mut attempt: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    let mut waits = waits.iter();
+    loop {
+        match attempt().await {
+            Ok(done) => return Ok(done),
+            Err(err) => match waits.next() {
+                Some(wait) => tokio::time::sleep(*wait).await,
+                None => return Err(err),
+            },
         }
     }
 }
@@ -1656,6 +1690,31 @@ pub async fn preview(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn queueing_that_fails_once_is_tried_again() {
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let waits = [Duration::ZERO, Duration::ZERO];
+        // fails once, then works
+        let done = with_retries(&waits, || async {
+            match tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 => Err(anyhow::anyhow!("the database refused the write")),
+                _ => Ok(7),
+            }
+        })
+        .await;
+        assert_eq!(done.unwrap(), 7);
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+        // fails every time: tried once and once after each wait, then the last error
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let failed = with_retries(&waits, || async {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err::<(), _>(anyhow::anyhow!("still refused"))
+        })
+        .await;
+        assert!(failed.is_err());
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 3);
+    }
 
     #[test]
     fn a_rename_to_a_name_taken_meanwhile_is_refused() {

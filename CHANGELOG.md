@@ -219,6 +219,9 @@ changes, listed in its **Upgrading** section.
 - A partial index whose condition names a column the collection doesn't have is refused as a
   validation error on `indexes`, not a server error from the database, and the flag of a system
   field can't be cleared by an update (which then allowed renaming or removing the field).
+- A failure notice that could not be queued because the database refused the write for a moment
+  is tried again (after 1, 2, 4, 8 and 15 seconds) instead of only being logged. (The retries of
+  a job itself are carried by the queue, which records them until it succeeds.)
 
 ### Security
 
