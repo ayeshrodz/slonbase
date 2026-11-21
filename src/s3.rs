@@ -1146,7 +1146,7 @@ mod tests {
         Empty,
         /// Says nothing about the size at all.
         Silent,
-        /// Ignores the range and answers 200 with the whole object.
+        /// Ignores the range and answers 200, with a body that never ends.
         Ignored,
     }
 
@@ -1186,9 +1186,12 @@ mod tests {
                 streamed(&DATA[..1]),
             )
                 .into_response(),
-            ("GET", true, Lengthless::Ignored) | ("GET", false, _) => {
-                streamed(DATA).into_response()
+            // (the headers, and then a body that never comes)
+            ("GET", true, Lengthless::Ignored) => {
+                Body::from_stream(futures_util::stream::pending::<Result<Bytes, std::io::Error>>())
+                    .into_response()
             }
+            ("GET", false, _) => streamed(DATA).into_response(),
             _ => axum::http::StatusCode::NOT_IMPLEMENTED.into_response(),
         }
     }
@@ -1253,7 +1256,11 @@ mod tests {
     #[tokio::test]
     async fn a_range_the_server_ignores_is_not_read_to_find_a_size() {
         let client = start_lengthless(Lengthless::Ignored).await;
-        let err = client.size("k").await.unwrap_err();
+        // (the answer's body never ends: reading it would wait for ever)
+        let err = tokio::time::timeout(std::time::Duration::from_secs(5), client.size("k"))
+            .await
+            .expect("the size check waited for the body")
+            .unwrap_err();
         assert!(
             format!("{err:#}").contains("didn't say how large"),
             "{err:#}"
