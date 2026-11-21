@@ -261,7 +261,7 @@ impl Run {
                 .execute(
                     "UPDATE _slonbase.job_runs
                      SET finished = now(), status = $2, detail = $3, meta = $4, state = NULL
-                     WHERE id = $1",
+                     WHERE id = $1 AND status = 'running'",
                     &[
                         &id,
                         &status,

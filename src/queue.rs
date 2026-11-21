@@ -25,9 +25,10 @@
 //! What a job *does* is registered by kind ([`Handlers`]); the queue knows nothing about the
 //! features that use it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
@@ -67,6 +68,24 @@ pub struct Job {
     /// Which attempt this is, from 1.
     pub attempt: i32,
     pub max_attempts: i32,
+    /// Set when this instance could no longer renew the job's lease and another instance
+    /// has taken the job over.
+    lease_lost: Arc<AtomicBool>,
+}
+
+impl Job {
+    /// Whether the lease of this run is gone: the job was taken over by another attempt, and
+    /// what this run does is no longer recorded. A long job may stop early when it is.
+    pub fn lease_lost(&self) -> bool {
+        self.lease_lost.load(Ordering::Relaxed)
+    }
+}
+
+/// A job this instance is running: which attempt holds it, and how its run learns that the
+/// lease is gone.
+struct Held {
+    attempt: i32,
+    lease_lost: Arc<AtomicBool>,
 }
 
 type Run = Pin<Box<dyn Future<Output = Result<(), Failure>> + Send>>;
@@ -98,7 +117,7 @@ pub struct Queue {
     wake: Arc<tokio::sync::Notify>,
     /// The jobs this instance is running now: their leases are renewed, and they are never
     /// taken a second time here, whatever their lease says.
-    running: Mutex<HashSet<i64>>,
+    running: Mutex<HashMap<i64, Held>>,
 }
 
 impl Queue {
@@ -127,7 +146,7 @@ impl Queue {
         self.running
             .lock()
             .expect("running jobs lock")
-            .iter()
+            .keys()
             .copied()
             .collect()
     }
@@ -252,21 +271,29 @@ async fn claim(core: &Core, instance: &str) -> Result<Option<Job>> {
             &[&instance, &core.queue.running()],
         )
         .await?;
-    if let Some(row) = &row {
-        let id: i64 = row.get(0);
+    Ok(row.map(|r| {
+        let lease_lost = Arc::new(AtomicBool::new(false));
+        let job = Job {
+            id: r.get(0),
+            kind: r.get(1),
+            reference: r.get(2),
+            payload: r.get(3),
+            attempt: r.get(4),
+            max_attempts: r.get(5),
+            lease_lost: lease_lost.clone(),
+        };
         core.queue
             .running
             .lock()
             .expect("running jobs lock")
-            .insert(id);
-    }
-    Ok(row.map(|r| Job {
-        id: r.get(0),
-        kind: r.get(1),
-        reference: r.get(2),
-        payload: r.get(3),
-        attempt: r.get(4),
-        max_attempts: r.get(5),
+            .insert(
+                job.id,
+                Held {
+                    attempt: job.attempt,
+                    lease_lost,
+                },
+            );
+        job
     }))
 }
 
@@ -354,10 +381,19 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
     loop {
         tokio::time::sleep(RENEW_EVERY).await;
         let Some(core) = core.upgrade() else { return };
-        let running = core.queue.running();
-        if running.is_empty() {
+        // (each job with the attempt that holds it: a lease is renewed for that attempt only)
+        let held: Vec<(i64, i32)> = core
+            .queue
+            .running
+            .lock()
+            .expect("running jobs lock")
+            .iter()
+            .map(|(id, held)| (*id, held.attempt))
+            .collect();
+        if held.is_empty() {
             continue;
         }
+        let (ids, attempts): (Vec<i64>, Vec<i32>) = held.iter().copied().unzip();
         let _working = core.db().working();
         let renewed = async {
             // (a reserved connection, or the API's when the running jobs hold them all)
@@ -365,20 +401,38 @@ async fn renew_leases(core: Weak<Core>, instance: String) {
                 .await
                 .map_err(|_| anyhow::anyhow!("no connection was free"))?
                 .map_err(crate::db::describe_pool_error)?;
-            client
-                .execute(
+            let rows = client
+                .query(
                     &format!(
-                        "UPDATE _slonbase.jobs
+                        "UPDATE _slonbase.jobs AS j
                          SET locked_until = now() + interval '{LEASE_SECONDS} seconds'
-                         WHERE id = ANY($1) AND locked_by = $2 AND state = 'running'"
+                         FROM unnest($1::bigint[], $2::int[]) AS held(id, attempt)
+                         WHERE j.id = held.id AND j.attempt = held.attempt
+                           AND j.locked_by = $3 AND j.state = 'running'
+                         RETURNING j.id"
                     ),
-                    &[&running, &instance],
+                    &[&ids, &attempts, &instance],
                 )
                 .await?;
-            anyhow::Ok(())
+            anyhow::Ok(rows.iter().map(|r| r.get::<_, i64>(0)).collect::<Vec<_>>())
         };
-        if let Err(err) = renewed.await {
-            tracing::warn!(error = %format!("{err:#}"), "failed to renew the leases of the running jobs");
+        match renewed.await {
+            // a job that wasn't renewed was taken over (or ended elsewhere): this run no longer
+            // holds it
+            Ok(renewed) => {
+                let running = core.queue.running.lock().expect("running jobs lock");
+                for (id, h) in running.iter() {
+                    if held.contains(&(*id, h.attempt))
+                        && !renewed.contains(id)
+                        && !h.lease_lost.swap(true, Ordering::Relaxed)
+                    {
+                        tracing::warn!(job = id, "a job's lease was taken over by another attempt");
+                    }
+                }
+            }
+            Err(err) => {
+                tracing::warn!(error = %format!("{err:#}"), "failed to renew the leases of the running jobs");
+            }
         }
     }
 }
@@ -390,45 +444,51 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Fail
             .for_jobs()
             .await
             .map_err(crate::db::describe_pool_error)?;
-        match result {
-            Ok(()) => {
-                client
-                    .execute(
-                        "UPDATE _slonbase.jobs SET state = 'done', finished = now(), error = ''
-                         WHERE id = $1 AND locked_by = $2",
-                        &[&job.id, &instance],
-                    )
-                    .await?;
-            }
-            // tried again later, waiting longer each time
-            Err(failure) if failure.retry && job.attempt < job.max_attempts => {
-                let wait = match failure.retry_in {
-                    Some(wait) => wait.as_secs().clamp(1, 3600) as i64,
-                    None => 30i64
-                        .saturating_mul(1 << (job.attempt - 1).clamp(0, 10))
-                        .min(300),
-                };
-                client
-                    .execute(
-                        &format!(
-                            "UPDATE _slonbase.jobs
+        let rows =
+            match result {
+                Ok(()) => {
+                    client
+                        .execute(
+                            "UPDATE _slonbase.jobs SET state = 'done', finished = now(), error = ''
+                         WHERE id = $1 AND locked_by = $2 AND attempt = $3",
+                            &[&job.id, &instance, &job.attempt],
+                        )
+                        .await?
+                }
+                // tried again later, waiting longer each time
+                Err(failure) if failure.retry && job.attempt < job.max_attempts => {
+                    let wait = match failure.retry_in {
+                        Some(wait) => wait.as_secs().clamp(1, 3600) as i64,
+                        None => 30i64
+                            .saturating_mul(1 << (job.attempt - 1).clamp(0, 10))
+                            .min(300),
+                    };
+                    client
+                        .execute(
+                            &format!(
+                                "UPDATE _slonbase.jobs
                              SET state = 'queued', locked_by = NULL, locked_until = NULL,
                                  error = $3, run_after = now() + interval '{wait} seconds'
-                             WHERE id = $1 AND locked_by = $2"
-                        ),
-                        &[&job.id, &instance, &short(&failure.message)],
-                    )
-                    .await?;
-            }
-            Err(failure) => {
-                client
+                             WHERE id = $1 AND locked_by = $2 AND attempt = $4"
+                            ),
+                            &[&job.id, &instance, &short(&failure.message), &job.attempt],
+                        )
+                        .await?
+                }
+                Err(failure) => client
                     .execute(
                         "UPDATE _slonbase.jobs SET state = 'failed', finished = now(), error = $3
-                         WHERE id = $1 AND locked_by = $2",
-                        &[&job.id, &instance, &short(&failure.message)],
+                         WHERE id = $1 AND locked_by = $2 AND attempt = $4",
+                        &[&job.id, &instance, &short(&failure.message), &job.attempt],
                     )
-                    .await?;
-            }
+                    .await?,
+            };
+        if rows == 0 {
+            tracing::warn!(
+                job = job.id,
+                attempt = job.attempt,
+                "a job's end was not recorded: its lease was taken over"
+            );
         }
         anyhow::Ok(())
     };
