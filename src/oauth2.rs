@@ -1607,6 +1607,86 @@ mod tests {
         }
     }
 
+    /// A local server that answers every path but `/end` with a redirect to `/end` over plain
+    /// HTTP, and counts the requests that reach `/end`.
+    async fn redirecting_server() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::Ordering;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 2048];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let reply = if head.contains(" /end ") {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 2\r\nconnection: close\r\n\r\n{}".to_string()
+                    } else {
+                        format!(
+                            "HTTP/1.1 302 Found\r\nlocation: http://{addr}/end\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        )
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        (format!("http://{addr}"), hits)
+    }
+
+    #[tokio::test]
+    async fn the_user_requests_of_a_provider_that_requires_a_signature_do_not_leave_https() {
+        use std::sync::atomic::Ordering;
+        let (base, hits) = redirecting_server().await;
+        let token = Token {
+            id_token: String::new(),
+            email: String::new(),
+            access_token: "at".into(),
+            refresh_token: String::new(),
+            expiry: String::new(),
+        };
+        // a plain GET, a GET with extra headers, a GraphQL POST, and one with a separate
+        // email lookup
+        for name in [
+            "github",
+            "twitch",
+            "trakt",
+            "notion",
+            "linear",
+            "monday",
+            "bitbucket",
+        ] {
+            for required in [true, false] {
+                hits.store(0, Ordering::SeqCst);
+                let provider = Provider::new(&OAuth2Provider {
+                    name: name.into(),
+                    client_id: "client-1".into(),
+                    token_url: "https://id.example.com/token".into(),
+                    user_info_url: format!("{base}/me"),
+                    extra: json!({ "requireSignature": required })
+                        .as_object()
+                        .unwrap()
+                        .clone(),
+                    ..Default::default()
+                })
+                .unwrap();
+                let _ = provider.user(&token).await;
+                if required {
+                    assert_eq!(hits.load(Ordering::SeqCst), 0, "{name} followed a redirect");
+                } else {
+                    assert!(hits.load(Ordering::SeqCst) > 0, "{name} without it follows");
+                }
+            }
+        }
+    }
+
     const NOW: i64 = 1_800_000_000;
 
     #[tokio::test]
