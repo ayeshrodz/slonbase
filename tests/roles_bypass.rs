@@ -1091,3 +1091,60 @@ async fn a_settings_change_reads_again_after_giving_back_its_connection() {
     assert_eq!(core.settings().meta.app_name, "committed");
     tdb.drop_db().await;
 }
+
+/// A settings change that finds the cache replaced meanwhile, and cannot read the settings again,
+/// does not publish its own copy, which may be older: a demotion that reached the cache stays.
+#[tokio::test]
+async fn a_settings_change_does_not_undo_a_demotion_when_it_cannot_read_again() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-demoted@example.com", "owner").await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let second_id = other["id"].as_str().unwrap().to_string();
+    let core = app.core().unwrap();
+
+    // a change takes note of the generation and builds its copy while the second is an owner
+    let generation = core.settings_generation();
+    let owners_copy = (*core.settings()).clone();
+    // and the demotion reaches the cache before it publishes
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        &format!("/api/team/members/{second_id}"),
+        Some(json!({ "role": "admin" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(
+        slonbase::roles::role_of(&core, &second_id),
+        slonbase::roles::Role::Admin
+    );
+
+    // the settings can't be read
+    admin_exec(
+        &tdb.url,
+        "ALTER TABLE _slonbase.params RENAME TO params_away",
+    )
+    .await;
+    let held = core.db().get().await.unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        slonbase::settings::publish_committed(&core, generation, &owners_copy, held),
+    )
+    .await
+    .expect("it doesn't wait for the settings");
+    assert_eq!(
+        slonbase::roles::role_of(&core, &second_id),
+        slonbase::roles::Role::Admin,
+        "the older copy did not give the owner role back"
+    );
+    admin_exec(
+        &tdb.url,
+        "ALTER TABLE _slonbase.params_away RENAME TO params",
+    )
+    .await;
+    tdb.drop_db().await;
+}

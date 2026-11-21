@@ -1370,8 +1370,9 @@ where
 
 /// Publishes settings that were just committed, unless the cache was replaced since
 /// `generation`: a reload that did may already hold a later change from another instance, which
-/// `next` would undo, so the settings are read again instead. If they can't be, this change is
-/// still better published than left out (the cache would keep the roles from before it).
+/// `next` would undo, so the settings are read again instead. If they can't be, `next` is not
+/// published either, since it may be the older one: the cache keeps what it has, and the
+/// reading is retried in the background.
 ///
 /// `held` is the connection the change was written on, which goes back first: with a pool of
 /// one the reload needs it.
@@ -1386,7 +1387,20 @@ pub async fn publish_committed(
     if !core.set_settings_if(generation, next.clone())
         && !crate::realtime::reload_settings(core).await
     {
-        core.set_settings(next.clone());
+        // `next` may be older than what the cache now holds (a later change from another
+        // instance, a demotion say), so it is not published; the settings are read again until
+        // they can be, and the cache keeps what it has until then
+        let core = core.clone();
+        tokio::spawn(async move {
+            let mut wait = std::time::Duration::from_secs(1);
+            for _ in 0..12 {
+                tokio::time::sleep(wait).await;
+                if crate::realtime::reload_settings(&core).await {
+                    return;
+                }
+                wait = (wait * 2).min(std::time::Duration::from_secs(30));
+            }
+        });
     }
 }
 
