@@ -632,7 +632,45 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
     let (_dir2, config2) = temp_config();
     let second_app = new_app(&config2, Some(tdb.url.clone()));
     second_app.bootstrap().await.unwrap();
+    two_instances_delete_each_other(&tdb, &first_app, &first, &second_app).await;
+    tdb.drop_db().await;
+}
 
+/// The same with the smallest pools (a connection or two each, which is supported): the lock
+/// is on the transaction that deletes, so it needs no connection of its own.
+#[tokio::test]
+async fn owners_deleting_each_other_through_small_pools_leave_one() {
+    for (first_pool, second_pool) in [(1, 2), (2, 1), (1, 1)] {
+        let Some(tdb) = TestDb::create().await else {
+            return;
+        };
+        let (first_app, first, _dir) = ready_app_with_file(
+            &tdb,
+            &format!("[database]\nmax_connections = {first_pool}\n"),
+        )
+        .await;
+        let (_dir2, config2) = temp_config();
+        let second_app = new_app_configured(
+            &config2,
+            Some(tdb.url.clone()),
+            slonbase::Extensions::default(),
+            |o| o.max_connections = Some(second_pool),
+        );
+        second_app.bootstrap().await.unwrap();
+        two_instances_delete_each_other(&tdb, &first_app, &first, &second_app).await;
+        tdb.drop_db().await;
+    }
+}
+
+/// Two owners, one on each instance, delete each other at the same moment.
+async fn two_instances_delete_each_other(
+    tdb: &TestDb,
+    first_app: &Arc<App>,
+    first: &str,
+    second_app: &Arc<App>,
+) {
+    let (first_app, first) = (first_app.clone(), first.to_string());
+    let second_app = second_app.clone();
     let second = member(&first_app, &first, "second-owner@example.com", "owner").await;
     // (a viewer, who remains whatever happens: the owners are what must not run out)
     member(&first_app, &first, "viewer@example.com", "viewer").await;
@@ -693,7 +731,6 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
             .contains("last owner"),
         "the owner check refused it: {refused} {body}"
     );
-    tdb.drop_db().await;
 }
 
 /// A batch deleting every owner is refused like the same deletes one at a time, and so is
@@ -860,5 +897,254 @@ async fn a_viewer_does_not_see_the_infrastructure_in_the_settings() {
     assert_eq!(seen["trustedProxy"]["peers"], json!([]));
     assert_eq!(seen["trustedProxy"]["headers"], json!(["X-Forwarded-For"]));
     assert_eq!(seen["smtp"]["password"], "", "secrets are never returned");
+    tdb.drop_db().await;
+}
+
+/// A batch that deletes a superuser waits for the owners lock without its own timeout running:
+/// the wait is the lock's (up to 30 seconds), not the batch's (a second here).
+#[tokio::test]
+async fn a_batch_waits_for_the_owners_lock_outside_its_own_timeout() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let viewer = member(&app, &first, "viewer-batch@example.com", "viewer").await;
+    let (_, other) = as_(&app, &viewer, "GET", "/api/team/me", None).await;
+    let viewer_id = other["id"].as_str().unwrap().to_string();
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true, "timeout": 1 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let (other_instance, handle) = another_instance_holds_the_owners_lock(&tdb).await;
+    let task = tokio::spawn({
+        let (app, first) = (app.clone(), first.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "POST",
+                "/api/batch",
+                Some(json!({ "requests": [{
+                    "method": "DELETE",
+                    "url": format!("/api/collections/_superusers/records/{viewer_id}"),
+                }] })),
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+    assert!(!task.is_finished(), "it went on without the lock");
+    other_instance.batch_execute("COMMIT").await.unwrap();
+    let (status, res) = task.await.unwrap();
+    handle.abort();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the batch's timeout didn't run: {res}"
+    );
+    tdb.drop_db().await;
+}
+
+/// Role changes made at the same moment all show in the roles this instance goes by.
+#[tokio::test]
+async fn role_changes_made_at_once_all_take_effect() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let mut ids = Vec::new();
+    for n in 0..3 {
+        let token = member(&app, &first, &format!("owner{n}@example.com"), "owner").await;
+        let (_, me) = as_(&app, &token, "GET", "/api/team/me", None).await;
+        ids.push(me["id"].as_str().unwrap().to_string());
+    }
+    let demote = |id: String| {
+        let (app, first) = (app.clone(), first.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "PATCH",
+                &format!("/api/team/members/{id}"),
+                Some(json!({ "role": "admin" })),
+            )
+            .await
+            .0
+        }
+    };
+    let statuses = tokio::join!(
+        demote(ids[0].clone()),
+        demote(ids[1].clone()),
+        demote(ids[2].clone())
+    );
+    assert_eq!(
+        [statuses.0, statuses.1, statuses.2],
+        [StatusCode::OK; 3],
+        "all three changes go through"
+    );
+    assert_eq!(
+        roles_of(&app, &first).await,
+        ["admin", "admin", "admin", "owner"]
+    );
+    tdb.drop_db().await;
+}
+
+/// Settings changes made at the same moment on two instances sharing a database leave both with
+/// the same settings, whatever order they commit and publish in.
+#[tokio::test]
+async fn settings_changed_on_two_instances_at_once_agree_afterwards() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    // (one instance has a pool of one connection: a change that must read the settings again
+    // can't be holding its connection while it does)
+    let (first_app, first, _dir) =
+        ready_app_with_file(&tdb, "[database]\nmax_connections = 1\n").await;
+    let (_dir2, config2) = temp_config();
+    let second_app = new_app(&config2, Some(tdb.url.clone()));
+    second_app.bootstrap().await.unwrap();
+
+    let mut tasks = Vec::new();
+    for i in 0..12 {
+        let (app, token) = if i % 2 == 0 {
+            (first_app.clone(), first.clone())
+        } else {
+            (second_app.clone(), first.clone())
+        };
+        tasks.push(tokio::spawn(async move {
+            as_(
+                &app,
+                &token,
+                "PATCH",
+                "/api/settings",
+                Some(json!({ "meta": { "appName": format!("name {i}") } })),
+            )
+            .await
+            .0
+        }));
+    }
+    for task in tasks {
+        assert_eq!(task.await.unwrap(), StatusCode::OK);
+    }
+    let name = |app: Arc<App>, token: String| async move {
+        let (_, res) = as_(&app, &token, "GET", "/api/settings", None).await;
+        res["meta"]["appName"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let mut agreed = false;
+    for _ in 0..100 {
+        let (a, b) = (
+            name(first_app.clone(), first.clone()).await,
+            name(second_app.clone(), first.clone()).await,
+        );
+        if a == b && a.starts_with("name ") {
+            agreed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(agreed, "both instances end with the same settings");
+    tdb.drop_db().await;
+}
+
+/// A settings change that finds the cache replaced meanwhile reads the settings again, and does
+/// so after its connection has gone back: with a pool of one it would otherwise wait for itself,
+/// fail, and publish a copy that may be older than what the other change left.
+#[tokio::test]
+async fn a_settings_change_reads_again_after_giving_back_its_connection() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app_with_file(&tdb, "[database]\nmax_connections = 1\n").await;
+    let core = app.core().unwrap();
+    // the cache is replaced after a change took note of its generation
+    let generation = core.settings_generation();
+    let (status, res) = as_(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "meta": { "appName": "committed" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_ne!(core.settings_generation(), generation);
+
+    // the one connection is the change's own, as when it was written
+    let held = core.db().get().await.unwrap();
+    let mut stale = (*core.settings()).clone();
+    stale.meta.app_name = "stale".into();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        slonbase::settings::publish_committed(&core, generation, &stale, held),
+    )
+    .await
+    .expect("the connection went back, and the settings were read again");
+    assert_eq!(core.settings().meta.app_name, "committed");
+    tdb.drop_db().await;
+}
+
+/// A settings change that finds the cache replaced meanwhile, and cannot read the settings again,
+/// does not publish its own copy, which may be older: a demotion that reached the cache stays.
+#[tokio::test]
+async fn a_settings_change_does_not_undo_a_demotion_when_it_cannot_read_again() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-demoted@example.com", "owner").await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let second_id = other["id"].as_str().unwrap().to_string();
+    let core = app.core().unwrap();
+
+    // a change takes note of the generation and builds its copy while the second is an owner
+    let generation = core.settings_generation();
+    let owners_copy = (*core.settings()).clone();
+    // and the demotion reaches the cache before it publishes
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        &format!("/api/team/members/{second_id}"),
+        Some(json!({ "role": "admin" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(
+        slonbase::roles::role_of(&core, &second_id),
+        slonbase::roles::Role::Admin
+    );
+
+    // the settings can't be read
+    admin_exec(
+        &tdb.url,
+        "ALTER TABLE _slonbase.params RENAME TO params_away",
+    )
+    .await;
+    let held = core.db().get().await.unwrap();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        slonbase::settings::publish_committed(&core, generation, &owners_copy, held),
+    )
+    .await
+    .expect("it doesn't wait for the settings");
+    assert_eq!(
+        slonbase::roles::role_of(&core, &second_id),
+        slonbase::roles::Role::Admin,
+        "the older copy did not give the owner role back"
+    );
+    admin_exec(
+        &tdb.url,
+        "ALTER TABLE _slonbase.params_away RENAME TO params",
+    )
+    .await;
     tdb.drop_db().await;
 }

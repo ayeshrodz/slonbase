@@ -204,6 +204,8 @@ pub struct Hub {
     /// The self-test of the notification path (see [`check_sync`]): the last ping sent and the
     /// last one received back, and the verdict.
     ping_sent: std::sync::atomic::AtomicU64,
+    /// The task that reads the settings again until it can (see [`keep_reloading_settings`]).
+    settings_retry: Retry,
     ping_seen: std::sync::atomic::AtomicU64,
     sync: std::sync::atomic::AtomicU8,
 }
@@ -232,6 +234,7 @@ impl Default for Hub {
             announce: Default::default(),
             stop_listening: Default::default(),
             ping_sent: Default::default(),
+            settings_retry: Default::default(),
             ping_seen: Default::default(),
             sync: Default::default(),
         }
@@ -1441,7 +1444,10 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-async fn reload_settings(core: &Arc<Core>) {
+/// Reads the settings again from the database. Returns whether what was read was published,
+/// which it is not when the read failed or the cache was replaced meanwhile every time it was
+/// tried (a caller that needs the cache fresh tries again).
+pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
     // as for collections: don't undo a newer change made here
     for _ in 0..5 {
         let generation = core.settings_generation();
@@ -1453,14 +1459,129 @@ async fn reload_settings(core: &Arc<Core>) {
             Ok(settings) => {
                 if core.set_settings_if(generation, settings) {
                     crate::settings::reloaded(core);
-                    return;
+                    return true;
                 }
             }
             Err(err) => {
                 tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-                return;
+                return false;
             }
         }
+    }
+    // (replaced five times over while this was reading: what was read was not published)
+    false
+}
+
+/// One task at a time reads something again until a read is published, and a request that
+/// arrives while it is reading makes it read once more afterwards: what it was reading may
+/// have been read before the change the request is about.
+#[derive(Default)]
+pub(crate) struct Retry {
+    running: std::sync::atomic::AtomicBool,
+    pending: std::sync::atomic::AtomicBool,
+}
+
+impl Retry {
+    /// Notes that a read is owed. Returns whether the caller must start the task (none is
+    /// running; a running one will see the request).
+    fn request(&self) -> bool {
+        use std::sync::atomic::Ordering::SeqCst;
+        self.pending.store(true, SeqCst);
+        !self.running.swap(true, SeqCst)
+    }
+
+    /// The task: reads after `first_wait` (doubling to half a minute while reads fail) until
+    /// one is published and no request came in meanwhile.
+    async fn run<F, Fut>(&self, mut read: F, first_wait: Duration)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = bool>,
+    {
+        use std::sync::atomic::Ordering::SeqCst;
+        let mut wait = first_wait;
+        loop {
+            tokio::time::sleep(wait).await;
+            // (what is asked for before this read is covered by it)
+            self.pending.store(false, SeqCst);
+            if read().await {
+                wait = first_wait;
+                self.running.store(false, SeqCst);
+                // a request that came in during the read, or between the check and the store
+                if self.pending.load(SeqCst) && !self.running.swap(true, SeqCst) {
+                    continue;
+                }
+                return;
+            }
+            wait = (wait * 2).min(Duration::from_secs(30));
+        }
+    }
+}
+
+/// Reads the settings again, and goes on trying (a second later, doubling to half a minute)
+/// until one read is published: for the cases where a change or a notification could not be
+/// applied, and the cache must not stay without it once the database can be reached. One task
+/// does this at a time, and a request that arrives while it reads makes it read again.
+pub(crate) fn keep_reloading_settings(core: &Arc<Core>) {
+    if core.realtime.settings_retry.request() {
+        let core = core.clone();
+        tokio::spawn(async move {
+            core.realtime
+                .settings_retry
+                .run(|| reload_settings(&core), Duration::from_secs(1))
+                .await;
+        });
+    }
+}
+
+#[cfg(test)]
+mod retry_tests {
+    use super::Retry;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    #[tokio::test]
+    async fn a_request_during_a_read_makes_it_read_again() {
+        let retry = Arc::new(Retry::default());
+        let reads = Arc::new(AtomicUsize::new(0));
+        assert!(retry.request(), "the first request starts the task");
+        let read = {
+            let (retry, reads) = (retry.clone(), reads.clone());
+            move || {
+                let (retry, reads) = (retry.clone(), reads.clone());
+                async move {
+                    // the request arrives while the first read is going on
+                    if reads.fetch_add(1, Ordering::SeqCst) == 0 {
+                        assert!(!retry.request(), "a task is running: it will see this");
+                    }
+                    true
+                }
+            }
+        };
+        retry.run(read, Duration::from_millis(1)).await;
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "read again after the request"
+        );
+        // and the task is done: a new request starts one
+        assert!(retry.request());
+    }
+
+    #[tokio::test]
+    async fn failed_reads_are_tried_again_until_one_works() {
+        let retry = Retry::default();
+        assert!(retry.request());
+        let reads = Arc::new(AtomicUsize::new(0));
+        let read = {
+            let reads = reads.clone();
+            move || {
+                let reads = reads.clone();
+                async move { reads.fetch_add(1, Ordering::SeqCst) >= 2 }
+            }
+        };
+        retry.run(read, Duration::from_millis(1)).await;
+        assert_eq!(reads.load(Ordering::SeqCst), 3);
     }
 }
 
@@ -1567,7 +1688,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             if let (Some(_), Some(core)) = (disconnected_at.take(), weak.upgrade()) {
                 tracing::info!("realtime listener reconnected, catching up");
                 reload_collections(&core).await;
-                reload_settings(&core).await;
+                if !reload_settings(&core).await {
+                    keep_reloading_settings(&core);
+                }
                 // (missed events: the poller reads them by snapshot, whatever happened)
                 core.realtime.poll.notify_one();
                 core.realtime.dispatch.notify_one();
@@ -1592,7 +1715,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                         if payload == "collections" {
                                             reload_collections(&core).await;
                                         } else if payload == "settings" {
-                                            reload_settings(&core).await;
+                                            if !reload_settings(&core).await {
+                                                keep_reloading_settings(&core);
+                                            }
                                         } else if payload == "restored" {
                                             // another instance restored a backup
                                             if let Err(err) = core.reload_after_restore().await {

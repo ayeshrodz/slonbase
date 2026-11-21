@@ -371,40 +371,19 @@ pub async fn set_role(
         .and_then(Value::as_str)
         .and_then(Role::parse)
         .ok_or_else(|| ApiError::bad_request("role must be owner, admin, developer or viewer."))?;
-    // not while a superuser is being deleted: the owners counted below must be the ones left
-    // (on this instance and on the others)
-    let one_at_a_time = lock_owners(&core).await?;
-    // the change runs to its end, with the lock, even when the client goes away while the
-    // commit is on its way
-    tokio::spawn(async move {
-        let _one_at_a_time = one_at_a_time;
-        change_role(core, id, role).await
-    })
-    .await
-    .map_err(|_| ApiError::internal(anyhow::anyhow!("the role change stopped unexpectedly")))?
+    // the change runs to its end even when the client goes away while the commit is on its way
+    tokio::spawn(async move { change_role(core, id, role).await })
+        .await
+        .map_err(|_| ApiError::internal(anyhow::anyhow!("the role change stopped unexpectedly")))?
 }
 
-/// The role change of [`set_role`], with the owners lock held.
+/// The role change of [`set_role`]. The owners are counted on the transaction that writes the
+/// change, with the owners lock (see [`lock_owners_in`]): the ones counted are the ones left.
 async fn change_role(core: Arc<Core>, id: String, role: Role) -> Result<Json<Value>, ApiError> {
-    // (the connection goes back before the settings are written: no more than one at a time)
-    let ids: Vec<String> = {
-        let client = core
-            .db()
-            .get()
-            .await
-            .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-        client
-            .query("SELECT id FROM slonbase._superusers", &[])
-            .await
-            .map_err(|e| ApiError::internal(e.into()))?
-            .iter()
-            .map(|r| r.get(0))
-            .collect()
-    };
-    if !ids.contains(&id) {
-        return Err(ApiError::not_found());
-    }
-    crate::settings::modify(&core, |current| {
+    crate::settings::modify_owners(&core, |current, ids| {
+        if !ids.contains(&id) {
+            return Err(ApiError::not_found());
+        }
         let mut settings = current.clone();
         if role == Role::Owner {
             settings.superuser_roles.remove(&id);
@@ -432,37 +411,8 @@ async fn change_role(core: Arc<Core>, id: String, role: Role) -> Result<Json<Val
 /// The database-wide lock for changes that could leave no owner (`pg_advisory_xact_lock`).
 pub const OWNERS_LOCK_KEY: i64 = crate::migrations::SCHEMA_LOCK_KEY + 4;
 
-/// How long a change to the owners waits for another instance's.
+/// How long a change to the owners waits for another one's.
 const OWNERS_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Held from checking that an owner remains until the delete (or the role change) is done.
-/// It is this instance's lock (`Core::superuser_deletes`) and the database-wide one, so that
-/// two owners deleting each other at the same moment can't both pass the check even when the
-/// deletes reach different instances. The database-wide lock is held by a transaction kept
-/// open on one connection, so it is released with the transaction, and works through a pooler
-/// in transaction mode (a session lock would be taken and released on different server
-/// connections there).
-///
-/// A pool too small to spare a connection for it (see [`OWNERS_LOCK_MIN_POOL`]) has this
-/// instance's lock only, as before.
-pub struct OwnerLock {
-    _local: tokio::sync::OwnedMutexGuard<()>,
-    client: Option<deadpool_postgres::Client>,
-}
-
-impl Drop for OwnerLock {
-    fn drop(&mut self) {
-        // the connection, with its open transaction, must not go back to the pool: closed, the
-        // transaction is rolled back and the lock is released
-        if let Some(client) = self.client.take() {
-            let _ = deadpool_postgres::Object::take(client);
-        }
-    }
-}
-
-/// The API pool size from which the database-wide lock is taken: it holds a connection for as
-/// long as the change takes, and the change needs one or two more.
-const OWNERS_LOCK_MIN_POOL: usize = 3;
 
 fn owners_busy() -> ApiError {
     ApiError::new(
@@ -471,72 +421,43 @@ fn owners_busy() -> ApiError {
     )
 }
 
-/// Waits for the right to delete or demote an owner (see [`OwnerLock`]), at most
-/// [`OWNERS_LOCK_WAIT`] in all: for this instance's lock, a connection and the database's lock.
-pub async fn lock_owners(core: &Core) -> Result<OwnerLock, ApiError> {
-    match tokio::time::timeout(OWNERS_LOCK_WAIT, acquire_owner_lock(core)).await {
-        Ok(lock) => lock,
-        // (what was acquired is dropped with the future: the connection is closed)
+/// Takes the right to delete or demote an owner, on `tx` (which must be a transaction): the
+/// lock is the transaction's, so it is released with it, on commit or rollback, and cannot
+/// outlive or be lost before the change it guards, which is on the same connection. It also
+/// holds across instances sharing the database, and through a pooler in transaction mode. It
+/// waits for another change to the owners at most [`OWNERS_LOCK_WAIT`], then the change is
+/// refused with a conflict.
+pub async fn lock_owners_in(tx: &impl deadpool_postgres::GenericClient) -> Result<(), ApiError> {
+    let db_error = |e: tokio_postgres::Error| ApiError::internal(e.into());
+    let wait = async {
+        loop {
+            let locked: bool = tx
+                .query_one("SELECT pg_try_advisory_xact_lock($1)", &[&OWNERS_LOCK_KEY])
+                .await
+                .map_err(db_error)?
+                .get(0);
+            if locked {
+                return Ok(());
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
+    };
+    match tokio::time::timeout(OWNERS_LOCK_WAIT, wait).await {
+        Ok(result) => result,
         Err(_) => Err(owners_busy()),
     }
 }
 
-async fn acquire_owner_lock(core: &Core) -> Result<OwnerLock, ApiError> {
-    let local = core.superuser_deletes.clone().lock_owned().await;
-    let api_pool = core
-        .db()
-        .status()
-        .max_size
-        .saturating_sub(core.db().reserved());
-    if api_pool < OWNERS_LOCK_MIN_POOL {
-        return Ok(OwnerLock {
-            _local: local,
-            client: None,
-        });
-    }
-    let client = core
-        .db()
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    // (in the guard from here on, so every way out closes the connection)
-    let lock = OwnerLock {
-        _local: local,
-        client: Some(client),
-    };
-    let db_error = |e: tokio_postgres::Error| ApiError::internal(e.into());
-    let client = lock.client.as_ref().expect("the connection");
-    client.batch_execute("BEGIN").await.map_err(db_error)?;
-    loop {
-        let locked: bool = client
-            .query_one("SELECT pg_try_advisory_xact_lock($1)", &[&OWNERS_LOCK_KEY])
-            .await
-            .map_err(db_error)?
-            .get(0);
-        if locked {
-            return Ok(lock);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-}
-
-/// Refuses deleting the last owner (called by the guard for `DELETE` of a superuser).
-pub async fn check_delete(core: &Core, id: &str) -> Result<(), ApiError> {
-    let client = core
-        .db()
-        .get()
-        .await
-        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
-    check_delete_in(core, &client, id).await
-}
-
-/// The same check on `client`, a connection or a transaction: a batch deleting superusers
-/// asks it in its own transaction, which sees the deletes that came before in the batch.
+/// Refuses deleting the last owner, and takes the owners lock first (see [`lock_owners_in`]):
+/// `tx` is the transaction that deletes the superuser, so the check and the delete are one
+/// step, and it sees every delete or role change that committed before the lock was had.
 pub async fn check_delete_in(
     core: &Core,
-    client: &impl deadpool_postgres::GenericClient,
+    tx: &impl deadpool_postgres::GenericClient,
     id: &str,
 ) -> Result<(), ApiError> {
+    lock_owners_in(tx).await?;
+    let client = tx;
     // the roles as stored, not as this instance last saw them: another instance may have
     // changed one a moment ago, and its change reaches this one's copy a little later
     let roles = crate::settings::Settings::load(client, core.secrets_key())

@@ -820,6 +820,12 @@ pub(crate) async fn delete_in(
     id: &str,
     effects: &mut FileEffects,
 ) -> Result<(), ApiError> {
+    // there's always an owner: the lock on the owners, the check that another remains and the
+    // delete are on one transaction, so two owners deleting each other, here or on another
+    // instance, can't both pass
+    if c.id == crate::collections::model::SUPERUSERS_COLLECTION_ID {
+        crate::roles::check_delete_in(ctx.core, tx, id).await?;
+    }
     let result = delete_checked(ctx, tx, c, id, effects).await;
     if let Err(err) = &result {
         if reported(err)

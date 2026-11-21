@@ -28,9 +28,6 @@ pub struct Core {
     /// of its job history and queue: each installation counts its own, so none is skipped
     /// because another one's ticks fall on the hour.
     pub(crate) maintenance_ticks: std::sync::atomic::AtomicU32,
-    /// Held while a superuser is deleted, from checking that an owner remains until the delete
-    /// is done, so two deletes can't each leave the other owner behind.
-    pub(crate) superuser_deletes: Arc<tokio::sync::Mutex<()>>,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
     /// The others wait here rather than for a connection (see `http_policy`).
     pub(crate) heavy_writes: tokio::sync::Semaphore,
@@ -38,6 +35,10 @@ pub struct Core {
     registry: RwLock<(u64, Arc<Registry>)>,
     auth_secret: RwLock<Arc<Vec<u8>>>,
     settings: RwLock<Arc<Settings>>,
+    /// Held by a settings change from its transaction until the new settings are published, so
+    /// that two changes on this instance publish in the order they committed (a role change
+    /// published late would give a demoted owner their access back until the next change).
+    pub(crate) settings_changes: tokio::sync::Mutex<()>,
     /// Bumped by every settings replacement (held while replacing them).
     settings_generation: std::sync::Mutex<u64>,
     /// What the last check of the stored templates and automations found (see
@@ -248,11 +249,11 @@ impl Core {
             pool,
             queue: crate::queue::Queue::new(handlers),
             maintenance_ticks: Default::default(),
-            superuser_deletes: Default::default(),
             heavy_writes,
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
+            settings_changes: Default::default(),
             settings_generation: std::sync::Mutex::new(0),
             stored_check: Default::default(),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
@@ -411,7 +412,8 @@ impl Core {
     }
 
     /// The settings' generation, to pass to [`Core::set_settings_if`].
-    pub(crate) fn settings_generation(&self) -> u64 {
+    #[doc(hidden)]
+    pub fn settings_generation(&self) -> u64 {
         *self
             .settings_generation
             .lock()
