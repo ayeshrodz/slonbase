@@ -1455,10 +1455,9 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
         tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
         false
     };
-    let epoch = core.settings_epoch();
     match load().await {
         Ok(settings) => {
-            if core.publish_settings(epoch, settings) {
+            if core.publish_settings(settings) {
                 crate::settings::reloaded(core);
                 return true;
             }
@@ -1470,7 +1469,6 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
             // replaced it since the read started (otherwise the answer may be a change that
             // was published meanwhile, and the read is tried again).
             let generation = core.settings_generation();
-            let epoch = core.settings_epoch();
             match load().await {
                 Ok(fresh) if fresh.revision < core.settings().revision => {
                     let (stored, held) = (fresh.revision, core.settings().revision);
@@ -1487,7 +1485,7 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
                     }
                 }
                 Ok(fresh) => {
-                    if core.publish_settings(epoch, fresh) {
+                    if core.publish_settings(fresh) {
                         crate::settings::reloaded(core);
                     }
                     true
@@ -1801,6 +1799,12 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                         // idle connections are let go (many projects, many instances: each pool
                                         // would otherwise keep what it once needed)
                                         core.db().release_idle(IDLE_CONNECTION);
+                                        // the settings are read again: a change whose notification
+                                        // was lost, or a database restored from a backup directly
+                                        // (without this instance restoring it), is picked up
+                                        if !reload_settings(&core).await {
+                                            keep_reloading_settings(&core);
+                                        }
                                         crate::jobs::prune_hourly(&core).await;
                                         let max_days = core.settings().logs.max_days;
                                         if max_days > 0 {

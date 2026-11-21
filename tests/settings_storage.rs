@@ -321,7 +321,7 @@ async fn a_database_that_went_back_to_an_earlier_state_is_followed() {
 /// revision may be higher than the restored one, and it must not replace the restored settings
 /// when it arrives late.
 #[tokio::test]
-async fn a_snapshot_read_before_a_restore_does_not_replace_the_restored_settings() {
+async fn a_snapshot_read_before_a_restore_is_corrected_by_the_next_refresh() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -340,7 +340,6 @@ async fn a_snapshot_read_before_a_restore_does_not_replace_the_restored_settings
     let core = app.core().unwrap();
 
     // a reload reads the settings (revision 3 or more) and is slow to publish them
-    let epoch = core.settings_epoch();
     let late = slonbase::settings::Settings::load(
         &tdb.pool().get().await.unwrap(),
         core.secrets_key_for_tests(),
@@ -363,10 +362,11 @@ async fn a_snapshot_read_before_a_restore_does_not_replace_the_restored_settings
     assert_eq!(core.settings().meta.app_name, "restored");
     assert_eq!(core.settings().revision, 1);
 
-    assert!(
-        !core.publish_settings(epoch, late),
-        "a snapshot from before the restore is not published, though its revision is higher"
-    );
+    // the snapshot read before the restore can still be published (its revision is higher)
+    core.publish_settings(late);
+    // and the next periodic read takes the database's state back
+    assert!(core.refresh_settings().await);
     assert_eq!(core.settings().meta.app_name, "restored");
+    assert_eq!(core.settings().revision, 1);
     tdb.drop_db().await;
 }

@@ -41,10 +41,6 @@ pub struct Core {
     pub(crate) settings_changes: tokio::sync::Mutex<()>,
     /// Bumped by every settings replacement (held while replacing them).
     settings_generation: std::sync::Mutex<u64>,
-    /// Goes up when the settings are replaced by the database's state outright (a restored
-    /// backup, a database that went back): a snapshot read before that comes from another
-    /// history, and its revision says nothing about it.
-    settings_epoch: std::sync::atomic::AtomicU64,
     /// What the last check of the stored templates and automations found (see
     /// [`crate::warnings::stored`]).
     pub(crate) stored_check: std::sync::Mutex<crate::warnings::StoredCheck>,
@@ -259,7 +255,6 @@ impl Core {
             settings: RwLock::new(Arc::new(settings)),
             settings_changes: Default::default(),
             settings_generation: std::sync::Mutex::new(0),
-            settings_epoch: Default::default(),
             stored_check: Default::default(),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
@@ -420,8 +415,6 @@ impl Core {
             .expect("settings generation");
         self.replace_settings(settings);
         *generation += 1;
-        self.settings_epoch
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     }
 
     /// [`Core::set_settings`], unless the settings were replaced since `generation`.
@@ -435,17 +428,13 @@ impl Core {
         }
         self.replace_settings(settings);
         *current += 1;
-        self.settings_epoch
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         true
     }
 
-    /// Which database history the settings come from (see the field): to be taken before a
-    /// read, and given to [`Core::publish_settings`].
+    /// Reads the settings again from the database, as the instance does once a minute.
     #[doc(hidden)]
-    pub fn settings_epoch(&self) -> u64 {
-        self.settings_epoch
-            .load(std::sync::atomic::Ordering::SeqCst)
+    pub async fn refresh_settings(self: &Arc<Self>) -> bool {
+        crate::realtime::reload_settings(self).await
     }
 
     /// The settings' generation: it goes up with every replacement of the settings.
@@ -459,18 +448,16 @@ impl Core {
 
     /// Publishes settings that were read from the database or just committed to it, unless
     /// the cache already holds a newer revision of them (a snapshot read before a change
-    /// committed can reach here after it, and must not undo it) or they were read before the
-    /// settings were replaced outright (`epoch` is [`Core::settings_epoch`] from before the
-    /// read). Returns whether they were published.
+    /// committed can reach here after it, and must not undo it). Returns whether they were
+    /// published. (A snapshot read before the database was restored can pass this check; the
+    /// periodic reload corrects that.)
     #[doc(hidden)]
-    pub fn publish_settings(&self, epoch: u64, settings: Settings) -> bool {
+    pub fn publish_settings(&self, settings: Settings) -> bool {
         let mut generation = self
             .settings_generation
             .lock()
             .expect("settings generation");
-        // (a snapshot read before the settings were replaced by the database's state outright
-        // is from another history: its revision is not comparable)
-        if epoch != self.settings_epoch() || settings.revision < self.settings().revision {
+        if settings.revision < self.settings().revision {
             return false;
         }
         self.replace_settings(settings);

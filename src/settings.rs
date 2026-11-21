@@ -1349,8 +1349,6 @@ where
 {
     // (before a connection is taken, and until the new settings are published)
     let _publishing_in_order = core.settings_changes.lock().await;
-    // (taken before anything is read: a restore after this makes what is read of another history)
-    let epoch = core.settings_epoch();
     let mut client = core
         .db()
         .get()
@@ -1403,7 +1401,7 @@ where
     // there first has read this change or a later one; when the cache holds a newer one than
     // a change just committed has, the settings are read again, which also notices a database
     // that went back to an earlier state)
-    if !core.publish_settings(epoch, next.clone()) {
+    if !core.publish_settings(next.clone()) {
         crate::realtime::keep_reloading_settings(core);
     }
     if watching_changed {
