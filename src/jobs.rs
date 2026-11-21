@@ -172,13 +172,15 @@ pub(crate) async fn start_queued(
 /// the attempt that makes it still holds the job (a run whose lease another attempt took over
 /// doesn't change what that attempt resumed). `first` is the number of the parameter with the
 /// queued job's id, the one after it is the attempt. Outside a worker the id is -1 and nothing
-/// is fenced.
+/// is fenced. The job's row is share-locked for the write, so another attempt can't take the job
+/// over between the check and the write.
 fn fence(first: usize) -> String {
     let (job, attempt) = (format!("${first}"), format!("${}", first + 1));
     format!(
         "(queue_job IS DISTINCT FROM {job} OR EXISTS (
              SELECT 1 FROM _slonbase.jobs q
-             WHERE q.id = {job} AND q.attempt = {attempt} AND q.state = 'running'))"
+             WHERE q.id = {job} AND q.attempt = {attempt} AND q.state = 'running'
+             FOR SHARE OF q))"
     )
 }
 
@@ -359,12 +361,17 @@ pub async fn close_for_queue_job(core: &Core, queue_job: i64, detail: &str) -> a
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
+    // (fenced like the run's own writes: not once another attempt holds the job)
+    let held = crate::queue::held();
     client
         .execute(
-            "UPDATE _slonbase.job_runs SET status = 'error', finished = now(), state = NULL,
-                 detail = $2
-             WHERE queue_job = $1 AND status = 'running'",
-            &[&queue_job, &detail],
+            &format!(
+                "UPDATE _slonbase.job_runs SET status = 'error', finished = now(), state = NULL,
+                     detail = $2
+                 WHERE queue_job = $1 AND status = 'running' AND {}",
+                fence(3)
+            ),
+            &[&queue_job, &detail, &held.0, &held.1],
         )
         .await?;
     Ok(())

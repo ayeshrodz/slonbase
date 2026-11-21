@@ -355,7 +355,13 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
                     // of the job looks; tried until it is recorded, like the job's own end
                     // below, which keeps the lease until then
                     let mut wait = Duration::from_secs(1);
-                    while let Err(err) = crate::jobs::close_for_queue_job(core, job.id, why).await {
+                    while let Err(err) = HELD
+                        .scope(
+                            (job.id, job.attempt),
+                            crate::jobs::close_for_queue_job(core, job.id, why),
+                        )
+                        .await
+                    {
                         tracing::warn!(error = %format!("{err:#}"), "failed to record a job's end");
                         tokio::time::sleep(wait).await;
                         wait = (wait * 2).min(Duration::from_secs(30));
