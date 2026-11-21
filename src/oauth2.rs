@@ -517,7 +517,8 @@ impl Provider {
         if self.pkce && !verifier.is_empty() {
             form.push(("code_verifier", verifier));
         }
-        let mut request = client()
+        let mut request = self
+            .client()
             .post(&self.token_url)
             .timeout(TIMEOUT)
             .header("accept", "application/json");
@@ -595,6 +596,23 @@ impl Provider {
         download(url, &own_hosts).await
     }
 
+    /// The client for the requests that decide who signs in: with `requireSignature`, redirects
+    /// may not leave `https://`.
+    fn client(&self) -> &'static reqwest::Client {
+        if self.requires_signature() {
+            crate::http::https_only_redirects()
+        } else {
+            client()
+        }
+    }
+
+    fn requires_signature(&self) -> bool {
+        self.extra
+            .get("requireSignature")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
     /// Fetches the provider's user with an access token.
     pub async fn user(&self, token: &Token) -> Result<AuthUser> {
         let raw = if self.kind == Kind::Apple
@@ -643,7 +661,7 @@ impl Provider {
             )
             .await?
         } else {
-            get_json(&self.user_info_url, &token.access_token).await?
+            get_json_via(self.client(), &self.user_info_url, &token.access_token).await?
         };
         // accounts their provider reports as disabled don't sign in
         let inactive = match self.kind {
@@ -794,13 +812,7 @@ impl Provider {
             _ if apple => APPLE_JWKS,
             _ => "",
         };
-        if jwks_url.is_empty()
-            && self
-                .extra
-                .get("requireSignature")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
-        {
+        if jwks_url.is_empty() && self.requires_signature() {
             bail!("the provider requires a signed token and has no jwksURL");
         }
         if !jwks_url.is_empty() {
@@ -812,7 +824,9 @@ impl Provider {
             if kid.is_empty() {
                 bail!("the token has no kid header");
             }
-            let keys = get_json(jwks_url, "").await.context("fetching the JWKS")?;
+            let keys = get_json_via(self.client(), jwks_url, "")
+                .await
+                .context("fetching the JWKS")?;
             let key = keys["keys"]
                 .as_array()
                 .into_iter()
@@ -1306,6 +1320,11 @@ async fn get_json(url: &str, access_token: &str) -> Result<Value> {
     get_json_with(url, access_token, &[]).await
 }
 
+/// [`get_json`] with a given client.
+async fn get_json_via(client: &reqwest::Client, url: &str, access_token: &str) -> Result<Value> {
+    get_json_with_via(client, url, access_token, &[]).await
+}
+
 /// POSTs a JSON body (a GraphQL query) with the access token, for JSON.
 async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value> {
     let response = client()
@@ -1328,7 +1347,16 @@ async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value>
 
 /// [`get_json`] with more headers.
 async fn get_json_with(url: &str, access_token: &str, headers: &[(&str, &str)]) -> Result<Value> {
-    let mut request = client()
+    get_json_with_via(client(), url, access_token, headers).await
+}
+
+async fn get_json_with_via(
+    client: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+    headers: &[(&str, &str)],
+) -> Result<Value> {
+    let mut request = client
         .get(url)
         .timeout(TIMEOUT)
         .header("accept", "application/json");

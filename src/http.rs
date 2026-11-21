@@ -47,6 +47,26 @@ pub fn client() -> &'static reqwest::Client {
     &CLIENT
 }
 
+/// A client that follows redirects only while they stay on `https://`, for requests whose
+/// answer is trusted for who signs in (an OpenID Connect provider that requires a signature).
+pub fn https_only_redirects() -> &'static reqwest::Client {
+    static CLIENT: LazyLock<reqwest::Client> = LazyLock::new(|| {
+        builder()
+            .redirect(reqwest::redirect::Policy::custom(|attempt| {
+                if attempt.url().scheme() != "https" {
+                    attempt.error("a redirect to a URL that isn't https")
+                } else if attempt.previous().len() >= 5 {
+                    attempt.error("too many redirects")
+                } else {
+                    attempt.follow()
+                }
+            }))
+            .build()
+            .expect("valid HTTP client configuration")
+    });
+    &CLIENT
+}
+
 /// The shared client's configuration, for a client of its own (e.g. pinned addresses).
 pub fn builder() -> reqwest::ClientBuilder {
     let mut roots = rustls::RootCertStore::empty();
@@ -479,5 +499,51 @@ mod tests {
         )
         .await;
         assert!(got.unwrap_err().contains("not a public address"));
+    }
+}
+
+#[cfg(test)]
+mod redirect_tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Answers `/start` with a redirect to `/end` over plain HTTP, and `/end` with 200.
+    async fn server() -> String {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    let mut buf = [0u8; 1024];
+                    let n = socket.read(&mut buf).await.unwrap_or(0);
+                    let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let reply = if head.starts_with("GET /start") {
+                        format!(
+                            "HTTP/1.1 302 Found\r\nlocation: http://{addr}/end\r\ncontent-length: 0\r\nconnection: close\r\n\r\n"
+                        )
+                    } else {
+                        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok".into()
+                    };
+                    let _ = socket.write_all(reply.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://{addr}")
+    }
+
+    #[tokio::test]
+    async fn a_client_for_signed_sign_in_refuses_a_redirect_off_https() {
+        let base = server().await;
+        // the shared client follows it, as before
+        let shared = super::client().get(format!("{base}/start")).send().await;
+        assert_eq!(shared.unwrap().status(), 200);
+        // the strict one doesn't follow a redirect to a URL that isn't https
+        let strict = super::https_only_redirects()
+            .get(format!("{base}/start"))
+            .send()
+            .await;
+        assert!(strict.is_err(), "a redirect to plain HTTP is refused");
     }
 }
