@@ -215,20 +215,33 @@ pub async fn import(
             .collect::<Vec<_>>()
     };
     let removed_files = std::sync::Mutex::new(Vec::new());
-    let apply = async |changes: Vec<Change<'_>>| -> Result<Registry, ApiError> {
-        if changes.is_empty() {
-            store::load_with(tx, key).await.map_err(ApiError::internal)
-        } else {
-            let applied = store::apply_in_with(tx, changes, key)
-                .await
-                .map_err(|e| write_error(e, failed))?;
-            removed_files
-                .lock()
-                .expect("removed files lock")
-                .extend(applied.removed_files);
-            Ok(applied.registry)
-        }
-    };
+    let unbuilt_views = std::sync::Mutex::new(Vec::<String>::new());
+    // the views of the import that exist already: the second pass applies them, so the first
+    // only rebuilds them from their stored queries when those still work
+    let imported_views: Vec<String> = pairs
+        .iter()
+        .filter(|(old, c)| c.is_view() && old.is_some())
+        .map(|(_, c)| c.id.clone())
+        .collect();
+    let apply =
+        async |changes: Vec<Change<'_>>, pending: &[String]| -> Result<Registry, ApiError> {
+            if changes.is_empty() {
+                store::load_with(tx, key).await.map_err(ApiError::internal)
+            } else {
+                let applied = store::apply_in_with_views_pending(tx, changes, key, pending)
+                    .await
+                    .map_err(|e| write_error(e, failed))?;
+                removed_files
+                    .lock()
+                    .expect("removed files lock")
+                    .extend(applied.removed_files);
+                unbuilt_views
+                    .lock()
+                    .expect("unbuilt views lock")
+                    .extend(applied.unbuilt_views);
+                Ok(applied.registry)
+            }
+        };
 
     // the tables (and the deletions)
     let errors = validate_all(&mut pairs, registry, &|c| !c.is_view());
@@ -241,26 +254,66 @@ pub async fn import(
         Some(old) => Change::Update { old, new },
         None => Change::Create(new),
     }));
-    let mut current = apply(changes).await?;
+    // (when the tables change, the views are dropped meanwhile: those of the import are made
+    // again below, from their new queries)
+    let touches_tables = changes.iter().any(|change| match change {
+        Change::Create(c) | Change::Delete(c) => !c.is_view(),
+        Change::Update { new, .. } => !new.is_view(),
+    });
+    let pending = if touches_tables {
+        imported_views.clone()
+    } else {
+        vec![]
+    };
+    let mut current = apply(changes, &pending).await?;
 
-    // then the views, inferred from their queries
+    // then the views, inferred from their queries. Each is made as soon as it is inferred, so a
+    // view that reads another one of the import finds it; one that can't be inferred yet (it
+    // reads a view that isn't made yet) waits for the others, and is refused with its error
+    // when none can be made
     if pairs.iter().any(|(_, c)| c.is_view()) {
-        for (i, (old, c)) in pairs.iter_mut().enumerate() {
-            infer_view(tx, c, old.as_deref(), &prefix(i), failed).await?;
-        }
-        let errors = validate_all(&mut pairs, &current, &|c| c.is_view());
-        if !errors.is_empty() {
-            return Err(ApiError::invalid_data(failed, &errors));
-        }
-        let views = changes_of(&pairs, true);
-        let changes: Vec<Change> = views
+        // (those the first pass couldn't rebuild are made even if their definition is the same)
+        let unbuilt = unbuilt_views.lock().expect("unbuilt views lock").clone();
+        let mut waiting: Vec<usize> = pairs
             .iter()
-            .map(|(old, new)| match old {
-                Some(old) => Change::Update { old, new },
-                None => Change::Create(new),
-            })
+            .enumerate()
+            .filter(|(_, (_, c))| c.is_view())
+            .map(|(i, _)| i)
             .collect();
-        current = apply(changes).await?;
+        // the views that exist come first: a new view that reads one of them is made after it
+        // is replaced (a view can't be replaced while another reads it)
+        waiting.sort_by_key(|&i| pairs[i].0.is_none());
+        while !waiting.is_empty() {
+            let before = waiting.len();
+            let mut still = Vec::new();
+            let mut first_error = None;
+            for i in waiting {
+                let (old, c) = &mut pairs[i];
+                if let Err(e) = infer_view(tx, c, old.as_deref(), &prefix(i), failed).await {
+                    first_error.get_or_insert(e);
+                    still.push(i);
+                    continue;
+                }
+                let id = c.id.clone();
+                let errors = validate_all(&mut pairs, &current, &|v| v.id == id);
+                if !errors.is_empty() {
+                    return Err(ApiError::invalid_data(failed, &errors));
+                }
+                let (old, new) = &pairs[i];
+                let change = match old {
+                    Some(old) if old.as_ref() == new && !unbuilt.contains(&new.id) => None,
+                    Some(old) => Some(Change::Update { old, new }),
+                    None => Some(Change::Create(new)),
+                };
+                if let Some(change) = change {
+                    current = apply(vec![change], &[]).await?;
+                }
+            }
+            if still.len() == before {
+                return Err(first_error.expect("a view that waits has an error"));
+            }
+            waiting = still;
+        }
     }
 
     let saved = pairs
