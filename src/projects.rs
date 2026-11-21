@@ -1161,7 +1161,8 @@ pub fn project_config(
         effective,
         // a project never saves the main configuration
         database_url_locked: true,
-        hook_limits_overridden: false,
+        hook_timeout_overridden: false,
+        hook_memory_overridden: false,
     }
 }
 

@@ -114,11 +114,14 @@ pub async fn perform(
         .await
         .map_err(|e| SetupError::BadRequest(format!("{e:#}")))?;
 
-    match superusers::create_first(&pool, &req.email, &req.password)
+    let created = match superusers::create_first(&pool, &req.email, &req.password)
         .await
         .map_err(SetupError::Internal)?
     {
-        CreateFirst::Created => tracing::info!("created the first superuser"),
+        CreateFirst::Created => {
+            tracing::info!("created the first superuser");
+            true
+        }
         CreateFirst::AlreadyExists => {
             // reconnecting to an existing installation: prove you own it
             if !superusers::verify(&pool, &req.email, &req.password)
@@ -132,23 +135,27 @@ pub async fn perform(
                 ));
             }
             tracing::info!("reconnected to an existing installation");
+            false
         }
-    }
+    };
 
     let new_config = match new_url {
         Some(url) => {
             let mut updated = loaded.clone();
-            // a new installation starts with limits on hook code; a configuration file that
+            // a new installation (not a reconnection) starts with limits on hook code; a configuration file that
             // exists already is left as its owner wrote it
             // (what a flag or an environment variable set for this run is kept as it is)
-            if !updated.path.exists()
+            if created
+                && !updated.path.exists()
                 && updated.file.hooks.timeout_seconds == 0
                 && updated.file.hooks.memory_limit_mb == 0
             {
                 updated.file.hooks.timeout_seconds = 60;
                 updated.file.hooks.memory_limit_mb = 128;
-                if !updated.hook_limits_overridden {
+                if !updated.hook_timeout_overridden {
                     updated.effective.hooks.timeout_seconds = 60;
+                }
+                if !updated.hook_memory_overridden {
                     updated.effective.hooks.memory_limit_mb = 128;
                 }
             }

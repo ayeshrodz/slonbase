@@ -331,9 +331,11 @@ pub struct Loaded {
     /// True when the database URL comes from a flag or env var,
     /// so the setup wizard must not ask for (or save) one.
     pub database_url_locked: bool,
-    /// True when a flag or an environment variable sets a hook limit (a 0 among them is the
+    /// True when a flag or an environment variable sets the hook time limit (a 0 is the
     /// operator's choice: no limit).
-    pub hook_limits_overridden: bool,
+    pub hook_timeout_overridden: bool,
+    /// The same for the hook memory limit.
+    pub hook_memory_overridden: bool,
 }
 
 pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
@@ -348,8 +350,8 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
 
     let mut effective = file.clone();
     let database_url_locked = overrides.database_url.is_some();
-    let hook_limits_overridden =
-        overrides.hooks_timeout.is_some() || overrides.hooks_memory.is_some();
+    let hook_timeout_overridden = overrides.hooks_timeout.is_some();
+    let hook_memory_overridden = overrides.hooks_memory.is_some();
     if let Some(bind) = overrides.bind {
         effective.server.bind = bind;
     }
@@ -448,7 +450,8 @@ pub fn load(path: &Path, overrides: Overrides) -> Result<Loaded> {
         file,
         effective,
         database_url_locked,
-        hook_limits_overridden,
+        hook_timeout_overridden,
+        hook_memory_overridden,
     })
 }
 

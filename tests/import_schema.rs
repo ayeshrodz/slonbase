@@ -754,5 +754,12 @@ async fn an_omitted_reader_of_views_the_import_changes_is_made_again_last() {
         StatusCode::BAD_REQUEST,
         "o_d would read a column o_a no longer has"
     );
+    // the refused import changed nothing
+    let (status, body) = go("GET", "/api/collections/o_a", None).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        body["viewQuery"].as_str().unwrap_or_default().contains("note"),
+        "o_a keeps its definition: {body}"
+    );
     tdb.drop_db().await;
 }
