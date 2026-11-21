@@ -245,6 +245,7 @@ changes, listed in its **Upgrading** section.
   the import re-points is made after it, and a view the import doesn't mention that reads a view
   it changes (or a table) is dropped and made again from its own query, instead of refusing the
   import.
+- **The settings an instance holds can no longer go back to an older version (#120):** every change that is written to the settings now also raises a revision stored with them (the `settingsRevision` parameter, in the same transaction), and an instance publishes settings, whether it just wrote them or read them after another instance's change, only if their revision is not older than the one it holds. Before, a snapshot read just before a change (a role being demoted, say) could reach an instance's copy after it and give the old value back until the next change. Nothing to do on upgrade: settings stored before have revision 0, and the first change after it writes the first number.
 
 ### Security
 

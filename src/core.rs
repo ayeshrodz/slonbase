@@ -397,6 +397,12 @@ impl Core {
         self.secrets_key.as_deref()
     }
 
+    /// [`Core::secrets_key`], for tests that read the stored settings themselves.
+    #[doc(hidden)]
+    pub fn secrets_key_for_tests(&self) -> Option<&crate::secrets::SecretsKey> {
+        self.secrets_key()
+    }
+
     pub fn settings(&self) -> Arc<Settings> {
         self.settings.read().expect("settings lock").clone()
     }
@@ -411,7 +417,7 @@ impl Core {
         *generation += 1;
     }
 
-    /// The settings' generation, to pass to [`Core::set_settings_if`].
+    /// The settings' generation: it goes up with every replacement of the settings.
     #[doc(hidden)]
     pub fn settings_generation(&self) -> u64 {
         *self
@@ -420,18 +426,21 @@ impl Core {
             .expect("settings generation")
     }
 
-    /// Replaces the settings unless they were replaced since `generation` (see
-    /// [`Core::set_registry_if`]).
-    pub(crate) fn set_settings_if(&self, generation: u64, settings: Settings) -> bool {
-        let mut current = self
+    /// Publishes settings that were read from the database or just committed to it, unless
+    /// the cache already holds a newer revision of them (a snapshot read before a change
+    /// committed can reach here after it, and must not undo it). Returns whether they were
+    /// published.
+    #[doc(hidden)]
+    pub fn publish_settings(&self, settings: Settings) -> bool {
+        let mut generation = self
             .settings_generation
             .lock()
             .expect("settings generation");
-        if *current != generation {
+        if settings.revision < self.settings().revision {
             return false;
         }
         self.replace_settings(settings);
-        *current += 1;
+        *generation += 1;
         true
     }
 

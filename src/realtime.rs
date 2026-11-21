@@ -1444,32 +1444,27 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-/// Reads the settings again from the database. Returns whether what was read was published,
-/// which it is not when the read failed or the cache was replaced meanwhile every time it was
-/// tried (a caller that needs the cache fresh tries again).
+/// Reads the settings again from the database. Returns whether they could be read (and so the
+/// cache holds them or something newer), and not an error.
 pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
-    // as for collections: don't undo a newer change made here
-    for _ in 0..5 {
-        let generation = core.settings_generation();
-        let loaded = async {
-            let client = core.db().get().await.map_err(db::describe_pool_error)?;
-            Settings::load(&client, core.secrets_key()).await
-        };
-        match loaded.await {
-            Ok(settings) => {
-                if core.set_settings_if(generation, settings) {
-                    crate::settings::reloaded(core);
-                    return true;
-                }
+    let loaded = async {
+        let client = core.db().get().await.map_err(db::describe_pool_error)?;
+        Settings::load(&client, core.secrets_key()).await
+    };
+    match loaded.await {
+        Ok(settings) => {
+            // (not published when the cache already holds a newer revision: there is nothing
+            // to catch up on, and a read that is older than the cache must not replace it)
+            if core.publish_settings(settings) {
+                crate::settings::reloaded(core);
             }
-            Err(err) => {
-                tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-                return false;
-            }
+            true
+        }
+        Err(err) => {
+            tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
+            false
         }
     }
-    // (replaced five times over while this was reading: what was read was not published)
-    false
 }
 
 /// One task at a time reads something again until a read is published, and a request that

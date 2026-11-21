@@ -236,19 +236,19 @@ pub(super) fn call_in_tx(
         })(),
         "settings" => serde_json::to_value(ctx.settings()).map_err(internal),
         "saveSettings" => (|| {
-            let settings = crate::settings::prepare_patch(&ctx.settings(), a.object(0))?;
+            let mut settings = crate::settings::prepare_patch(&ctx.settings(), a.object(0))?;
             let saved = settings.clone();
             let core = ctx.core.clone();
-            ctx.run(handle, move |tx, _| {
+            settings.revision = ctx.run(handle, move |tx, _| {
                 Box::pin(async move {
-                    saved
+                    let revision = saved
                         .save(tx, core.secrets_key(), None)
                         .await
                         .map_err(ApiError::internal)?;
                     crate::realtime::notify(tx, "settings")
                         .await
                         .map_err(db_error)?;
-                    Ok(())
+                    Ok(revision)
                 })
             })?;
             let value = serde_json::to_value(&settings).map_err(internal)?;
@@ -530,7 +530,7 @@ async fn run_one(
         core.set_registry(registry.as_ref().clone());
     }
     if let Some(settings) = settings {
-        core.set_settings(settings);
+        core.publish_settings(settings);
     }
     for c in deleted {
         if let Err(err) = core.storage().delete_prefix(&c.id).await {
