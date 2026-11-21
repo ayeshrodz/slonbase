@@ -143,7 +143,13 @@ async fn a_scheduled_job_is_queued_once_a_minute_and_run() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(runs, queued, "each queued run is in the history");
+    if same_minute {
+        assert_eq!(runs, queued, "each queued run is in the history");
+    } else {
+        // the calls straddled a minute, so the job was queued twice: the second run starts only
+        // if the first had ended, since runs of one job don't overlap
+        assert!((1..=queued).contains(&runs), "{runs} of {queued}");
+    }
 }
 
 #[tokio::test]

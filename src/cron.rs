@@ -55,7 +55,9 @@ fn parse_field(raw: &str, min: u32, max: u32) -> Option<(u64, bool)> {
         if start < min || end > max || start > end {
             return None;
         }
-        if part.contains('/') && range == "*" {
+        // `*/n` with n > 1 picks some of the values, so it counts as a restriction; `*/1`
+        // picks every value and means the same as `*`.
+        if range == "*" && step > 1 {
             restricted = true;
         }
         let mut value = start;
@@ -329,6 +331,57 @@ mod tests {
                 "{expr}: {n}"
             );
         }
+    }
+
+    #[test]
+    fn a_step_of_one_in_a_day_field_is_the_same_as_a_wildcard() {
+        let runs = |expr: &str| {
+            let schedule = Schedule::parse(expr).unwrap();
+            let mut from = at(2026, 11, 20, 0, 0);
+            (0..3)
+                .map(|_| {
+                    from = schedule.next_after(&from, Tz::UTC).unwrap();
+                    from
+                })
+                .collect::<Vec<_>>()
+        };
+        let mondays = vec![
+            at(2026, 11, 23, 0, 0),
+            at(2026, 11, 30, 0, 0),
+            at(2026, 12, 7, 0, 0),
+        ];
+        let firsts = vec![
+            at(2026, 12, 1, 0, 0),
+            at(2027, 1, 1, 0, 0),
+            at(2027, 2, 1, 0, 0),
+        ];
+        assert_eq!(runs("0 0 * * 1"), mondays);
+        assert_eq!(runs("0 0 */1 * 1"), mondays);
+        assert_eq!(runs("0 0 1 * *"), firsts);
+        assert_eq!(runs("0 0 1 * */1"), firsts);
+        assert_eq!(
+            Schedule::parse("0 0 */1 * */1"),
+            Schedule::parse("0 0 * * *")
+        );
+        assert_eq!(Schedule::parse("0 */1 * * *"), Schedule::parse("0 * * * *"));
+        // both day fields restricted: either matches, as in standard cron
+        assert_eq!(
+            runs("0 0 1 * 1"),
+            vec![
+                at(2026, 11, 23, 0, 0),
+                at(2026, 11, 30, 0, 0),
+                at(2026, 12, 1, 0, 0)
+            ]
+        );
+        // a larger step still restricts its field
+        assert_eq!(
+            runs("0 0 */10 * 1"),
+            vec![
+                at(2026, 11, 21, 0, 0),
+                at(2026, 11, 23, 0, 0),
+                at(2026, 11, 30, 0, 0)
+            ]
+        );
     }
 
     #[test]
