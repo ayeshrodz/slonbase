@@ -623,14 +623,16 @@ impl Provider {
                 .context("invalid id_token")?
         } else if self.kind == Kind::Twitch {
             // Twitch's API wants the client id along with the token
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[("client-id", &self.client_id)],
             )
             .await?
         } else if self.kind == Kind::Trakt {
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[
@@ -640,7 +642,8 @@ impl Provider {
             )
             .await?
         } else if self.kind == Kind::Notion {
-            get_json_with(
+            get_json_with_via(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &[("notion-version", "2022-06-28")],
@@ -648,6 +651,7 @@ impl Provider {
             .await?
         } else if self.kind == Kind::Linear {
             post_json(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &json!({ "query": "query Me { viewer { id displayName name email avatarUrl active } }" }),
@@ -655,6 +659,7 @@ impl Provider {
             .await?
         } else if self.kind == Kind::Monday {
             post_json(
+                self.client(),
                 &self.user_info_url,
                 &token.access_token,
                 &json!({ "query": "query { me { id enabled name email is_verified photo_small } }" }),
@@ -684,7 +689,8 @@ impl Provider {
         if self.kind == Kind::Bitbucket {
             // the emails are separate: use the confirmed primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
-            if let Ok(emails) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(emails) = get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails["values"]
                     .as_array()
                     .into_iter()
@@ -704,7 +710,9 @@ impl Provider {
                 }
                 _ => format!("{}/emails", self.user_info_url.trim_end_matches('/')),
             };
-            if let Ok(Value::Array(emails)) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(Value::Array(emails)) =
+                get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails
                     .iter()
                     .find(|e| match self.kind {
@@ -725,7 +733,9 @@ impl Provider {
         if self.kind == Kind::Github && user.email.is_empty() {
             // a private email: ask for the verified primary one (optional)
             let emails_url = format!("{}/emails", self.user_info_url.trim_end_matches('/'));
-            if let Ok(Value::Array(emails)) = get_json(&emails_url, &token.access_token).await {
+            if let Ok(Value::Array(emails)) =
+                get_json_via(self.client(), &emails_url, &token.access_token).await
+            {
                 user.email = emails
                     .iter()
                     .find(|e| e["primary"] == true && e["verified"] == true)
@@ -1316,18 +1326,18 @@ async fn read_limited(mut response: reqwest::Response, limit: usize) -> Result<V
 }
 
 /// GETs JSON, with the access token if there's one (none for the JWKS).
-async fn get_json(url: &str, access_token: &str) -> Result<Value> {
-    get_json_with(url, access_token, &[]).await
-}
-
-/// [`get_json`] with a given client.
 async fn get_json_via(client: &reqwest::Client, url: &str, access_token: &str) -> Result<Value> {
     get_json_with_via(client, url, access_token, &[]).await
 }
 
 /// POSTs a JSON body (a GraphQL query) with the access token, for JSON.
-async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value> {
-    let response = client()
+async fn post_json(
+    client: &reqwest::Client,
+    url: &str,
+    access_token: &str,
+    body: &Value,
+) -> Result<Value> {
+    let response = client
         .post(url)
         .timeout(TIMEOUT)
         .header("accept", "application/json")
@@ -1343,11 +1353,6 @@ async fn post_json(url: &str, access_token: &str, body: &Value) -> Result<Value>
         bail!("{url} answered {status}");
     }
     serde_json::from_slice(&body).context("invalid JSON response")
-}
-
-/// [`get_json`] with more headers.
-async fn get_json_with(url: &str, access_token: &str, headers: &[(&str, &str)]) -> Result<Value> {
-    get_json_with_via(client(), url, access_token, headers).await
 }
 
 async fn get_json_with_via(
@@ -1571,6 +1576,35 @@ mod tests {
             ..Default::default()
         })
         .unwrap()
+    }
+
+    #[test]
+    fn a_provider_that_requires_a_signature_does_not_follow_redirects_off_https() {
+        let strict = std::ptr::from_ref(crate::http::https_only_redirects());
+        let shared = std::ptr::from_ref(crate::http::client());
+        for name in ["oidc", "twitch", "linear"] {
+            let make = |extra: Value| {
+                Provider::new(&OAuth2Provider {
+                    name: name.into(),
+                    client_id: "client-1".into(),
+                    auth_url: "https://id.example.com/auth".into(),
+                    token_url: "https://id.example.com/token".into(),
+                    extra: extra.as_object().unwrap().clone(),
+                    ..Default::default()
+                })
+                .unwrap()
+            };
+            assert_eq!(
+                std::ptr::from_ref(make(json!({ "requireSignature": true })).client()),
+                strict,
+                "{name} with requireSignature"
+            );
+            assert_eq!(
+                std::ptr::from_ref(make(json!({})).client()),
+                shared,
+                "{name} without it keeps the shared client"
+            );
+        }
     }
 
     const NOW: i64 = 1_800_000_000;
