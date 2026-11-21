@@ -6,6 +6,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+NotifyAccess=main
 User=slonbase
 Group=slonbase
 EnvironmentFile=-/etc/default/slonbase

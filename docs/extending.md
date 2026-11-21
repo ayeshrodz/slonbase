@@ -215,7 +215,10 @@ functions.
   `database.statement_timeout`, which the database enforces for every statement, writes
   included. `hooks.db_wait_seconds` also makes a **read** from a hook (find, count, auth tokens)
   fail in the hook after that many seconds (no limit by default); writes and raw SQL are not
-  bounded by it, since a write that is dropped may still commit.
+  bounded by it, since a write that is dropped may still commit. A statement that
+  `database.statement_timeout` cancels is rolled back by PostgreSQL and reaches the hook as a database error (SQLSTATE `57014`), so a committed write
+  is never reported as a timeout. Only a lost connection leaves the outcome unknown: the commit
+  may have happened before or after it dropped.
 - **Network calls:** `$http.send` and `$filesystem.fileFromURL` reach what the server can reach,
   as in PocketBase, and hook files are the operator's. When a hook builds an address from data
   (a user's URL), set `hooks.guard_http = true`: calls to this server or to private networks

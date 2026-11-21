@@ -172,7 +172,8 @@ indexes with a `WHERE` clause.
   Connect provider (`oidc`, `oidc2`, `oidc3` with your URLs), with PKCE (except Linear). An OpenID Connect provider
   without a user info URL is read from its validated `id_token`; set `extra.jwksURL` to verify
   its signature, `extra.requireSignature` (`true`) to refuse the provider without it, and
-  `extra.issuers` to accept only some issuers. Only emails the provider has
+  `extra.issuers` to accept only some issuers. Any provider can set `extra.httpsOnly` (`true`) to
+  refuse redirects from `https://` to `http://` on its requests. Only emails the provider has
   verified are used to find existing records. Client secrets are never returned by the API.
 - **OTP:** a numeric code sent with the `otp.emailTemplate` (`{OTP}`, `{OTP_ID}`). It's
   single-use, it expires, and it's invalidated after 5 wrong attempts.

@@ -172,6 +172,48 @@ async fn open_rules_on_accounts_and_unverified_openid_tokens_are_warnings() {
             .iter()
             .any(|(code, _)| code == "oidcSignature")
     );
+    // a provider with a plain http:// URL is listed (and works as before)
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/collections/members",
+        Some(json!({ "oauth2": {
+            "enabled": true,
+            "providers": [{
+                "name": "oidc", "clientId": "c", "clientSecret": "s",
+                "authURL": "http://id.example.com/authorize",
+                "tokenURL": "https://id.example.com/token",
+                "userInfoURL": "http://id.example.com/userinfo",
+                "extra": { "jwksURL": "https://id.example.com/jwks" },
+            }],
+        } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let found = warnings(&app, &token).await;
+    assert!(
+        found.contains(&("oauth2PlainHttp".to_string(), "members: oidc".to_string())),
+        "{found:?}"
+    );
+    // https:// URLs do not
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/collections/members",
+        Some(json!({ "oauth2": provider(json!({
+            "requireSignature": true, "jwksURL": "https://id.example.com/jwks",
+        })) })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert!(
+        !warnings(&app, &token)
+            .await
+            .iter()
+            .any(|(code, _)| code == "oauth2PlainHttp")
+    );
     tdb.drop_db().await;
 }
 

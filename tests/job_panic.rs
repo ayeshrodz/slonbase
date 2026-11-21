@@ -146,3 +146,101 @@ async fn a_job_that_panics_fails_its_run_and_leaves_the_worker_running() {
     release.notify_one();
     tdb.drop_db().await;
 }
+
+/// The history entry of a job that panicked while the database was out of reach is still closed
+/// as the job's own failure once it is back: the end is tried again until it is recorded, rather
+/// than left to be reported as "interrupted" by a later run.
+#[tokio::test]
+async fn a_panic_while_the_database_is_out_of_reach_still_closes_its_run() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let holding = Arc::new(AtomicBool::new(false));
+    let release = Arc::new(Notify::new());
+    let mut extensions = slonbase::Extensions::default();
+    {
+        let (holding, release) = (holding.clone(), release.clone());
+        extensions
+            .hooks
+            .cron("explodes_late", "15 4 1 1 *", move |_| {
+                let (holding, release) = (holding.clone(), release.clone());
+                async move {
+                    holding.store(true, Ordering::SeqCst);
+                    release.notified().await;
+                    panic!("a handler that panics");
+                    #[allow(unreachable_code)]
+                    Ok(())
+                }
+            })
+            .unwrap();
+    }
+    let (app, token, _dir) = ready_app_configured(&tdb, extensions, |_| {}).await;
+
+    let (status, res) = admin(&app, &token, "POST", "/api/crons/explodes_late", None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    assert!(
+        eventually(async || holding.load(Ordering::SeqCst)).await,
+        "the handler is running"
+    );
+
+    // the database goes out of reach: no new connections, and the open ones end
+    admin_exec(
+        &tdb.admin_url,
+        &format!("ALTER DATABASE {} WITH ALLOW_CONNECTIONS false", tdb.name),
+    )
+    .await;
+    admin_exec(
+        &tdb.admin_url,
+        &format!(
+            "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '{}'",
+            tdb.name
+        ),
+    )
+    .await;
+
+    // the handler panics, and its end can't be recorded (a few tries fail)
+    release.notify_one();
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    admin_exec(
+        &tdb.admin_url,
+        &format!("ALTER DATABASE {} WITH ALLOW_CONNECTIONS true", tdb.name),
+    )
+    .await;
+
+    // back: the run ends as the job's own failure, and the queued job failed after one attempt
+    let mut run = None;
+    for _ in 0..400 {
+        if let Ok(client) = tdb.pool().get().await
+            && let Ok(Some(row)) = client
+                .query_opt(
+                    "SELECT status, detail FROM _slonbase.job_runs WHERE job = 'explodes_late'",
+                    &[],
+                )
+                .await
+        {
+            let found: (String, Option<String>) = (row.get(0), row.get(1));
+            if found.0 != "running" {
+                run = Some(found);
+                break;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (status, detail) = run.expect("the run is closed once the database is back");
+    assert_eq!(status, "error");
+    let detail = detail.unwrap_or_default();
+    assert!(
+        detail.contains("stopped unexpectedly"),
+        "closed by its own failure, not as interrupted: {detail}"
+    );
+    let mut state = None;
+    for _ in 0..250 {
+        state = queued(&tdb, "explodes_late").await;
+        if state.as_ref().is_some_and(|(s, _)| s == "failed") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(40)).await;
+    }
+    assert_eq!(state, Some(("failed".to_string(), 1)));
+    tdb.drop_db().await;
+}

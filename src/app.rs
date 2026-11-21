@@ -246,6 +246,9 @@ impl App {
             };
             match attempt.await {
                 Ok(Some(core)) => {
+                    if failures >= UNREACHABLE_AFTER {
+                        crate::service_status::set("");
+                    }
                     self.migrate_and_ready(core).await;
                     match &self.project {
                         Some(project) => tracing::info!(%project, "project ready"),
@@ -278,6 +281,12 @@ impl App {
                         );
                     } else {
                         tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
+                    }
+                    if failures >= UNREACHABLE_AFTER {
+                        crate::service_status::set(&format!(
+                            "waiting for the database ({}): {status}",
+                            database_target(&url)
+                        ));
                     }
                     self.set_mode(Mode::Starting { status });
                     tokio::time::sleep(delay).await;
