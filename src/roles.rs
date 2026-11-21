@@ -373,7 +373,19 @@ pub async fn set_role(
         .ok_or_else(|| ApiError::bad_request("role must be owner, admin, developer or viewer."))?;
     // not while a superuser is being deleted: the owners counted below must be the ones left
     // (on this instance and on the others)
-    let _one_at_a_time = lock_owners(&core).await?;
+    let one_at_a_time = lock_owners(&core).await?;
+    // the change runs to its end, with the lock, even when the client goes away while the
+    // commit is on its way
+    tokio::spawn(async move {
+        let _one_at_a_time = one_at_a_time;
+        change_role(core, id, role).await
+    })
+    .await
+    .map_err(|_| ApiError::internal(anyhow::anyhow!("the role change stopped unexpectedly")))?
+}
+
+/// The role change of [`set_role`], with the owners lock held.
+async fn change_role(core: Arc<Core>, id: String, role: Role) -> Result<Json<Value>, ApiError> {
     // (the connection goes back before the settings are written: no more than one at a time)
     let ids: Vec<String> = {
         let client = core

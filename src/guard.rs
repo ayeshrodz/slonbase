@@ -733,7 +733,23 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
             }
         }
     }
-    next.run(request).await
+    match _deleting {
+        // the delete runs to its end, with the lock, even when the client goes away while the
+        // commit is on its way: the lock is not released before the commit is done
+        Some(lock) => {
+            let done = tokio::spawn(async move {
+                let response = next.run(request).await;
+                drop(lock);
+                response
+            });
+            match done.await {
+                Ok(response) => response,
+                Err(_) => ApiError::internal(anyhow::anyhow!("the delete stopped unexpectedly"))
+                    .into_response(),
+            }
+        }
+        None => next.run(request).await,
+    }
 }
 
 #[cfg(test)]
