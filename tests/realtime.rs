@@ -1199,3 +1199,92 @@ async fn open_streams_follow_rights_changes() {
 
     tdb.drop_db().await;
 }
+
+/// Truncating a collection sends one delete event per record, and one for each record that went
+/// with it by cascade, to the clients subscribed to them.
+#[tokio::test]
+async fn truncating_a_collection_sends_every_delete() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, admin, _dir) = ready_app(&tdb).await;
+    let rules = json!({
+        "listRule": "", "viewRule": "", "createRule": "", "updateRule": "", "deleteRule": "",
+    });
+    let mut parents = rules.clone();
+    parents["name"] = json!("parents");
+    parents["fields"] = json!([{ "name": "n", "type": "number" }]);
+    let parents = as_admin(&app, &admin, "POST", "/api/collections", Some(parents)).await;
+    let mut children = rules;
+    children["name"] = json!("children");
+    children["fields"] = json!([{
+        "name": "parent", "type": "relation", "collectionId": parents["id"], "cascadeDelete": true,
+    }]);
+    as_admin(&app, &admin, "POST", "/api/collections", Some(children)).await;
+
+    let mut parent_ids = std::collections::BTreeSet::new();
+    let mut child_ids = std::collections::BTreeSet::new();
+    for n in 0..300 {
+        let (status, parent) = request(
+            &app,
+            "POST",
+            "/api/collections/parents/records",
+            &[],
+            Some(json!({ "n": n })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{parent}");
+        let id = parent["id"].as_str().unwrap().to_string();
+        if n % 3 == 0 {
+            let (status, child) = request(
+                &app,
+                "POST",
+                "/api/collections/children/records",
+                &[],
+                Some(json!({ "parent": id })),
+            )
+            .await;
+            assert_eq!(status, StatusCode::OK, "{child}");
+            child_ids.insert(child["id"].as_str().unwrap().to_string());
+        }
+        parent_ids.insert(id);
+    }
+
+    let mut stream = Stream::open(&app).await;
+    let client_id = stream.client_id.clone();
+    assert_eq!(
+        subscribe(&app, None, &client_id, &["parents/*", "children/*"]).await,
+        StatusCode::NO_CONTENT
+    );
+    // (what was created a moment ago may still be on its way)
+    while stream.next(Duration::from_millis(1500)).await.is_some() {}
+    as_admin(
+        &app,
+        &admin,
+        "DELETE",
+        "/api/collections/parents/truncate",
+        None,
+    )
+    .await;
+
+    let mut deleted_parents = std::collections::BTreeSet::new();
+    let mut deleted_children = std::collections::BTreeSet::new();
+    while let Some((event, data)) = stream.next(Duration::from_secs(3)).await {
+        let id = data["record"]["id"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        assert_eq!(data["action"], "delete", "{event}: {data}");
+        match event.split('/').next() {
+            Some("parents") => deleted_parents.insert(id),
+            Some("children") => deleted_children.insert(id),
+            other => panic!("an event for {other:?}"),
+        };
+    }
+    assert_eq!(deleted_parents, parent_ids, "a delete event per record");
+    assert_eq!(
+        deleted_children, child_ids,
+        "and one per record that went with them"
+    );
+    tdb.drop_db().await;
+}
