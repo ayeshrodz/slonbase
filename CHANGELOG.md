@@ -57,6 +57,14 @@ changes, listed in its **Upgrading** section.
 - **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
   with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
   its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
+- **Configuration warnings.** Settings that are valid and allowed, and need something more to
+  be safe, now show as checks on the Health page (and in `GET /api/settings/warnings`, and in
+  the log at start): `trustedProxy.headers` without `trustedProxy.peers`, an OpenID Connect
+  provider without `extra.jwksURL`, and an empty `manageRule`, `updateRule` or `deleteRule` on
+  a collection that holds user accounts. Nothing changes in what slonbase does.
+- **`extra.requireSignature` for OpenID Connect providers.** With it set to `true`, a provider
+  without `extra.jwksURL` is refused when saved and when a token arrives, so an `id_token` is
+  never trusted without its signature being checked. Providers without it behave as before.
 
 ### Changed
 

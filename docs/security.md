@@ -66,6 +66,31 @@ link-local or metadata address), the connection goes to the addresses just check
 redirect is checked the same way (the same goes for a cron job's failure webhook). Only admins and owners can make such a job; header values are
 stored with the other private settings and shown hidden.
 
+## Configuration warnings
+
+Some settings are valid and documented, and are only safe with something more. slonbase lists
+them on the dashboard's Health page, in `GET /api/settings/warnings` and in the log at start. They
+change nothing by themselves:
+
+- **`trustedProxy.headers` without `trustedProxy.peers`:** any client can send those headers and
+  choose the address that rate limits and sign-in lockouts see. Name your proxies in
+  `trustedProxy.peers`, unless only the proxy can reach slonbase.
+- **An OpenID Connect provider without `extra.jwksURL`:** the `id_token` is trusted because it
+  comes from the provider over TLS, as OpenID Connect allows, and its signature is not checked.
+  Set `extra.jwksURL` to check it, and `extra.requireSignature` to `true` to refuse the provider
+  when it is missing.
+- **An empty `manageRule`, `updateRule` or `deleteRule` on a collection that holds accounts:**
+  as in PocketBase, an empty rule allows everyone, guests included (on an auth collection, an
+  empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it
+  to superusers.
+
+Two rule semantics catch people out, and slonbase keeps PocketBase's for compatibility:
+
+- An `updateRule` is checked against the record **before** the update, with the request's body
+  as `@request.body`. A rule that must constrain the **new** value has to say so, for example
+  `@request.auth.id = id && @request.body.role:isset = false`.
+- An empty rule is open to everyone; leave a rule `null` to keep it to superusers.
+
 ## Known limits
 
 Past issues are listed, with their advisories, in the [security reviews](security-review.md) and in

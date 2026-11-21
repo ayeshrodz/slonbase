@@ -80,6 +80,7 @@ pub mod templates;
 pub mod templating;
 pub mod ui;
 pub mod validation;
+pub mod warnings;
 
 /// Hooks, routes and cron jobs added to slonbase (see the crate docs).
 pub struct Extensions {

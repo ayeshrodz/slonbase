@@ -404,6 +404,23 @@ fn validate_auth_methods(c: &Collection, auth: &AuthOptions, errors: &mut Errors
             Some(serde_json::Value::String(url)) if url.is_empty() || valid_url(url) => {}
             Some(_) => errors.invalid(key("extra.jwksURL"), "Must be an http(s) URL."),
         }
+        match provider.extra.get("requireSignature") {
+            None | Some(serde_json::Value::Null) | Some(serde_json::Value::Bool(false)) => {}
+            Some(serde_json::Value::Bool(true)) => {
+                let keys = provider
+                    .extra
+                    .get("jwksURL")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                if keys.is_empty() && provider.name != "apple" {
+                    errors.invalid(
+                        key("extra.jwksURL"),
+                        "Required when extra.requireSignature is set.",
+                    );
+                }
+            }
+            Some(_) => errors.invalid(key("extra.requireSignature"), "Must be true or false."),
+        }
     }
     if oauth2.enabled && oauth2.providers.is_empty() {
         errors.add(

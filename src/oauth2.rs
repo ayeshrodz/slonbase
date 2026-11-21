@@ -728,7 +728,8 @@ impl Provider {
 
     /// The claims of a valid `id_token` (`now` in Unix seconds): the audience must include the
     /// client id, the times must hold (within [`ID_TOKEN_LEEWAY`]), and with the `issuers` and
-    /// `jwksURL` extra options, the issuer must be one of them and the signature valid.
+    /// `jwksURL` extra options, the issuer must be one of them and the signature valid. With the
+    /// `requireSignature` extra option, a provider without `jwksURL` is refused.
     /// Apple's are always checked: `exp` is required, the issuer is Apple and the signature is
     /// verified with Apple's keys.
     async fn id_token_claims(&self, id_token: &str, now: i64) -> Result<Value> {
@@ -793,6 +794,15 @@ impl Provider {
             _ if apple => APPLE_JWKS,
             _ => "",
         };
+        if jwks_url.is_empty()
+            && self
+                .extra
+                .get("requireSignature")
+                .and_then(Value::as_bool)
+                .unwrap_or(false)
+        {
+            bail!("the provider requires a signed token and has no jwksURL");
+        }
         if !jwks_url.is_empty() {
             let kid = jwt
                 .header
@@ -1610,6 +1620,31 @@ mod tests {
                 .await
                 .is_err(),
             "no iss"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_provider_that_requires_a_signature_is_refused_without_its_keys() {
+        let token = jwt(
+            json!({ "alg": "none" }),
+            json!({ "sub": "u1", "aud": "client-1", "exp": NOW + 60 }),
+            |_| b"x".to_vec(),
+        );
+        // not required (the default): the token is trusted as it comes from the provider
+        assert!(oidc(json!({})).id_token_claims(&token, NOW).await.is_ok());
+        assert!(
+            oidc(json!({ "requireSignature": false }))
+                .id_token_claims(&token, NOW)
+                .await
+                .is_ok()
+        );
+        let err = oidc(json!({ "requireSignature": true }))
+            .id_token_claims(&token, NOW)
+            .await
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("requires a signed token"),
+            "{err:#}"
         );
     }
 

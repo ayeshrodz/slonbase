@@ -220,7 +220,7 @@ impl Core {
         crate::hooks::register_jobs(&mut handlers);
         crate::backups::register_jobs(&mut handlers);
         crate::templates::register_jobs(&mut handlers);
-        Ok(Arc::new(Self {
+        let core = Arc::new(Self {
             connections: crate::connections::Connections::new(pool.clone()),
             pool,
             queue: crate::queue::Queue::new(handlers),
@@ -255,7 +255,9 @@ impl Core {
                 .automigrate
                 .then(|| config.migrations.dir.clone()),
             hooks,
-        }))
+        });
+        crate::warnings::log(&core);
+        Ok(core)
     }
 
     /// Where to take a connection from (`core.db().get()`): on a worker running a job, the
