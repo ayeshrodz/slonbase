@@ -204,6 +204,9 @@ pub struct Hub {
     /// The self-test of the notification path (see [`check_sync`]): the last ping sent and the
     /// last one received back, and the verdict.
     ping_sent: std::sync::atomic::AtomicU64,
+    /// Whether a task is already reading the settings again until it can (see
+    /// [`keep_reloading_settings`]).
+    settings_retry: std::sync::atomic::AtomicBool,
     ping_seen: std::sync::atomic::AtomicU64,
     sync: std::sync::atomic::AtomicU8,
 }
@@ -232,6 +235,7 @@ impl Default for Hub {
             announce: Default::default(),
             stop_listening: Default::default(),
             ping_sent: Default::default(),
+            settings_retry: Default::default(),
             ping_seen: Default::default(),
             sync: Default::default(),
         }
@@ -1469,6 +1473,29 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
     false
 }
 
+/// Reads the settings again, and goes on trying (a second later, doubling to half a minute)
+/// until one read is published: for the cases where a change or a notification could not be
+/// applied, and the cache must not stay without it once the database can be reached. One task
+/// does this at a time.
+pub(crate) fn keep_reloading_settings(core: &Arc<Core>) {
+    use std::sync::atomic::Ordering::SeqCst;
+    if core.realtime.settings_retry.swap(true, SeqCst) {
+        return;
+    }
+    let core = core.clone();
+    tokio::spawn(async move {
+        let mut wait = Duration::from_secs(1);
+        loop {
+            tokio::time::sleep(wait).await;
+            if reload_settings(&core).await {
+                core.realtime.settings_retry.store(false, SeqCst);
+                return;
+            }
+            wait = (wait * 2).min(Duration::from_secs(30));
+        }
+    });
+}
+
 /// Tests the path every instance relies on to stay in step (schema, settings, realtime, rate
 /// limits): sends this instance a notification through the database and waits for it to come
 /// back on the listener. It doesn't when something between slonbase and PostgreSQL can't carry
@@ -1572,7 +1599,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             if let (Some(_), Some(core)) = (disconnected_at.take(), weak.upgrade()) {
                 tracing::info!("realtime listener reconnected, catching up");
                 reload_collections(&core).await;
-                reload_settings(&core).await;
+                if !reload_settings(&core).await {
+                    keep_reloading_settings(&core);
+                }
                 // (missed events: the poller reads them by snapshot, whatever happened)
                 core.realtime.poll.notify_one();
                 core.realtime.dispatch.notify_one();
@@ -1597,7 +1626,9 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                         if payload == "collections" {
                                             reload_collections(&core).await;
                                         } else if payload == "settings" {
-                                            reload_settings(&core).await;
+                                            if !reload_settings(&core).await {
+                                                keep_reloading_settings(&core);
+                                            }
                                         } else if payload == "restored" {
                                             // another instance restored a backup
                                             if let Err(err) = core.reload_after_restore().await {

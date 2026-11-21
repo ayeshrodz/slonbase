@@ -1390,18 +1390,7 @@ pub async fn publish_committed(
         // `next` may be older than what the cache now holds (a later change from another
         // instance, a demotion say), so it is not published; the settings are read again until
         // they can be, and the cache keeps what it has until then
-        let core = core.clone();
-        tokio::spawn(async move {
-            // (until it works: the cache may lack this change, a demotion say, until then)
-            let mut wait = std::time::Duration::from_secs(1);
-            loop {
-                tokio::time::sleep(wait).await;
-                if crate::realtime::reload_settings(&core).await {
-                    return;
-                }
-                wait = (wait * 2).min(std::time::Duration::from_secs(30));
-            }
-        });
+        crate::realtime::keep_reloading_settings(core);
     }
 }
 
