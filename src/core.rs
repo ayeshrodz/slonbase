@@ -397,6 +397,12 @@ impl Core {
         self.secrets_key.as_deref()
     }
 
+    /// [`Core::secrets_key`], for tests that read the stored settings themselves.
+    #[doc(hidden)]
+    pub fn secrets_key_for_tests(&self) -> Option<&crate::secrets::SecretsKey> {
+        self.secrets_key()
+    }
+
     pub fn settings(&self) -> Arc<Settings> {
         self.settings.read().expect("settings lock").clone()
     }
@@ -411,17 +417,7 @@ impl Core {
         *generation += 1;
     }
 
-    /// The settings' generation, to pass to [`Core::set_settings_if`].
-    #[doc(hidden)]
-    pub fn settings_generation(&self) -> u64 {
-        *self
-            .settings_generation
-            .lock()
-            .expect("settings generation")
-    }
-
-    /// Replaces the settings unless they were replaced since `generation` (see
-    /// [`Core::set_registry_if`]).
+    /// [`Core::set_settings`], unless the settings were replaced since `generation`.
     pub(crate) fn set_settings_if(&self, generation: u64, settings: Settings) -> bool {
         let mut current = self
             .settings_generation
@@ -432,6 +428,40 @@ impl Core {
         }
         self.replace_settings(settings);
         *current += 1;
+        true
+    }
+
+    /// Reads the settings again from the database, as the instance does once a minute.
+    #[doc(hidden)]
+    pub async fn refresh_settings(self: &Arc<Self>) -> bool {
+        crate::realtime::reload_settings(self).await
+    }
+
+    /// The settings' generation: it goes up with every replacement of the settings.
+    #[doc(hidden)]
+    pub fn settings_generation(&self) -> u64 {
+        *self
+            .settings_generation
+            .lock()
+            .expect("settings generation")
+    }
+
+    /// Publishes settings that were read from the database or just committed to it, unless
+    /// the cache already holds a newer revision of them (a snapshot read before a change
+    /// committed can reach here after it, and must not undo it). Returns whether they were
+    /// published. (A snapshot read before the database was restored can pass this check; the
+    /// periodic reload corrects that.)
+    #[doc(hidden)]
+    pub fn publish_settings(&self, settings: Settings) -> bool {
+        let mut generation = self
+            .settings_generation
+            .lock()
+            .expect("settings generation");
+        if settings.revision < self.settings().revision {
+            return false;
+        }
+        self.replace_settings(settings);
+        *generation += 1;
         true
     }
 

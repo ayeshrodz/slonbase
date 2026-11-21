@@ -1055,47 +1055,11 @@ async fn settings_changed_on_two_instances_at_once_agree_afterwards() {
     tdb.drop_db().await;
 }
 
-/// A settings change that finds the cache replaced meanwhile reads the settings again, and does
-/// so after its connection has gone back: with a pool of one it would otherwise wait for itself,
-/// fail, and publish a copy that may be older than what the other change left.
+/// Every written settings change has a higher revision than the one before, and a snapshot that
+/// was read before a demotion committed is not published over it, whenever it arrives: this is
+/// the order a reload that read early and published late would have, forced.
 #[tokio::test]
-async fn a_settings_change_reads_again_after_giving_back_its_connection() {
-    let Some(tdb) = TestDb::create().await else {
-        return;
-    };
-    let (app, token, _dir) = ready_app_with_file(&tdb, "[database]\nmax_connections = 1\n").await;
-    let core = app.core().unwrap();
-    // the cache is replaced after a change took note of its generation
-    let generation = core.settings_generation();
-    let (status, res) = as_(
-        &app,
-        &token,
-        "PATCH",
-        "/api/settings",
-        Some(json!({ "meta": { "appName": "committed" } })),
-    )
-    .await;
-    assert_eq!(status, StatusCode::OK, "{res}");
-    assert_ne!(core.settings_generation(), generation);
-
-    // the one connection is the change's own, as when it was written
-    let held = core.db().get().await.unwrap();
-    let mut stale = (*core.settings()).clone();
-    stale.meta.app_name = "stale".into();
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        slonbase::settings::publish_committed(&core, generation, &stale, held),
-    )
-    .await
-    .expect("the connection went back, and the settings were read again");
-    assert_eq!(core.settings().meta.app_name, "committed");
-    tdb.drop_db().await;
-}
-
-/// A settings change that finds the cache replaced meanwhile, and cannot read the settings again,
-/// does not publish its own copy, which may be older: a demotion that reached the cache stays.
-#[tokio::test]
-async fn a_settings_change_does_not_undo_a_demotion_when_it_cannot_read_again() {
+async fn a_snapshot_read_before_a_demotion_cannot_replace_it() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
@@ -1105,10 +1069,14 @@ async fn a_settings_change_does_not_undo_a_demotion_when_it_cannot_read_again() 
     let second_id = other["id"].as_str().unwrap().to_string();
     let core = app.core().unwrap();
 
-    // a change takes note of the generation and builds its copy while the second is an owner
-    let generation = core.settings_generation();
-    let owners_copy = (*core.settings()).clone();
-    // and the demotion reaches the cache before it publishes
+    // a reload reads the settings while the second is an owner ...
+    let before = {
+        let client = core.db().get().await.unwrap();
+        slonbase::settings::Settings::load(&client, core.secrets_key_for_tests())
+            .await
+            .unwrap()
+    };
+    // ... and the demotion commits and is published before that read reaches the cache
     let (status, res) = as_(
         &app,
         &first,
@@ -1118,33 +1086,26 @@ async fn a_settings_change_does_not_undo_a_demotion_when_it_cannot_read_again() 
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{res}");
+    let after = core.settings().revision;
+    assert!(
+        after > before.revision,
+        "{after} is newer than {}",
+        before.revision
+    );
     assert_eq!(
         slonbase::roles::role_of(&core, &second_id),
         slonbase::roles::Role::Admin
     );
 
-    // the settings can't be read
-    admin_exec(
-        &tdb.url,
-        "ALTER TABLE _slonbase.params RENAME TO params_away",
-    )
-    .await;
-    let held = core.db().get().await.unwrap();
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        slonbase::settings::publish_committed(&core, generation, &owners_copy, held),
-    )
-    .await
-    .expect("it doesn't wait for the settings");
+    assert!(
+        !core.publish_settings(before),
+        "the older snapshot is not published"
+    );
     assert_eq!(
         slonbase::roles::role_of(&core, &second_id),
         slonbase::roles::Role::Admin,
-        "the older copy did not give the owner role back"
+        "and the owner role does not come back"
     );
-    admin_exec(
-        &tdb.url,
-        "ALTER TABLE _slonbase.params_away RENAME TO params",
-    )
-    .await;
+    assert_eq!(core.settings().revision, after);
     tdb.drop_db().await;
 }

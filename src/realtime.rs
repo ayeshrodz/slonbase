@@ -1424,6 +1424,27 @@ fn spawn_announcer(core: Weak<Core>) {
     });
 }
 
+/// How often the settings are read again, whatever notifications arrived.
+const SETTINGS_REFRESH_EVERY: Duration = Duration::from_secs(60);
+
+/// Reads the settings again once a minute, apart from the listener (which may have no
+/// connection): a change whose notification was lost, or a database restored from a backup
+/// directly (not through this instance), is picked up, and the cache never stays behind it.
+fn spawn_settings_refresh(core: Weak<Core>) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(SETTINGS_REFRESH_EVERY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tick.tick().await; // (the first tick is immediate: the settings were just loaded)
+        loop {
+            tick.tick().await;
+            let Some(core) = core.upgrade() else { return };
+            if !reload_settings(&core).await {
+                keep_reloading_settings(&core);
+            }
+        }
+    });
+}
+
 async fn reload_collections(core: &Core) {
     // A change made here while loading replaces the registry with one it read after its
     // own commit; this load may predate that, so it's discarded and read again (it may
@@ -1444,32 +1465,57 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-/// Reads the settings again from the database. Returns whether what was read was published,
-/// which it is not when the read failed or the cache was replaced meanwhile every time it was
-/// tried (a caller that needs the cache fresh tries again).
+/// Reads the settings again from the database. Returns whether they could be read (and so the
+/// cache holds them or something newer), and not an error.
 pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
-    // as for collections: don't undo a newer change made here
-    for _ in 0..5 {
-        let generation = core.settings_generation();
-        let loaded = async {
-            let client = core.db().get().await.map_err(db::describe_pool_error)?;
-            Settings::load(&client, core.secrets_key()).await
-        };
-        match loaded.await {
-            Ok(settings) => {
-                if core.set_settings_if(generation, settings) {
-                    crate::settings::reloaded(core);
-                    return true;
-                }
+    let load = || async {
+        let client = core.db().get().await.map_err(db::describe_pool_error)?;
+        Settings::load(&client, core.secrets_key()).await
+    };
+    let failed = |err: anyhow::Error| {
+        tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
+        false
+    };
+    match load().await {
+        Ok(settings) => {
+            if core.publish_settings(settings) {
+                crate::settings::reloaded(core);
+                return true;
             }
-            Err(err) => {
-                tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-                return false;
+            // older than what the cache holds: nearly always a read that a newer change
+            // overtook, and then there is nothing to do. But it is also what the database
+            // looks like after it went back to an earlier state (restored from a backup while
+            // this ran): a read that starts now cannot be older than a revision that was
+            // already published, unless it has. The cache is replaced only if nothing
+            // replaced it since the read started (otherwise the answer may be a change that
+            // was published meanwhile, and the read is tried again).
+            let generation = core.settings_generation();
+            match load().await {
+                Ok(fresh) if fresh.revision < core.settings().revision => {
+                    let (stored, held) = (fresh.revision, core.settings().revision);
+                    if core.set_settings_if(generation, fresh) {
+                        tracing::warn!(
+                            stored,
+                            held,
+                            "the stored settings are older than the ones held: the database went back to an earlier state, so they are taken from it"
+                        );
+                        crate::settings::reloaded(core);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Ok(fresh) => {
+                    if core.publish_settings(fresh) {
+                        crate::settings::reloaded(core);
+                    }
+                    true
+                }
+                Err(err) => failed(err),
             }
         }
+        Err(err) => failed(err),
     }
-    // (replaced five times over while this was reading: what was read was not published)
-    false
 }
 
 /// One task at a time reads something again until a read is published, and a request that
@@ -1664,6 +1710,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let delivery = spawn_delivery(weak.clone());
     spawn_poller(weak.clone(), delivery);
     spawn_announcer(weak.clone());
+    spawn_settings_refresh(weak.clone());
     crate::events::spawn(weak.clone());
     tokio::spawn(async move {
         let mut delay = Duration::from_secs(1);

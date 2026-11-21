@@ -24,6 +24,8 @@ use crate::validation::Errors;
 const LEGACY_KEY: &str = "settings";
 /// The params key of a section: `settings:<section>`.
 const SECTION_PREFIX: &str = "settings:";
+/// The parameter that holds [`Settings::revision`].
+const REVISION_KEY: &str = "settingsRevision";
 /// Serializes the changes of the settings across requests and instances
 /// (`pg_advisory_xact_lock`).
 const SETTINGS_LOCK_KEY: i64 = crate::migrations::SCHEMA_LOCK_KEY + 2;
@@ -117,6 +119,12 @@ fn secret_at<'a>(section: &'a mut Value, pointer: &str) -> Option<&'a mut String
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Settings {
+    /// Which version of the stored settings this is: it goes up with every change that is
+    /// written (in the same transaction), so of two snapshots the one with the higher number is
+    /// the newer, whatever order they were read or published in. Not a setting: 0 for settings
+    /// stored before there was one.
+    #[serde(skip)]
+    pub revision: u64,
     pub meta: Meta,
     pub smtp: Smtp,
     /// File storage in an S3 bucket instead of the local storage directory.
@@ -668,14 +676,20 @@ impl Settings {
         let rows = client
             .query(
                 "SELECT key, value FROM _slonbase.params
-                 WHERE key = $1 OR starts_with(key, $2)",
-                &[&LEGACY_KEY, &SECTION_PREFIX],
+                 WHERE key = $1 OR starts_with(key, $2) OR key = $3",
+                &[&LEGACY_KEY, &SECTION_PREFIX, &REVISION_KEY],
             )
             .await?;
         let mut whole = Map::new();
         let mut sections = Map::new();
+        let mut revision = 0;
         for row in rows {
             let name: String = row.get(0);
+            if name == REVISION_KEY {
+                let stored: Value = row.get(1);
+                revision = stored.as_u64().unwrap_or(0);
+                continue;
+            }
             let value = crate::secrets::from_stored(row.get(1), key, "settings")?;
             match name.strip_prefix(SECTION_PREFIX) {
                 Some(section) => {
@@ -689,7 +703,9 @@ impl Settings {
             }
         }
         whole.extend(sections);
-        Ok(serde_json::from_value(Value::Object(whole))?)
+        let mut settings: Settings = serde_json::from_value(Value::Object(whole))?;
+        settings.revision = revision;
+        Ok(settings)
     }
 
     /// The sections as they are stored: each section's name and value.
@@ -731,12 +747,16 @@ impl Settings {
     /// that differ from `stored` (the settings as they were just read, in the same
     /// transaction). Settings still stored as one value are converted: every section is
     /// written and the one value removed.
+    ///
+    /// Returns the revision these settings now have: one more than the stored one when a
+    /// section was written, which is bumped in the same transaction (and under the row's lock,
+    /// so concurrent saves get distinct, ordered numbers); the stored one when nothing differed.
     pub(crate) async fn save(
         &self,
         client: &impl GenericClient,
         key: Option<&crate::secrets::SecretsKey>,
         stored: Option<&Settings>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<u64> {
         let converted = client
             .execute(
                 "DELETE FROM _slonbase.params WHERE key = $1",
@@ -748,6 +768,7 @@ impl Settings {
             true => None,
             false => stored.map(Settings::sections),
         };
+        let mut written = converted;
         for (n, (name, value)) in self.sections().into_iter().enumerate() {
             if before.as_ref().is_some_and(|b| b[n].1 == value) {
                 continue;
@@ -762,8 +783,23 @@ impl Settings {
                     ],
                 )
                 .await?;
+            written = true;
         }
-        Ok(())
+        if !written {
+            return Ok(stored.map_or(self.revision, |s| s.revision));
+        }
+        // (a number, bumped by the statement itself: no read in between that another change
+        // could slip a bump into)
+        let row = client
+            .query_one(
+                "INSERT INTO _slonbase.params (key, value) VALUES ($1, to_jsonb(1::bigint))
+                 ON CONFLICT (key) DO UPDATE
+                 SET value = to_jsonb((params.value #>> '{}')::bigint + 1), updated = now()
+                 RETURNING (value #>> '{}')::bigint",
+                &[&REVISION_KEY],
+            )
+            .await?;
+        Ok(row.get::<_, i64>(0).max(0) as u64)
     }
 
     /// The representation returned by the API: no private sections, and no passwords or
@@ -1339,9 +1375,11 @@ where
     let current = Settings::load(&tx, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
-    let next = change(&current, &ids)?;
+    let mut next = change(&current, &ids)?;
     crate::assets::check_uses(&tx, &next).await?;
-    next.save(&tx, core.secrets_key(), Some(&current))
+    // (the revision these settings have once committed)
+    next.revision = next
+        .save(&tx, core.secrets_key(), Some(&current))
         .await
         .map_err(ApiError::internal)?;
     // who watches for record changes, and whether automations are paused, are written with
@@ -1355,43 +1393,21 @@ where
     crate::realtime::notify(&tx, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    // (what the cache holds when the commit is sent: a reload that publishes after this has
-    // read the database at or after the previous change, and may be newer than `next`)
-    let generation = core.settings_generation();
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    publish_committed(core, generation, &next, client).await;
+    drop(client);
+    // (published only if the cache doesn't already hold a newer revision: a reload that got
+    // there first has read this change or a later one; when the cache holds a newer one than
+    // a change just committed has, the settings are read again, which also notices a database
+    // that went back to an earlier state)
+    if !core.publish_settings(next.clone()) {
+        crate::realtime::keep_reloading_settings(core);
+    }
     if watching_changed {
         core.realtime.dispatch.notify_one();
     }
     Ok(next)
-}
-
-/// Publishes settings that were just committed, unless the cache was replaced since
-/// `generation`: a reload that did may already hold a later change from another instance, which
-/// `next` would undo, so the settings are read again instead. If they can't be, `next` is not
-/// published either, since it may be the older one: the cache keeps what it has, and the
-/// reading is retried in the background until it succeeds.
-///
-/// `held` is the connection the change was written on, which goes back first: with a pool of
-/// one the reload needs it.
-#[doc(hidden)]
-pub async fn publish_committed(
-    core: &Arc<Core>,
-    generation: u64,
-    next: &Settings,
-    held: deadpool_postgres::Client,
-) {
-    drop(held);
-    if !core.set_settings_if(generation, next.clone())
-        && !crate::realtime::reload_settings(core).await
-    {
-        // `next` may be older than what the cache now holds (a later change from another
-        // instance, a demotion say), so it is not published; the settings are read again until
-        // they can be, and the cache keeps what it has until then
-        crate::realtime::keep_reloading_settings(core);
-    }
 }
 
 /// Merges `body` (sections of settings) into the current settings, validates and saves them
