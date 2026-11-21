@@ -1441,8 +1441,9 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-/// Reads the settings again from the database. Returns whether the cache now holds what was
-/// read (or a newer change made here), and not an error.
+/// Reads the settings again from the database. Returns whether what was read was published,
+/// which it is not when the read failed or the cache was replaced meanwhile every time it was
+/// tried (a caller that needs the cache fresh tries again).
 pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
     // as for collections: don't undo a newer change made here
     for _ in 0..5 {
@@ -1464,8 +1465,8 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
             }
         }
     }
-    // (replaced by something newer five times over)
-    true
+    // (replaced five times over while this was reading: what was read was not published)
+    false
 }
 
 /// Tests the path every instance relies on to stay in step (schema, settings, realtime, rate
