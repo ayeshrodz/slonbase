@@ -651,7 +651,6 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
             None,
         )
         .await
-        .0
     };
     // a delete takes a second: both deletes would have passed the check for another owner
     // before either is done (without the database-wide lock, both would go through)
@@ -665,7 +664,7 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
     .await;
     let one = tokio::spawn(delete(first_app.clone(), first.clone(), second_id));
     let other = tokio::spawn(delete(second_app.clone(), second.clone(), first_id));
-    let (a, b) = (one.await.unwrap(), other.await.unwrap());
+    let ((a, a_body), (b, b_body)) = (one.await.unwrap(), other.await.unwrap());
     let ok = [a, b]
         .iter()
         .filter(|s| **s == StatusCode::NO_CONTENT)
@@ -682,11 +681,17 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
         .filter(|r| *r == "owner")
         .count();
     assert_eq!(owners, 1, "{a} and {b}");
-    let refused = if a == StatusCode::NO_CONTENT { b } else { a };
-    assert_eq!(
-        refused,
-        StatusCode::BAD_REQUEST,
-        "the owner check refused it"
+    let (refused, body) = if a == StatusCode::NO_CONTENT {
+        (b, b_body)
+    } else {
+        (a, a_body)
+    };
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("last owner"),
+        "the owner check refused it: {refused} {body}"
     );
     tdb.drop_db().await;
 }
@@ -790,6 +795,31 @@ async fn owners_change_with_the_smallest_pools() {
         )
         .await;
         assert_eq!(status, StatusCode::NO_CONTENT, "pool of {size}: {res}");
+        // a batch with a delete
+        let (status, res) = as_(
+            &app,
+            &first,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "batch": { "enabled": true } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "pool of {size}: {res}");
+        let third = member(&app, &first, &format!("third{size}@example.com"), "viewer").await;
+        let (_, other) = as_(&app, &third, "GET", "/api/team/me", None).await;
+        let third_id = other["id"].as_str().unwrap().to_string();
+        let (status, res) = as_(
+            &app,
+            &first,
+            "POST",
+            "/api/batch",
+            Some(json!({ "requests": [{
+                "method": "DELETE",
+                "url": format!("/api/collections/_superusers/records/{third_id}"),
+            }] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "pool of {size}: {res}");
         tdb.drop_db().await;
     }
 }
