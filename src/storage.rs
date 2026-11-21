@@ -15,7 +15,9 @@ pub type ByteStream = Pin<Box<dyn Stream<Item = std::io::Result<Bytes>> + Send>>
 
 /// A stored file opened for reading.
 pub struct Object {
-    pub size: u64,
+    /// The length of what the stream gives, when the storage said (an S3 server may answer
+    /// without a `Content-Length`).
+    pub size: Option<u64>,
     pub stream: ByteStream,
 }
 
@@ -105,7 +107,7 @@ impl Storage {
                 let Some(object) = self.open(key).await? else {
                     return Ok(None);
                 };
-                let mut data = Vec::with_capacity(object.size as usize);
+                let mut data = Vec::with_capacity(object.size.unwrap_or_default() as usize);
                 let mut stream = object.stream;
                 while let Some(chunk) = stream.try_next().await? {
                     data.extend_from_slice(&chunk);
@@ -123,7 +125,7 @@ impl Storage {
                 Ok(file) => {
                     let size = file.metadata().await?.len();
                     Ok(Some(Object {
-                        size,
+                        size: Some(size),
                         stream: Box::pin(file_chunks(file)),
                     }))
                 }
@@ -160,7 +162,7 @@ impl Storage {
                     use tokio::io::{AsyncReadExt, AsyncSeekExt};
                     file.seek(std::io::SeekFrom::Start(start)).await?;
                     Ok(Some(Object {
-                        size: len,
+                        size: Some(len),
                         stream: Box::pin(file_chunks(file.take(len))),
                     }))
                 }
@@ -398,7 +400,7 @@ mod tests {
             b"hello"
         );
         let object = storage.open("c1/r1/a_x.txt").await.unwrap().unwrap();
-        assert_eq!(object.size, 5);
+        assert_eq!(object.size, Some(5));
         assert!(storage.exists("c1/r1/a_x.txt").await.unwrap());
         storage.check().await.unwrap();
         assert!(storage.read("c1/r1/missing.txt").await.unwrap().is_none());

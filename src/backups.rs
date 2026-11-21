@@ -21,7 +21,7 @@ use anyhow::{Context, Result, bail};
 use axum::Json;
 use axum::body::Body;
 use axum::extract::{Multipart, Path as UrlPath, Query, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use deadpool_postgres::{GenericClient, Transaction};
 use futures_util::{SinkExt, StreamExt};
@@ -1253,19 +1253,25 @@ pub async fn download(
         .await
         .map_err(ApiError::internal)?
         .ok_or_else(ApiError::not_found)?;
-    Ok((
-        [
-            (header::CONTENT_TYPE, "application/zip".to_string()),
-            (header::CONTENT_LENGTH, object.size.to_string()),
-            (
-                header::CONTENT_DISPOSITION,
-                format!("attachment; filename={key:?}"),
-            ),
-            (header::CACHE_CONTROL, "private, no-store".to_string()),
-        ],
-        Body::from_stream(object.stream),
-    )
-        .into_response())
+    let mut headers = vec![
+        (header::CONTENT_TYPE, "application/zip".to_string()),
+        (
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename={key:?}"),
+        ),
+        (header::CACHE_CONTROL, "private, no-store".to_string()),
+    ];
+    // (a storage that didn't say how long the file is gets no length, not a length of 0)
+    if let Some(size) = object.size {
+        headers.push((header::CONTENT_LENGTH, size.to_string()));
+    }
+    let mut response = Body::from_stream(object.stream).into_response();
+    for (name, value) in headers {
+        if let Ok(value) = HeaderValue::from_str(&value) {
+            response.headers_mut().insert(name, value);
+        }
+    }
+    Ok(response)
 }
 
 /// `DELETE /api/backups/{key}`
