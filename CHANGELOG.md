@@ -115,6 +115,10 @@ changes, listed in its **Upgrading** section.
 
 ### Fixed
 
+- Files kept in S3 behind a server or proxy that doesn't send a `Content-Length` are served
+  without one (chunked), not with a length of 0 that cut the download off, and a backup
+  download the same. The size of such an object is read from the total in the answer to a
+  request for its first byte, and when no answer says it, the check fails and doesn't report 0.
 - Two owners deleting each other at the same moment can no longer leave an installation without an
   owner: the check that one remains and the delete are one step, and changing an owner's role
   waits for a delete in progress (on one instance; several instances behind one database still

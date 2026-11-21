@@ -904,7 +904,11 @@ pub async fn serve(
     }
     .map_err(ApiError::internal)?
     .ok_or_else(ApiError::not_found)?;
-    let size = object.size;
+    // (a range is as long as it says; a server that didn't give a length is answered without
+    // one rather than with a length of 0)
+    let size = object
+        .size
+        .or(partial.map(|(start, end, _)| end - start + 1));
     // fused: the head may already have read to the end
     let mut stream = object.stream.fuse();
     // the type comes from the file's first bytes, also for a range
@@ -951,7 +955,9 @@ pub async fn serve(
         }
     };
     set(headers, header::CONTENT_TYPE, content_type);
-    set(headers, header::CONTENT_LENGTH, size.to_string());
+    if let Some(size) = size {
+        set(headers, header::CONTENT_LENGTH, size.to_string());
+    }
     set(
         headers,
         header::CONTENT_DISPOSITION,
