@@ -121,8 +121,15 @@ changes, listed in its **Upgrading** section.
   request for its first byte, and when no answer says it, the check fails and doesn't report 0.
 - Two owners deleting each other at the same moment can no longer leave an installation without an
   owner: the check that one remains and the delete are one step, and changing an owner's role
-  waits for a delete in progress (on one instance; several instances behind one database still
-  need the owners not to delete each other together).
+  waits for a delete in progress. This holds across several instances behind one database too: a
+  database-wide lock serializes changes to the owners (checked against the roles as stored, and
+  held until a batch's commit is done), and a change that can't get it within 30 seconds is
+  refused with a conflict instead of waiting for ever. Limits: an instance whose pool for API
+  requests has fewer than three connections (`database.max_connections` of 3 or less with the
+  default job reserve) has no connection to spare for the database-wide lock and
+  keeps its own lock only, so the protection across instances needs every instance to have the
+  larger pool; and the lock is held on a connection of its own, so a connection lost in the
+  moment between the check and the change leaves that one change without it.
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
 - A cron expression with a step past the end of its range (`5/4294967291 * * * *`) is one run

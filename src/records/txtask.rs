@@ -39,10 +39,27 @@ impl TxHandle {
         Arc<tokio::sync::Mutex<FileEffects>>,
         tokio::task::JoinHandle<()>,
     ) {
+        Self::start_holding(core, None)
+    }
+
+    /// [`TxHandle::start`], keeping `held` (a lock, say) until the transaction's task ends:
+    /// it is released after the commit or the rollback, even when the caller is gone by then.
+    pub(crate) fn start_holding(
+        core: &Arc<Core>,
+        held: Option<Box<dyn std::any::Any + Send>>,
+    ) -> (
+        TxHandle,
+        Arc<tokio::sync::Mutex<FileEffects>>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let effects = Arc::new(tokio::sync::Mutex::new(FileEffects::default()));
         let (sender, receiver) = mpsc::channel(1);
         // (the transaction's task is the caller's work: it writes under the same chain)
         let work = run_transaction(core.clone(), receiver, effects.clone());
+        let work = async move {
+            work.await;
+            drop(held);
+        };
         let worker = match crate::origin::current() {
             Some(chain) => tokio::spawn(crate::origin::scope(chain, work)),
             None => tokio::spawn(work),

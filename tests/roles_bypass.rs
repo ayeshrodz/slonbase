@@ -471,6 +471,231 @@ async fn owners_deleting_each_other_leave_one() {
     tdb.drop_db().await;
 }
 
+/// A connection of another instance, with its transaction holding the database-wide lock of
+/// changes to the owners.
+async fn another_instance_holds_the_owners_lock(
+    tdb: &TestDb,
+) -> (tokio_postgres::Client, tokio::task::JoinHandle<()>) {
+    let (client, connection) = tokio_postgres::connect(&tdb.url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    let handle = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client.batch_execute("BEGIN").await.unwrap();
+    client
+        .execute(
+            "SELECT pg_advisory_xact_lock($1)",
+            &[&slonbase::roles::OWNERS_LOCK_KEY],
+        )
+        .await
+        .unwrap();
+    (client, handle)
+}
+
+/// Runs `request` while another instance holds the database-wide owners lock: it must not go
+/// on until the lock is released, and its status then is returned.
+async fn waits_for_the_owners_lock(
+    tdb: &TestDb,
+    request: impl std::future::Future<Output = StatusCode> + Send + 'static,
+) -> StatusCode {
+    let (other_instance, handle) = another_instance_holds_the_owners_lock(tdb).await;
+    let task = tokio::spawn(request);
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(!task.is_finished(), "it went on without the lock");
+    other_instance.batch_execute("COMMIT").await.unwrap();
+    let status = task.await.unwrap();
+    handle.abort();
+    status
+}
+
+/// The owners of a team, by role, as the first owner sees them.
+async fn roles_of(app: &Arc<App>, token: &str) -> Vec<String> {
+    let (_, team) = as_(app, token, "GET", "/api/team", None).await;
+    let mut roles: Vec<String> = team["members"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|m| m["role"].as_str().unwrap().to_string())
+        .collect();
+    roles.sort();
+    roles
+}
+
+/// The check that an owner remains and the delete are one step across instances, too: while
+/// another instance changes the owners (it holds the database-wide lock), a role change, a
+/// delete and a batch with a delete each wait for it, and then go through.
+#[tokio::test]
+async fn changes_to_the_owners_wait_for_another_instance() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-owner@example.com", "owner").await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let second_id = other["id"].as_str().unwrap().to_string();
+    let third = member(&app, &first, "third@example.com", "viewer").await;
+    let (_, other) = as_(&app, &third, "GET", "/api/team/me", None).await;
+    let third_id = other["id"].as_str().unwrap().to_string();
+    let fourth = member(&app, &first, "fourth@example.com", "viewer").await;
+    let (_, other) = as_(&app, &fourth, "GET", "/api/team/me", None).await;
+    let fourth_id = other["id"].as_str().unwrap().to_string();
+
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_eq!(
+        roles_of(&app, &first).await,
+        ["owner", "owner", "viewer", "viewer"]
+    );
+
+    // a role change
+    let status = waits_for_the_owners_lock(&tdb, {
+        let (app, first, id) = (app.clone(), first.clone(), second_id.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "PATCH",
+                &format!("/api/team/members/{id}"),
+                Some(json!({ "role": "admin" })),
+            )
+            .await
+            .0
+        }
+    })
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(
+        roles_of(&app, &first).await,
+        ["admin", "owner", "viewer", "viewer"]
+    );
+
+    // a delete
+    let status = waits_for_the_owners_lock(&tdb, {
+        let (app, first, id) = (app.clone(), first.clone(), third_id.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "DELETE",
+                &format!("/api/collections/_superusers/records/{id}"),
+                None,
+            )
+            .await
+            .0
+        }
+    })
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert_eq!(superuser_count(&app, &first).await, 3);
+
+    // a batch with a delete
+    let status = waits_for_the_owners_lock(&tdb, {
+        let (app, first, id) = (app.clone(), first.clone(), fourth_id.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "POST",
+                "/api/batch",
+                Some(json!({ "requests": [{
+                    "method": "DELETE",
+                    "url": format!("/api/collections/_superusers/records/{id}"),
+                }] })),
+            )
+            .await
+            .0
+        }
+    })
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(superuser_count(&app, &first).await, 2);
+    tdb.drop_db().await;
+}
+
+/// Two owners deleting each other through two instances on one database: one delete is
+/// refused, and an owner remains, every time.
+#[tokio::test]
+async fn owners_deleting_each_other_through_two_instances_leave_one() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first_app, first, _dir) = ready_app(&tdb).await;
+    // a second instance on the same database
+    let (_dir2, config2) = temp_config();
+    let second_app = new_app(&config2, Some(tdb.url.clone()));
+    second_app.bootstrap().await.unwrap();
+
+    let second = member(&first_app, &first, "second-owner@example.com", "owner").await;
+    // (a viewer, who remains whatever happens: the owners are what must not run out)
+    member(&first_app, &first, "viewer@example.com", "viewer").await;
+    let (_, me) = as_(&first_app, &first, "GET", "/api/team/me", None).await;
+    let (_, other) = as_(&first_app, &second, "GET", "/api/team/me", None).await;
+    let (first_id, second_id) = (
+        me["id"].as_str().unwrap().to_string(),
+        other["id"].as_str().unwrap().to_string(),
+    );
+    let delete = |app: Arc<App>, token: String, id: String| async move {
+        as_(
+            &app,
+            &token,
+            "DELETE",
+            &format!("/api/collections/_superusers/records/{id}"),
+            None,
+        )
+        .await
+    };
+    // a delete takes a second: both deletes would have passed the check for another owner
+    // before either is done (without the database-wide lock, both would go through)
+    admin_exec(
+        &tdb.url,
+        "CREATE FUNCTION slonbase.slow_delete() RETURNS trigger LANGUAGE plpgsql AS
+         $$ BEGIN PERFORM pg_sleep(1); RETURN OLD; END $$;
+         CREATE TRIGGER slow_delete BEFORE DELETE ON slonbase._superusers
+         FOR EACH ROW EXECUTE FUNCTION slonbase.slow_delete();",
+    )
+    .await;
+    let one = tokio::spawn(delete(first_app.clone(), first.clone(), second_id));
+    let other = tokio::spawn(delete(second_app.clone(), second.clone(), first_id));
+    let ((a, a_body), (b, b_body)) = (one.await.unwrap(), other.await.unwrap());
+    let ok = [a, b]
+        .iter()
+        .filter(|s| **s == StatusCode::NO_CONTENT)
+        .count();
+    assert_eq!(ok, 1, "exactly one delete goes through: {a} and {b}");
+    let survivor = if a == StatusCode::NO_CONTENT {
+        &first
+    } else {
+        &second
+    };
+    let owners = roles_of(&first_app, survivor)
+        .await
+        .iter()
+        .filter(|r| *r == "owner")
+        .count();
+    assert_eq!(owners, 1, "{a} and {b}");
+    let (refused, body) = if a == StatusCode::NO_CONTENT {
+        (b, b_body)
+    } else {
+        (a, a_body)
+    };
+    assert!(
+        body["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("last owner"),
+        "the owner check refused it: {refused} {body}"
+    );
+    tdb.drop_db().await;
+}
+
 /// A batch deleting every owner is refused like the same deletes one at a time, and so is
 /// demoting the owner a delete would leave.
 #[tokio::test]
@@ -537,4 +762,64 @@ async fn a_batch_cannot_delete_the_last_owners() {
     assert_eq!(status, StatusCode::OK, "{res}");
     assert_eq!(superuser_count(&app, &first).await, 2);
     tdb.drop_db().await;
+}
+
+/// A pool with a connection or two (supported) has no connection to spare for the
+/// database-wide lock: changes to the owners still go through, under this instance's lock.
+#[tokio::test]
+async fn owners_change_with_the_smallest_pools() {
+    for size in [1, 2] {
+        let Some(tdb) = TestDb::create().await else {
+            return;
+        };
+        let (app, first, _dir) =
+            ready_app_with_file(&tdb, &format!("[database]\nmax_connections = {size}\n")).await;
+        let second = member(&app, &first, &format!("second{size}@example.com"), "owner").await;
+        let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+        let second_id = other["id"].as_str().unwrap().to_string();
+        let (status, res) = as_(
+            &app,
+            &first,
+            "PATCH",
+            &format!("/api/team/members/{second_id}"),
+            Some(json!({ "role": "admin" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "pool of {size}: {res}");
+        let (status, res) = as_(
+            &app,
+            &first,
+            "DELETE",
+            &format!("/api/collections/_superusers/records/{second_id}"),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "pool of {size}: {res}");
+        // a batch with a delete
+        let (status, res) = as_(
+            &app,
+            &first,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "batch": { "enabled": true } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "pool of {size}: {res}");
+        let third = member(&app, &first, &format!("third{size}@example.com"), "viewer").await;
+        let (_, other) = as_(&app, &third, "GET", "/api/team/me", None).await;
+        let third_id = other["id"].as_str().unwrap().to_string();
+        let (status, res) = as_(
+            &app,
+            &first,
+            "POST",
+            "/api/batch",
+            Some(json!({ "requests": [{
+                "method": "DELETE",
+                "url": format!("/api/collections/_superusers/records/{third_id}"),
+            }] })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "pool of {size}: {res}");
+        tdb.drop_db().await;
+    }
 }

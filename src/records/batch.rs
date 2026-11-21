@@ -308,13 +308,18 @@ async fn run_batch(
         matches!(r.action, Action::Delete(_))
             && r.collection.id == crate::collections::model::SUPERUSERS_COLLECTION_ID
     });
-    let _one_at_a_time = if deletes_superusers {
-        Some(core.superuser_deletes.lock().await)
+    let one_at_a_time = if deletes_superusers {
+        Some(crate::roles::lock_owners(core).await?)
     } else {
         None
     };
 
-    let (tx, effects, worker) = TxHandle::start(core);
+    // (the lock goes with the transaction's task, so a request that is dropped while the
+    // commit is on its way doesn't release the lock before the commit is done)
+    let (tx, effects, worker) = TxHandle::start_holding(
+        core,
+        one_at_a_time.map(|lock| Box::new(lock) as Box<dyn std::any::Any + Send>),
+    );
 
     let run = async {
         let mut done = Vec::with_capacity(requests.len());

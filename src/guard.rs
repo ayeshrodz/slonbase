@@ -690,7 +690,14 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         // can't both pass
         if request.method() == Method::DELETE {
             if let Some(id) = role_path.strip_prefix("/api/collections/_superusers/records/") {
-                _deleting = Some(core.superuser_deletes.lock().await);
+                // (not from an address that may not use superusers: it doesn't wait for the lock)
+                if !superuser_ip_allowed(&settings.superuser_ips, ip) {
+                    return not_allowed();
+                }
+                _deleting = match crate::roles::lock_owners(&core).await {
+                    Ok(lock) => Some(lock),
+                    Err(err) => return err.into_response(),
+                };
                 if let Err(err) = crate::roles::check_delete(&core, id).await {
                     return err.into_response();
                 }
@@ -726,7 +733,23 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
             }
         }
     }
-    next.run(request).await
+    match _deleting {
+        // the delete runs to its end, with the lock, even when the client goes away while the
+        // commit is on its way: the lock is not released before the commit is done
+        Some(lock) => {
+            let done = tokio::spawn(async move {
+                let response = next.run(request).await;
+                drop(lock);
+                response
+            });
+            match done.await {
+                Ok(response) => response,
+                Err(_) => ApiError::internal(anyhow::anyhow!("the delete stopped unexpectedly"))
+                    .into_response(),
+            }
+        }
+        None => next.run(request).await,
+    }
 }
 
 #[cfg(test)]
