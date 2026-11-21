@@ -155,6 +155,9 @@ changes, listed in its **Upgrading** section.
   ran the hook. The outer change checks the collections again afterwards and fails, rather than
   save over a collection a hook changed under it. Other collection changes still wait their turn,
   and restoring a backup from a collection hook is refused instead of waiting.
+- An automation's **Find records** step checks its sort against the collection when the
+  automation is previewed or saved, as it already did for the filter, so an unknown sort field is
+  reported on the step instead of failing when the automation runs.
 - Importing collections: a column that a view reads can be renamed (or dropped) in the same
   import that updates the view's query, also when a new view reads the updated one; a view of
   the import is no longer refused for being made again from its old query in between (it is
