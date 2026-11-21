@@ -1451,9 +1451,14 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
         let client = core.db().get().await.map_err(db::describe_pool_error)?;
         Settings::load(&client, core.secrets_key()).await
     };
+    let failed = |err: anyhow::Error| {
+        tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
+        false
+    };
+    let epoch = core.settings_epoch();
     match load().await {
         Ok(settings) => {
-            if core.publish_settings(settings) {
+            if core.publish_settings(epoch, settings) {
                 crate::settings::reloaded(core);
                 return true;
             }
@@ -1461,34 +1466,36 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
             // overtook, and then there is nothing to do. But it is also what the database
             // looks like after it went back to an earlier state (restored from a backup while
             // this ran): a read that starts now cannot be older than a revision that was
-            // already published, unless it has
+            // already published, unless it has. The cache is replaced only if nothing
+            // replaced it since the read started (otherwise the answer may be a change that
+            // was published meanwhile, and the read is tried again).
+            let generation = core.settings_generation();
+            let epoch = core.settings_epoch();
             match load().await {
                 Ok(fresh) if fresh.revision < core.settings().revision => {
-                    tracing::warn!(
-                        stored = fresh.revision,
-                        held = core.settings().revision,
-                        "the stored settings are older than the ones held: the database went back to an earlier state, so they are taken from it"
-                    );
-                    core.set_settings(fresh);
-                    crate::settings::reloaded(core);
-                    true
+                    let (stored, held) = (fresh.revision, core.settings().revision);
+                    if core.set_settings_if(generation, fresh) {
+                        tracing::warn!(
+                            stored,
+                            held,
+                            "the stored settings are older than the ones held: the database went back to an earlier state, so they are taken from it"
+                        );
+                        crate::settings::reloaded(core);
+                        true
+                    } else {
+                        false
+                    }
                 }
                 Ok(fresh) => {
-                    if core.publish_settings(fresh) {
+                    if core.publish_settings(epoch, fresh) {
                         crate::settings::reloaded(core);
                     }
                     true
                 }
-                Err(err) => {
-                    tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-                    false
-                }
+                Err(err) => failed(err),
             }
         }
-        Err(err) => {
-            tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-            false
-        }
+        Err(err) => failed(err),
     }
 }
 

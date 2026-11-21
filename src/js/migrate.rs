@@ -530,7 +530,7 @@ async fn run_one(
         core.set_registry(registry.as_ref().clone());
     }
     if let Some(settings) = settings {
-        core.publish_settings(settings);
+        core.publish_settings(core.settings_epoch(), settings);
     }
     for c in deleted {
         if let Err(err) = core.storage().delete_prefix(&c.id).await {

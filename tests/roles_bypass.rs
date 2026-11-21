@@ -1098,7 +1098,7 @@ async fn a_snapshot_read_before_a_demotion_cannot_replace_it() {
     );
 
     assert!(
-        !core.publish_settings(before),
+        !core.publish_settings(core.settings_epoch(), before),
         "the older snapshot is not published"
     );
     assert_eq!(

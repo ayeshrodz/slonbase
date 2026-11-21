@@ -316,3 +316,57 @@ async fn a_database_that_went_back_to_an_earlier_state_is_followed() {
     assert!(followed, "held {held}, now {}", core.settings().revision);
     tdb.drop_db().await;
 }
+
+/// A snapshot read before a restore replaced the settings is from another database history: its
+/// revision may be higher than the restored one, and it must not replace the restored settings
+/// when it arrives late.
+#[tokio::test]
+async fn a_snapshot_read_before_a_restore_does_not_replace_the_restored_settings() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    for n in 0..3 {
+        let (status, res) = admin(
+            &app,
+            &token,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "meta": { "appName": format!("before {n}") } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+    let core = app.core().unwrap();
+
+    // a reload reads the settings (revision 3 or more) and is slow to publish them
+    let epoch = core.settings_epoch();
+    let late = slonbase::settings::Settings::load(
+        &tdb.pool().get().await.unwrap(),
+        core.secrets_key_for_tests(),
+    )
+    .await
+    .unwrap();
+    assert!(late.revision >= 3, "{}", late.revision);
+
+    // meanwhile a backup is restored: older settings, with a lower revision
+    let client = db(&tdb).await;
+    client
+        .batch_execute(
+            "UPDATE _slonbase.params SET value = to_jsonb(1::bigint) WHERE key = 'settingsRevision';
+             UPDATE _slonbase.params SET value = jsonb_set(value, '{appName}', '\"restored\"')
+             WHERE key = 'settings:meta';",
+        )
+        .await
+        .unwrap();
+    core.reload_after_restore().await.unwrap();
+    assert_eq!(core.settings().meta.app_name, "restored");
+    assert_eq!(core.settings().revision, 1);
+
+    assert!(
+        !core.publish_settings(epoch, late),
+        "a snapshot from before the restore is not published, though its revision is higher"
+    );
+    assert_eq!(core.settings().meta.app_name, "restored");
+    tdb.drop_db().await;
+}
