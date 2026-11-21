@@ -52,6 +52,8 @@ pub struct App {
 
 /// How many failed attempts to reach the database before it is reported as an error.
 const UNREACHABLE_AFTER: u32 = 5;
+/// After that, how many attempts pass between two error reports.
+const REPORT_EVERY: u32 = 20;
 
 /// Where the database URL points, for a log line: the user, host, port and database, never the
 /// password or the query.
@@ -209,6 +211,7 @@ impl App {
 
         let mut delay = Duration::from_secs(1);
         let mut failures = 0u32;
+        let mut next_report = UNREACHABLE_AFTER;
         loop {
             let attempt = async {
                 if prepare(&pool, key.as_ref()).await? {
@@ -246,9 +249,8 @@ impl App {
                 Err(err) => {
                     let status = format!("{err:#}");
                     failures += 1;
-                    if failures == UNREACHABLE_AFTER
-                        || (failures > UNREACHABLE_AFTER && failures % 20 == 0)
-                    {
+                    if failures == next_report {
+                        next_report += REPORT_EVERY;
                         // the service reports itself as running while it waits, so say what
                         // it is waiting for
                         tracing::error!(
