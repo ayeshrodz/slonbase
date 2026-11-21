@@ -78,6 +78,12 @@ The files are marked as applied, since the changes already are. Commit them, and
 installations get the changes when they start. Each file holds the whole collection definition
 before and after, so `down` restores the previous version.
 
+Automigrate covers changes made through the API and the dashboard (create, update, delete and
+import). A collection a **hook** creates or changes with `$app.save(collection)`,
+`$app.delete(collection)` or `$app.importCollections(...)` is not written to a migration file:
+a hook runs again on a fresh database, and would then find the collection already there if a
+migration created it too. Create such collections in the hook, or in a migration file, not both.
+
 Automigrate is off by default. Turn it on where you design the schema (usually your own
 machine), and keep it off in production, where the changes come from the files.
 

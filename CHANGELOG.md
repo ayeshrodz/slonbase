@@ -145,6 +145,9 @@ changes, listed in its **Upgrading** section.
   `trustedProxy.peers` and `superuserIPs` come back empty for the viewer role; the keys stay, and
   everything else is as before. Other roles are unchanged. What a viewer can read is listed
   with the roles in the API documentation.
+- The documentation now says that collection changes made from hooks (`$app.save(collection)`,
+  `$app.delete(collection)`, `$app.importCollections(...)`) are not written to automigrate
+  files, and what to do instead.
 
 ### Fixed
 
@@ -233,7 +236,6 @@ changes, listed in its **Upgrading** section.
 - Viewers see less in `GET /api/settings` (see Changed): a dashboard or script that reads the
   SMTP host, the S3 details or the proxy addresses with a viewer's token gets empty values; use
   a developer or admin token for that.
-
 - Nothing to do for hooks or failure notices: the new limits are off unless set, and notice
   webhooks keep their addresses (an `https://` one is signed from its next save, and its
   receiver may verify the signature or ignore it).
