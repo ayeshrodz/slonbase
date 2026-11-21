@@ -297,7 +297,7 @@ impl Client {
             ensure_success(response, "download").await?;
             bail!("unreachable: the response was an error");
         }
-        let size = response.content_length().unwrap_or_default();
+        let size = response.content_length();
         let stream: ByteStream = Box::pin(
             response
                 .bytes_stream()
@@ -322,14 +322,53 @@ impl Client {
             return Ok(None);
         }
         // a HEAD response has no body: its length is the object's
-        let size = response
+        let length = response
             .headers()
             .get(reqwest::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.parse::<u64>().ok())
-            .unwrap_or_default();
+            .and_then(|v| v.parse::<u64>().ok());
         ensure_success(response, "check").await?;
+        let size = match length {
+            Some(size) => size,
+            // some servers and proxies leave the length out of a HEAD response: the total in
+            // the answer to a request for the first byte says it too
+            None => self
+                .size_from_range(key)
+                .await?
+                .with_context(|| format!("the storage didn't say how large {key} is"))?,
+        };
         Ok(Some(size))
+    }
+
+    /// The size of an object from the `Content-Range` of a request for its first byte
+    /// (`bytes 0-0/1234`); `None` when the server doesn't give one. An empty object has no
+    /// first byte (the server answers 416 with the total, `bytes */0`).
+    async fn size_from_range(&self, key: &str) -> Result<Option<u64>> {
+        let response = self
+            .send(
+                Method::GET,
+                key,
+                &[],
+                Payload::Empty,
+                &[("range", "bytes=0-0".to_string())],
+                Some(REQUEST_TIMEOUT),
+            )
+            .await?;
+        let total = response
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit('/').next())
+            .and_then(|v| v.parse::<u64>().ok());
+        if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
+            return Ok(total.or(Some(0)).filter(|_| total.is_some()));
+        }
+        // (a success is dropped unread: a server that ignored the range answers with the whole
+        // object, which is not read into memory to find out its size)
+        if !response.status().is_success() {
+            ensure_success(response, "check").await?;
+        }
+        Ok(total)
     }
 
     /// Opens bytes `start..=end` of an object for streaming.
@@ -351,7 +390,7 @@ impl Client {
             ensure_success(response, "download").await?;
             bail!("unreachable: the response was an error");
         }
-        let size = response.content_length().unwrap_or_default();
+        let size = response.content_length();
         let stream: ByteStream = Box::pin(
             response
                 .bytes_stream()
@@ -967,7 +1006,7 @@ mod tests {
             .await
             .unwrap();
         let object = client.open("a/b/one.txt").await.unwrap().unwrap();
-        assert_eq!(object.size, 5);
+        assert_eq!(object.size, Some(5));
         let data: Vec<Bytes> = object.stream.map(|c| c.unwrap()).collect().await;
         assert_eq!(data.concat(), b"hello");
         assert!(client.exists("a/b/one.txt").await.unwrap());
@@ -1001,7 +1040,7 @@ mod tests {
         std::fs::write(&path, &data).unwrap();
         client.put_file("big/file.bin", &path).await.unwrap();
         let object = client.open("big/file.bin").await.unwrap().unwrap();
-        assert_eq!(object.size, data.len() as u64);
+        assert_eq!(object.size, Some(data.len() as u64));
         let read: Vec<Bytes> = object.stream.map(|c| c.unwrap()).collect().await;
         assert!(read.concat() == data, "the parts are put together in order");
         client.delete("big/file.bin").await.unwrap();
@@ -1095,6 +1134,137 @@ mod tests {
         client.multipart_threshold = 1000;
         client.part_size = 400;
         client
+    }
+
+    /// A server that never sends a `Content-Length` (every body is streamed, a HEAD answer
+    /// has none): `behaviour` picks what it does with a request for the first byte.
+    #[derive(Clone, Copy)]
+    enum Lengthless {
+        /// Answers with a `Content-Range` (`bytes 0-0/10`).
+        Range,
+        /// Answers 416 with `bytes */0`, as for an empty object.
+        Empty,
+        /// Says nothing about the size at all.
+        Silent,
+        /// Ignores the range and answers 200, with a body that never ends.
+        Ignored,
+    }
+
+    async fn lengthless(
+        axum::extract::State(behaviour): axum::extract::State<Lengthless>,
+        method: axum::http::Method,
+        headers: axum::http::HeaderMap,
+    ) -> axum::response::Response {
+        use axum::body::Body;
+        use axum::response::IntoResponse;
+        const DATA: &[u8] = b"0123456789";
+        let streamed = |bytes: &'static [u8]| {
+            Body::from_stream(futures_util::stream::iter([Ok::<_, std::io::Error>(
+                Bytes::from_static(bytes),
+            )]))
+        };
+        let first_byte = headers.contains_key("range");
+        match (method.as_str(), first_byte, behaviour) {
+            ("HEAD", _, _) => {
+                Body::from_stream(futures_util::stream::empty::<Result<Bytes, std::io::Error>>())
+                    .into_response()
+            }
+            ("GET", true, Lengthless::Range) => (
+                axum::http::StatusCode::PARTIAL_CONTENT,
+                [("content-range", "bytes 0-0/10")],
+                streamed(&DATA[..1]),
+            )
+                .into_response(),
+            ("GET", true, Lengthless::Empty) => (
+                axum::http::StatusCode::RANGE_NOT_SATISFIABLE,
+                [("content-range", "bytes */0")],
+                Body::empty(),
+            )
+                .into_response(),
+            ("GET", true, Lengthless::Silent) => (
+                axum::http::StatusCode::PARTIAL_CONTENT,
+                streamed(&DATA[..1]),
+            )
+                .into_response(),
+            // (the headers, and then a body that never comes)
+            ("GET", true, Lengthless::Ignored) => {
+                Body::from_stream(futures_util::stream::pending::<Result<Bytes, std::io::Error>>())
+                    .into_response()
+            }
+            ("GET", false, _) => streamed(DATA).into_response(),
+            _ => axum::http::StatusCode::NOT_IMPLEMENTED.into_response(),
+        }
+    }
+
+    async fn start_lengthless(behaviour: Lengthless) -> Client {
+        let router = axum::Router::new()
+            .fallback(lengthless)
+            .with_state(behaviour);
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        Client::new(Config {
+            endpoint: format!("http://{addr}"),
+            bucket: "b".into(),
+            region: "us-east-1".into(),
+            access_key: "k".into(),
+            secret: "s".into(),
+            force_path_style: true,
+        })
+        .unwrap()
+    }
+
+    #[tokio::test]
+    async fn an_object_without_a_content_length_has_no_size_of_zero() {
+        use futures_util::TryStreamExt;
+        let client = start_lengthless(Lengthless::Range).await;
+        // opened: the size is unknown, not 0, and all of the bytes come
+        let object = client.open("k").await.unwrap().unwrap();
+        assert_eq!(object.size, None);
+        let body: Vec<u8> = object
+            .stream
+            .try_fold(Vec::new(), |mut all, chunk| async move {
+                all.extend_from_slice(&chunk);
+                Ok(all)
+            })
+            .await
+            .unwrap();
+        assert_eq!(body, b"0123456789");
+        // a ranged open too
+        let object = client.open_range("k", 0, 0).await.unwrap().unwrap();
+        assert_eq!(object.size, None);
+        // the size comes from the total in the answer to a request for the first byte
+        assert_eq!(client.size("k").await.unwrap(), Some(10));
+    }
+
+    #[tokio::test]
+    async fn an_empty_object_is_found_to_be_empty_without_a_content_length() {
+        let client = start_lengthless(Lengthless::Empty).await;
+        assert_eq!(client.size("k").await.unwrap(), Some(0));
+    }
+
+    #[tokio::test]
+    async fn a_size_nobody_gave_is_an_error_and_not_zero() {
+        let client = start_lengthless(Lengthless::Silent).await;
+        let err = client.size("k").await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("didn't say how large"),
+            "{err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_the_server_ignores_is_not_read_to_find_a_size() {
+        let client = start_lengthless(Lengthless::Ignored).await;
+        // (the answer's body never ends: reading it would wait for ever)
+        let err = tokio::time::timeout(std::time::Duration::from_secs(5), client.size("k"))
+            .await
+            .expect("the size check waited for the body")
+            .unwrap_err();
+        assert!(
+            format!("{err:#}").contains("didn't say how large"),
+            "{err:#}"
+        );
     }
 
     #[tokio::test]
