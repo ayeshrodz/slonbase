@@ -87,6 +87,23 @@ pub struct Core {
     automigrate_dir: Option<std::path::PathBuf>,
     /// The registered hooks and cron jobs.
     pub hooks: Arc<crate::hooks::Hooks>,
+    /// Whether hook files exist and no time or memory limit applies to them (see
+    /// [`crate::warnings`]).
+    hooks_unlimited: bool,
+}
+
+fn hooks_unlimited(config: &crate::config::HooksConfig) -> bool {
+    #[cfg(feature = "js")]
+    {
+        config.timeout_seconds == 0
+            && config.memory_limit_mb == 0
+            && crate::js::has_hook_files(&config.dir)
+    }
+    #[cfg(not(feature = "js"))]
+    {
+        let _ = config;
+        false
+    }
 }
 
 /// The installation's signing secret, created once and shared by all instances (encrypted
@@ -262,6 +279,7 @@ impl Core {
                 .automigrate
                 .then(|| config.migrations.dir.clone()),
             hooks,
+            hooks_unlimited: hooks_unlimited(&config.hooks),
         });
         crate::warnings::log(&core);
         // a query that waits for a lock has no end of its own, and a hook that makes one holds
@@ -282,6 +300,13 @@ impl Core {
     /// job runs. Work a job hands to another task, such as a hook handler, is the API's.
     pub fn db(&self) -> &crate::connections::Connections {
         &self.connections
+    }
+
+    /// True when hook files exist and neither `hooks.timeout_seconds` nor
+    /// `hooks.memory_limit_mb` is set, so a hook that loops or allocates without end is not
+    /// stopped.
+    pub fn hooks_unlimited(&self) -> bool {
+        self.hooks_unlimited
     }
 
     /// Where automigrate writes migration files, or `None` when it's off.

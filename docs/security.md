@@ -90,6 +90,13 @@ change nothing by themselves:
   empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it
   to superusers.
 
+- **Hook code without a time or memory limit:** with hook files present and both
+  `hooks.timeout_seconds` and `hooks.memory_limit_mb` at 0, a hook that loops or allocates
+  without end is not stopped. New installations set 60 seconds and 128 MB, but an installation
+  whose database URL is fixed by a flag or an environment variable has no setup-written
+  configuration file, so it keeps 0 until you set them (in the file, or with `--hooks-timeout`
+  and `--hooks-memory`). slonbase lists it on the Health page and never changes the limits.
+
 - **A stored template or automation that no longer passes its checks:** validation runs when
   one is saved, so a rule that became stricter (or a collection or field an automation uses that
   was renamed) only shows when it runs. slonbase checks them again as the installation starts and
