@@ -50,6 +50,33 @@ pub struct App {
     pub(crate) projects: crate::projects::Projects,
 }
 
+/// How many failed attempts to reach the database before it is reported as an error.
+const UNREACHABLE_AFTER: u32 = 5;
+
+/// Where the database URL points, for a log line: the user, host, port and database, never the
+/// password or the query.
+fn database_target(url: &str) -> String {
+    let Ok(config) = url.parse::<tokio_postgres::Config>() else {
+        return "the configured database".into();
+    };
+    let hosts: Vec<String> = config
+        .get_hosts()
+        .iter()
+        .zip(config.get_ports().iter().chain(std::iter::repeat(&5432)))
+        .map(|(host, port)| match host {
+            tokio_postgres::config::Host::Tcp(name) => format!("{name}:{port}"),
+            #[cfg(unix)]
+            tokio_postgres::config::Host::Unix(path) => path.display().to_string(),
+        })
+        .collect();
+    format!(
+        "{}@{} database {}",
+        config.get_user().unwrap_or("?"),
+        hosts.join(","),
+        config.get_dbname().unwrap_or("?")
+    )
+}
+
 impl App {
     /// Creates the app in the `Starting` mode. `setup_token` lets automation
     /// preset the token; otherwise a random one is generated.
@@ -181,6 +208,7 @@ impl App {
         let key = crate::secrets::from_config(&config.effective)?;
 
         let mut delay = Duration::from_secs(1);
+        let mut failures = 0u32;
         loop {
             let attempt = async {
                 if prepare(&pool, key.as_ref()).await? {
@@ -217,7 +245,23 @@ impl App {
                 }
                 Err(err) => {
                     let status = format!("{err:#}");
-                    tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
+                    failures += 1;
+                    if failures == UNREACHABLE_AFTER
+                        || (failures > UNREACHABLE_AFTER && failures % 20 == 0)
+                    {
+                        // the service reports itself as running while it waits, so say what
+                        // it is waiting for
+                        tracing::error!(
+                            target = %database_target(&url),
+                            error = %status,
+                            attempts = failures,
+                            "the database is still unreachable: check that PostgreSQL is running \
+                             and that database.url (or SLONBASE_DATABASE_URL) is right; slonbase \
+                             keeps trying and starts by itself when it can connect"
+                        );
+                    } else {
+                        tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
+                    }
                     self.set_mode(Mode::Starting { status });
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(30));
@@ -285,4 +329,22 @@ pub(crate) async fn prepare(pool: &Pool, key: Option<&crate::secrets::SecretsKey
     crate::collections::system::ensure_with(pool, key).await?;
     crate::collections::store::heal_views_with(pool, key).await?;
     Ok(superusers::count(pool).await? > 0)
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::database_target;
+
+    #[test]
+    fn the_target_names_the_place_and_never_the_password() {
+        let line =
+            database_target("postgres://slonbase:s3cret%40x@127.0.0.1:5433/app?sslmode=disable");
+        assert_eq!(line, "slonbase@127.0.0.1:5433 database app");
+        assert!(!line.contains("s3cret"));
+        assert_eq!(
+            database_target("postgres://u:p@db.internal/app"),
+            "u@db.internal:5432 database app"
+        );
+        assert_eq!(database_target("not a url"), "the configured database");
+    }
 }
