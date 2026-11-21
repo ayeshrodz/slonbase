@@ -226,6 +226,11 @@ pub struct LoginLockout {
     pub attempts: u32,
     /// The window, in minutes (1 to 60).
     pub minutes: u32,
+    /// Failed sign-ins allowed in the window for an account from all addresses together
+    /// (0: off, the default). Counts failures whoever they come from, so someone who changes
+    /// address between guesses is stopped too, and so can someone who wants a user locked out
+    /// for the window; superusers are never locked out this way. Higher than `attempts`.
+    pub account_attempts: u32,
 }
 
 /// The lockout's default: on since 2.4 (older installations are switched on once, see
@@ -237,6 +242,7 @@ impl Default for LoginLockout {
         Self {
             attempts: DEFAULT_LOCKOUT_ATTEMPTS,
             minutes: 15,
+            account_attempts: 0,
         }
     }
 }
@@ -902,6 +908,23 @@ fn validate(s: &Settings) -> Errors {
     }
     if sec.login_lockout.attempts > 0 && !(1..=60).contains(&sec.login_lockout.minutes) {
         errors.invalid("security.loginLockout.minutes", "Must be between 1 and 60.");
+    }
+    if sec.login_lockout.account_attempts > 10_000 {
+        errors.invalid(
+            "security.loginLockout.accountAttempts",
+            "Must be at most 10000.",
+        );
+    }
+    if sec.login_lockout.account_attempts > 0 {
+        if !(1..=60).contains(&sec.login_lockout.minutes) {
+            errors.invalid("security.loginLockout.minutes", "Must be between 1 and 60.");
+        }
+        if sec.login_lockout.account_attempts <= sec.login_lockout.attempts {
+            errors.invalid(
+                "security.loginLockout.accountAttempts",
+                "Must be higher than attempts (0 turns it off).",
+            );
+        }
     }
     if !(0..=MAX_SAFE_JSON_INT).contains(&s.files.default_max_size) {
         errors.invalid("files.defaultMaxSize", "Must be 0 or more.");

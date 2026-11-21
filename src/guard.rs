@@ -480,7 +480,20 @@ fn lockout_key(collection: &str, identity: &str, ip: Option<IpAddr>) -> String {
     format!("lockout|{collection}|{}|{ip}", identity.to_lowercase())
 }
 
-/// `Err` with a 429 when the identity is locked out from this address.
+/// The key of an account's failures from every address (`loginLockout.accountAttempts`).
+fn account_lockout_key(collection: &str, identity: &str) -> String {
+    format!("lockout-account|{collection}|{}", identity.to_lowercase())
+}
+
+/// Whether the failures of the account from every address count (superusers are not locked
+/// out this way: an owner can always try again from the dashboard).
+fn counts_by_account(lockout: &crate::settings::LoginLockout, collection: &str) -> bool {
+    lockout.account_attempts > 0
+        && collection != crate::collections::model::SUPERUSERS_COLLECTION_ID
+}
+
+/// `Err` with a 429 when the identity is locked out from this address, or (when it is turned
+/// on) the account from every address.
 pub async fn check_lockout(
     core: &Core,
     collection: &str,
@@ -488,7 +501,8 @@ pub async fn check_lockout(
     ip: Option<IpAddr>,
 ) -> Result<(), ApiError> {
     let lockout = core.settings().security.login_lockout.clone();
-    if lockout.attempts == 0 {
+    let by_account = counts_by_account(&lockout, collection);
+    if lockout.attempts == 0 && !by_account {
         return Ok(());
     }
     let client = core
@@ -496,15 +510,16 @@ pub async fn check_lockout(
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let keys = [
+        (lockout.attempts > 0).then(|| lockout_key(collection, identity, ip)),
+        by_account.then(|| account_lockout_key(collection, identity)),
+    ];
+    let keys: Vec<String> = keys.into_iter().flatten().collect();
     let locked = client
         .query_opt(
-            "SELECT 1 FROM _slonbase.rate_limits WHERE key = $1 AND remaining <= 0 \
+            "SELECT 1 FROM _slonbase.rate_limits WHERE key = ANY($1) AND remaining <= 0 \
              AND started > now() - make_interval(mins => $2::int4)",
-            &[
-                &lockout_key(collection, identity, ip)
-                    as &(dyn tokio_postgres::types::ToSql + Sync),
-                &(lockout.minutes.max(1) as i32),
-            ],
+            &[&keys, &(lockout.minutes.max(1) as i32)],
         )
         .await
         .map_err(|e| ApiError::internal(e.into()))?
@@ -530,28 +545,41 @@ pub async fn record_sign_in(
     failed: bool,
 ) {
     let lockout = core.settings().security.login_lockout.clone();
-    if lockout.attempts == 0 {
+    let by_account = counts_by_account(&lockout, collection);
+    if lockout.attempts == 0 && !by_account {
         return;
     }
-    let key = lockout_key(collection, identity, ip);
     let done = async {
         let client = core
             .db()
             .get()
             .await
             .map_err(crate::db::describe_pool_error)?;
-        if failed {
-            let rule = RateLimitRule {
-                label: String::new(),
-                audience: String::new(),
-                duration: u64::from(lockout.minutes.max(1)) * 60,
-                max_requests: lockout.attempts,
-            };
-            shared_count(&client, &key, &rule).await?;
-        } else {
-            client
-                .execute("DELETE FROM _slonbase.rate_limits WHERE key = $1", &[&key])
-                .await?;
+        // what is counted: from this address, and the account from every address
+        let mut counted = Vec::new();
+        if lockout.attempts > 0 {
+            counted.push((lockout_key(collection, identity, ip), lockout.attempts));
+        }
+        if by_account {
+            counted.push((
+                account_lockout_key(collection, identity),
+                lockout.account_attempts,
+            ));
+        }
+        for (key, attempts) in counted {
+            if failed {
+                let rule = RateLimitRule {
+                    label: String::new(),
+                    audience: String::new(),
+                    duration: u64::from(lockout.minutes.max(1)) * 60,
+                    max_requests: attempts,
+                };
+                shared_count(&client, &key, &rule).await?;
+            } else {
+                client
+                    .execute("DELETE FROM _slonbase.rate_limits WHERE key = $1", &[&key])
+                    .await?;
+            }
         }
         anyhow::Ok(())
     };

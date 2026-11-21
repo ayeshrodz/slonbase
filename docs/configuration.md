@@ -200,7 +200,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `rateLimits` | `enabled`, `rules` |
 | `trustedProxy` | `headers` carrying the client IP, `useLeftmostIP` |
 | `superuserIPs` | Addresses or ranges superusers may use |
-| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage`, `authEmailInterval` (seconds between auth emails to an account, 60), `loginLockout` (`attempts` 10, `minutes` 15; `attempts: 0` turns it off) |
+| `security` | slonbase's: `allowedOrigins` (CORS; `["*"]` by default), `maxUploadMb` (128), `hsts`, `maintenance`, `maintenanceMessage`, `authEmailInterval` (seconds between auth emails to an account, 60), `loginLockout` (`attempts` 10, `minutes` 15; `attempts: 0` turns it off; `accountAttempts` 0, off, also counts an account's failures from every address, see below) |
 | `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
@@ -217,7 +217,15 @@ fields stay empty).
 `security.loginLockout.attempts` password sign-ins from one address within `minutes` gets `429`
 until the window ends, even with the right password; a successful sign-in clears the count. It's
 counted per identity *and* address, so someone elsewhere can't lock a user out. It's counted in
-the database, so every instance shares it. `attempts: 0` turns it off (Health then warns). `POST /api/settings/rate-limits/explain` (`{method, path, audience}`)
+the database, so every instance shares it. `attempts: 0` turns it off (Health then warns).
+
+With `security.loginLockout.accountAttempts` (0, off, by default; higher than `attempts`), an
+account's failures are also counted from **every** address together, so a guesser who changes
+address for each try is stopped too: past that many in `minutes`, sign-in for the account gets
+`429` from everywhere. This is a trade-off, which is why it's off: anyone who knows an email
+can use it to lock that user out for the window. Superusers are never locked out this way (they
+keep the per-address lockout), so an owner can always sign in to the dashboard, and the lockout
+ends by itself after `minutes`. `POST /api/settings/rate-limits/explain` (`{method, path, audience}`)
 says which rate-limit rule a request would meet.
 
 **CORS.** Pages on any site may call the API, as with PocketBase (`security.allowedOrigins` is

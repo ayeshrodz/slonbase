@@ -65,6 +65,10 @@ changes, listed in its **Upgrading** section.
 - **`extra.requireSignature` for OpenID Connect providers.** With it set to `true`, a provider
   without `extra.jwksURL` is refused when saved and when a token arrives, so an `id_token` is
   never trusted without its signature being checked. Providers without it behave as before.
+- **Account lockout across addresses (opt-in).** `security.loginLockout.accountAttempts` (0, off,
+  by default) also counts an account's failed password sign-ins from every address together, so
+  a guesser who changes address for each try gets locked out too. Superusers are never locked
+  out this way. It is off for existing installations, whose lockout is unchanged.
 
 ### Changed
 
