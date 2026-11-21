@@ -1441,7 +1441,9 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-pub(crate) async fn reload_settings(core: &Arc<Core>) {
+/// Reads the settings again from the database. Returns whether the cache now holds what was
+/// read (or a newer change made here), and not an error.
+pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
     // as for collections: don't undo a newer change made here
     for _ in 0..5 {
         let generation = core.settings_generation();
@@ -1453,15 +1455,17 @@ pub(crate) async fn reload_settings(core: &Arc<Core>) {
             Ok(settings) => {
                 if core.set_settings_if(generation, settings) {
                     crate::settings::reloaded(core);
-                    return;
+                    return true;
                 }
             }
             Err(err) => {
                 tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
-                return;
+                return false;
             }
         }
     }
+    // (replaced by something newer five times over)
+    true
 }
 
 /// Tests the path every instance relies on to stay in step (schema, settings, realtime, rate

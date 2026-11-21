@@ -1002,7 +1002,10 @@ async fn settings_changed_on_two_instances_at_once_agree_afterwards() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
-    let (first_app, first, _dir) = ready_app(&tdb).await;
+    // (one instance has a pool of one connection: a change that must read the settings again
+    // can't be holding its connection while it does)
+    let (first_app, first, _dir) =
+        ready_app_with_file(&tdb, "[database]\nmax_connections = 1\n").await;
     let (_dir2, config2) = temp_config();
     let second_app = new_app(&config2, Some(tdb.url.clone()));
     second_app.bootstrap().await.unwrap();
@@ -1049,5 +1052,42 @@ async fn settings_changed_on_two_instances_at_once_agree_afterwards() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     assert!(agreed, "both instances end with the same settings");
+    tdb.drop_db().await;
+}
+
+/// A settings change that finds the cache replaced meanwhile reads the settings again, and does
+/// so after its connection has gone back: with a pool of one it would otherwise wait for itself,
+/// fail, and publish a copy that may be older than what the other change left.
+#[tokio::test]
+async fn a_settings_change_reads_again_after_giving_back_its_connection() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app_with_file(&tdb, "[database]\nmax_connections = 1\n").await;
+    let core = app.core().unwrap();
+    // the cache is replaced after a change took note of its generation
+    let generation = core.settings_generation();
+    let (status, res) = as_(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "meta": { "appName": "committed" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    assert_ne!(core.settings_generation(), generation);
+
+    // the one connection is the change's own, as when it was written
+    let held = core.db().get().await.unwrap();
+    let mut stale = (*core.settings()).clone();
+    stale.meta.app_name = "stale".into();
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        slonbase::settings::publish_committed(&core, generation, &stale, held),
+    )
+    .await
+    .expect("the connection went back, and the settings were read again");
+    assert_eq!(core.settings().meta.app_name, "committed");
     tdb.drop_db().await;
 }

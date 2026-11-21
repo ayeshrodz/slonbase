@@ -1361,15 +1361,33 @@ where
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    if !core.set_settings_if(generation, next.clone()) {
-        // the cache was replaced meanwhile, by a reload that may already hold a later change
-        // from another instance: `next` would undo it, so the settings are read again
-        crate::realtime::reload_settings(core).await;
-    }
+    publish_committed(core, generation, &next, client).await;
     if watching_changed {
         core.realtime.dispatch.notify_one();
     }
     Ok(next)
+}
+
+/// Publishes settings that were just committed, unless the cache was replaced since
+/// `generation`: a reload that did may already hold a later change from another instance, which
+/// `next` would undo, so the settings are read again instead. If they can't be, this change is
+/// still better published than left out (the cache would keep the roles from before it).
+///
+/// `held` is the connection the change was written on, which goes back first: with a pool of
+/// one the reload needs it.
+#[doc(hidden)]
+pub async fn publish_committed(
+    core: &Arc<Core>,
+    generation: u64,
+    next: &Settings,
+    held: deadpool_postgres::Client,
+) {
+    drop(held);
+    if !core.set_settings_if(generation, next.clone())
+        && !crate::realtime::reload_settings(core).await
+    {
+        core.set_settings(next.clone());
+    }
 }
 
 /// Merges `body` (sections of settings) into the current settings, validates and saves them

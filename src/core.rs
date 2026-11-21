@@ -412,7 +412,8 @@ impl Core {
     }
 
     /// The settings' generation, to pass to [`Core::set_settings_if`].
-    pub(crate) fn settings_generation(&self) -> u64 {
+    #[doc(hidden)]
+    pub fn settings_generation(&self) -> u64 {
         *self
             .settings_generation
             .lock()
