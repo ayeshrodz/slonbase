@@ -212,14 +212,17 @@ functions.
   installation starts with 60 seconds and 128 MB; a configuration that exists is never changed,
   and slonbase logs a warning at start when hooks run with neither limit. A database call
   from a hook that waits for a lock holds its runtime until the lock is released; set
-  `database.statement_timeout`, or `hooks.db_wait_seconds` to make such a call fail in the hook
-  after that many seconds (no limit by default).
+  `database.statement_timeout`, which the database enforces for every statement, writes
+  included. `hooks.db_wait_seconds` also makes a **read** from a hook (find, count, auth tokens)
+  fail in the hook after that many seconds (no limit by default); writes and raw SQL are not
+  bounded by it, since a write that is dropped may still commit.
 - **Network calls:** `$http.send` and `$filesystem.fileFromURL` reach what the server can reach,
   as in PocketBase, and hook files are the operator's. When a hook builds an address from data
   (a user's URL), set `hooks.guard_http = true`: calls to this server or to private networks
   (loopback, private, link-local and metadata addresses, also through redirects and DNS) are
   then refused, except to the hosts in `hooks.allow_hosts` (an internal service, by name or
-  address). Migration files are not guarded. It is off by default, so hooks that call internal
+  address). A guarded call is not sent through an outbound proxy from the environment (the
+  proxy would resolve the name itself). Migration files are not guarded. It is off by default, so hooks that call internal
   services keep working.
 - **Reloading:** when the hook files change, slonbase restarts itself. It's the same process,
   re-executed with the same arguments, after up to 5 seconds for open requests. Turn this off

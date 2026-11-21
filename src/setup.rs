@@ -140,13 +140,18 @@ pub async fn perform(
             let mut updated = loaded.clone();
             // a new installation starts with limits on hook code; a configuration file that
             // exists already is left as its owner wrote it
+            // (what a flag or an environment variable set for this run is kept as it is)
             if !updated.path.exists()
                 && updated.file.hooks.timeout_seconds == 0
                 && updated.file.hooks.memory_limit_mb == 0
             {
-                for hooks in [&mut updated.file.hooks, &mut updated.effective.hooks] {
-                    hooks.timeout_seconds = 60;
-                    hooks.memory_limit_mb = 128;
+                updated.file.hooks.timeout_seconds = 60;
+                updated.file.hooks.memory_limit_mb = 128;
+                if updated.effective.hooks.timeout_seconds == 0 {
+                    updated.effective.hooks.timeout_seconds = 60;
+                }
+                if updated.effective.hooks.memory_limit_mb == 0 {
+                    updated.effective.hooks.memory_limit_mb = 128;
                 }
             }
             updated.file.database.url = Some(url.clone());

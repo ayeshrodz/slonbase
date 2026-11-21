@@ -379,10 +379,10 @@ pub async fn apply_in_with_views_pending(
     let mut unbuilt_views: Vec<String> = Vec::new();
     // a view that is replaced can't be dropped while another reads it: the views that read it
     // (and those that read them) are dropped meanwhile and made again from their queries
-    let changed_views: Vec<&Collection> = changes
+    let changed_views: Vec<(&Collection, &Collection)> = changes
         .iter()
         .filter_map(|change| match change {
-            Change::Update { old, new } if new.is_view() && *old != *new => Some(*new),
+            Change::Update { old, new } if new.is_view() && *old != *new => Some((*old, *new)),
             _ => None,
         })
         .collect();
@@ -395,9 +395,10 @@ pub async fn apply_in_with_views_pending(
             })
             .collect();
         let all = load_with(tx, key).await?;
+        // (a view is read by its name as it was: the old one, when it is renamed)
         let mut names: Vec<String> = changed_views
             .iter()
-            .map(|v| v.name.to_lowercase())
+            .flat_map(|(old, new)| [old.name.to_lowercase(), new.name.to_lowercase()])
             .collect();
         let mut readers: Vec<Arc<Collection>> = Vec::new();
         loop {

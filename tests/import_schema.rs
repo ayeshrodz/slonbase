@@ -599,3 +599,96 @@ async fn imports_that_change_views_read_by_other_views_succeed_whatever_the_orde
     assert_eq!(status, StatusCode::OK, "the view left out is made again");
     tdb.drop_db().await;
 }
+
+/// A view is renamed while a view of the import that reads it changes; views of the import that
+/// read each other lose a column together; a chain of views the import leaves out reads a view
+/// it changes after a column was renamed.
+#[tokio::test]
+async fn imports_rename_views_drop_columns_and_change_chains_of_views() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let auth = format!("Bearer {token}");
+    let go = |method: &'static str, uri: &str, body: Option<Value>| {
+        let (app, auth) = (app.clone(), auth.clone());
+        let uri: &'static str = Box::leak(uri.to_string().into_boxed_str());
+        async move { request(&app, method, uri, &[("authorization", auth.as_str())], body).await }
+    };
+    let make = |body: Value| {
+        let go = &go;
+        async move {
+            let (status, res) = go("POST", "/api/collections", Some(body)).await;
+            assert_eq!(status, StatusCode::OK, "{res}");
+            res
+        }
+    };
+    let things = make(json!({ "name": "things", "fields": [
+        { "name": "title", "type": "text" }, { "name": "note", "type": "text" },
+    ] }))
+    .await;
+    let view =
+        |name: &str, query: &str| json!({ "name": name, "type": "view", "viewQuery": query });
+
+    // 1. a view is renamed while the view that reads it is pointed at the new name
+    let src = make(view("src_a", "SELECT id FROM things")).await;
+    let reader = make(view("rd_a", "SELECT id FROM src_a")).await;
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": reader["id"], "name": "rd_a", "type": "view",
+              "viewQuery": "SELECT id FROM renamed_a" },
+            { "id": src["id"], "name": "renamed_a", "type": "view",
+              "viewQuery": "SELECT id FROM things" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "rename: {res}");
+    let (status, _) = go("GET", "/api/collections/rd_a/records", None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // 2. two views of the import, one reading the other, lose a column together
+    let a = make(view("v_a", "SELECT id, title FROM things")).await;
+    let b = make(view("v_b", "SELECT id, title FROM v_a")).await;
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": a["id"], "name": "v_a", "type": "view", "viewQuery": "SELECT id, note FROM things" },
+            { "id": b["id"], "name": "v_b", "type": "view", "viewQuery": "SELECT id, note FROM v_a" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "dropped column: {res}");
+    let (status, _) = go("GET", "/api/collections/v_b/records", None).await;
+    assert_eq!(status, StatusCode::OK);
+
+    // 3. a chain the import leaves out reads a view it changes, after a column is renamed
+    let pp = make(json!({ "name": "pp", "fields": [{ "name": "legacy", "type": "text" }] })).await;
+    let c_a = make(view("c_a", "SELECT id, legacy FROM pp")).await;
+    make(view("c_b", "SELECT id, legacy FROM c_a")).await;
+    make(view("c_c", "SELECT id, legacy FROM c_b")).await;
+    let mut fields = pp["fields"].clone();
+    for f in fields.as_array_mut().unwrap() {
+        if f["name"] == "legacy" {
+            f["name"] = json!("title");
+        }
+    }
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": pp["id"], "name": "pp", "type": "base", "fields": fields },
+            { "id": c_a["id"], "name": "c_a", "type": "view",
+              "viewQuery": "SELECT id, title AS legacy FROM pp" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "chain: {res}");
+    let (status, _) = go("GET", "/api/collections/c_c/records", None).await;
+    assert_eq!(status, StatusCode::OK, "the chain is made again");
+    let _ = things;
+    tdb.drop_db().await;
+}

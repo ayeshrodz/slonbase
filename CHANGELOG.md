@@ -73,9 +73,10 @@ changes, listed in its **Upgrading** section.
   `$http.send` and `$filesystem.fileFromURL` would send to this server or to a private network,
   also through redirects, except to the hosts in `hooks.allow_hosts`. Off by default, so hooks
   that call internal services are unchanged.
-- **A bounded wait for database calls from hooks (opt-in).** `hooks.db_wait_seconds` makes a
-  database call from a hook that waits (for a row lock, say) fail in the hook after that many
-  seconds, instead of holding its JavaScript runtime. Off by default.
+- **A bounded wait for database reads from hooks (opt-in).** `hooks.db_wait_seconds` makes a
+  read from a hook that waits (for a row lock, say) fail in the hook after that many seconds,
+  instead of holding its JavaScript runtime. Writes are bounded by `database.statement_timeout`.
+  Off by default.
 - **A longer encryption key derives a key per value (opt-in).** A `server.encryption_key` of
   more than 32 characters (`openssl rand -base64 48`) is no longer the AES key itself: each value
   is sealed under its own key, derived with HKDF-SHA256 and a random salt. A key of exactly 32

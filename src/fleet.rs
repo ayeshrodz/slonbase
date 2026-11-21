@@ -278,7 +278,12 @@ pub(crate) async fn settings(
 ) -> Result<Json<Value>, ApiError> {
     require_superuser(&auth)?;
     let core = project_core(&app, &name)?;
-    Ok(Json(core.settings().public_json()))
+    // a viewer sees what is on, not the infrastructure behind it (as in `GET /api/settings`)
+    Ok(Json(if auth.role == Some(crate::roles::Role::Viewer) {
+        core.settings().viewer_json()
+    } else {
+        core.settings().public_json()
+    }))
 }
 
 /// `PATCH /api/projects/{name}/settings`: changes a project's settings, merged and validated

@@ -76,9 +76,11 @@ change nothing by themselves:
   choose the address that rate limits and sign-in lockouts see. Name your proxies in
   `trustedProxy.peers`, unless only the proxy can reach slonbase.
 - **An OpenID Connect provider without `extra.jwksURL`:** the `id_token` is trusted because it
-  comes from the provider over TLS, as OpenID Connect allows, and its signature is not checked.
-  Set `extra.jwksURL` to check it, and `extra.requireSignature` to `true` to refuse the provider
-  when it is missing.
+  comes straight from the provider's token endpoint, as OpenID Connect allows when that endpoint
+  is reached over TLS, and its signature is not checked. Use an `https://` `tokenURL` (slonbase
+  does not require it by default), and set `extra.jwksURL` to check the signature too. With
+  `extra.requireSignature` set to `true`, slonbase refuses the provider unless `jwksURL` is set,
+  and requires `tokenURL` and `jwksURL` to be `https://`.
 - **An empty `manageRule`, `updateRule` or `deleteRule` on a collection that holds accounts:**
   as in PocketBase, an empty rule allows everyone, guests included (on an auth collection, an
   empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it

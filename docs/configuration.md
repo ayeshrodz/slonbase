@@ -84,7 +84,7 @@ pool_size = 10
 watch = true
 timeout_seconds = 0     # a handler that runs longer is stopped; 0 = no limit (e.g. 60)
 memory_limit_mb = 0     # per runtime; 0 = no limit (e.g. 128)
-db_wait_seconds = 0     # the longest a database call from a hook may take; 0 = no limit (e.g. 30)
+db_wait_seconds = 0     # the longest a database read from a hook may take; 0 = no limit (e.g. 30)
 guard_http = false      # refuse hook calls ($http.send, fileFromURL) to this server or private networks
 allow_hosts = []        # with guard_http: internal hosts hooks may still call
 # files_dir = "/var/lib/slonbase/pages"   # the one directory hooks may read ($os.readFile, e.fileFS); off unless set

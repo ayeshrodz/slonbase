@@ -85,9 +85,10 @@ pub struct HooksConfig {
     /// dashboard's cron jobs are. Off unless set: hooks that call internal services keep working.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub guard_http: bool,
-    /// The longest a database call made from a hook may take, in seconds; 0 for no limit (the
+    /// The longest a database read made from a hook may take, in seconds; 0 for no limit (the
     /// default). Past it the call fails in the hook instead of waiting, for example, for a row
-    /// lock held elsewhere, which would hold a JavaScript runtime until it is released.
+    /// lock held elsewhere, which would hold a JavaScript runtime until it is released. Writes
+    /// are not bounded this way (see `database.statement_timeout`).
     #[serde(skip_serializing_if = "is_zero")]
     pub db_wait_seconds: u64,
     /// A directory hooks may read files from (`$os.readFile`, `$os.dirFS`, `$filepath.walkDir`

@@ -74,9 +74,11 @@ fn file_from_path(path: &str) -> Result<Value, ApiError> {
 /// Longest download of `$filesystem.fileFromURL` (seconds).
 const FILE_URL_TIMEOUT: u64 = 60;
 
-/// Runs a call that waits for the database to its end, or, with `hooks.db_wait_seconds`, for at
+/// Runs a call that reads from the database to its end, or, with `hooks.db_wait_seconds`, for at
 /// most that long: past it the call fails in the hook (a handler that waits for a row lock would
-/// hold its runtime until the lock is released).
+/// hold its runtime until the lock is released). Only reads are bounded this way: a write that
+/// is dropped may still commit, and must not be reported as having timed out (a write is bounded
+/// by `database.statement_timeout`, which the database itself enforces).
 fn block<T>(
     shared: &Shared,
     handle: &tokio::runtime::Handle,
@@ -329,19 +331,12 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
     }
     match name {
         "saveCollection" => {
-            let saved = block(
-                shared,
-                handle,
-                crate::collections::api::save_definition(&core, a.value(0)),
-            )?;
+            let saved =
+                handle.block_on(crate::collections::api::save_definition(&core, a.value(0)))?;
             Ok(collection_json(&saved))
         }
         "deleteCollection" => {
-            block(
-                shared,
-                handle,
-                crate::collections::api::delete_collection(&core, &a.str(0)),
-            )?;
+            handle.block_on(crate::collections::api::delete_collection(&core, &a.str(0)))?;
             Ok(Value::Null)
         }
         "importCollections" => {
@@ -350,11 +345,11 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 _ => return Err(bad("importCollections expects a list of collections.")),
             };
             let delete_missing = a.value(1).as_bool().unwrap_or(false);
-            block(
-                shared,
-                handle,
-                crate::collections::api::import_definitions(&core, items, delete_missing),
-            )?;
+            handle.block_on(crate::collections::api::import_definitions(
+                &core,
+                items,
+                delete_missing,
+            ))?;
             Ok(Value::Null)
         }
         // PocketBase's $app.createBackup(ctx, name) and $app.restoreBackup(ctx, name)
@@ -374,11 +369,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             Ok(Value::Null)
         }
         "saveSettings" => {
-            let settings = block(
-                shared,
-                handle,
-                crate::settings::apply_patch(&core, a.object(0)),
-            )?;
+            let settings = handle.block_on(crate::settings::apply_patch(&core, a.object(0)))?;
             serde_json::to_value(&settings).map_err(internal)
         }
         "collection" => Ok(collection_json(core.collection(&a.str(0))?.as_ref())),
@@ -389,10 +380,13 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 .map(|c| collection_json(c))
                 .collect(),
         )),
-        "findRecordById" => Ok(handle
-            .block_on(core.find_record_by_id(&a.str(0), &a.str(1)))?
-            .map(Value::Object)
-            .unwrap_or(Value::Null)),
+        "findRecordById" => {
+            Ok(
+                block(shared, handle, core.find_record_by_id(&a.str(0), &a.str(1)))?
+                    .map(Value::Object)
+                    .unwrap_or(Value::Null),
+            )
+        }
         "findRecordsByFilter" => {
             let records = block(
                 shared,
@@ -418,14 +412,12 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
         "save" => {
             let mut data = a.object(1);
             let uploads = take_files(&mut data)?;
-            Ok(Value::Object(block(
-                shared,
-                handle,
+            Ok(Value::Object(handle.block_on(
                 core.save_record_with_files(&a.str(0), data, uploads),
             )?))
         }
         "delete" => {
-            block(shared, handle, core.delete_record(&a.str(0), &a.str(1)))?;
+            handle.block_on(core.delete_record(&a.str(0), &a.str(1)))?;
             Ok(Value::Null)
         }
         "validatePassword" => {
@@ -497,17 +489,13 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 name if name.is_empty() => None,
                 name => Some(core.collection(&name)?),
             };
-            block(
-                shared,
-                handle,
-                db_query(
-                    &core,
-                    &a.str(0),
-                    &a.object(1),
-                    &a.str(2),
-                    records.as_deref(),
-                ),
-            )
+            handle.block_on(db_query(
+                &core,
+                &a.str(0),
+                &a.object(1),
+                &a.str(2),
+                records.as_deref(),
+            ))
         }
         "settings" => serde_json::to_value(&*core.settings()).map_err(internal),
         "sendMail" => {

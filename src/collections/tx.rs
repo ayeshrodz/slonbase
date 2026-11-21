@@ -282,7 +282,14 @@ pub async fn import(
     // when none can be made
     if pairs.iter().any(|(_, c)| c.is_view()) {
         // (those the first pass couldn't rebuild are made even if their definition is the same)
-        let unbuilt = unbuilt_views.lock().expect("unbuilt views lock").clone();
+        // (read each time: applying a view can leave others that read it unbuilt)
+        let is_unbuilt = |id: &str| {
+            unbuilt_views
+                .lock()
+                .expect("unbuilt views lock")
+                .iter()
+                .any(|u| u == id)
+        };
         let mut waiting: Vec<usize> = pairs
             .iter()
             .enumerate()
@@ -345,12 +352,20 @@ pub async fn import(
                 }
                 let (old, new) = &pairs[i];
                 let change = match old {
-                    Some(old) if old.as_ref() == new && !unbuilt.contains(&new.id) => None,
+                    Some(old) if old.as_ref() == new && !is_unbuilt(&new.id) => None,
                     Some(old) => Some(Change::Update { old, new }),
                     None => Some(Change::Create(new)),
                 };
                 if let Some(change) = change {
-                    current = apply(vec![change], &[]).await?;
+                    // the views of the import that are still to come may read this one: they
+                    // are dropped meanwhile and made from their own new queries when their turn
+                    // comes (one the import leaves out must be made again from its query now)
+                    let coming: Vec<String> = remaining
+                        .iter()
+                        .filter(|j| **j != i)
+                        .map(|j| pairs[*j].1.id.clone())
+                        .collect();
+                    current = apply(vec![change], &coming).await?;
                 }
                 remaining.remove(&i);
             }
@@ -366,6 +381,7 @@ pub async fn import(
         // the views the import doesn't mention that could not be made again before (they read a
         // view of the import): made now, from the queries they have, one that reads another
         // waiting for it
+        let unbuilt: Vec<String> = unbuilt_views.lock().expect("unbuilt views lock").clone();
         let mut omitted: Vec<Arc<Collection>> = unbuilt
             .iter()
             .filter(|id| !pairs.iter().any(|(_, c)| &c.id == *id))
@@ -376,6 +392,18 @@ pub async fn import(
             let mut left = Vec::new();
             let mut first_error = None;
             for view in omitted {
+                // (one that is there already was made again as a side effect of an earlier one)
+                let present: bool = tx
+                    .query_one(
+                        "SELECT to_regclass($1) IS NOT NULL",
+                        &[&super::schema::table_ref(&view.name)],
+                    )
+                    .await
+                    .map_err(db_error)?
+                    .get(0);
+                if present {
+                    continue;
+                }
                 tx.batch_execute("SAVEPOINT omitted_view")
                     .await
                     .map_err(db_error)?;

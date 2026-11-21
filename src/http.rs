@@ -278,7 +278,10 @@ pub async fn send_for_hook(
             .iter()
             .any(|a| a == &host || a == host.trim_matches(['[', ']']));
         let addrs = target(&url, allowed).await?;
+        // (no proxy from the environment: it would resolve the name itself, and could
+        // reach an address that was not checked)
         let client = builder()
+            .no_proxy()
             .resolve_to_addrs(&host, &addrs)
             .redirect(reqwest::redirect::Policy::none())
             .build()
