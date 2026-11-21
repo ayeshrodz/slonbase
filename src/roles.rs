@@ -1030,6 +1030,7 @@ mod tests {
         ),
         ("POST", "/api/settings/test/email", Some(Role::Admin)),
         ("POST", "/api/settings/test/s3", Some(Role::Admin)),
+        ("GET", "/api/settings/warnings", Some(Role::Viewer)),
         ("POST", "/api/setup/complete", Some(Role::Admin)),
         ("POST", "/api/setup/database/test", Some(Role::Admin)),
         ("POST", "/api/sql", Some(Role::Owner)),
