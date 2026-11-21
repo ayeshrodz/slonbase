@@ -117,8 +117,9 @@ changes, listed in its **Upgrading** section.
 
 - Two owners deleting each other at the same moment can no longer leave an installation without an
   owner: the check that one remains and the delete are one step, and changing an owner's role
-  waits for a delete in progress (on one instance; several instances behind one database still
-  need the owners not to delete each other together).
+  waits for a delete in progress. This holds across several instances behind one database too: a
+  database-wide lock serializes changes to the owners, and a change that can't get it within 30
+  seconds is refused with a conflict instead of waiting for ever.
 - A batch of requests deleting superusers is held to the same rule as deleting them one at a
   time: it can no longer delete every owner.
 - A cron expression with a step past the end of its range (`5/4294967291 * * * *`) is one run

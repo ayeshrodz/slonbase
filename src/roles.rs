@@ -372,7 +372,8 @@ pub async fn set_role(
         .and_then(Role::parse)
         .ok_or_else(|| ApiError::bad_request("role must be owner, admin, developer or viewer."))?;
     // not while a superuser is being deleted: the owners counted below must be the ones left
-    let _one_at_a_time = core.superuser_deletes.lock().await;
+    // (on this instance and on the others)
+    let _one_at_a_time = lock_owners(&core).await?;
     let client = core
         .db()
         .get()
@@ -411,6 +412,71 @@ pub async fn set_role(
     .await?;
     tracing::info!(superuser = %id, role = role.as_str(), "changed a superuser's role");
     Ok(Json(json!({ "id": id, "role": role })))
+}
+
+/// The database-wide lock for changes that could leave no owner (`pg_advisory_xact_lock`).
+pub const OWNERS_LOCK_KEY: i64 = crate::migrations::SCHEMA_LOCK_KEY + 4;
+
+/// How long a change to the owners waits for another instance's.
+const OWNERS_LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Held from checking that an owner remains until the delete (or the role change) is done.
+/// It is this instance's lock (`Core::superuser_deletes`) and the database-wide one, so that
+/// two owners deleting each other at the same moment can't both pass the check even when the
+/// deletes reach different instances. The database-wide lock is held by a transaction kept
+/// open on one connection, so it is released with the transaction, and works through a pooler
+/// in transaction mode (a session lock would be taken and released on different server
+/// connections there).
+pub struct OwnerLock<'a> {
+    _local: tokio::sync::MutexGuard<'a, ()>,
+    client: Option<deadpool_postgres::Client>,
+}
+
+impl Drop for OwnerLock<'_> {
+    fn drop(&mut self) {
+        // the connection, with its open transaction, must not go back to the pool: closed, the
+        // transaction is rolled back and the lock is released
+        if let Some(client) = self.client.take() {
+            let _ = deadpool_postgres::Object::take(client);
+        }
+    }
+}
+
+/// Waits for the right to delete or demote an owner (see [`OwnerLock`]).
+pub async fn lock_owners(core: &Core) -> Result<OwnerLock<'_>, ApiError> {
+    let local = core.superuser_deletes.lock().await;
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    // (in the guard from here on, so every way out closes the connection)
+    let lock = OwnerLock {
+        _local: local,
+        client: Some(client),
+    };
+    let db_error = |e: tokio_postgres::Error| ApiError::internal(e.into());
+    let client = lock.client.as_ref().expect("the connection");
+    client.batch_execute("BEGIN").await.map_err(db_error)?;
+    let started = tokio::time::Instant::now();
+    loop {
+        let locked: bool = client
+            .query_one("SELECT pg_try_advisory_xact_lock($1)", &[&OWNERS_LOCK_KEY])
+            .await
+            .map_err(db_error)?
+            .get(0);
+        if locked {
+            return Ok(lock);
+        }
+        if started.elapsed() >= OWNERS_LOCK_WAIT {
+            // (the guard closes the connection, with its transaction, on the way out)
+            return Err(ApiError::new(
+                axum::http::StatusCode::CONFLICT,
+                "The owners are being changed by another request: try again.",
+            ));
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
 }
 
 /// Refuses deleting the last owner (called by the guard for `DELETE` of a superuser).

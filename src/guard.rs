@@ -690,7 +690,10 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         // can't both pass
         if request.method() == Method::DELETE {
             if let Some(id) = role_path.strip_prefix("/api/collections/_superusers/records/") {
-                _deleting = Some(core.superuser_deletes.lock().await);
+                _deleting = match crate::roles::lock_owners(&core).await {
+                    Ok(lock) => Some(lock),
+                    Err(err) => return err.into_response(),
+                };
                 if let Err(err) = crate::roles::check_delete(&core, id).await {
                     return err.into_response();
                 }

@@ -309,7 +309,7 @@ async fn run_batch(
             && r.collection.id == crate::collections::model::SUPERUSERS_COLLECTION_ID
     });
     let _one_at_a_time = if deletes_superusers {
-        Some(core.superuser_deletes.lock().await)
+        Some(crate::roles::lock_owners(core).await?)
     } else {
         None
     };

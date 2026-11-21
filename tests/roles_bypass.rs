@@ -471,6 +471,183 @@ async fn owners_deleting_each_other_leave_one() {
     tdb.drop_db().await;
 }
 
+/// A connection of another instance, with its transaction holding the database-wide lock of
+/// changes to the owners.
+async fn another_instance_holds_the_owners_lock(
+    tdb: &TestDb,
+) -> (tokio_postgres::Client, tokio::task::JoinHandle<()>) {
+    let (client, connection) = tokio_postgres::connect(&tdb.url, tokio_postgres::NoTls)
+        .await
+        .unwrap();
+    let handle = tokio::spawn(async move {
+        let _ = connection.await;
+    });
+    client.batch_execute("BEGIN").await.unwrap();
+    client
+        .execute(
+            "SELECT pg_advisory_xact_lock($1)",
+            &[&slonbase::roles::OWNERS_LOCK_KEY],
+        )
+        .await
+        .unwrap();
+    (client, handle)
+}
+
+/// The check that an owner remains and the delete are one step across instances, too: while
+/// another instance changes the owners (it holds the database-wide lock), a delete of an owner
+/// waits for it, and a role change and a batch with it.
+#[tokio::test]
+async fn changes_to_the_owners_wait_for_another_instance() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let second = member(&app, &first, "second-owner@example.com", "owner").await;
+    let (_, other) = as_(&app, &second, "GET", "/api/team/me", None).await;
+    let second_id = other["id"].as_str().unwrap().to_string();
+
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let (other_instance, handle) = another_instance_holds_the_owners_lock(&tdb).await;
+
+    // a delete, a role change and a batch deleting the owner all wait
+    let delete = {
+        let (app, first, id) = (app.clone(), first.clone(), second_id.clone());
+        tokio::spawn(async move {
+            as_(
+                &app,
+                &first,
+                "DELETE",
+                &format!("/api/collections/_superusers/records/{id}"),
+                None,
+            )
+            .await
+            .0
+        })
+    };
+    let demote = {
+        let (app, first, id) = (app.clone(), first.clone(), second_id.clone());
+        tokio::spawn(async move {
+            as_(
+                &app,
+                &first,
+                "PATCH",
+                &format!("/api/team/members/{id}"),
+                Some(json!({ "role": "viewer" })),
+            )
+            .await
+            .0
+        })
+    };
+    let batch = {
+        let (app, first, id) = (app.clone(), first.clone(), second_id.clone());
+        tokio::spawn(async move {
+            as_(
+                &app,
+                &first,
+                "POST",
+                "/api/batch",
+                Some(json!({ "requests": [{
+                    "method": "DELETE",
+                    "url": format!("/api/collections/_superusers/records/{id}"),
+                }] })),
+            )
+            .await
+            .0
+        })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    assert!(!delete.is_finished(), "the delete went on without the lock");
+    assert!(
+        !demote.is_finished(),
+        "the role change went on without the lock"
+    );
+    assert!(!batch.is_finished(), "the batch went on without the lock");
+    assert_eq!(
+        superuser_count(&app, &first).await,
+        2,
+        "nothing changed while the lock was held"
+    );
+
+    // released: they go on, one after the other (the delete and the batch are not both
+    // possible, and the role change may come before or after them)
+    other_instance.batch_execute("COMMIT").await.unwrap();
+    let results = (
+        delete.await.unwrap(),
+        demote.await.unwrap(),
+        batch.await.unwrap(),
+    );
+    handle.abort();
+    let deleted = [results.0, results.2]
+        .iter()
+        .filter(|s| **s == StatusCode::NO_CONTENT || **s == StatusCode::OK)
+        .count();
+    assert!(deleted <= 1, "the owner is deleted once: {results:?}");
+    assert_eq!(
+        superuser_count(&app, &first).await,
+        if deleted == 1 { 1 } else { 2 },
+        "{results:?}"
+    );
+    tdb.drop_db().await;
+}
+
+/// Two owners deleting each other through two instances on one database: one delete is
+/// refused, and an owner remains, every time.
+#[tokio::test]
+async fn owners_deleting_each_other_through_two_instances_leave_one() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first_app, first, _dir) = ready_app(&tdb).await;
+    // a second instance on the same database
+    let (_dir2, config2) = temp_config();
+    let second_app = new_app(&config2, Some(tdb.url.clone()));
+    second_app.bootstrap().await.unwrap();
+
+    let second = member(&first_app, &first, "second-owner@example.com", "owner").await;
+    let (_, me) = as_(&first_app, &first, "GET", "/api/team/me", None).await;
+    let (_, other) = as_(&first_app, &second, "GET", "/api/team/me", None).await;
+    let (first_id, second_id) = (
+        me["id"].as_str().unwrap().to_string(),
+        other["id"].as_str().unwrap().to_string(),
+    );
+    let delete = |app: Arc<App>, token: String, id: String| async move {
+        as_(
+            &app,
+            &token,
+            "DELETE",
+            &format!("/api/collections/_superusers/records/{id}"),
+            None,
+        )
+        .await
+        .0
+    };
+    let (a, b) = tokio::join!(
+        delete(first_app.clone(), first.clone(), second_id),
+        delete(second_app.clone(), second.clone(), first_id)
+    );
+    let ok = [a, b]
+        .iter()
+        .filter(|s| **s == StatusCode::NO_CONTENT)
+        .count();
+    assert_eq!(ok, 1, "exactly one delete goes through: {a} and {b}");
+    let survivor = if a == StatusCode::NO_CONTENT {
+        &first
+    } else {
+        &second
+    };
+    assert_eq!(superuser_count(&first_app, survivor).await, 1);
+    tdb.drop_db().await;
+}
+
 /// A batch deleting every owner is refused like the same deletes one at a time, and so is
 /// demoting the owner a delete would leave.
 #[tokio::test]
