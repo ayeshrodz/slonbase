@@ -305,22 +305,42 @@ async fn run_batch(
 
     let (tx, effects, worker) = TxHandle::start(core);
 
-    let run = async {
-        let mut done = Vec::with_capacity(requests.len());
-        for (i, request) in requests.into_iter().enumerate() {
-            let item = run_request(core, &registry, auth, &tx, request, from_form)
-                .await
-                .map_err(|e| failed_at(i, e))?;
-            done.push(item);
-        }
-        Ok(done)
+    // a batch that deletes superusers takes the owners lock before anything else it does, so
+    // it never holds a row another change to the owners waits for while it waits for the
+    // lock, and the wait for it (up to 30 seconds, and then a conflict) is not under the
+    // batch's own timeout
+    let deletes_superusers = requests.iter().any(|r| {
+        matches!(r.action, Action::Delete(_))
+            && r.collection.id == crate::collections::model::SUPERUSERS_COLLECTION_ID
+    });
+    let locked = if deletes_superusers {
+        tx.run(|tx, _| Box::pin(async move { crate::roles::lock_owners_in(tx).await }))
+            .await
+    } else {
+        Ok(())
     };
+
     let timeout = Duration::from_secs(timeout_secs.max(1));
-    let outcome = match tokio::time::timeout(timeout, run).await {
-        Ok(outcome) => outcome,
-        Err(_) => Err(ApiError::bad_request(
-            "Batch transaction failed: the batch took too long.",
-        )),
+    let outcome = match locked {
+        Err(e) => Err(e),
+        Ok(()) => {
+            let run = async {
+                let mut done = Vec::with_capacity(requests.len());
+                for (i, request) in requests.into_iter().enumerate() {
+                    let item = run_request(core, &registry, auth, &tx, request, from_form)
+                        .await
+                        .map_err(|e| failed_at(i, e))?;
+                    done.push(item);
+                }
+                Ok(done)
+            };
+            match tokio::time::timeout(timeout, run).await {
+                Ok(outcome) => outcome,
+                Err(_) => Err(ApiError::bad_request(
+                    "Batch transaction failed: the batch took too long.",
+                )),
+            }
+        }
     };
     // the commit isn't under the timeout: once it is sent, its outcome is awaited (a batch
     // that committed is never reported as timed out, and the lock above is held until then)

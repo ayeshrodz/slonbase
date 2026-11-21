@@ -35,6 +35,10 @@ pub struct Core {
     registry: RwLock<(u64, Arc<Registry>)>,
     auth_secret: RwLock<Arc<Vec<u8>>>,
     settings: RwLock<Arc<Settings>>,
+    /// Held by a settings change from its transaction until the new settings are published, so
+    /// that two changes on this instance publish in the order they committed (a role change
+    /// published late would give a demoted owner their access back until the next change).
+    pub(crate) settings_changes: tokio::sync::Mutex<()>,
     /// Bumped by every settings replacement (held while replacing them).
     settings_generation: std::sync::Mutex<u64>,
     /// What the last check of the stored templates and automations found (see
@@ -249,6 +253,7 @@ impl Core {
             registry: RwLock::new((0, Arc::new(registry))),
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
+            settings_changes: Default::default(),
             settings_generation: std::sync::Mutex::new(0),
             stored_check: Default::default(),
             mailer: RwLock::new(Arc::new(SmtpMailer)),

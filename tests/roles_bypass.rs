@@ -899,3 +899,98 @@ async fn a_viewer_does_not_see_the_infrastructure_in_the_settings() {
     assert_eq!(seen["smtp"]["password"], "", "secrets are never returned");
     tdb.drop_db().await;
 }
+
+/// A batch that deletes a superuser waits for the owners lock without its own timeout running:
+/// the wait is the lock's (up to 30 seconds), not the batch's (a second here).
+#[tokio::test]
+async fn a_batch_waits_for_the_owners_lock_outside_its_own_timeout() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let viewer = member(&app, &first, "viewer-batch@example.com", "viewer").await;
+    let (_, other) = as_(&app, &viewer, "GET", "/api/team/me", None).await;
+    let viewer_id = other["id"].as_str().unwrap().to_string();
+    let (status, res) = as_(
+        &app,
+        &first,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "batch": { "enabled": true, "timeout": 1 } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let (other_instance, handle) = another_instance_holds_the_owners_lock(&tdb).await;
+    let task = tokio::spawn({
+        let (app, first) = (app.clone(), first.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "POST",
+                "/api/batch",
+                Some(json!({ "requests": [{
+                    "method": "DELETE",
+                    "url": format!("/api/collections/_superusers/records/{viewer_id}"),
+                }] })),
+            )
+            .await
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(2200)).await;
+    assert!(!task.is_finished(), "it went on without the lock");
+    other_instance.batch_execute("COMMIT").await.unwrap();
+    let (status, res) = task.await.unwrap();
+    handle.abort();
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "the batch's timeout didn't run: {res}"
+    );
+    tdb.drop_db().await;
+}
+
+/// Role changes made at the same moment all show in the roles this instance goes by.
+#[tokio::test]
+async fn role_changes_made_at_once_all_take_effect() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, first, _dir) = ready_app(&tdb).await;
+    let mut ids = Vec::new();
+    for n in 0..3 {
+        let token = member(&app, &first, &format!("owner{n}@example.com"), "owner").await;
+        let (_, me) = as_(&app, &token, "GET", "/api/team/me", None).await;
+        ids.push(me["id"].as_str().unwrap().to_string());
+    }
+    let demote = |id: String| {
+        let (app, first) = (app.clone(), first.clone());
+        async move {
+            as_(
+                &app,
+                &first,
+                "PATCH",
+                &format!("/api/team/members/{id}"),
+                Some(json!({ "role": "admin" })),
+            )
+            .await
+            .0
+        }
+    };
+    let statuses = tokio::join!(
+        demote(ids[0].clone()),
+        demote(ids[1].clone()),
+        demote(ids[2].clone())
+    );
+    assert_eq!(
+        [statuses.0, statuses.1, statuses.2],
+        [StatusCode::OK; 3],
+        "all three changes go through"
+    );
+    assert_eq!(
+        roles_of(&app, &first).await,
+        ["admin", "admin", "admin", "owner"]
+    );
+    tdb.drop_db().await;
+}

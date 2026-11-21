@@ -1311,6 +1311,8 @@ async fn modify_inner<F>(core: &Arc<Core>, owners: bool, change: F) -> Result<Se
 where
     F: FnOnce(&Settings, &[String]) -> Result<Settings, ApiError>,
 {
+    // (before a connection is taken, and until the new settings are published)
+    let _publishing_in_order = core.settings_changes.lock().await;
     let mut client = core
         .db()
         .get()

@@ -693,6 +693,9 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     // roles are written for collection names: a collection's id means the same thing
     let role_path = crate::roles::canonical_path(&path, &core.registry());
     // held until the response is ready when a superuser is deleted (see below)
+    // a delete of a superuser that has committed is settled (its files, its hooks) even when the
+    // client goes away while that happens
+    let mut run_to_the_end = false;
     // what the superuser's role allows (owners: everything)
     if let Some(su) = &auth.superuser {
         let role = auth
@@ -716,10 +719,12 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         // `roles::check_delete_in`)
         if request.method() == Method::DELETE
             && role_path.starts_with("/api/collections/_superusers/records/")
-            // not from an address that may not use superusers
-            && !superuser_ip_allowed(&settings.superuser_ips, ip)
         {
-            return not_allowed();
+            // not from an address that may not use superusers
+            if !superuser_ip_allowed(&settings.superuser_ips, ip) {
+                return not_allowed();
+            }
+            run_to_the_end = true;
         }
     }
     request.extensions_mut().insert(ResolvedAuth(auth.clone()));
@@ -771,6 +776,13 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
                 }
             }
         }
+    }
+    if run_to_the_end {
+        return match tokio::spawn(next.run(request)).await {
+            Ok(response) => response,
+            Err(_) => ApiError::internal(anyhow::anyhow!("the delete stopped unexpectedly"))
+                .into_response(),
+        };
     }
     next.run(request).await
 }
