@@ -78,7 +78,8 @@ change nothing by themselves:
 - **An OpenID Connect provider without `extra.jwksURL`:** the `id_token` is trusted because it
   comes straight from the provider's token endpoint, as OpenID Connect allows when that endpoint
   is reached over TLS, and its signature is not checked. Use an `https://` `tokenURL` (slonbase
-  does not require it by default), and set `extra.jwksURL` to check the signature too. With
+  does not require it by default, and does not stop the provider's redirects from leaving TLS, so
+  make sure the token endpoint and any redirect it answers with use HTTPS), and set `extra.jwksURL` to check the signature too. With
   `extra.requireSignature` set to `true`, slonbase refuses the provider unless `jwksURL` is set,
   and requires `tokenURL`, `jwksURL` and `userInfoURL` to be `https://`. A provider with a
   `userInfoURL` takes the user from that endpoint, **not** from the signed token, so leave
