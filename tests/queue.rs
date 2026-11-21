@@ -462,13 +462,35 @@ async fn a_run_that_lost_its_lease_leaves_the_job_to_the_attempt_that_has_it() {
         .await
         .unwrap();
     blocker.batch_execute("ROLLBACK").await.unwrap();
-    // (long enough for the first run to finish and try to record its end)
-    tokio::time::sleep(Duration::from_secs(3)).await;
+    // the stale run goes on to do its work (the old events go), and then tries to record its end
+    assert!(
+        eventually(async || {
+            client
+                .query_one(
+                    "SELECT count(*) FROM slonbase.events WHERE title ~ 'old'",
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get::<_, i64>(0)
+                == 0
+        })
+        .await,
+        "the run didn't do its work"
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
     let all = states(&client).await;
     assert_eq!(
         (all[0].0.as_str(), all[0].2),
         ("running", 2),
         "the stale run recorded its end: {all:?}"
     );
+    // nor did it end the run in the history, which the attempt that has the job resumes
+    let status: String = client
+        .query_one("SELECT status FROM _slonbase.job_runs", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(status, "running", "the stale run ended the history's run");
     tdb.drop_db().await;
 }

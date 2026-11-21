@@ -50,6 +50,15 @@ const KEEP_DAYS: i64 = 7;
 tokio::task_local! {
     /// Set while a worker runs a job: [`Core::db`] then answers with the workers' pool.
     static ON_WORKER: ();
+    /// The queued job a worker is running, and its attempt: what it records in the history
+    /// is only recorded while that attempt still holds the job.
+    static HELD: (i64, i32);
+}
+
+/// The queued job and attempt the current task runs for, or `(-1, 0)` outside a worker (which
+/// no history row is linked to).
+pub(crate) fn held() -> (i64, i32) {
+    HELD.try_with(|held| *held).unwrap_or((-1, 0))
 }
 
 /// Whether the current task is a queue worker running a job.
@@ -334,7 +343,10 @@ async fn run(core: &Arc<Core>, job: Job, instance: &str) {
     let result = match core.queue.handlers.0.get(job.kind.as_str()).cloned() {
         // in a task of its own, so a handler that panics fails its job and not the worker
         Some(handler) => {
-            let work = tokio::spawn(ON_WORKER.scope((), handler(core.clone(), job.clone())));
+            let work = tokio::spawn(ON_WORKER.scope(
+                (),
+                HELD.scope((job.id, job.attempt), handler(core.clone(), job.clone())),
+            ));
             match work.await {
                 Ok(result) => result,
                 Err(_) => {
@@ -450,7 +462,8 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Fail
                     client
                         .execute(
                             "UPDATE _slonbase.jobs SET state = 'done', finished = now(), error = ''
-                         WHERE id = $1 AND locked_by = $2 AND attempt = $3",
+                         WHERE id = $1 AND locked_by = $2 AND attempt = $3
+                           AND state = 'running'",
                             &[&job.id, &instance, &job.attempt],
                         )
                         .await?
@@ -469,7 +482,8 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Fail
                                 "UPDATE _slonbase.jobs
                              SET state = 'queued', locked_by = NULL, locked_until = NULL,
                                  error = $3, run_after = now() + interval '{wait} seconds'
-                             WHERE id = $1 AND locked_by = $2 AND attempt = $4"
+                             WHERE id = $1 AND locked_by = $2 AND attempt = $4
+                               AND state = 'running'"
                             ),
                             &[&job.id, &instance, &short(&failure.message), &job.attempt],
                         )
@@ -478,7 +492,8 @@ async fn finish(core: &Core, job: &Job, instance: &str, result: &Result<(), Fail
                 Err(failure) => client
                     .execute(
                         "UPDATE _slonbase.jobs SET state = 'failed', finished = now(), error = $3
-                         WHERE id = $1 AND locked_by = $2 AND attempt = $4",
+                         WHERE id = $1 AND locked_by = $2 AND attempt = $4
+                           AND state = 'running'",
                         &[&job.id, &instance, &short(&failure.message), &job.attempt],
                     )
                     .await?,

@@ -117,8 +117,8 @@ changes, listed in its **Upgrading** section.
 
 - A job run that lost its lease to another attempt (for example while the database was out of
   reach for longer than the lease) can no longer record its end over that attempt, or renew its
-  lease: finishing and renewing are tied to the attempt that holds the job, and a run's entry in
-  the history is only ended once. A run learns that its lease is gone through `Job::lease_lost`.
+  lease: finishing and renewing are tied to the attempt that holds the job (a job that was
+  ended elsewhere stays as it was), and so are the writes to a run's entry in the history. A run learns that its lease is gone through `Job::lease_lost`.
 - Two owners deleting each other at the same moment can no longer leave an installation without an
   owner: the check that one remains and the delete are one step, and changing an owner's role
   waits for a delete in progress (on one instance; several instances behind one database still
