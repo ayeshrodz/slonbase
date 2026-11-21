@@ -40,6 +40,9 @@ pub struct Core {
     settings: RwLock<Arc<Settings>>,
     /// Bumped by every settings replacement (held while replacing them).
     settings_generation: std::sync::Mutex<u64>,
+    /// What the last check of the stored templates and automations found (see
+    /// [`crate::warnings::stored`]).
+    pub(crate) stored_check: std::sync::Mutex<crate::warnings::StoredCheck>,
     mailer: RwLock<Arc<dyn Mailer>>,
     /// Realtime subscribers connected to this instance.
     pub realtime: Hub,
@@ -183,6 +186,9 @@ impl Core {
         realtime::spawn_listener(&core, url.to_string(), config.database.clone());
         core.hooks.ready(&core).await;
         crate::settings::reloaded(&core);
+        // the stored templates and automations are checked against today's rules, and what is
+        // found is logged (and shown with the other warnings)
+        crate::warnings::check_stored_in_background(&core, true);
         Ok(core)
     }
 
@@ -231,6 +237,7 @@ impl Core {
             auth_secret: RwLock::new(Arc::new(secret.into_bytes())),
             settings: RwLock::new(Arc::new(settings)),
             settings_generation: std::sync::Mutex::new(0),
+            stored_check: Default::default(),
             mailer: RwLock::new(Arc::new(SmtpMailer)),
             realtime: Hub::default(),
             logs,

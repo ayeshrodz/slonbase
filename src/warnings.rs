@@ -126,6 +126,118 @@ pub fn collect(core: &Core) -> Vec<Warning> {
     warnings
 }
 
+/// What the last check of the stored templates and automations found, and what it was made
+/// against.
+#[derive(Default)]
+pub struct StoredCheck {
+    found: std::sync::Arc<Vec<Warning>>,
+    /// The registry and settings generations it was made against, and when.
+    made: Option<(u64, u64, std::time::Instant)>,
+    running: bool,
+}
+
+/// The longest a check of the stored definitions is kept when nothing changed (a stored
+/// address may stop resolving).
+const STORED_CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(600);
+
+/// The templates and automations that no longer pass the rules they are saved under (a rule
+/// that became stricter, a collection or field they use that was renamed or removed): they are
+/// found when they run, otherwise. Nothing is changed or switched off. The answer is the last
+/// check's; a new one runs in the background when the settings or the collections changed, or
+/// it is old.
+pub fn stored(core: &std::sync::Arc<Core>) -> std::sync::Arc<Vec<Warning>> {
+    let (found, stale) = {
+        let state = core.stored_check.lock().expect("stored check lock");
+        let stale = !state.running
+            && match state.made {
+                None => true,
+                Some((registry, settings, at)) => {
+                    registry != core.registry_generation()
+                        || settings != core.settings_generation()
+                        || at.elapsed() > STORED_CHECK_EVERY
+                }
+            };
+        (state.found.clone(), stale)
+    };
+    if stale {
+        check_stored_in_background(core, false);
+    }
+    found
+}
+
+/// Starts a check of the stored templates and automations (when none runs); `log` writes what
+/// it finds to the log.
+pub fn check_stored_in_background(core: &std::sync::Arc<Core>, log: bool) {
+    {
+        let mut state = core.stored_check.lock().expect("stored check lock");
+        if state.running {
+            return;
+        }
+        state.running = true;
+    }
+    let core = core.clone();
+    tokio::spawn(async move {
+        let registry = core.registry_generation();
+        let settings = core.settings_generation();
+        let found = check_stored(&core).await;
+        if log {
+            for warning in &found {
+                tracing::warn!(code = warning.code, subject = %warning.subject, "{}", warning.message);
+            }
+        }
+        let mut state = core.stored_check.lock().expect("stored check lock");
+        state.found = std::sync::Arc::new(found);
+        state.made = Some((registry, settings, std::time::Instant::now()));
+        state.running = false;
+    });
+}
+
+/// Checks every stored template and automation as it would be saved now.
+async fn check_stored(core: &std::sync::Arc<Core>) -> Vec<Warning> {
+    let settings = core.settings();
+    let mut found = Vec::new();
+    let what = |errors: &crate::validation::Errors| {
+        errors
+            .iter()
+            .map(|(path, issue)| format!("{path}: {}", issue.message))
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    for template in &settings.templates {
+        let errors = crate::templates::validate(template, &settings.templates);
+        if !errors.is_empty() {
+            found.push(Warning {
+                code: "invalidTemplate",
+                title: "A template no longer passes its checks",
+                link: "#/automations",
+                subject: format!("template {}", template.name),
+                message: format!(
+                    "The template {:?} would not be saved as it is now: {} Sending it may fail until it is changed.",
+                    template.name,
+                    what(&errors)
+                ),
+            });
+        }
+    }
+    for job in &settings.cron_jobs {
+        let errors = crate::cron_jobs::validate(core, job, &settings.cron_jobs).await;
+        if !errors.is_empty() {
+            found.push(Warning {
+                code: "invalidAutomation",
+                title: "An automation no longer passes its checks",
+                link: "#/automations",
+                subject: format!("automation {}", job.name),
+                message: format!(
+                    "The automation {:?} would not be saved as it is now: {} Its runs may fail until it is changed.",
+                    job.name,
+                    what(&errors)
+                ),
+            });
+        }
+    }
+    found
+}
+
 /// Logs the warnings, once each, as an installation starts.
 pub fn log(core: &Core) {
     for warning in collect(core) {
@@ -140,7 +252,7 @@ pub async fn list(
 ) -> Result<axum::Json<Value>, crate::error::ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
-    Ok(axum::Json(json!({
-        "items": collect(&core).iter().map(Warning::json).collect::<Vec<_>>(),
-    })))
+    let mut items: Vec<Value> = collect(&core).iter().map(Warning::json).collect();
+    items.extend(stored(&core).iter().map(Warning::json));
+    Ok(axum::Json(json!({ "items": items })))
 }

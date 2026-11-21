@@ -84,6 +84,12 @@ change nothing by themselves:
   empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it
   to superusers.
 
+- **A stored template or automation that no longer passes its checks:** validation runs when
+  one is saved, so a rule that became stricter (or a collection or field an automation uses that
+  was renamed) only shows when it runs. slonbase checks them again as the installation starts and
+  when the settings or the collections change, and lists what no longer validates, with the
+  fields that fail, on the Health page. It never changes or switches anything off.
+
 Two rule semantics catch people out, and slonbase keeps PocketBase's for compatibility:
 
 - An `updateRule` is checked against the record **before** the update, with the request's body

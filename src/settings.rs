@@ -1267,6 +1267,22 @@ fn request_info(
     ))
 }
 
+/// Changes the stored settings without the checks of the API (for tests: a definition saved
+/// under earlier, looser rules).
+#[doc(hidden)]
+pub async fn change_unchecked(
+    core: &Arc<Core>,
+    change: impl FnOnce(&mut Settings),
+) -> Result<(), ApiError> {
+    modify(core, |current| {
+        let mut settings = current.clone();
+        change(&mut settings);
+        Ok(settings)
+    })
+    .await
+    .map(|_| ())
+}
+
 /// Changes the settings as they are *stored* and saves the result.
 ///
 /// The stored settings are read under a lock, so edits made at the same time (by other requests or

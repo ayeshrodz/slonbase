@@ -296,7 +296,8 @@ pub async fn status(
         ));
     }
     // settings that are allowed, and need something more to be safe
-    for warning in crate::warnings::collect(&core) {
+    let stored = crate::warnings::stored(&core);
+    for warning in crate::warnings::collect(&core).iter().chain(stored.iter()) {
         checks.push(check(
             &format!("config-{}-{}", warning.code, warning.subject),
             "warn",

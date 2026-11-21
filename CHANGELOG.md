@@ -81,6 +81,11 @@ changes, listed in its **Upgrading** section.
   is sealed under its own key, derived with HKDF-SHA256 and a random salt. A key of exactly 32
   characters keeps PocketBase's scheme, unchanged. `slonbase rekey --to <key>` moves an
   installation between the two and rotates the key.
+- **Stored templates and automations are checked again.** One that would not be saved under
+  today's rules (a stricter limit, a renamed collection or field) is listed on the Health page
+  and in `GET /api/settings/warnings`, with what fails, instead of only failing when it runs.
+  The check runs at start and when the settings or the collections change, and changes
+  nothing.
 
 ### Changed
 

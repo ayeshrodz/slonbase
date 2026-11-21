@@ -115,7 +115,7 @@ fn has_template_syntax(source: &str) -> bool {
     templating::is_template(source) || source.contains("{#")
 }
 
-fn validate(template: &Template, others: &[Template]) -> Errors {
+pub(crate) fn validate(template: &Template, others: &[Template]) -> Errors {
     let mut errors = Errors::new();
     let name = template.name.trim();
     if name.is_empty() || name.chars().count() > 60 || !mail::plain_line(name) {

@@ -174,3 +174,113 @@ async fn open_rules_on_accounts_and_unverified_openid_tokens_are_warnings() {
     );
     tdb.drop_db().await;
 }
+
+/// A stored template or automation that would not be saved under today's rules is listed (not
+/// changed, not switched off); valid ones are not.
+#[tokio::test]
+async fn stored_templates_and_automations_that_no_longer_validate_are_listed() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "invoices", "fields": [
+            { "name": "customer", "type": "text" },
+            { "name": "total", "type": "number" },
+        ] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+    let collection = res;
+    let (status, template) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/templates",
+        Some(json!({ "name": "Reminder", "subject": "Overdue", "body": "<p>Hello</p>" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{template}");
+    let (status, _) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/templates",
+        Some(json!({ "name": "Fine", "subject": "Fine", "body": "<p>Fine</p>" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, res) = call(
+        &app,
+        &token,
+        "POST",
+        "/api/automations",
+        Some(
+            json!({ "name": "Overdue", "expression": "0 0 29 2 *", "type": "steps",
+            "config": { "steps": [
+                { "name": "find", "type": "query",
+                  "config": { "collection": "invoices", "sort": "customer" } },
+            ] } }),
+        ),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // valid: nothing to say (the check runs in the background, so wait for one that ends)
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(warnings(&app, &token).await.is_empty());
+
+    // a template saved under looser rules (a subject of 250 characters, constant)
+    let core = app.core().unwrap();
+    let id = template["id"].as_str().unwrap().to_string();
+    slonbase::settings::change_unchecked(&core, |settings| {
+        let template = settings.templates.iter_mut().find(|t| t.id == id).unwrap();
+        template.subject = "s".repeat(250);
+    })
+    .await
+    .unwrap();
+    // an automation whose sort field was renamed since
+    let mut renamed = collection.clone();
+    renamed["fields"][1]["name"] = json!("customer_name");
+    let (status, res) = call(
+        &app,
+        &token,
+        "PATCH",
+        "/api/collections/invoices",
+        Some(json!({ "fields": renamed["fields"] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    let mut found = Vec::new();
+    for _ in 0..100 {
+        found = warnings(&app, &token).await;
+        if found.len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    found.sort();
+    assert_eq!(
+        found,
+        [
+            (
+                "invalidAutomation".to_string(),
+                "automation Overdue".to_string()
+            ),
+            (
+                "invalidTemplate".to_string(),
+                "template Reminder".to_string()
+            ),
+        ]
+    );
+    // nothing was changed or switched off
+    let (_, list) = call(&app, &token, "GET", "/api/templates", None).await;
+    assert_eq!(list["items"].as_array().map(Vec::len), Some(2), "{list}");
+    assert!(list["items"].to_string().contains(&"s".repeat(250)));
+    tdb.drop_db().await;
+}
