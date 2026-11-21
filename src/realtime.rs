@@ -1424,6 +1424,27 @@ fn spawn_announcer(core: Weak<Core>) {
     });
 }
 
+/// How often the settings are read again, whatever notifications arrived.
+const SETTINGS_REFRESH_EVERY: Duration = Duration::from_secs(60);
+
+/// Reads the settings again once a minute, apart from the listener (which may have no
+/// connection): a change whose notification was lost, or a database restored from a backup
+/// directly (not through this instance), is picked up, and the cache never stays behind it.
+fn spawn_settings_refresh(core: Weak<Core>) {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(SETTINGS_REFRESH_EVERY);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tick.tick().await; // (the first tick is immediate: the settings were just loaded)
+        loop {
+            tick.tick().await;
+            let Some(core) = core.upgrade() else { return };
+            if !reload_settings(&core).await {
+                keep_reloading_settings(&core);
+            }
+        }
+    });
+}
+
 async fn reload_collections(core: &Core) {
     // A change made here while loading replaces the registry with one it read after its
     // own commit; this load may predate that, so it's discarded and read again (it may
@@ -1689,6 +1710,7 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     let delivery = spawn_delivery(weak.clone());
     spawn_poller(weak.clone(), delivery);
     spawn_announcer(weak.clone());
+    spawn_settings_refresh(weak.clone());
     crate::events::spawn(weak.clone());
     tokio::spawn(async move {
         let mut delay = Duration::from_secs(1);
@@ -1799,12 +1821,6 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
                                         // idle connections are let go (many projects, many instances: each pool
                                         // would otherwise keep what it once needed)
                                         core.db().release_idle(IDLE_CONNECTION);
-                                        // the settings are read again: a change whose notification
-                                        // was lost, or a database restored from a backup directly
-                                        // (without this instance restoring it), is picked up
-                                        if !reload_settings(&core).await {
-                                            keep_reloading_settings(&core);
-                                        }
                                         crate::jobs::prune_hourly(&core).await;
                                         let max_days = core.settings().logs.max_days;
                                         if max_days > 0 {
