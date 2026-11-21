@@ -632,7 +632,45 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
     let (_dir2, config2) = temp_config();
     let second_app = new_app(&config2, Some(tdb.url.clone()));
     second_app.bootstrap().await.unwrap();
+    two_instances_delete_each_other(&tdb, &first_app, &first, &second_app).await;
+    tdb.drop_db().await;
+}
 
+/// The same with the smallest pools (a connection or two each, which is supported): the lock
+/// is on the transaction that deletes, so it needs no connection of its own.
+#[tokio::test]
+async fn owners_deleting_each_other_through_small_pools_leave_one() {
+    for (first_pool, second_pool) in [(1, 2), (2, 1), (1, 1)] {
+        let Some(tdb) = TestDb::create().await else {
+            return;
+        };
+        let (first_app, first, _dir) = ready_app_with_file(
+            &tdb,
+            &format!("[database]\nmax_connections = {first_pool}\n"),
+        )
+        .await;
+        let (_dir2, config2) = temp_config();
+        let second_app = new_app_configured(
+            &config2,
+            Some(tdb.url.clone()),
+            slonbase::Extensions::default(),
+            |o| o.max_connections = Some(second_pool),
+        );
+        second_app.bootstrap().await.unwrap();
+        two_instances_delete_each_other(&tdb, &first_app, &first, &second_app).await;
+        tdb.drop_db().await;
+    }
+}
+
+/// Two owners, one on each instance, delete each other at the same moment.
+async fn two_instances_delete_each_other(
+    tdb: &TestDb,
+    first_app: &Arc<App>,
+    first: &String,
+    second_app: &Arc<App>,
+) {
+    let (first_app, first) = (first_app.clone(), first.clone());
+    let second_app = second_app.clone();
     let second = member(&first_app, &first, "second-owner@example.com", "owner").await;
     // (a viewer, who remains whatever happens: the owners are what must not run out)
     member(&first_app, &first, "viewer@example.com", "viewer").await;
@@ -693,7 +731,6 @@ async fn owners_deleting_each_other_through_two_instances_leave_one() {
             .contains("last owner"),
         "the owner check refused it: {refused} {body}"
     );
-    tdb.drop_db().await;
 }
 
 /// A batch deleting every owner is refused like the same deletes one at a time, and so is

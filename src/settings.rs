@@ -1294,6 +1294,23 @@ pub(crate) async fn modify<F>(core: &Arc<Core>, change: F) -> Result<Settings, A
 where
     F: FnOnce(&Settings) -> Result<Settings, ApiError>,
 {
+    modify_inner(core, false, |current, _| change(current)).await
+}
+
+/// [`modify`] for a change that could leave no owner: it takes the owners lock on the
+/// transaction that writes (see [`crate::roles::lock_owners_in`]), and `change` also gets the
+/// ids of the superusers as they are in that transaction.
+pub(crate) async fn modify_owners<F>(core: &Arc<Core>, change: F) -> Result<Settings, ApiError>
+where
+    F: FnOnce(&Settings, &[String]) -> Result<Settings, ApiError>,
+{
+    modify_inner(core, true, change).await
+}
+
+async fn modify_inner<F>(core: &Arc<Core>, owners: bool, change: F) -> Result<Settings, ApiError>
+where
+    F: FnOnce(&Settings, &[String]) -> Result<Settings, ApiError>,
+{
     let mut client = core
         .db()
         .get()
@@ -1303,11 +1320,24 @@ where
         .transaction()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
+    // (the owners lock before the settings lock, always: the delete of a superuser takes the
+    // first only)
+    let ids: Vec<String> = if owners {
+        crate::roles::lock_owners_in(&tx).await?;
+        tx.query("SELECT id FROM slonbase._superusers", &[])
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?
+            .iter()
+            .map(|r| r.get(0))
+            .collect()
+    } else {
+        Vec::new()
+    };
     lock(&tx).await.map_err(|e| ApiError::internal(e.into()))?;
     let current = Settings::load(&tx, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
-    let next = change(&current)?;
+    let next = change(&current, &ids)?;
     crate::assets::check_uses(&tx, &next).await?;
     next.save(&tx, core.secrets_key(), Some(&current))
         .await

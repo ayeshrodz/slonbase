@@ -693,7 +693,6 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     // roles are written for collection names: a collection's id means the same thing
     let role_path = crate::roles::canonical_path(&path, &core.registry());
     // held until the response is ready when a superuser is deleted (see below)
-    let mut _deleting = None;
     // what the superuser's role allows (owners: everything)
     if let Some(su) = &auth.superuser {
         let role = auth
@@ -713,23 +712,14 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
                 .into_response();
             }
         }
-        // there's always an owner: the check and the delete are one step (the lock is held
-        // until the response is ready), so two owners deleting each other at the same moment
-        // can't both pass
-        if request.method() == Method::DELETE {
-            if let Some(id) = role_path.strip_prefix("/api/collections/_superusers/records/") {
-                // (not from an address that may not use superusers: it doesn't wait for the lock)
-                if !superuser_ip_allowed(&settings.superuser_ips, ip) {
-                    return not_allowed();
-                }
-                _deleting = match crate::roles::lock_owners(&core).await {
-                    Ok(lock) => Some(lock),
-                    Err(err) => return err.into_response(),
-                };
-                if let Err(err) = crate::roles::check_delete(&core, id).await {
-                    return err.into_response();
-                }
-            }
+        // (that an owner remains is checked by the delete itself, on its own transaction: see
+        // `roles::check_delete_in`)
+        if request.method() == Method::DELETE
+            && role_path.starts_with("/api/collections/_superusers/records/")
+            // not from an address that may not use superusers
+            && !superuser_ip_allowed(&settings.superuser_ips, ip)
+        {
+            return not_allowed();
         }
     }
     request.extensions_mut().insert(ResolvedAuth(auth.clone()));
@@ -782,23 +772,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
             }
         }
     }
-    match _deleting {
-        // the delete runs to its end, with the lock, even when the client goes away while the
-        // commit is on its way: the lock is not released before the commit is done
-        Some(lock) => {
-            let done = tokio::spawn(async move {
-                let response = next.run(request).await;
-                drop(lock);
-                response
-            });
-            match done.await {
-                Ok(response) => response,
-                Err(_) => ApiError::internal(anyhow::anyhow!("the delete stopped unexpectedly"))
-                    .into_response(),
-            }
-        }
-        None => next.run(request).await,
-    }
+    next.run(request).await
 }
 
 #[cfg(test)]
