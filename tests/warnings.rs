@@ -285,6 +285,7 @@ async fn stored_templates_and_automations_that_no_longer_validate_are_listed() {
     tdb.drop_db().await;
 }
 
+#[cfg(feature = "js")]
 #[tokio::test]
 async fn hook_files_without_a_time_or_memory_limit_are_a_warning() {
     let Some(tdb) = TestDb::create().await else {

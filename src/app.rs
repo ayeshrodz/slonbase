@@ -61,20 +61,35 @@ fn database_target(url: &str) -> String {
     let Ok(config) = url.parse::<tokio_postgres::Config>() else {
         return "the configured database".into();
     };
-    let hosts: Vec<String> = config
+    // one port is used for every host, as the driver does; none means the default
+    let ports = config.get_ports();
+    let port = |i: usize| ports.get(i).or(ports.first()).copied().unwrap_or(5432);
+    let mut places: Vec<String> = config
         .get_hosts()
         .iter()
-        .zip(config.get_ports().iter().chain(std::iter::repeat(&5432)))
-        .map(|(host, port)| match host {
-            tokio_postgres::config::Host::Tcp(name) => format!("{name}:{port}"),
+        .enumerate()
+        .map(|(i, host)| match host {
+            tokio_postgres::config::Host::Tcp(name) => format!("{name}:{}", port(i)),
+            // the socket's own file name, which carries the port
             #[cfg(unix)]
-            tokio_postgres::config::Host::Unix(path) => path.display().to_string(),
+            tokio_postgres::config::Host::Unix(path) => {
+                format!("{}/.s.PGSQL.{}", path.display(), port(i))
+            }
         })
         .collect();
+    if places.is_empty() {
+        // an address given without a host name
+        places = config
+            .get_hostaddrs()
+            .iter()
+            .enumerate()
+            .map(|(i, addr)| format!("{addr}:{}", port(i)))
+            .collect();
+    }
     format!(
         "{}@{} database {}",
         config.get_user().unwrap_or("?"),
-        hosts.join(","),
+        places.join(","),
         config.get_dbname().unwrap_or("?")
     )
 }
@@ -348,5 +363,20 @@ mod target_tests {
             "u@db.internal:5432 database app"
         );
         assert_eq!(database_target("not a url"), "the configured database");
+        // one port for every host
+        assert_eq!(
+            database_target("host=db1,db2 port=6432 user=u dbname=app"),
+            "u@db1:6432,db2:6432 database app"
+        );
+        // an address without a host name
+        assert_eq!(
+            database_target("postgresql:///app?user=u&hostaddr=127.0.0.1&port=6432"),
+            "u@127.0.0.1:6432 database app"
+        );
+        // a socket, with its port
+        assert_eq!(
+            database_target("postgresql:///app?user=u&host=/var/run/postgresql&port=6432"),
+            "u@/var/run/postgresql/.s.PGSQL.6432 database app"
+        );
     }
 }
