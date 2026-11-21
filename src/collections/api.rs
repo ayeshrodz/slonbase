@@ -93,6 +93,54 @@ async fn fresh_registry(core: &Core) -> Result<Registry, ApiError> {
     Ok(registry)
 }
 
+/// The collections again, when a hook changed some (a nested change, see
+/// [`super::lock`]) since the lock's count of nested changes was `since`; else `registry`.
+async fn reread(core: &Core, registry: Registry, since: u64) -> Result<Registry, ApiError> {
+    if core.schema_lock.writes() == since {
+        Ok(registry)
+    } else {
+        fresh_registry(core).await
+    }
+}
+
+/// A hook changed collections in a way this change can't build on.
+fn changed_by_hook(failed: &str) -> ApiError {
+    ApiError::bad_request(format!(
+        "{failed} A hook changed the collection while it was being saved."
+    ))
+}
+
+/// Fails the change when a hook changed collections since `since` (before `e.next()` in an
+/// execute hook) so that what it was checked against no longer `holds`. A nested change that
+/// failed, or changed only collections this one doesn't build on, lets it through.
+async fn still_holds(
+    core: &Core,
+    since: u64,
+    failed: &str,
+    holds: impl FnOnce(&Registry) -> bool,
+) -> Result<(), ApiError> {
+    if core.schema_lock.writes() == since {
+        return Ok(());
+    }
+    let registry = fresh_registry(core).await?;
+    if holds(&registry) {
+        Ok(())
+    } else {
+        Err(changed_by_hook(failed))
+    }
+}
+
+/// The registry to keep after a change saved as `applied`: a hook may have changed other
+/// collections after it (after `e.next()` in an execute hook), which `applied` doesn't have.
+async fn after_change(core: &Core, applied: Registry, since: u64) -> Result<Registry, ApiError> {
+    if core.schema_lock.writes() == since {
+        core.set_registry(applied.clone());
+        Ok(applied)
+    } else {
+        fresh_registry(core).await
+    }
+}
+
 /// A collection as returned by the API: OAuth2 client secrets are left out.
 pub fn to_json(c: &Collection) -> Value {
     let mut value = serde_json::to_value(c).expect("serializes");
@@ -540,29 +588,58 @@ async fn create_collection(
 }
 
 async fn create_checked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection>, ApiError> {
+    let guard = core.schema_lock.acquire().await;
+    guard.scope(create_locked(core, c)).await
+}
+
+/// [`create_checked`] with the lock held.
+async fn create_locked(core: &Arc<Core>, c: Collection) -> Result<Arc<Collection>, ApiError> {
     let failed = "Failed to create collection.";
-    let _guard = core.schema_lock.lock().await;
+    let since = core.schema_lock.writes();
     let registry = fresh_registry(core).await?;
 
     let mut c = before_hook(core, &core.hooks.on_collection_create, c).await?;
+    let registry = reread(core, registry, since).await?;
     infer_view(core, &mut c, None, "", failed).await?;
     let errors = validate::prepare(&mut c, None, &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
     // changes are ignored: the collection is validated
+    let since = core.schema_lock.writes();
     before_hook(core, &core.hooks.on_collection_validate, c.clone()).await?;
+    if core.schema_lock.writes() != since {
+        // inferred and validated again against what the hook changed (a view's fields take
+        // their visibility from the fields they read)
+        let registry = fresh_registry(core).await?;
+        infer_view(core, &mut c, None, "", failed).await?;
+        let errors = validate::prepare(&mut c, None, &registry);
+        if !errors.is_empty() {
+            return Err(ApiError::invalid_data(failed, &errors));
+        }
+    }
+    let since = core.schema_lock.writes();
     let hook = &core.hooks.on_collection_create_execute;
     let (pool, new, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
-    let registry = execute_hook(core, hook, &c, move || async move {
+    let lock_core = core.clone();
+    let applied = execute_hook(core, hook, &c, move || async move {
+        let mut new = new;
+        if lock_core.schema_lock.writes() != since {
+            infer_view(&lock_core, &mut new, None, "", failed).await?;
+        }
+        // a free id, and validation as before (the name is free, relations' collections exist)
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&new.id).is_none() && validate::prepare(&mut new.clone(), None, r).is_empty()
+        })
+        .await?;
         store::apply_with(&pool, Change::Create(&new), key.as_deref())
             .await
             .map(|applied| applied.registry)
             .map_err(|e| write_error(e, failed))
     })
     .await?;
+    let registry = after_change(core, applied, since).await?;
     let saved = registry.by_id(&c.id).cloned().ok_or_else(not_found)?;
-    core.set_registry(registry);
     tracing::info!(collection = %saved.name, "created collection");
     after_hook(core, |h| &h.on_collection_after_create_success, &saved);
     #[cfg(feature = "js")]
@@ -639,8 +716,21 @@ async fn update_checked(
     definition: Map<String, Value>,
     attempted: &mut Option<Collection>,
 ) -> Result<Arc<Collection>, ApiError> {
+    let guard = core.schema_lock.acquire().await;
+    guard
+        .scope(update_locked(core, id, definition, attempted))
+        .await
+}
+
+/// [`update_checked`] with the lock held.
+async fn update_locked(
+    core: &Arc<Core>,
+    id: &str,
+    definition: Map<String, Value>,
+    attempted: &mut Option<Collection>,
+) -> Result<Arc<Collection>, ApiError> {
     let failed = "Failed to update collection.";
-    let _guard = core.schema_lock.lock().await;
+    let since = core.schema_lock.writes();
     let registry = fresh_registry(core).await?;
     let old = registry.by_id(id).cloned().ok_or_else(not_found)?;
 
@@ -655,13 +745,31 @@ async fn update_checked(
     *attempted = Some(new.clone());
     let mut new = before_hook(core, &core.hooks.on_collection_update, new).await?;
     *attempted = Some(new.clone());
+    let registry = reread(core, registry, since).await?;
+    // a hook that changed this collection itself: what's stored isn't what was merged over
+    if registry.by_id(id) != Some(&old) {
+        return Err(changed_by_hook(failed));
+    }
 
     infer_view(core, &mut new, Some(&old), "", failed).await?;
     let errors = validate::prepare(&mut new, Some(&old), &registry);
     if !errors.is_empty() {
         return Err(ApiError::invalid_data(failed, &errors));
     }
+    let since = core.schema_lock.writes();
     before_hook(core, &core.hooks.on_collection_validate, new.clone()).await?;
+    if core.schema_lock.writes() != since {
+        let registry = fresh_registry(core).await?;
+        if registry.by_id(id) != Some(&old) {
+            return Err(changed_by_hook(failed));
+        }
+        infer_view(core, &mut new, Some(&old), "", failed).await?;
+        let errors = validate::prepare(&mut new, Some(&old), &registry);
+        if !errors.is_empty() {
+            return Err(ApiError::invalid_data(failed, &errors));
+        }
+    }
+    let since = core.schema_lock.writes();
     let hook = &core.hooks.on_collection_update_execute;
     let (pool, stored, changed, key) = (
         core.pool.clone(),
@@ -669,7 +777,17 @@ async fn update_checked(
         new.clone(),
         core.secrets_key_owned(),
     );
+    let lock_core = core.clone();
     let applied = execute_hook(core, hook, &new, move || async move {
+        let mut changed = changed;
+        if lock_core.schema_lock.writes() != since {
+            infer_view(&lock_core, &mut changed, Some(&stored), "", failed).await?;
+        }
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&stored.id) == Some(&stored)
+                && validate::prepare(&mut changed.clone(), Some(&stored), r).is_empty()
+        })
+        .await?;
         let change = Change::Update {
             old: &stored,
             new: &changed,
@@ -679,12 +797,8 @@ async fn update_checked(
             .map_err(|e| write_error(e, failed))
     })
     .await?;
-    let saved = applied
-        .registry
-        .by_id(&new.id)
-        .cloned()
-        .ok_or_else(not_found)?;
-    core.set_registry(applied.registry);
+    let registry = after_change(core, applied.registry, since).await?;
+    let saved = registry.by_id(&new.id).cloned().ok_or_else(not_found)?;
     tracing::info!(collection = %saved.name, "updated collection");
     after_hook(core, |h| &h.on_collection_after_update_success, &saved);
     crate::records::files::remove_field_files(core, &applied.removed_files).await;
@@ -753,10 +867,13 @@ pub(crate) async fn delete_collection(core: &Arc<Core>, id_or_name: &str) -> Res
 }
 
 async fn delete_checked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiError> {
-    let failed = "Failed to delete collection.";
-    let _guard = core.schema_lock.lock().await;
-    let registry = fresh_registry(core).await?;
-    let c = registry.get(id_or_name).cloned().ok_or_else(not_found)?;
+    let guard = core.schema_lock.acquire().await;
+    guard.scope(delete_locked(core, id_or_name)).await
+}
+
+/// Whether `c` may be deleted from `registry`: not a system collection, nor one other
+/// collections refer to.
+fn deletable(registry: &Registry, c: &Collection) -> Result<(), ApiError> {
     if c.system {
         return Err(ApiError::bad_request(
             "System collections can't be deleted.",
@@ -774,23 +891,50 @@ async fn delete_checked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiErr
             referencing.join(", ")
         )));
     }
+    Ok(())
+}
+
+/// [`delete_checked`] with the lock held.
+async fn delete_locked(core: &Arc<Core>, id_or_name: &str) -> Result<(), ApiError> {
+    let failed = "Failed to delete collection.";
+    let registry = fresh_registry(core).await?;
+    let c = registry.get(id_or_name).cloned().ok_or_else(not_found)?;
+    deletable(&registry, &c)?;
 
     // changes are ignored: the collection is deleted
+    let since = core.schema_lock.writes();
     before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+    if core.schema_lock.writes() != since {
+        // checked again against what the hook changed
+        let registry = fresh_registry(core).await?;
+        if registry.by_id(&c.id) != Some(&c) {
+            return Err(changed_by_hook(failed));
+        }
+        deletable(&registry, &c)?;
+    }
+    let since = core.schema_lock.writes();
     let hook = &core.hooks.on_collection_delete_execute;
     let (pool, deleted, key) = (core.pool.clone(), c.clone(), core.secrets_key_owned());
-    let registry = execute_hook(core, hook, &c, move || async move {
-        store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
+    let lock_core = core.clone();
+    let applied = execute_hook(core, hook, &c, move || async move {
+        still_holds(&lock_core, since, failed, |r| {
+            r.by_id(&deleted.id) == Some(&deleted) && deletable(r, &deleted).is_ok()
+        })
+        .await?;
+        let applied = store::apply_with(&pool, Change::Delete(&deleted), key.as_deref())
             .await
             .map(|applied| applied.registry)
-            .map_err(|e| write_error(e, failed))
+            .map_err(|e| write_error(e, failed))?;
+        // its files go now, before the handler goes on after `e.next()`: a collection it
+        // creates with the same id keeps the files it is given
+        if let Err(err) = lock_core.storage().delete_prefix(&deleted.id).await {
+            tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
+        }
+        Ok(applied)
     })
     .await?;
-    core.set_registry(registry);
+    after_change(core, applied, since).await?;
     after_hook(core, |h| &h.on_collection_after_delete_success, &c);
-    if let Err(err) = core.storage().delete_prefix(&c.id).await {
-        tracing::warn!(error = %format!("{err:#}"), "failed to delete the collection's files");
-    }
     tracing::info!(collection = %c.name, "deleted collection");
     Ok(())
 }
@@ -1064,8 +1208,20 @@ pub(crate) async fn import_definitions(
     items: Vec<Value>,
     delete_missing: bool,
 ) -> Result<Vec<Arc<Collection>>, ApiError> {
+    let guard = core.schema_lock.acquire().await;
+    guard
+        .scope(import_locked(core, items, delete_missing))
+        .await
+}
+
+/// [`import_definitions`] with the lock held.
+async fn import_locked(
+    core: &Arc<Core>,
+    items: Vec<Value>,
+    delete_missing: bool,
+) -> Result<Vec<Arc<Collection>>, ApiError> {
     let failed = "Failed to import collections.";
-    let _guard = core.schema_lock.lock().await;
+    let since = core.schema_lock.writes();
     let registry = fresh_registry(core).await?;
 
     // the collection hooks see each definition merged over the stored one it matches
@@ -1126,18 +1282,52 @@ pub(crate) async fn import_definitions(
         definitions.push(serde_json::to_value(&c).expect("serializes"));
         olds.push(old);
     }
-    if delete_missing {
+    let missing = |registry: &Registry| -> Vec<Arc<Collection>> {
+        if !delete_missing {
+            return Vec::new();
+        }
         let ids: Vec<&str> = definitions
             .iter()
             .filter_map(|d| d.get("id").and_then(Value::as_str))
             .collect();
-        for c in registry
+        registry
             .all()
             .iter()
             .filter(|c| !c.system && !ids.contains(&c.id.as_str()))
-        {
-            before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+            .cloned()
+            .collect()
+    };
+    let deleted = missing(&registry);
+    for c in &deleted {
+        before_hook(core, &core.hooks.on_collection_delete, c.as_ref().clone()).await?;
+    }
+    // A hook changed collections: the import builds on them as they are now, as long as what
+    // it matched and what it deletes are still as the hooks saw them.
+    let registry = reread(core, registry, since).await?;
+    for (definition, old) in definitions.iter().zip(&olds) {
+        let id = definition
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let name = definition
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let unchanged = match old {
+            Some(old) => registry.by_id(&old.id) == Some(old),
+            None => registry.by_id(id).is_none() && registry.get(name).is_none(),
+        };
+        if !unchanged {
+            return Err(ApiError::bad_request(format!(
+                "{failed} A hook changed collection {name:?} while it was being imported."
+            )));
         }
+    }
+    // (whole collections: one a hook changed isn't the one its delete hook was shown)
+    if missing(&registry) != deleted {
+        return Err(ApiError::bad_request(format!(
+            "{failed} A hook changed the collections the import deletes."
+        )));
     }
 
     let mut client = core
@@ -1161,6 +1351,7 @@ pub(crate) async fn import_definitions(
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
+    // (no hook runs between reading the collections again and the transaction)
 
     for (old, saved) in olds.iter().zip(&imported.saved) {
         match old {

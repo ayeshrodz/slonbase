@@ -2,6 +2,7 @@
 
 pub mod api;
 pub mod indexes;
+pub mod lock;
 pub mod model;
 pub mod schema;
 pub mod store;
