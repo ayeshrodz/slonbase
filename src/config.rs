@@ -80,6 +80,20 @@ pub struct HooksConfig {
     /// The most memory one JavaScript runtime may use, in MB; 0 for no limit.
     #[serde(skip_serializing_if = "is_zero")]
     pub memory_limit_mb: usize,
+    /// Refuse what `$http.send` and `$filesystem.fileFromURL` would send to this server or to a
+    /// private network (loopback, private, link-local and metadata addresses), the way the
+    /// dashboard's cron jobs are. Off unless set: hooks that call internal services keep working.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub guard_http: bool,
+    /// The longest a database call made from a hook may take, in seconds; 0 for no limit (the
+    /// default). Past it the call fails in the hook instead of waiting, for example, for a row
+    /// lock held elsewhere, which would hold a JavaScript runtime until it is released.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub db_wait_seconds: u64,
+    /// With `guard_http`: hosts (names or addresses) hooks may still call although they are
+    /// private, such as an internal service.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub allow_hosts: Vec<String>,
 }
 
 impl Default for HooksConfig {
@@ -91,6 +105,9 @@ impl Default for HooksConfig {
             // (off unless set: hooks that ran before keep running as they did)
             timeout_seconds: 0,
             memory_limit_mb: 0,
+            guard_http: false,
+            allow_hosts: Vec::new(),
+            db_wait_seconds: 0,
         }
     }
 }
@@ -549,6 +566,9 @@ mod tests {
         for key in [
             "timeout_seconds",
             "memory_limit_mb",
+            "guard_http",
+            "allow_hosts",
+            "db_wait_seconds",
             "job_connections",
             "dev",
         ] {

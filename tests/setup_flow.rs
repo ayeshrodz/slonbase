@@ -93,6 +93,9 @@ async fn wizard_flow_without_configured_database() {
     // the database URL was saved
     let saved = config::load(&config_path, Overrides::default()).unwrap();
     assert_eq!(saved.file.database.url.as_deref(), Some(tdb.url.as_str()));
+    // a new installation starts with limits on hook code
+    assert_eq!(saved.file.hooks.timeout_seconds, 60);
+    assert_eq!(saved.file.hooks.memory_limit_mb, 128);
 
     // setup is now disabled, even with the token
     let (status, _) = call(&app, "GET", "/api/setup", Some(&token), None).await;

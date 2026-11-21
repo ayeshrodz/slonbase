@@ -560,6 +560,12 @@ impl MigrationRuntime {
             handle: tokio::runtime::Handle::current(),
             core: RwLock::new(Arc::downgrade(core)),
             dir: std::fs::canonicalize(hooks_dir).unwrap_or_else(|_| hooks_dir.to_path_buf()),
+            db_wait: None,
+            // (migration files are the operator's, run once on deploy: not guarded)
+            http_guard: super::native::HttpGuard {
+                enabled: false,
+                allow_hosts: Vec::new(),
+            },
         });
         let (jobs, receiver) = std::sync::mpsc::channel::<Job>();
         std::thread::Builder::new()

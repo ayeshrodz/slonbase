@@ -138,6 +138,17 @@ pub async fn perform(
     let new_config = match new_url {
         Some(url) => {
             let mut updated = loaded.clone();
+            // a new installation starts with limits on hook code; a configuration file that
+            // exists already is left as its owner wrote it
+            if !updated.path.exists()
+                && updated.file.hooks.timeout_seconds == 0
+                && updated.file.hooks.memory_limit_mb == 0
+            {
+                for hooks in [&mut updated.file.hooks, &mut updated.effective.hooks] {
+                    hooks.timeout_seconds = 60;
+                    hooks.memory_limit_mb = 128;
+                }
+            }
             updated.file.database.url = Some(url.clone());
             updated.effective.database.url = Some(url);
             config::save(&updated.path, &updated.file).map_err(SetupError::Internal)?;

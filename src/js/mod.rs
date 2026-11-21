@@ -50,6 +50,10 @@ pub(crate) struct Shared {
     handle: tokio::runtime::Handle,
     core: RwLock<Weak<Core>>,
     dir: PathBuf,
+    /// `hooks.guard_http` and `hooks.allow_hosts`: what network calls from hooks may reach.
+    http_guard: native::HttpGuard,
+    /// `hooks.db_wait_seconds`: the longest a database call from a hook may take.
+    db_wait: Option<std::time::Duration>,
 }
 
 impl Shared {
@@ -573,6 +577,15 @@ fn worker(
     }
 }
 
+/// Whether `dir` has hook files (`*.pb.js`).
+pub fn has_hook_files(dir: &Path) -> bool {
+    std::fs::read_dir(dir).is_ok_and(|entries| {
+        entries
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().ends_with(".pb.js") && e.path().is_file())
+    })
+}
+
 /// Loads the hook files of `config.dir` (if any) and registers their handlers.
 pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::Result<()> {
     let dir = &config.dir;
@@ -594,11 +607,31 @@ pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::
     files.sort();
     let names: Vec<&str> = files.iter().map(|(n, _)| n.as_str()).collect();
     tracing::info!(dir = %dir.display(), files = ?names, "loading JavaScript hooks");
+    // no limit is the default, so hooks that ran before keep running as they did; it is worth
+    // saying when a handler that loops or allocates without end would not be stopped
+    if config.timeout_seconds == 0 && config.memory_limit_mb == 0 {
+        tracing::warn!(
+            "JavaScript hooks have no limits: a handler that loops or allocates without end \
+             isn't stopped. Set hooks.timeout_seconds (60 is a sensible value) and \
+             hooks.memory_limit_mb (128)."
+        );
+    }
 
     let shared = Arc::new(Shared {
         handle: tokio::runtime::Handle::current(),
         core: RwLock::new(Weak::new()),
         dir: std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
+        db_wait: Some(config.db_wait_seconds)
+            .filter(|s| *s > 0)
+            .map(std::time::Duration::from_secs),
+        http_guard: native::HttpGuard {
+            enabled: config.guard_http,
+            allow_hosts: config
+                .allow_hosts
+                .iter()
+                .map(|h| h.trim().to_ascii_lowercase())
+                .collect(),
+        },
     });
     let (jobs_tx, jobs_rx) = mpsc::channel();
     let workers = Arc::new(Workers {

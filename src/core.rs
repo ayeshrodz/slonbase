@@ -257,6 +257,15 @@ impl Core {
             hooks,
         });
         crate::warnings::log(&core);
+        // a query that waits for a lock has no end of its own, and a hook that makes one holds
+        // its runtime until it is released
+        if config.database.statement_timeout == 0 && crate::js::has_hook_files(&config.hooks.dir) {
+            tracing::warn!(
+                "database.statement_timeout is 0, so a query made by a hook that waits for a \
+                 lock is not stopped; set it (30000 ms is a sensible value) or set \
+                 hooks.db_wait_seconds."
+            );
+        }
         Ok(core)
     }
 

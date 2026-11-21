@@ -73,18 +73,59 @@ fn file_from_path(path: &str) -> Result<Value, ApiError> {
 /// Longest download of `$filesystem.fileFromURL` (seconds).
 const FILE_URL_TIMEOUT: u64 = 60;
 
+/// Runs a call that waits for the database to its end, or, with `hooks.db_wait_seconds`, for at
+/// most that long: past it the call fails in the hook (a handler that waits for a row lock would
+/// hold its runtime until the lock is released).
+fn block<T>(
+    shared: &Shared,
+    handle: &tokio::runtime::Handle,
+    call: impl std::future::Future<Output = Result<T, ApiError>>,
+) -> Result<T, ApiError> {
+    match shared.db_wait {
+        Some(limit) => handle.block_on(async {
+            tokio::time::timeout(limit, call).await.unwrap_or_else(|_| {
+                Err(bad(format!(
+                    "The database didn't answer within hooks.db_wait_seconds ({} s).",
+                    limit.as_secs()
+                )))
+            })
+        }),
+        None => handle.block_on(call),
+    }
+}
+
+/// What hooks may reach over the network (`hooks.guard_http`, `hooks.allow_hosts`).
+pub(super) struct HttpGuard {
+    pub(super) enabled: bool,
+    /// Lowercase hosts that may be reached although they are private.
+    pub(super) allow_hosts: Vec<String>,
+}
+
 /// `$filesystem.fileFromURL(url)`: downloads a file (http or https, up to the size limit).
-async fn file_from_url(url: &str) -> Result<Value, ApiError> {
+async fn file_from_url(url: &str, guard: &HttpGuard) -> Result<Value, ApiError> {
     let parsed = reqwest::Url::parse(url).map_err(|_| bad("fileFromURL: invalid URL."))?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err(bad("fileFromURL: only http and https URLs are supported."));
     }
-    let mut response = crate::http::client()
-        .get(parsed.clone())
-        .timeout(Duration::from_secs(FILE_URL_TIMEOUT))
-        .send()
+    let mut response = if guard.enabled {
+        crate::http::send_for_hook(
+            reqwest::Method::GET,
+            parsed.as_str(),
+            &[],
+            None,
+            Duration::from_secs(FILE_URL_TIMEOUT),
+            &guard.allow_hosts,
+        )
         .await
-        .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?;
+        .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?
+    } else {
+        crate::http::client()
+            .get(parsed.clone())
+            .timeout(Duration::from_secs(FILE_URL_TIMEOUT))
+            .send()
+            .await
+            .map_err(|e| bad(format!("fileFromURL: the request failed: {e}")))?
+    };
     if !response.status().is_success() {
         return Err(bad(format!(
             "fileFromURL: the server answered {}.",
@@ -267,8 +308,10 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
         "readTextFile" => return read_text_file(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
         "fileFromPath" => return file_from_path(&a.str(0)),
-        "fileFromURL" => return handle.block_on(file_from_url(&a.str(0))),
-        "http" => return handle.block_on(http(&a)),
+        "fileFromURL" => {
+            return handle.block_on(file_from_url(&a.str(0), &shared.http_guard));
+        }
+        "http" => return handle.block_on(http(&a, &shared.http_guard)),
         _ => {}
     }
 
@@ -281,12 +324,19 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
     }
     match name {
         "saveCollection" => {
-            let saved =
-                handle.block_on(crate::collections::api::save_definition(&core, a.value(0)))?;
+            let saved = block(
+                shared,
+                handle,
+                crate::collections::api::save_definition(&core, a.value(0)),
+            )?;
             Ok(collection_json(&saved))
         }
         "deleteCollection" => {
-            handle.block_on(crate::collections::api::delete_collection(&core, &a.str(0)))?;
+            block(
+                shared,
+                handle,
+                crate::collections::api::delete_collection(&core, &a.str(0)),
+            )?;
             Ok(Value::Null)
         }
         "importCollections" => {
@@ -295,11 +345,11 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 _ => return Err(bad("importCollections expects a list of collections.")),
             };
             let delete_missing = a.value(1).as_bool().unwrap_or(false);
-            handle.block_on(crate::collections::api::import_definitions(
-                &core,
-                items,
-                delete_missing,
-            ))?;
+            block(
+                shared,
+                handle,
+                crate::collections::api::import_definitions(&core, items, delete_missing),
+            )?;
             Ok(Value::Null)
         }
         // PocketBase's $app.createBackup(ctx, name) and $app.restoreBackup(ctx, name)
@@ -319,7 +369,11 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             Ok(Value::Null)
         }
         "saveSettings" => {
-            let settings = handle.block_on(crate::settings::apply_patch(&core, a.object(0)))?;
+            let settings = block(
+                shared,
+                handle,
+                crate::settings::apply_patch(&core, a.object(0)),
+            )?;
             serde_json::to_value(&settings).map_err(internal)
         }
         "collection" => Ok(collection_json(core.collection(&a.str(0))?.as_ref())),
@@ -335,36 +389,42 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             .map(Value::Object)
             .unwrap_or(Value::Null)),
         "findRecordsByFilter" => {
-            let records = handle.block_on(core.find_records_by_filter(
-                &a.str(0),
-                &a.str(1),
-                &a.str(2),
-                a.int(3),
-                a.int(4),
-                &a.object(5),
-            ))?;
+            let records = block(
+                shared,
+                handle,
+                core.find_records_by_filter(
+                    &a.str(0),
+                    &a.str(1),
+                    &a.str(2),
+                    a.int(3),
+                    a.int(4),
+                    &a.object(5),
+                ),
+            )?;
             Ok(Value::Array(
                 records.into_iter().map(Value::Object).collect(),
             ))
         }
-        "countRecords" => Ok(json!(handle.block_on(core.count_records(
-            &a.str(0),
-            &a.str(1),
-            &a.object(2)
-        ))?)),
+        "countRecords" => Ok(json!(block(
+            shared,
+            handle,
+            core.count_records(&a.str(0), &a.str(1), &a.object(2))
+        )?)),
         "save" => {
             let mut data = a.object(1);
             let uploads = take_files(&mut data)?;
-            Ok(Value::Object(handle.block_on(
+            Ok(Value::Object(block(
+                shared,
+                handle,
                 core.save_record_with_files(&a.str(0), data, uploads),
             )?))
         }
         "delete" => {
-            handle.block_on(core.delete_record(&a.str(0), &a.str(1)))?;
+            block(shared, handle, core.delete_record(&a.str(0), &a.str(1)))?;
             Ok(Value::Null)
         }
         "validatePassword" => {
-            let values = handle.block_on(stored_values(&core, &a.str(0), &a.str(1)))?;
+            let values = block(shared, handle, stored_values(&core, &a.str(0), &a.str(1)))?;
             let hash = values
                 .get(FIELD_PASSWORD)
                 .and_then(Value::as_str)
@@ -378,14 +438,14 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             )))
         }
         "authToken" => {
-            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(0), &a.str(1)))?;
             Ok(Value::String(record.issue_auth_token(&core, None, true)))
         }
         // record.newVerificationToken(), newPasswordResetToken(), newEmailChangeToken(email),
         // newFileToken(), newStaticAuthToken(seconds)
         "recordToken" => {
             use crate::auth::TokenType;
-            let record = handle.block_on(auth_record(&core, &a.str(0), &a.str(1)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(0), &a.str(1)))?;
             let kind = match a.str(2).as_str() {
                 "verification" => TokenType::Verification,
                 "passwordReset" => TokenType::PasswordReset,
@@ -412,7 +472,7 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             use crate::records::{auth_api, otp};
             // the emails are sent in the background, on the async runtime
             let _runtime = handle.enter();
-            let record = handle.block_on(auth_record(&core, &a.str(1), &a.str(2)))?;
+            let record = block(shared, handle, auth_record(&core, &a.str(1), &a.str(2)))?;
             if record.email().is_empty() {
                 return Err(bad("The record has no email."));
             }
@@ -432,13 +492,17 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
                 name if name.is_empty() => None,
                 name => Some(core.collection(&name)?),
             };
-            handle.block_on(db_query(
-                &core,
-                &a.str(0),
-                &a.object(1),
-                &a.str(2),
-                records.as_deref(),
-            ))
+            block(
+                shared,
+                handle,
+                db_query(
+                    &core,
+                    &a.str(0),
+                    &a.object(1),
+                    &a.str(2),
+                    records.as_deref(),
+                ),
+            )
         }
         "settings" => serde_json::to_value(&*core.settings()).map_err(internal),
         "sendMail" => {
@@ -608,27 +672,45 @@ fn resolve_module(shared: &Shared, path: &str) -> Result<Value, ApiError> {
     Ok(json!({ "path": resolved.to_string_lossy(), "source": source }))
 }
 
-async fn http(a: &Args<'_>) -> Result<Value, ApiError> {
+async fn http(a: &Args<'_>, guard: &HttpGuard) -> Result<Value, ApiError> {
     let url = a.str(0);
     let method = reqwest::Method::from_bytes(a.str(1).as_bytes())
         .map_err(|_| bad("Invalid HTTP method."))?;
     let timeout = (a.int(4).max(1) as u64).min(MAX_HTTP_TIMEOUT);
-    let mut request = crate::http::client()
-        .request(method, &url)
-        .timeout(Duration::from_secs(timeout));
-    for (name, value) in a.object(2) {
-        if let Some(value) = value.as_str() {
-            request = request.header(name, value);
-        }
-    }
     let body = a.str(3);
-    if !body.is_empty() {
-        request = request.body(body);
-    }
-    let response = request
-        .send()
+    let response = if guard.enabled {
+        let headers: Vec<(String, String)> = a
+            .object(2)
+            .into_iter()
+            .filter_map(|(name, value)| Some((name, value.as_str()?.to_string())))
+            .collect();
+        crate::http::send_for_hook(
+            method,
+            &url,
+            &headers,
+            Some(body).filter(|b| !b.is_empty()),
+            Duration::from_secs(timeout),
+            &guard.allow_hosts,
+        )
         .await
-        .map_err(|e| bad(format!("The HTTP request failed: {e}")))?;
+        .map_err(|e| bad(format!("The HTTP request failed: {e}")))?
+    } else {
+        let mut request = crate::http::client()
+            .request(method, &url)
+            .timeout(Duration::from_secs(timeout));
+        for (name, value) in a.object(2) {
+            if let Some(value) = value.as_str() {
+                request = request.header(name, value);
+            }
+        }
+        if !body.is_empty() {
+            request = request.body(body);
+        }
+        request
+            .send()
+            .await
+            .map_err(|e| bad(format!("The HTTP request failed: {e}")))?
+    };
     let status = response.status().as_u16();
     let mut headers = Map::new();
     for (name, value) in response.headers() {

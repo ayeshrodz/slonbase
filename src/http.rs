@@ -254,6 +254,74 @@ async fn request(
     Err("Too many redirects.".into())
 }
 
+/// A request made by a hook (`$http.send`, `$filesystem.fileFromURL`) with `hooks.guard_http`:
+/// like [`guarded`], every address the name resolves to must be public and the connection goes to
+/// the addresses just checked, and redirects are followed by hand and checked the same way, but
+/// the answer is returned whole (the hook reads it). A host in `allow_hosts` (lowercase) may be
+/// private. The caller's headers only go to the host the request was made for.
+pub async fn send_for_hook(
+    method: reqwest::Method,
+    url: &str,
+    headers: &[(String, String)],
+    body: Option<String>,
+    timeout: Duration,
+    allow_hosts: &[String],
+) -> Result<reqwest::Response, String> {
+    let mut method = method;
+    let mut url = reqwest::Url::parse(url).map_err(|_| "Not a valid URL.".to_string())?;
+    let mut body = body;
+    let first = url.clone();
+    let deadline = tokio::time::Instant::now() + timeout;
+    for _ in 0..=MAX_REDIRECTS {
+        let host = url.host_str().unwrap_or_default().to_ascii_lowercase();
+        let allowed = allow_hosts
+            .iter()
+            .any(|a| a == &host || a == host.trim_matches(['[', ']']));
+        let addrs = target(&url, allowed).await?;
+        let client = builder()
+            .resolve_to_addrs(&host, &addrs)
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .map_err(|e| e.to_string())?;
+        let mut req = client
+            .request(method.clone(), url.clone())
+            .timeout(deadline.saturating_duration_since(tokio::time::Instant::now()));
+        if same_origin(&url, &first) {
+            for (k, v) in headers {
+                req = req.header(k, v);
+            }
+        }
+        if let Some(b) = &body {
+            req = req.body(b.clone());
+        }
+        let response = req
+            .send()
+            .await
+            .map_err(|e| format!("The request failed: {}.", short(e)))?;
+        if response.status().is_redirection() {
+            let Some(location) = response
+                .headers()
+                .get(reqwest::header::LOCATION)
+                .and_then(|l| l.to_str().ok())
+            else {
+                return Ok(response);
+            };
+            url = url
+                .join(location)
+                .map_err(|_| "A redirect to an invalid URL.".to_string())?;
+            let status = response.status().as_u16();
+            if status == 303 || ((status == 301 || status == 302) && method != reqwest::Method::GET)
+            {
+                method = reqwest::Method::GET;
+                body = None;
+            }
+            continue;
+        }
+        return Ok(response);
+    }
+    Err("Too many redirects.".into())
+}
+
 /// Whether two URLs have the same origin: scheme, host and port.
 fn same_origin(a: &reqwest::Url, b: &reqwest::Url) -> bool {
     a.scheme() == b.scheme()

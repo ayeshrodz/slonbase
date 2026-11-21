@@ -69,6 +69,13 @@ changes, listed in its **Upgrading** section.
   by default) also counts an account's failed password sign-ins from every address together, so
   a guesser who changes address for each try gets locked out too. Superusers are never locked
   out this way. It is off for existing installations, whose lockout is unchanged.
+- **Guarded network calls from hooks (opt-in).** `hooks.guard_http = true` refuses what
+  `$http.send` and `$filesystem.fileFromURL` would send to this server or to a private network,
+  also through redirects, except to the hosts in `hooks.allow_hosts`. Off by default, so hooks
+  that call internal services are unchanged.
+- **A bounded wait for database calls from hooks (opt-in).** `hooks.db_wait_seconds` makes a
+  database call from a hook that waits (for a row lock, say) fail in the hook after that many
+  seconds, instead of holding its JavaScript runtime. Off by default.
 
 ### Changed
 
@@ -124,6 +131,10 @@ changes, listed in its **Upgrading** section.
   in it) and an `http://` address, since the request would carry it unencrypted. A job saved
   before keeps running as it is (see Upgrading). Other headers, such as `Content-Type`, may still
   go to `http://`.
+- **Limits on hook code for new installations.** A configuration file that setup creates now
+  starts with `hooks.timeout_seconds = 60` and `hooks.memory_limit_mb = 128`. Existing
+  configuration files are not changed. slonbase also logs a warning at start when hooks run
+  without limits, and when hooks exist and `database.statement_timeout` is 0.
 
 ### Fixed
 
