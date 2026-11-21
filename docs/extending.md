@@ -216,7 +216,7 @@ functions.
   included. `hooks.db_wait_seconds` also makes a **read** from a hook (find, count, auth tokens)
   fail in the hook after that many seconds (no limit by default); writes and raw SQL are not
   bounded by it, since a write that is dropped may still commit. A statement that
-  `database.statement_timeout` cancels is rolled back by PostgreSQL and reaches the hook as a database error (SQLSTATE `57014`), so a committed write
+  `database.statement_timeout` cancels is rolled back by PostgreSQL and reaches the hook as an error carrying the database's message ("canceling statement due to statement timeout"), so a committed write
   is never reported as a timeout. Only a lost connection leaves the outcome unknown: the commit
   may have happened before or after it dropped.
 - **Network calls:** `$http.send` and `$filesystem.fileFromURL` reach what the server can reach,

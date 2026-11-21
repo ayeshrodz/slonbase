@@ -37,7 +37,9 @@ onCollectionCreate((e) => {
     $app.save(new Collection({ name: "inner" }));
   }
   if (e.collection.name === "inner") {
-    const until = Date.now() + 1500;
+    // says that the slow hook has started (a collection the test looks for)
+    $app.save(new Collection({ name: "inner_started" }));
+    const until = Date.now() + 2000;
     while (Date.now() < until) {}
   }
   e.next();
@@ -186,22 +188,41 @@ async fn a_cancelled_collection_change_keeps_the_lock_while_its_nested_hook_runs
     let (app, token, _dir) = app_with_hooks(&tdb).await;
     let bearer = format!("Bearer {token}");
 
-    let started = std::time::Instant::now();
-    // the request is dropped while the nested change's hook is still running
-    let cancelled = tokio::time::timeout(
-        Duration::from_millis(400),
+    // the request runs in a task that is aborted (dropped) once the nested change's slow hook
+    // has started, which it says by saving a collection
+    let request_app = app.clone();
+    let request_bearer = bearer.clone();
+    let request_task = tokio::spawn(async move {
         request(
-            &app,
+            &request_app,
             "POST",
             "/api/collections",
-            &[("authorization", bearer.as_str())],
+            &[("authorization", request_bearer.as_str())],
             Some(json!({ "name": "outer" })),
-        ),
-    )
-    .await;
-    assert!(cancelled.is_err(), "the request should still be running");
+        )
+        .await
+    });
+    let mut started = false;
+    for _ in 0..400 {
+        let (_, list) = call(&app, &token, "GET", "/api/collections?perPage=500", None).await;
+        if list["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c["name"] == "inner_started")
+        {
+            started = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert!(started, "the nested change's hook should have started");
+    request_task.abort();
+    assert!(request_task.await.unwrap_err().is_cancelled());
+    let cancelled_at = std::time::Instant::now();
 
-    // another change has to wait for the one still running
+    // another change has to wait for the one still running (its hook ends 2 seconds after it
+    // started)
     let (status, res) = call(
         &app,
         &token,
@@ -210,10 +231,10 @@ async fn a_cancelled_collection_change_keeps_the_lock_while_its_nested_hook_runs
         Some(json!({ "name": "other" })),
     )
     .await;
-    let waited = started.elapsed();
+    let waited = cancelled_at.elapsed();
     assert_eq!(status, StatusCode::OK, "{res}");
     assert!(
-        waited >= Duration::from_millis(1400),
+        waited >= Duration::from_millis(1000),
         "the second change ran beside the first: it took {waited:?}"
     );
 

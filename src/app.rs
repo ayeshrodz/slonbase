@@ -55,6 +55,14 @@ const UNREACHABLE_AFTER: u32 = 5;
 /// After that, how many attempts pass between two error reports.
 const REPORT_EVERY: u32 = 20;
 
+/// Clears the service's "waiting for the database" line once the database answered (it was
+/// only set after `UNREACHABLE_AFTER` failures).
+fn clear_waiting_status(failures: u32) {
+    if failures >= UNREACHABLE_AFTER {
+        crate::service_status::set("");
+    }
+}
+
 /// Where the database URL points, for a log line: the user, host, port and database, never the
 /// password or the query.
 fn database_target(url: &str) -> String {
@@ -246,9 +254,7 @@ impl App {
             };
             match attempt.await {
                 Ok(Some(core)) => {
-                    if failures >= UNREACHABLE_AFTER {
-                        crate::service_status::set("");
-                    }
+                    clear_waiting_status(failures);
                     self.migrate_and_ready(core).await;
                     match &self.project {
                         Some(project) => tracing::info!(%project, "project ready"),
@@ -257,6 +263,7 @@ impl App {
                     return Ok(());
                 }
                 Ok(None) => {
+                    clear_waiting_status(failures);
                     self.enter_setup(Some(pool));
                     return Ok(());
                 }

@@ -27,6 +27,10 @@ fn send(path: &std::ffi::OsStr, message: &str) {
     let Ok(socket) = UnixDatagram::unbound() else {
         return;
     };
+    // a receiver that stops reading must not block the caller (the database wait loop)
+    if socket.set_nonblocking(true).is_err() {
+        return;
+    }
     // a leading '@' names an abstract socket (Linux)
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if let Some(name) = bytes.strip_prefix(b"@") {
