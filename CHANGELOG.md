@@ -115,6 +115,11 @@ changes, listed in its **Upgrading** section.
 
 ### Fixed
 
+- A job run that lost its lease to another attempt (for example while the database was out of
+  reach for longer than the lease) can no longer record its end over that attempt, or renew its
+  lease: finishing and renewing are tied to the attempt that holds the job (a job that was
+  ended elsewhere stays as it was), and so are the writes to a run's entry in the history. A
+  run learns that its lease is gone through `Job::lease_lost`.
 - Files kept in S3 behind a server or proxy that doesn't send a `Content-Length` are served
   without one (chunked), not with a length of 0 that cut the download off, and a backup
   download the same. The size of such an object is read from the total in the answer to a

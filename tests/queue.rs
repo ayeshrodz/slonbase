@@ -428,3 +428,69 @@ async fn a_job_left_by_an_instance_that_stopped_is_picked_up() {
     assert!(all[1].1.contains("Interrupted"), "{all:?}");
     assert_eq!(all[2].0, "done", "{all:?}");
 }
+
+/// A run whose lease another attempt has taken over doesn't record its end over that attempt,
+/// even when the attempt that took over is on the same instance id (a job retried and claimed
+/// again while the first run still works).
+#[tokio::test]
+async fn a_run_that_lost_its_lease_leaves_the_job_to_the_attempt_that_has_it() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir, id) = with_cleanup_job(&tdb).await;
+    let client = db(&tdb).await;
+    let blocker = db(&tdb).await;
+    // the job's delete waits for this lock, so its run stays going
+    blocker
+        .batch_execute("BEGIN; LOCK TABLE slonbase.events IN ACCESS EXCLUSIVE MODE")
+        .await
+        .unwrap();
+    let (status, _) = call(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    assert!(
+        eventually(async || states(&client).await.iter().any(|s| s.0 == "running")).await,
+        "{:?}",
+        states(&client).await
+    );
+    // another attempt takes the job over (same holder, next attempt)
+    client
+        .execute(
+            "UPDATE _slonbase.jobs SET attempt = attempt + 1,
+                    locked_until = now() + interval '1 hour' WHERE state = 'running'",
+            &[],
+        )
+        .await
+        .unwrap();
+    blocker.batch_execute("ROLLBACK").await.unwrap();
+    // the stale run goes on to do its work (the old events go), and then tries to record its end
+    assert!(
+        eventually(async || {
+            client
+                .query_one(
+                    "SELECT count(*) FROM slonbase.events WHERE title ~ 'old'",
+                    &[],
+                )
+                .await
+                .unwrap()
+                .get::<_, i64>(0)
+                == 0
+        })
+        .await,
+        "the run didn't do its work"
+    );
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    let all = states(&client).await;
+    assert_eq!(
+        (all[0].0.as_str(), all[0].2),
+        ("running", 2),
+        "the stale run recorded its end: {all:?}"
+    );
+    // nor did it end the run in the history, which the attempt that has the job resumes
+    let status: String = client
+        .query_one("SELECT status FROM _slonbase.job_runs", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(status, "running", "the stale run ended the history's run");
+    tdb.drop_db().await;
+}

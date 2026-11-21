@@ -168,6 +168,22 @@ pub(crate) async fn start_queued(
     }
 }
 
+/// The condition for a write to the history made while a queued job runs: it applies only while
+/// the attempt that makes it still holds the job (a run whose lease another attempt took over
+/// doesn't change what that attempt resumed). `first` is the number of the parameter with the
+/// queued job's id, the one after it is the attempt. Outside a worker the id is -1 and nothing
+/// is fenced. The job's row is share-locked for the write, so another attempt can't take the job
+/// over between the check and the write.
+fn fence(first: usize) -> String {
+    let (job, attempt) = (format!("${first}"), format!("${}", first + 1));
+    format!(
+        "(queue_job IS DISTINCT FROM {job} OR EXISTS (
+             SELECT 1 FROM _slonbase.jobs q
+             WHERE q.id = {job} AND q.attempt = {attempt} AND q.state = 'running'
+             FOR SHARE OF q))"
+    )
+}
+
 impl Run {
     /// The run's id in the history (none when it couldn't be recorded).
     pub(crate) fn id(&self) -> Option<i64> {
@@ -193,6 +209,7 @@ impl Run {
     /// of the history the API shows, and it goes when the run ends.
     pub(crate) async fn keep(&self, state: &Value) -> anyhow::Result<()> {
         let Some(id) = self.id else { return Ok(()) };
+        let held = crate::queue::held();
         let client = self
             .core
             .db()
@@ -201,8 +218,11 @@ impl Run {
             .map_err(crate::db::describe_pool_error)?;
         client
             .execute(
-                "UPDATE _slonbase.job_runs SET state = $2 WHERE id = $1",
-                &[&id, state],
+                &format!(
+                    "UPDATE _slonbase.job_runs SET state = $2 WHERE id = $1 AND {}",
+                    fence(3)
+                ),
+                &[&id, state, &held.0, &held.1],
             )
             .await?;
         Ok(())
@@ -212,6 +232,7 @@ impl Run {
     /// writing the rest again.
     pub(crate) async fn keep_patch(&self, patch: &Value) -> anyhow::Result<()> {
         let Some(id) = self.id else { return Ok(()) };
+        let held = crate::queue::held();
         let client = self
             .core
             .db()
@@ -220,9 +241,12 @@ impl Run {
             .map_err(crate::db::describe_pool_error)?;
         client
             .execute(
-                "UPDATE _slonbase.job_runs SET state = COALESCE(state, '{}') || $2::jsonb
-                 WHERE id = $1",
-                &[&id, patch],
+                &format!(
+                    "UPDATE _slonbase.job_runs SET state = COALESCE(state, '{{}}') || $2::jsonb
+                     WHERE id = $1 AND {}",
+                    fence(3)
+                ),
+                &[&id, patch, &held.0, &held.1],
             )
             .await?;
         Ok(())
@@ -231,11 +255,20 @@ impl Run {
     /// Notes where a run that goes on stands (a failed attempt that will be tried again).
     pub(crate) async fn note(&self, detail: &str) {
         let Some(id) = self.id else { return };
+        let held = crate::queue::held();
         if let Ok(client) = self.core.db().get().await {
             let _ = client
                 .execute(
-                    "UPDATE _slonbase.job_runs SET detail = $2 WHERE id = $1",
-                    &[&id, &detail.chars().take(4000).collect::<String>()],
+                    &format!(
+                        "UPDATE _slonbase.job_runs SET detail = $2 WHERE id = $1 AND {}",
+                        fence(3)
+                    ),
+                    &[
+                        &id,
+                        &detail.chars().take(4000).collect::<String>(),
+                        &held.0,
+                        &held.1,
+                    ],
                 )
                 .await;
         }
@@ -246,6 +279,7 @@ impl Run {
         let Some(id) = self.id else {
             return;
         };
+        let held = crate::queue::held();
         let (status, detail, meta) = match result {
             Ok(meta) => ("ok", String::new(), meta),
             Err(detail) => ("error", detail, json!({})),
@@ -259,14 +293,19 @@ impl Run {
                 .map_err(crate::db::describe_pool_error)?;
             client
                 .execute(
-                    "UPDATE _slonbase.job_runs
-                     SET finished = now(), status = $2, detail = $3, meta = $4, state = NULL
-                     WHERE id = $1",
+                    &format!(
+                        "UPDATE _slonbase.job_runs
+                         SET finished = now(), status = $2, detail = $3, meta = $4, state = NULL
+                         WHERE id = $1 AND status = 'running' AND {}",
+                        fence(5)
+                    ),
                     &[
                         &id,
                         &status,
                         &detail.chars().take(4000).collect::<String>(),
                         &meta,
+                        &held.0,
+                        &held.1,
                     ],
                 )
                 .await?;
@@ -322,12 +361,17 @@ pub async fn close_for_queue_job(core: &Core, queue_job: i64, detail: &str) -> a
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
+    // (fenced like the run's own writes: not once another attempt holds the job)
+    let held = crate::queue::held();
     client
         .execute(
-            "UPDATE _slonbase.job_runs SET status = 'error', finished = now(), state = NULL,
-                 detail = $2
-             WHERE queue_job = $1 AND status = 'running'",
-            &[&queue_job, &detail],
+            &format!(
+                "UPDATE _slonbase.job_runs SET status = 'error', finished = now(), state = NULL,
+                     detail = $2
+                 WHERE queue_job = $1 AND status = 'running' AND {}",
+                fence(3)
+            ),
+            &[&queue_job, &detail, &held.0, &held.1],
         )
         .await?;
     Ok(())
