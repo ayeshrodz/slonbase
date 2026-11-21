@@ -168,6 +168,15 @@ export SLONBASE_ENCRYPTION_KEY="$(openssl rand -hex 16)"   # 32 characters; keep
 slonbase serve
 ```
 
+- **Key length.** A key of exactly 32 characters is used as the AES key as it is, which is
+  PocketBase's scheme, so settings can move between the two. A **longer** key (up to 1024
+  characters, random: `openssl rand -base64 48`) is not used directly: every value is sealed
+  under a key of its own, derived from it with HKDF-SHA256 and a random salt (stored as
+  `v2.…`). The scheme follows from the key's length. To change an installation's key or scheme,
+  stop every instance and run `slonbase rekey --to <new key>` (the current key is the one
+  configured); it re-encrypts everything under the new key in one transaction, and it is how
+  the key is rotated. A derived key assumes a random key: a typed passphrase has little
+  entropy, whatever its length.
 - **Existing installations** are encrypted on the first start with a key (the settings, the
   signing secret, client secrets and project role passwords); tokens stay valid.
 - **Every instance**, and the `slonbase` commands you run against the database, need the same

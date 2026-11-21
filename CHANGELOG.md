@@ -76,6 +76,11 @@ changes, listed in its **Upgrading** section.
 - **A bounded wait for database calls from hooks (opt-in).** `hooks.db_wait_seconds` makes a
   database call from a hook that waits (for a row lock, say) fail in the hook after that many
   seconds, instead of holding its JavaScript runtime. Off by default.
+- **A longer encryption key derives a key per value (opt-in).** A `server.encryption_key` of
+  more than 32 characters (`openssl rand -base64 48`) is no longer the AES key itself: each value
+  is sealed under its own key, derived with HKDF-SHA256 and a random salt. A key of exactly 32
+  characters keeps PocketBase's scheme, unchanged. `slonbase rekey --to <key>` moves an
+  installation between the two and rotates the key.
 
 ### Changed
 
