@@ -57,8 +57,8 @@ const REPORT_EVERY: u32 = 20;
 
 /// Clears the service's "waiting for the database" line once the database answered (it was
 /// only set after `UNREACHABLE_AFTER` failures).
-fn clear_waiting_status(failures: u32) {
-    if failures >= UNREACHABLE_AFTER {
+fn clear_waiting_status(main_app: bool, failures: u32) {
+    if main_app && failures >= UNREACHABLE_AFTER {
         crate::service_status::set("");
     }
 }
@@ -254,7 +254,7 @@ impl App {
             };
             match attempt.await {
                 Ok(Some(core)) => {
-                    clear_waiting_status(failures);
+                    clear_waiting_status(self.project.is_none(), failures);
                     self.migrate_and_ready(core).await;
                     match &self.project {
                         Some(project) => tracing::info!(%project, "project ready"),
@@ -263,7 +263,7 @@ impl App {
                     return Ok(());
                 }
                 Ok(None) => {
-                    clear_waiting_status(failures);
+                    clear_waiting_status(self.project.is_none(), failures);
                     self.enter_setup(Some(pool));
                     return Ok(());
                 }
@@ -289,7 +289,9 @@ impl App {
                     } else {
                         tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
                     }
-                    if failures >= UNREACHABLE_AFTER {
+                    // (the line is the process's: only the main app reports to it, not a project
+                    // whose restart can be cancelled)
+                    if self.project.is_none() && failures >= UNREACHABLE_AFTER {
                         crate::service_status::set(&format!(
                             "waiting for the database ({}): {status}",
                             database_target(&url)

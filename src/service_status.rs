@@ -34,6 +34,9 @@ fn send(path: &std::ffi::OsStr, message: &str) {
     // a leading '@' names an abstract socket (Linux)
     #[cfg(any(target_os = "linux", target_os = "android"))]
     if let Some(name) = bytes.strip_prefix(b"@") {
+        #[cfg(target_os = "android")]
+        use std::os::android::net::SocketAddrExt;
+        #[cfg(target_os = "linux")]
         use std::os::linux::net::SocketAddrExt;
         if let Ok(addr) = std::os::unix::net::SocketAddr::from_abstract_name(name) {
             let _ = socket.send_to_addr(message.as_bytes(), &addr);
