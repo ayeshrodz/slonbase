@@ -164,6 +164,8 @@ changes, listed in its **Upgrading** section.
 - The documentation now says that collection changes made from hooks (`$app.save(collection)`,
   `$app.delete(collection)`, `$app.importCollections(...)`) are not written to automigrate
   files, and what to do instead.
+- The documentation says how many JavaScript runtimes (threads) a project with hooks starts
+  (`hooks.pool_size`, 10 by default, each project its own) and when to lower it.
 
 ### Fixed
 

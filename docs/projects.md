@@ -47,6 +47,11 @@ them all.
   When a project's hook files change, only that project restarts (unless `hooks.watch` is
   off). Requests already in progress finish on the old version, and realtime clients
   reconnect.
+  Every project that has hook files starts its own JavaScript runtimes, one thread each:
+  `hooks.pool_size` of them (10 by default), and more on demand while requests wait. With many
+  projects that have hooks, the threads add up (projects × `pool_size`), so lower
+  `hooks.pool_size` (`--hooks-pool-size`) for a fleet: a runtime runs one hook at a time, so a
+  project with light hooks needs few.
 - **Connections.** Each project opens up to `projects.max_connections` (4) pooled connections,
   plus one for realtime. Keep the total within PostgreSQL's `max_connections`.
 - **Bulk imports.** A batch (`POST /api/batch`) or an upload holds a connection while it runs.
