@@ -1294,6 +1294,25 @@ pub(crate) async fn modify<F>(core: &Arc<Core>, change: F) -> Result<Settings, A
 where
     F: FnOnce(&Settings) -> Result<Settings, ApiError>,
 {
+    modify_inner(core, false, |current, _| change(current)).await
+}
+
+/// [`modify`] for a change that could leave no owner: it takes the owners lock on the
+/// transaction that writes (see [`crate::roles::lock_owners_in`]), and `change` also gets the
+/// ids of the superusers as they are in that transaction.
+pub(crate) async fn modify_owners<F>(core: &Arc<Core>, change: F) -> Result<Settings, ApiError>
+where
+    F: FnOnce(&Settings, &[String]) -> Result<Settings, ApiError>,
+{
+    modify_inner(core, true, change).await
+}
+
+async fn modify_inner<F>(core: &Arc<Core>, owners: bool, change: F) -> Result<Settings, ApiError>
+where
+    F: FnOnce(&Settings, &[String]) -> Result<Settings, ApiError>,
+{
+    // (before a connection is taken, and until the new settings are published)
+    let _publishing_in_order = core.settings_changes.lock().await;
     let mut client = core
         .db()
         .get()
@@ -1303,11 +1322,24 @@ where
         .transaction()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
+    // (the owners lock before the settings lock, always: the delete of a superuser takes the
+    // first only)
+    let ids: Vec<String> = if owners {
+        crate::roles::lock_owners_in(&tx).await?;
+        tx.query("SELECT id FROM slonbase._superusers", &[])
+            .await
+            .map_err(|e| ApiError::internal(e.into()))?
+            .iter()
+            .map(|r| r.get(0))
+            .collect()
+    } else {
+        Vec::new()
+    };
     lock(&tx).await.map_err(|e| ApiError::internal(e.into()))?;
     let current = Settings::load(&tx, core.secrets_key())
         .await
         .map_err(ApiError::internal)?;
-    let next = change(&current)?;
+    let next = change(&current, &ids)?;
     crate::assets::check_uses(&tx, &next).await?;
     next.save(&tx, core.secrets_key(), Some(&current))
         .await
@@ -1323,14 +1355,43 @@ where
     crate::realtime::notify(&tx, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
+    // (what the cache holds when the commit is sent: a reload that publishes after this has
+    // read the database at or after the previous change, and may be newer than `next`)
+    let generation = core.settings_generation();
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    core.set_settings(next.clone());
+    publish_committed(core, generation, &next, client).await;
     if watching_changed {
         core.realtime.dispatch.notify_one();
     }
     Ok(next)
+}
+
+/// Publishes settings that were just committed, unless the cache was replaced since
+/// `generation`: a reload that did may already hold a later change from another instance, which
+/// `next` would undo, so the settings are read again instead. If they can't be, `next` is not
+/// published either, since it may be the older one: the cache keeps what it has, and the
+/// reading is retried in the background until it succeeds.
+///
+/// `held` is the connection the change was written on, which goes back first: with a pool of
+/// one the reload needs it.
+#[doc(hidden)]
+pub async fn publish_committed(
+    core: &Arc<Core>,
+    generation: u64,
+    next: &Settings,
+    held: deadpool_postgres::Client,
+) {
+    drop(held);
+    if !core.set_settings_if(generation, next.clone())
+        && !crate::realtime::reload_settings(core).await
+    {
+        // `next` may be older than what the cache now holds (a later change from another
+        // instance, a demotion say), so it is not published; the settings are read again until
+        // they can be, and the cache keeps what it has until then
+        crate::realtime::keep_reloading_settings(core);
+    }
 }
 
 /// Merges `body` (sections of settings) into the current settings, validates and saves them
