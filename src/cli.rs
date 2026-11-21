@@ -961,10 +961,13 @@ async fn superuser_command(
 }
 
 async fn serve(
-    loaded: config::Loaded,
+    #[allow(unused_mut)] mut loaded: config::Loaded,
     setup_token: Option<String>,
     #[allow(unused_mut)] mut extensions: Extensions,
 ) -> Result<()> {
+    // the hook workers are built here and keep these limits, so a new installation (no
+    // database configured yet) gets its default limits before the setup wizard runs
+    crate::setup::apply_new_install_hook_limits(&mut loaded);
     #[cfg(feature = "js")]
     crate::js::load(&loaded.effective.hooks, &mut extensions).await?;
     let bind = loaded.effective.server.bind.clone();

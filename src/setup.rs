@@ -171,6 +171,25 @@ pub async fn perform(
     Ok((pool, new_config))
 }
 
+/// A new installation (no database configured and no configuration file yet) starts with
+/// limits on hook code, unless a flag or an environment variable set them. Only the running
+/// configuration changes here; the file is written when setup creates the installation.
+pub fn apply_new_install_hook_limits(loaded: &mut Loaded) {
+    if loaded.effective.database.url.is_some()
+        || loaded.path.exists()
+        || loaded.file.hooks.timeout_seconds != 0
+        || loaded.file.hooks.memory_limit_mb != 0
+    {
+        return;
+    }
+    if !loaded.hook_timeout_overridden {
+        loaded.effective.hooks.timeout_seconds = 60;
+    }
+    if !loaded.hook_memory_overridden {
+        loaded.effective.hooks.memory_limit_mb = 128;
+    }
+}
+
 /// Returns the current setup state if the request carries a valid token.
 fn authorize(app: &App, headers: &HeaderMap) -> Result<SetupMode, ApiError> {
     let Mode::Setup(setup) = app.mode() else {
@@ -300,4 +319,49 @@ pub async fn complete(
     tracing::info!("setup completed");
 
     Ok(Json(json!({ "message": "Setup completed." })))
+}
+
+#[cfg(test)]
+mod hook_limit_tests {
+    use super::*;
+    use crate::config::{Overrides, load};
+
+    fn loaded(dir: &std::path::Path, overrides: Overrides) -> Loaded {
+        load(&dir.join("slonbase.toml"), overrides).unwrap()
+    }
+
+    #[test]
+    fn a_new_installation_gets_hook_limits_before_setup_unless_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut fresh = loaded(dir.path(), Overrides::default());
+        apply_new_install_hook_limits(&mut fresh);
+        assert_eq!(fresh.effective.hooks.timeout_seconds, 60);
+        assert_eq!(fresh.effective.hooks.memory_limit_mb, 128);
+        // the file itself is written when setup creates the installation
+        assert_eq!(fresh.file.hooks.timeout_seconds, 0);
+
+        // an explicit value, zero included, is the operator's
+        let mut set = loaded(
+            dir.path(),
+            Overrides {
+                hooks_timeout: Some(0),
+                hooks_memory: Some(256),
+                ..Overrides::default()
+            },
+        );
+        apply_new_install_hook_limits(&mut set);
+        assert_eq!(set.effective.hooks.timeout_seconds, 0);
+        assert_eq!(set.effective.hooks.memory_limit_mb, 256);
+
+        // a database that is configured already is an existing installation
+        let mut existing = loaded(
+            dir.path(),
+            Overrides {
+                database_url: Some("postgres://localhost/x".into()),
+                ..Overrides::default()
+            },
+        );
+        apply_new_install_hook_limits(&mut existing);
+        assert_eq!(existing.effective.hooks.timeout_seconds, 0);
+    }
 }
