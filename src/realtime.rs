@@ -1441,7 +1441,7 @@ async fn reload_collections(core: &Core) {
     }
 }
 
-async fn reload_settings(core: &Arc<Core>) {
+pub(crate) async fn reload_settings(core: &Arc<Core>) {
     // as for collections: don't undo a newer change made here
     for _ in 0..5 {
         let generation = core.settings_generation();

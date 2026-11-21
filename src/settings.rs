@@ -1355,10 +1355,17 @@ where
     crate::realtime::notify(&tx, "settings")
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
+    // (what the cache holds when the commit is sent: a reload that publishes after this has
+    // read the database at or after the previous change, and may be newer than `next`)
+    let generation = core.settings_generation();
     tx.commit()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    core.set_settings(next.clone());
+    if !core.set_settings_if(generation, next.clone()) {
+        // the cache was replaced meanwhile, by a reload that may already hold a later change
+        // from another instance: `next` would undo it, so the settings are read again
+        crate::realtime::reload_settings(core).await;
+    }
     if watching_changed {
         core.realtime.dispatch.notify_one();
     }

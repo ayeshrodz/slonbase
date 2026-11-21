@@ -994,3 +994,60 @@ async fn role_changes_made_at_once_all_take_effect() {
     );
     tdb.drop_db().await;
 }
+
+/// Settings changes made at the same moment on two instances sharing a database leave both with
+/// the same settings, whatever order they commit and publish in.
+#[tokio::test]
+async fn settings_changed_on_two_instances_at_once_agree_afterwards() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first_app, first, _dir) = ready_app(&tdb).await;
+    let (_dir2, config2) = temp_config();
+    let second_app = new_app(&config2, Some(tdb.url.clone()));
+    second_app.bootstrap().await.unwrap();
+
+    let mut tasks = Vec::new();
+    for i in 0..12 {
+        let (app, token) = if i % 2 == 0 {
+            (first_app.clone(), first.clone())
+        } else {
+            (second_app.clone(), first.clone())
+        };
+        tasks.push(tokio::spawn(async move {
+            as_(
+                &app,
+                &token,
+                "PATCH",
+                "/api/settings",
+                Some(json!({ "meta": { "appName": format!("name {i}") } })),
+            )
+            .await
+            .0
+        }));
+    }
+    for task in tasks {
+        assert_eq!(task.await.unwrap(), StatusCode::OK);
+    }
+    let name = |app: Arc<App>, token: String| async move {
+        let (_, res) = as_(&app, &token, "GET", "/api/settings", None).await;
+        res["meta"]["appName"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string()
+    };
+    let mut agreed = false;
+    for _ in 0..100 {
+        let (a, b) = (
+            name(first_app.clone(), first.clone()).await,
+            name(second_app.clone(), first.clone()).await,
+        );
+        if a == b && a.starts_with("name ") {
+            agreed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(agreed, "both instances end with the same settings");
+    tdb.drop_db().await;
+}
