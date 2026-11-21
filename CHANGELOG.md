@@ -93,6 +93,7 @@ changes, listed in its **Upgrading** section.
   [PocketPages](https://github.com/benallfree/pocketpages) use. Reads stay inside that directory
   (`..` and links that lead out are refused); without the setting the calls fail and nothing
   else changes.
+- **Hook code without a time or memory limit is reported (#107):** an installation that has hook files and neither `hooks.timeout_seconds` nor `hooks.memory_limit_mb` set (for example one whose database URL is fixed by a flag or an environment variable, so setup writes no configuration file) now lists "Hook code runs without a time or memory limit" in `GET /api/settings/warnings` and the dashboard, next to the startup log message. Nothing changes for an installation that sets either limit.
 
 ### Changed
 
@@ -167,6 +168,7 @@ changes, listed in its **Upgrading** section.
   files, and what to do instead.
 - The documentation says how many JavaScript runtimes (threads) a project with hooks starts
   (`hooks.pool_size`, 10 by default, each project its own) and when to lower it.
+- **An unreachable database is reported as an error (#116):** while the database cannot be reached at start, the service stays `active (running)` and retries (1, 2, 4, 8, 16, then every 30 seconds). After five failed attempts, and every twenty after that, slonbase now logs an error that names the user, host, port and database (never the password) and says to check that PostgreSQL is running and that `database.url` is right. It still connects by itself as soon as it can, with no restart.
 
 ### Fixed
 

@@ -52,6 +52,22 @@ pub fn collect(core: &Core) -> Vec<Warning> {
         });
     }
 
+    // hook code that loops or allocates without end is only stopped when a limit is set
+    if core.hooks_unlimited() {
+        warnings.push(Warning {
+            code: "hookLimits",
+            title: "Hook code runs without a time or memory limit",
+            link: "",
+            subject: "hooks".into(),
+            message: "hooks.timeout_seconds and hooks.memory_limit_mb are both 0, so a hook that \
+                      loops or allocates without end is not stopped. New installations set \
+                      60 seconds and 128 MB; set them in the configuration file, or with \
+                      --hooks-timeout and --hooks-memory (SLONBASE_HOOKS_TIMEOUT and \
+                      SLONBASE_HOOKS_MEMORY)."
+                .into(),
+        });
+    }
+
     for collection in registry.all() {
         let Some(auth) = collection.auth_options().filter(|_| !collection.system) else {
             continue;

@@ -284,3 +284,43 @@ async fn stored_templates_and_automations_that_no_longer_validate_are_listed() {
     assert!(list["items"].to_string().contains(&"s".repeat(250)));
     tdb.drop_db().await;
 }
+
+#[cfg(feature = "js")]
+#[tokio::test]
+async fn hook_files_without_a_time_or_memory_limit_are_a_warning() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let hooks = tempfile::tempdir().unwrap();
+    std::fs::write(hooks.path().join("a.pb.js"), "// no handlers\n").unwrap();
+    let dir = hooks.path().to_path_buf();
+
+    // the database URL comes from the environment, so setup writes no limits
+    let (app, token, _dir) = ready_app_configured(&tdb, slonbase::Extensions::default(), |o| {
+        o.hooks_dir = Some(dir.clone());
+    })
+    .await;
+    let found = warnings(&app, &token).await;
+    assert!(
+        found.iter().any(|(code, _)| code == "hookLimits"),
+        "{found:?}"
+    );
+
+    // a limit, either one, is the operator's choice and no warning
+    let Some(tdb2) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir2) = ready_app_configured(&tdb2, slonbase::Extensions::default(), |o| {
+        o.hooks_dir = Some(dir.clone());
+        o.hooks_timeout = Some(60);
+    })
+    .await;
+    assert!(
+        !warnings(&app, &token)
+            .await
+            .iter()
+            .any(|(code, _)| code == "hookLimits")
+    );
+    tdb.drop_db().await;
+    tdb2.drop_db().await;
+}

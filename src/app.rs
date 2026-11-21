@@ -50,6 +50,50 @@ pub struct App {
     pub(crate) projects: crate::projects::Projects,
 }
 
+/// How many failed attempts to reach the database before it is reported as an error.
+const UNREACHABLE_AFTER: u32 = 5;
+/// After that, how many attempts pass between two error reports.
+const REPORT_EVERY: u32 = 20;
+
+/// Where the database URL points, for a log line: the user, host, port and database, never the
+/// password or the query.
+fn database_target(url: &str) -> String {
+    let Ok(config) = url.parse::<tokio_postgres::Config>() else {
+        return "the configured database".into();
+    };
+    // one port is used for every host, as the driver does; none means the default
+    let ports = config.get_ports();
+    let port = |i: usize| ports.get(i).or(ports.first()).copied().unwrap_or(5432);
+    let mut places: Vec<String> = config
+        .get_hosts()
+        .iter()
+        .enumerate()
+        .map(|(i, host)| match host {
+            tokio_postgres::config::Host::Tcp(name) => format!("{name}:{}", port(i)),
+            // the socket's own file name, which carries the port
+            #[cfg(unix)]
+            tokio_postgres::config::Host::Unix(path) => {
+                format!("{}/.s.PGSQL.{}", path.display(), port(i))
+            }
+        })
+        .collect();
+    if places.is_empty() {
+        // an address given without a host name
+        places = config
+            .get_hostaddrs()
+            .iter()
+            .enumerate()
+            .map(|(i, addr)| format!("{addr}:{}", port(i)))
+            .collect();
+    }
+    format!(
+        "{}@{} database {}",
+        config.get_user().unwrap_or("?"),
+        places.join(","),
+        config.get_dbname().unwrap_or("?")
+    )
+}
+
 impl App {
     /// Creates the app in the `Starting` mode. `setup_token` lets automation
     /// preset the token; otherwise a random one is generated.
@@ -181,6 +225,8 @@ impl App {
         let key = crate::secrets::from_config(&config.effective)?;
 
         let mut delay = Duration::from_secs(1);
+        let mut failures = 0u32;
+        let mut next_report = UNREACHABLE_AFTER;
         loop {
             let attempt = async {
                 if prepare(&pool, key.as_ref()).await? {
@@ -217,7 +263,22 @@ impl App {
                 }
                 Err(err) => {
                     let status = format!("{err:#}");
-                    tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
+                    failures += 1;
+                    if failures == next_report {
+                        next_report += REPORT_EVERY;
+                        // the service reports itself as running while it waits, so say what
+                        // it is waiting for
+                        tracing::error!(
+                            target = %database_target(&url),
+                            error = %status,
+                            attempts = failures,
+                            "the database is still unreachable: check that PostgreSQL is running \
+                             and that database.url (or SLONBASE_DATABASE_URL) is right; slonbase \
+                             keeps trying and starts by itself when it can connect"
+                        );
+                    } else {
+                        tracing::warn!(error = %status, retry_in = ?delay, "database not ready");
+                    }
                     self.set_mode(Mode::Starting { status });
                     tokio::time::sleep(delay).await;
                     delay = (delay * 2).min(Duration::from_secs(30));
@@ -285,4 +346,37 @@ pub(crate) async fn prepare(pool: &Pool, key: Option<&crate::secrets::SecretsKey
     crate::collections::system::ensure_with(pool, key).await?;
     crate::collections::store::heal_views_with(pool, key).await?;
     Ok(superusers::count(pool).await? > 0)
+}
+
+#[cfg(test)]
+mod target_tests {
+    use super::database_target;
+
+    #[test]
+    fn the_target_names_the_place_and_never_the_password() {
+        let line =
+            database_target("postgres://slonbase:s3cret%40x@127.0.0.1:5433/app?sslmode=disable");
+        assert_eq!(line, "slonbase@127.0.0.1:5433 database app");
+        assert!(!line.contains("s3cret"));
+        assert_eq!(
+            database_target("postgres://u:p@db.internal/app"),
+            "u@db.internal:5432 database app"
+        );
+        assert_eq!(database_target("not a url"), "the configured database");
+        // one port for every host
+        assert_eq!(
+            database_target("host=db1,db2 port=6432 user=u dbname=app"),
+            "u@db1:6432,db2:6432 database app"
+        );
+        // an address without a host name
+        assert_eq!(
+            database_target("postgresql:///app?user=u&hostaddr=127.0.0.1&port=6432"),
+            "u@127.0.0.1:6432 database app"
+        );
+        // a socket, with its port
+        assert_eq!(
+            database_target("postgresql:///app?user=u&host=/var/run/postgresql&port=6432"),
+            "u@/var/run/postgresql/.s.PGSQL.6432 database app"
+        );
+    }
 }
