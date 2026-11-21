@@ -30,7 +30,7 @@ pub struct Core {
     pub(crate) maintenance_ticks: std::sync::atomic::AtomicU32,
     /// Held while a superuser is deleted, from checking that an owner remains until the delete
     /// is done, so two deletes can't each leave the other owner behind.
-    pub(crate) superuser_deletes: tokio::sync::Mutex<()>,
+    pub(crate) superuser_deletes: Arc<tokio::sync::Mutex<()>>,
     /// How many heavy writes (`/api/batch`, uploads) may run at once: the pool's size less one.
     /// The others wait here rather than for a connection (see `http_policy`).
     pub(crate) heavy_writes: tokio::sync::Semaphore,
