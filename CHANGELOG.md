@@ -143,6 +143,12 @@ changes, listed in its **Upgrading** section.
 - An email template's subject without expressions is held to the 200 characters a rendered
   subject may have when it is saved, instead of saving and then failing to render. A subject with
   expressions may still be up to 300 characters, since what it renders to can be shorter.
+- A schedule's `*/1` means the same as `*`: in a day field it no longer turns a weekly or monthly
+  schedule (`0 0 */1 * 1`, `0 0 1 * */1`) into a daily one, and in the hour field the job keeps
+  the clock's rhythm when daylight saving time changes, like `*`. Larger steps (`*/2`) still
+  restrict their field.
+- The job history (`GET /api/jobs/runs`) reads its runs and its totals from one snapshot, so a
+  run that starts while the list is read is counted only if it is also listed.
 - Importing collections: a column that a view reads can be renamed (or dropped) in the same
   import that updates the view's query, also when a new view reads the updated one; a view of
   the import is no longer refused for being made again from its old query in between (it is
