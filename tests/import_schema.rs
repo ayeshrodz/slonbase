@@ -498,3 +498,104 @@ async fn views_that_read_views_are_ordered_in_an_import() {
     );
     tdb.drop_db().await;
 }
+
+/// An existing view is re-pointed to a new view while another new view reads its old
+/// definition; and a view the import leaves out reads a view it changes; and both together.
+#[tokio::test]
+async fn imports_that_change_views_read_by_other_views_succeed_whatever_the_order() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) =
+        ready_app_configured(&tdb, Default::default(), |o| o.sql_console = Some(true)).await;
+    let auth = format!("Bearer {token}");
+    let go = |method: &'static str, uri: &'static str, body: Option<Value>| {
+        let (app, auth) = (app.clone(), auth.clone());
+        async move { request(&app, method, uri, &[("authorization", auth.as_str())], body).await }
+    };
+    let (status, posts) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "posts", "fields": [{ "name": "legacy_title", "type": "text" }] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{posts}");
+    let (status, ids) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "post_ids", "type": "view", "viewQuery": "SELECT id FROM posts" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{ids}");
+
+    // 1. post_ids reads a new base_ids; a new more_ids reads post_ids (listed first, then last)
+    for order in [false, true] {
+        let mut collections = vec![
+            json!({ "id": ids["id"], "name": "post_ids", "type": "view",
+                    "viewQuery": if order { "SELECT id FROM base_ids WHERE id != 'x'" }
+                                 else { "SELECT id FROM base_ids" } }),
+            json!({ "name": "base_ids", "type": "view", "viewQuery": "SELECT id FROM posts" }),
+            json!({ "name": if order { "more_ids_b" } else { "more_ids" }, "type": "view",
+                    "viewQuery": "SELECT id FROM post_ids" }),
+        ];
+        if order {
+            collections.reverse();
+        }
+        let (status, res) = go(
+            "PUT",
+            "/api/collections/import",
+            Some(json!({ "collections": collections, "deleteMissing": false })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "order {order}: {res}");
+        let (status, _) = go("GET", "/api/collections/post_ids/records", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let name = if order { "more_ids_b" } else { "more_ids" };
+        let (status, _) = go(
+            "GET",
+            Box::leak(format!("/api/collections/{name}/records").into_boxed_str()),
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{name} reads post_ids");
+    }
+
+    // 2. a view the import leaves out reads a view it changes, and a column is renamed
+    let (status, titles) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "post_titles", "type": "view",
+                     "viewQuery": "SELECT id, legacy_title FROM posts" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{titles}");
+    let (status, copied) = go(
+        "POST",
+        "/api/collections",
+        Some(json!({ "name": "copied_titles", "type": "view",
+                     "viewQuery": "SELECT id, legacy_title FROM post_titles" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{copied}");
+    let (_, posts) = go("GET", "/api/collections/posts", None).await;
+    let mut fields = posts["fields"].clone();
+    for f in fields.as_array_mut().unwrap() {
+        if f["name"] == "legacy_title" {
+            f["name"] = json!("title");
+        }
+    }
+    let (status, res) = go(
+        "PUT",
+        "/api/collections/import",
+        Some(json!({ "collections": [
+            { "id": posts["id"], "name": "posts", "type": "base", "fields": fields },
+            { "id": titles["id"], "name": "post_titles", "type": "view",
+              "viewQuery": "SELECT id, title AS legacy_title FROM posts" },
+        ], "deleteMissing": false })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT, "{res}");
+    let (status, _) = go("GET", "/api/collections/copied_titles/records", None).await;
+    assert_eq!(status, StatusCode::OK, "the view left out is made again");
+    tdb.drop_db().await;
+}

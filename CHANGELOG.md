@@ -232,6 +232,11 @@ changes, listed in its **Upgrading** section.
 - A failure notice that could not be queued because the database refused the write for a moment
   is tried again (after 1, 2, 4, 8 and 15 seconds) instead of only being logged. (The retries of
   a job itself are carried by the queue, which records them until it succeeds.)
+- Importing collections: imports whose final set of views is valid no longer fail on the order the
+  views are written in or on views the import leaves out. A new view that reads an existing view
+  the import re-points is made after it, and a view the import doesn't mention that reads a view
+  it changes (or a table) is dropped and made again from its own query, instead of refusing the
+  import.
 
 ### Security
 

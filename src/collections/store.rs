@@ -377,6 +377,79 @@ pub async fn apply_in_with_views_pending(
     });
     let mut rebuild: Vec<(Collection, bool)> = Vec::new();
     let mut unbuilt_views: Vec<String> = Vec::new();
+    // a view that is replaced can't be dropped while another reads it: the views that read it
+    // (and those that read them) are dropped meanwhile and made again from their queries
+    let changed_views: Vec<&Collection> = changes
+        .iter()
+        .filter_map(|change| match change {
+            Change::Update { old, new } if new.is_view() && *old != *new => Some(*new),
+            _ => None,
+        })
+        .collect();
+    if !touches_tables && !changed_views.is_empty() {
+        let changed: Vec<&str> = changes
+            .iter()
+            .map(|change| match change {
+                Change::Create(c) | Change::Delete(c) => c.id.as_str(),
+                Change::Update { new, .. } => new.id.as_str(),
+            })
+            .collect();
+        let all = load_with(tx, key).await?;
+        let mut names: Vec<String> = changed_views
+            .iter()
+            .map(|v| v.name.to_lowercase())
+            .collect();
+        let mut readers: Vec<Arc<Collection>> = Vec::new();
+        loop {
+            let before = readers.len();
+            for view in all.all().iter().filter(|c| c.is_view()) {
+                if changed.contains(&view.id.as_str()) || readers.iter().any(|r| r.id == view.id) {
+                    continue;
+                }
+                let query = view.view_query.clone().unwrap_or_default().to_lowercase();
+                if names.iter().any(|n| super::tx::mentions(&query, n)) {
+                    names.push(view.name.to_lowercase());
+                    readers.push(view.clone());
+                }
+            }
+            if readers.len() == before {
+                break;
+            }
+        }
+        // (dropped after the ones that read them, made again before: the loops below order them)
+        for view in &readers {
+            rebuild.push((view.as_ref().clone(), pending_views.contains(&view.id)));
+        }
+        let mut to_drop = readers;
+        while !to_drop.is_empty() {
+            let before = to_drop.len();
+            let mut left = Vec::new();
+            let mut first_error = None;
+            for view in to_drop {
+                tx.batch_execute("SAVEPOINT drop_view").await?;
+                let mut dropped = Ok(());
+                for statement in schema::drop(&view) {
+                    if let Err(e) = tx.batch_execute(&statement).await {
+                        dropped = Err(e);
+                        break;
+                    }
+                }
+                match dropped {
+                    Ok(()) => tx.batch_execute("RELEASE SAVEPOINT drop_view").await?,
+                    Err(e) => {
+                        tx.batch_execute("ROLLBACK TO SAVEPOINT drop_view").await?;
+                        tx.batch_execute("RELEASE SAVEPOINT drop_view").await?;
+                        first_error.get_or_insert(e);
+                        left.push(view);
+                    }
+                }
+            }
+            if left.len() == before {
+                return Err(first_error.expect("a view left has an error").into());
+            }
+            to_drop = left;
+        }
+    }
     if touches_tables {
         let changed: Vec<&str> = changes
             .iter()
