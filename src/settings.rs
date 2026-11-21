@@ -1372,7 +1372,7 @@ where
 /// `generation`: a reload that did may already hold a later change from another instance, which
 /// `next` would undo, so the settings are read again instead. If they can't be, `next` is not
 /// published either, since it may be the older one: the cache keeps what it has, and the
-/// reading is retried in the background.
+/// reading is retried in the background until it succeeds.
 ///
 /// `held` is the connection the change was written on, which goes back first: with a pool of
 /// one the reload needs it.
@@ -1392,8 +1392,9 @@ pub async fn publish_committed(
         // they can be, and the cache keeps what it has until then
         let core = core.clone();
         tokio::spawn(async move {
+            // (until it works: the cache may lack this change, a demotion say, until then)
             let mut wait = std::time::Duration::from_secs(1);
-            for _ in 0..12 {
+            loop {
                 tokio::time::sleep(wait).await;
                 if crate::realtime::reload_settings(&core).await {
                     return;
