@@ -78,8 +78,8 @@ pub struct Core {
     local_storage: PathBuf,
     storage: RwLock<Arc<Storage>>,
     /// Serializes collection changes within this instance (the database
-    /// advisory lock serializes them across instances).
-    pub(crate) schema_lock: tokio::sync::Mutex<()>,
+    /// advisory lock serializes them across instances); see [`crate::collections::lock`].
+    pub(crate) schema_lock: crate::collections::lock::SchemaLock,
     /// Where automigrate writes migration files (when it's on).
     automigrate_dir: Option<std::path::PathBuf>,
     /// The registered hooks and cron jobs.
@@ -249,7 +249,7 @@ impl Core {
             dev: config.server.dev,
             local_storage,
             storage: RwLock::new(Arc::new(storage)),
-            schema_lock: tokio::sync::Mutex::new(()),
+            schema_lock: Default::default(),
             automigrate_dir: config
                 .migrations
                 .automigrate

@@ -149,6 +149,12 @@ changes, listed in its **Upgrading** section.
   restrict their field.
 - The job history (`GET /api/jobs/runs`) reads its runs and its totals from one snapshot, so a
   run that starts while the list is read is counted only if it is also listed.
+- A collection hook (`onCollectionCreate`, `onCollectionUpdate`, `onCollectionDelete`,
+  `onCollectionValidate` and the execute hooks) that saves, deletes or imports another
+  collection no longer leaves the request waiting forever: that change runs inside the one that
+  ran the hook. The outer change checks the collections again afterwards and fails, rather than
+  save over a collection a hook changed under it. Other collection changes still wait their turn,
+  and restoring a backup from a collection hook is refused instead of waiting.
 
 ### Security
 
