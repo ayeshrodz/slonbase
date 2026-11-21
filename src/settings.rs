@@ -1398,8 +1398,12 @@ where
         .map_err(|e| ApiError::internal(e.into()))?;
     drop(client);
     // (published only if the cache doesn't already hold a newer revision: a reload that got
-    // there first has read this change or a later one)
-    core.publish_settings(next.clone());
+    // there first has read this change or a later one; when the cache holds a newer one than
+    // a change just committed has, the settings are read again, which also notices a database
+    // that went back to an earlier state)
+    if !core.publish_settings(next.clone()) {
+        crate::realtime::keep_reloading_settings(core);
+    }
     if watching_changed {
         core.realtime.dispatch.notify_one();
     }

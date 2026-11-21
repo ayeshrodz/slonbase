@@ -33,16 +33,24 @@ async fn db(tdb: &TestDb) -> tokio_postgres::Client {
 
 /// The params keys that hold settings, sorted.
 async fn keys(client: &tokio_postgres::Client) -> Vec<String> {
-    client
+    let mut keys: Vec<String> = client
         .query(
-            "SELECT key FROM _slonbase.params WHERE key LIKE 'settings%' ORDER BY key",
+            "SELECT key FROM _slonbase.params WHERE key LIKE 'settings%'",
             &[],
         )
         .await
         .unwrap()
         .iter()
         .map(|r| r.get(0))
-        .collect()
+        .collect();
+    // (here, not by the database: its collation may put a ':' and a letter in either order)
+    keys.sort();
+    keys
+}
+
+/// The rows of the sections, without the revision that is stored next to them.
+fn section_rows(keys: &[String]) -> Vec<&String> {
+    keys.iter().filter(|k| k.starts_with("settings:")).collect()
 }
 
 /// Puts the settings back the way 2.6 stored them: one value under `settings`.
@@ -52,7 +60,7 @@ async fn store_as_one_value(client: &tokio_postgres::Client) {
             "INSERT INTO _slonbase.params (key, value)
              SELECT 'settings', jsonb_object_agg(substr(key, 10), value)
              FROM _slonbase.params WHERE key LIKE 'settings:%';
-             DELETE FROM _slonbase.params WHERE key LIKE 'settings:%';",
+             DELETE FROM _slonbase.params WHERE key LIKE 'settings:%' OR key = 'settingsRevision';",
         )
         .await
         .unwrap();
@@ -121,7 +129,11 @@ async fn each_section_is_a_row_and_only_changed_sections_are_written() {
     assert_eq!(updated("settings:smtp").await, smtp_before);
     assert_ne!(updated("settings:meta").await, meta_before);
     assert_eq!(app.core().unwrap().settings().smtp.password, "s3cret");
-    assert_eq!(keys(&client).await, expected, "no other row appears");
+    // (the revision is stored beside the sections, from the first change on)
+    let mut with_revision = expected.clone();
+    with_revision.push("settingsRevision".into());
+    with_revision.sort();
+    assert_eq!(keys(&client).await, with_revision, "no other row appears");
 }
 
 #[tokio::test]
@@ -158,10 +170,13 @@ async fn settings_stored_as_one_value_are_converted_at_the_next_start() {
     let second = new_app(&path, Some(tdb.url.clone()));
     second.bootstrap().await.unwrap();
     let after = second.core().unwrap().settings();
-    assert_eq!(*after, *before);
+    // (the same settings; the revision is not one of them, and was not in the backup)
+    let mut after_content = (*after).clone();
+    after_content.revision = before.revision;
+    assert_eq!(after_content, *before);
     let stored = keys(&client).await;
     assert_eq!(
-        stored.len(),
+        section_rows(&stored).len(),
         slonbase::settings::SECTIONS.len(),
         "{stored:?}"
     );
@@ -235,7 +250,7 @@ async fn one_value_left_by_a_restored_backup_is_read_and_goes_at_the_next_save()
     assert_eq!(status, StatusCode::OK, "{res}");
     let stored = keys(&client).await;
     assert_eq!(
-        stored.len(),
+        section_rows(&stored).len(),
         slonbase::settings::SECTIONS.len(),
         "{stored:?}"
     );
@@ -243,4 +258,61 @@ async fn one_value_left_by_a_restored_backup_is_read_and_goes_at_the_next_save()
     let settings = app.core().unwrap().settings();
     assert_eq!(settings.smtp.password, "s3cret");
     assert_eq!(settings.logs.max_days, 9);
+}
+
+/// A database that went back to an earlier state while an instance ran (restored from a
+/// backup behind its back) must not leave that instance refusing newer changes for want of a
+/// higher revision: it takes its settings from the database.
+#[tokio::test]
+async fn a_database_that_went_back_to_an_earlier_state_is_followed() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (app, token, _dir) = ready_app(&tdb).await;
+    for n in 0..3 {
+        let (status, res) = admin(
+            &app,
+            &token,
+            "PATCH",
+            "/api/settings",
+            Some(json!({ "meta": { "appName": format!("before {n}") } })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{res}");
+    }
+    let core = app.core().unwrap();
+    let held = core.settings().revision;
+    assert!(held >= 3, "{held}");
+
+    // the database goes back: its revision is lower than the one the instance holds
+    let client = db(&tdb).await;
+    client
+        .execute(
+            "UPDATE _slonbase.params SET value = to_jsonb(1::bigint) WHERE key = 'settingsRevision'",
+            &[],
+        )
+        .await
+        .unwrap();
+    let (status, res) = admin(
+        &app,
+        &token,
+        "PATCH",
+        "/api/settings",
+        Some(json!({ "meta": { "appName": "after" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{res}");
+
+    // the instance ends up with the change and the database's revision, not stuck on its own
+    let mut followed = false;
+    for _ in 0..150 {
+        let settings = core.settings();
+        if settings.meta.app_name == "after" && settings.revision < held {
+            followed = true;
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert!(followed, "held {held}, now {}", core.settings().revision);
+    tdb.drop_db().await;
 }

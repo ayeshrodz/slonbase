@@ -1447,18 +1447,43 @@ async fn reload_collections(core: &Core) {
 /// Reads the settings again from the database. Returns whether they could be read (and so the
 /// cache holds them or something newer), and not an error.
 pub(crate) async fn reload_settings(core: &Arc<Core>) -> bool {
-    let loaded = async {
+    let load = || async {
         let client = core.db().get().await.map_err(db::describe_pool_error)?;
         Settings::load(&client, core.secrets_key()).await
     };
-    match loaded.await {
+    match load().await {
         Ok(settings) => {
-            // (not published when the cache already holds a newer revision: there is nothing
-            // to catch up on, and a read that is older than the cache must not replace it)
             if core.publish_settings(settings) {
                 crate::settings::reloaded(core);
+                return true;
             }
-            true
+            // older than what the cache holds: nearly always a read that a newer change
+            // overtook, and then there is nothing to do. But it is also what the database
+            // looks like after it went back to an earlier state (restored from a backup while
+            // this ran): a read that starts now cannot be older than a revision that was
+            // already published, unless it has
+            match load().await {
+                Ok(fresh) if fresh.revision < core.settings().revision => {
+                    tracing::warn!(
+                        stored = fresh.revision,
+                        held = core.settings().revision,
+                        "the stored settings are older than the ones held: the database went back to an earlier state, so they are taken from it"
+                    );
+                    core.set_settings(fresh);
+                    crate::settings::reloaded(core);
+                    true
+                }
+                Ok(fresh) => {
+                    if core.publish_settings(fresh) {
+                        crate::settings::reloaded(core);
+                    }
+                    true
+                }
+                Err(err) => {
+                    tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
+                    false
+                }
+            }
         }
         Err(err) => {
             tracing::error!(error = %format!("{err:#}"), "failed to reload settings");
