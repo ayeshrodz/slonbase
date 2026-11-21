@@ -363,7 +363,11 @@ impl Client {
         if response.status() == StatusCode::RANGE_NOT_SATISFIABLE {
             return Ok(total.or(Some(0)).filter(|_| total.is_some()));
         }
-        ensure_success(response, "check").await?;
+        // (a success is dropped unread: a server that ignored the range answers with the whole
+        // object, which is not read into memory to find out its size)
+        if !response.status().is_success() {
+            ensure_success(response, "check").await?;
+        }
         Ok(total)
     }
 
@@ -1142,6 +1146,8 @@ mod tests {
         Empty,
         /// Says nothing about the size at all.
         Silent,
+        /// Ignores the range and answers 200 with the whole object.
+        Ignored,
     }
 
     async fn lengthless(
@@ -1180,7 +1186,9 @@ mod tests {
                 streamed(&DATA[..1]),
             )
                 .into_response(),
-            ("GET", false, _) => streamed(DATA).into_response(),
+            ("GET", true, Lengthless::Ignored) | ("GET", false, _) => {
+                streamed(DATA).into_response()
+            }
             _ => axum::http::StatusCode::NOT_IMPLEMENTED.into_response(),
         }
     }
@@ -1235,6 +1243,16 @@ mod tests {
     #[tokio::test]
     async fn a_size_nobody_gave_is_an_error_and_not_zero() {
         let client = start_lengthless(Lengthless::Silent).await;
+        let err = client.size("k").await.unwrap_err();
+        assert!(
+            format!("{err:#}").contains("didn't say how large"),
+            "{err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_range_the_server_ignores_is_not_read_to_find_a_size() {
+        let client = start_lengthless(Lengthless::Ignored).await;
         let err = client.size("k").await.unwrap_err();
         assert!(
             format!("{err:#}").contains("didn't say how large"),
