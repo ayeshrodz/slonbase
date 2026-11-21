@@ -105,6 +105,13 @@ those collections.
 - `$http.send({url, method, headers, body, timeout})`.
 - `$security`: `randomString`, `randomStringWithAlphabet`, `randomStringByRegex`, `sha256`, `sha512`, `hs256`,
   `md5`, `equal`, ...
+- `$os.readFile(path)`, `$os.dirFS(path)`, `e.fileFS(fs, name)` and `$filepath`
+  (`join`, `clean`, `base`, `dir`, `ext`, `toSlash`, `fromSlash`, `isAbs`, `walkDir`, `glob`):
+  read-only access to files, **only inside the directory set with `hooks.files_dir`** (off
+  unless it is set; relative paths are read from it, and a path that leads out of it, by `..` or
+  a link, is refused). It is what server-rendered page frameworks such as PocketPages need.
+  `e.fileFS` sends a file with its type from the extension; a name never leaves the directory
+  of the `dirFS`.
 - `$os.getenv`, `console.log/info/warn/error`, and `require()` for modules in the hooks
   directory.
 - `toString`, `toBytes(value, maxBytes)` and `readerToString` (text is UTF-8; readers are

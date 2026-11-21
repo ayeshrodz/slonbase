@@ -87,6 +87,7 @@ memory_limit_mb = 0     # per runtime; 0 = no limit (e.g. 128)
 db_wait_seconds = 0     # the longest a database call from a hook may take; 0 = no limit (e.g. 30)
 guard_http = false      # refuse hook calls ($http.send, fileFromURL) to this server or private networks
 allow_hosts = []        # with guard_http: internal hosts hooks may still call
+# files_dir = "/var/lib/slonbase/pages"   # the one directory hooks may read ($os.readFile, e.fileFS); off unless set
 
 [migrations]          # see migrations.md
 dir = "slonbase_migrations"

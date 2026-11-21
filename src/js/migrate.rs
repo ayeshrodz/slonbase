@@ -561,6 +561,7 @@ impl MigrationRuntime {
             core: RwLock::new(Arc::downgrade(core)),
             dir: std::fs::canonicalize(hooks_dir).unwrap_or_else(|_| hooks_dir.to_path_buf()),
             db_wait: None,
+            files_dir: None,
             // (migration files are the operator's, run once on deploy: not guarded)
             http_guard: super::native::HttpGuard {
                 enabled: false,

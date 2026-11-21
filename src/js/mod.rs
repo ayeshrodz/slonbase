@@ -54,6 +54,8 @@ pub(crate) struct Shared {
     http_guard: native::HttpGuard,
     /// `hooks.db_wait_seconds`: the longest a database call from a hook may take.
     db_wait: Option<std::time::Duration>,
+    /// `hooks.files_dir`, as a real path: where hooks may read files.
+    files_dir: Option<PathBuf>,
 }
 
 impl Shared {
@@ -621,6 +623,10 @@ pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::
         handle: tokio::runtime::Handle::current(),
         core: RwLock::new(Weak::new()),
         dir: std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
+        files_dir: config
+            .files_dir
+            .as_ref()
+            .and_then(|dir| std::fs::canonicalize(dir).ok()),
         db_wait: Some(config.db_wait_seconds)
             .filter(|s| *s > 0)
             .map(std::time::Duration::from_secs),
@@ -1017,8 +1023,20 @@ fn response_from(value: &Value) -> Option<Response> {
     let mut response = if value["hasJson"].as_bool() == Some(true) {
         (status, axum::Json(value["json"].clone())).into_response()
     } else {
-        let body = value["body"].as_str().unwrap_or_default().to_string();
-        let mut response = (status, body).into_response();
+        // (a body is text, or, for a file, base64 of its bytes)
+        let mut response = match value["bodyBase64"].as_str() {
+            Some(encoded) => {
+                use base64::Engine;
+                let bytes = base64::engine::general_purpose::STANDARD
+                    .decode(encoded)
+                    .unwrap_or_default();
+                (status, bytes).into_response()
+            }
+            None => {
+                let body = value["body"].as_str().unwrap_or_default().to_string();
+                (status, body).into_response()
+            }
+        };
         if let Some(Ok(content_type)) = value["contentType"].as_str().map(HeaderValue::from_str) {
             response
                 .headers_mut()

@@ -86,6 +86,12 @@ changes, listed in its **Upgrading** section.
   and in `GET /api/settings/warnings`, with what fails, instead of only failing when it runs.
   The check runs at start and when the settings or the collections change, and changes
   nothing.
+- **Read-only files for hooks (opt-in), for server-rendered pages.** With `hooks.files_dir` set,
+  hooks can use `$os.readFile`, `$os.dirFS`, `e.fileFS` and `$filepath` (`join`, `dir`, `base`,
+  `ext`, `toSlash`, `walkDir`, `glob`, ...), the APIs frameworks such as
+  [PocketPages](https://github.com/benallfree/pocketpages) use. Reads stay inside that directory
+  (`..` and links that lead out are refused); without the setting the calls fail and nothing
+  else changes.
 
 ### Changed
 

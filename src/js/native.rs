@@ -1,6 +1,7 @@
 //! The native functions behind the prelude's `$app`, `$http`, `$security`, `$os` and
 //! `require` (called as `__native_call(name, argsJson)`).
 
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
@@ -305,6 +306,10 @@ fn run(shared: &Arc<Shared>, name: &str, args: &[Value]) -> Result<Value, ApiErr
             return Ok(Value::Null);
         }
         "resolveModule" => return resolve_module(shared, &a.str(0)),
+        "fsRead" => return fs_read(shared, &a.str(0)),
+        "fsList" => return fs_list(shared, &a.str(0)),
+        "fsStat" => return fs_stat(shared, &a.str(0)),
+        "fsResolve" => return fs_path(shared, &a.str(0)).map(|p| json!(p.to_string_lossy())),
         "readTextFile" => return read_text_file(shared, &a.str(0)),
         "fileFromBytes" => return file_from_bytes(&a.value(0), &a.str(1)),
         "fileFromPath" => return file_from_path(&a.str(0)),
@@ -581,6 +586,75 @@ fn read_text_file(shared: &Shared, path: &str) -> Result<Value, ApiError> {
     std::fs::read_to_string(&path)
         .map(Value::String)
         .map_err(|e| bad(format!("Failed to read {}: {e}.", path.display())))
+}
+
+/// The most a hook may read from a file at once.
+const MAX_FILE_READ: u64 = 32 * 1024 * 1024;
+/// The most entries of one directory a hook is given.
+const MAX_DIR_ENTRIES: usize = 10_000;
+
+/// A path a hook gave, as a real path inside `hooks.files_dir` (relative paths are read from
+/// it); a path that leads out of it, by `..` or a link, is refused.
+fn fs_path(shared: &Shared, path: &str) -> Result<PathBuf, ApiError> {
+    let root = shared.files_dir.as_ref().ok_or_else(|| {
+        bad("File access is off: set hooks.files_dir to the directory hooks may read.")
+    })?;
+    let given = Path::new(path);
+    let joined = if given.is_absolute() {
+        given.to_path_buf()
+    } else {
+        root.join(given)
+    };
+    let real = std::fs::canonicalize(&joined).map_err(|e| bad(format!("{path}: {e}.")))?;
+    if !real.starts_with(root) {
+        return Err(bad(format!("{path} is outside hooks.files_dir.")));
+    }
+    Ok(real)
+}
+
+/// `$os.readFile(path)`: a file's bytes, as base64.
+fn fs_read(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+    use base64::Engine;
+    let real = fs_path(shared, path)?;
+    let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    if !meta.is_file() {
+        return Err(bad(format!("{path} isn't a file.")));
+    }
+    if meta.len() > MAX_FILE_READ {
+        return Err(bad(format!("{path} is too large to read.")));
+    }
+    let bytes = std::fs::read(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    Ok(Value::String(
+        base64::engine::general_purpose::STANDARD.encode(bytes),
+    ))
+}
+
+/// The entries of a directory, by name: `[{name, isDir}]`.
+fn fs_list(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+    let real = fs_path(shared, path)?;
+    let mut entries: Vec<(String, bool)> = std::fs::read_dir(&real)
+        .map_err(|e| bad(format!("{path}: {e}.")))?
+        .flatten()
+        .take(MAX_DIR_ENTRIES)
+        .map(|e| {
+            let is_dir = e.path().is_dir();
+            (e.file_name().to_string_lossy().to_string(), is_dir)
+        })
+        .collect();
+    entries.sort();
+    Ok(Value::Array(
+        entries
+            .into_iter()
+            .map(|(name, is_dir)| json!({ "name": name, "isDir": is_dir }))
+            .collect(),
+    ))
+}
+
+/// A file's or directory's kind and size.
+fn fs_stat(shared: &Shared, path: &str) -> Result<Value, ApiError> {
+    let real = fs_path(shared, path)?;
+    let meta = std::fs::metadata(&real).map_err(|e| bad(format!("{path}: {e}.")))?;
+    Ok(json!({ "isDir": meta.is_dir(), "size": meta.len() }))
 }
 
 /// A record of an auth collection, with its secrets.

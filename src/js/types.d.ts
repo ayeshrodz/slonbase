@@ -243,6 +243,8 @@ declare namespace slonbase {
     noContent(status: number): void;
     redirect(status: number, url: string): void;
     blob(status: number, contentType: string, data: string | number[]): void;
+    /** Serves a file of a directory from `$os.dirFS(...)` (a name never leaves it). */
+    fileFS(fs: slonbase.DirFS, name: string): void;
     error(status: number, message: string, data?: any): ApiError;
     badRequestError(message: string, data?: any): ApiError;
     notFoundError(message: string, data?: any): ApiError;
@@ -330,6 +332,36 @@ declare const $http: {
 
 declare const $os: {
   getenv(name: string): string;
+  /** The bytes of a file inside `hooks.files_dir` (read only; off unless that is set). */
+  readFile(path: string): number[];
+  /** A directory inside `hooks.files_dir`, to serve files from with `e.fileFS`. */
+  dirFS(path: string): slonbase.DirFS;
+};
+
+declare namespace slonbase {
+  interface DirFS {
+    readonly __dirFS: string;
+  }
+  interface DirEntry {
+    name(): string;
+    isDir(): boolean;
+  }
+}
+
+declare const $filepath: {
+  join(...parts: string[]): string;
+  clean(path: string): string;
+  base(path: string): string;
+  dir(path: string): string;
+  ext(path: string): string;
+  toSlash(path: string): string;
+  fromSlash(path: string): string;
+  isAbs(path: string): boolean;
+  /** Calls `fn(path, entry, err)` for the path and each file and directory under it. Reads
+   * only inside `hooks.files_dir`. */
+  walkDir(root: string, fn: (path: string, entry: slonbase.DirEntry, err: any) => void): void;
+  /** The paths that match a pattern (`*`, `?` and `[...]` within one name). */
+  glob(pattern: string): string[];
 };
 
 declare const $security: {

@@ -90,6 +90,11 @@ pub struct HooksConfig {
     /// lock held elsewhere, which would hold a JavaScript runtime until it is released.
     #[serde(skip_serializing_if = "is_zero")]
     pub db_wait_seconds: u64,
+    /// A directory hooks may read files from (`$os.readFile`, `$os.dirFS`, `$filepath.walkDir`
+    /// and `glob`, `e.fileFS`): read only, and only inside it (a path that leads out of it, by
+    /// `..` or a link, is refused). Off unless set. Relative paths are read from it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub files_dir: Option<PathBuf>,
     /// With `guard_http`: hosts (names or addresses) hooks may still call although they are
     /// private, such as an internal service.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -108,6 +113,7 @@ impl Default for HooksConfig {
             guard_http: false,
             allow_hosts: Vec::new(),
             db_wait_seconds: 0,
+            files_dir: None,
         }
     }
 }
@@ -569,6 +575,7 @@ mod tests {
             "guard_http",
             "allow_hosts",
             "db_wait_seconds",
+            "files_dir",
             "job_connections",
             "dev",
         ] {
