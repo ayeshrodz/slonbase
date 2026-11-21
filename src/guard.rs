@@ -735,6 +735,27 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     request.extensions_mut().insert(ResolvedAuth(auth.clone()));
     let registry = core.registry();
 
+    // a file of a record request is held in memory only up to the largest limit of the
+    // collection's file fields (a larger one is read and dropped: it fails its field's check)
+    if matches!(*request.method(), Method::POST | Method::PATCH) {
+        let mut segments = path.trim_matches('/').split('/');
+        if let (Some("api"), Some("collections"), Some(collection), Some("records")) = (
+            segments.next(),
+            segments.next(),
+            segments.next(),
+            segments.next(),
+        ) {
+            if let Some(cap) = registry
+                .get(collection)
+                .and_then(|c| crate::records::files::upload_cap(c, settings.files.default_max_size))
+            {
+                request
+                    .extensions_mut()
+                    .insert(crate::records::files::UploadCap(cap));
+            }
+        }
+    }
+
     if !superuser_ip_allowed(&settings.superuser_ips, ip)
         && (auth.is_superuser() || targets_superusers(&path, &registry))
     {

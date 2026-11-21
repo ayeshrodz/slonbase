@@ -205,6 +205,101 @@ pub struct RecordBody {
     pub uploads: Vec<Upload>,
     /// Form values are strings; JSON fields are parsed from them.
     pub from_form: bool,
+    /// Held while the uploads are in memory (see [`UploadBudget`]).
+    pub _budget: Option<tokio::sync::OwnedSemaphorePermit>,
+}
+
+/// The largest size a file of this request may have (a request extension set for the record
+/// routes of a collection: its largest file field's limit). A file field that goes past it is cut
+/// off as it is read, so an oversized upload is not held whole in memory; the check against the
+/// field's own limit still gives its error.
+#[derive(Debug, Clone, Copy)]
+pub struct UploadCap(pub u64);
+
+/// The request size limit in MB (`security.maxUploadMb`), as a request extension.
+#[derive(Debug, Clone, Copy)]
+pub struct UploadLimitMb(pub u32);
+
+/// How many bytes of uploads may be held in memory at the same time, by all requests together:
+/// 8 times the largest request, and at least 512 MB. A request takes its share (its length, one
+/// permit per MB) before its body is read and keeps it while its uploads are in memory, so
+/// several large uploads at once don't add up without end; one that can't get its share in a
+/// minute is refused with 503.
+pub struct UploadBudget;
+
+/// The longest a request waits for its share of [`UploadBudget`].
+const BUDGET_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+impl UploadBudget {
+    fn semaphore(limit_mb: u32) -> (&'static Arc<tokio::sync::Semaphore>, u32) {
+        static BUDGET: std::sync::OnceLock<(Arc<tokio::sync::Semaphore>, u32)> =
+            std::sync::OnceLock::new();
+        let (semaphore, total) = BUDGET.get_or_init(|| {
+            let total = (limit_mb.max(1) * 8).max(512);
+            (Arc::new(tokio::sync::Semaphore::new(total as usize)), total)
+        });
+        (semaphore, *total)
+    }
+
+    /// A share for `length` bytes (None: as large as a request may be).
+    pub async fn reserve(
+        limit_mb: u32,
+        length: Option<u64>,
+    ) -> Result<tokio::sync::OwnedSemaphorePermit, ApiError> {
+        let (semaphore, total) = Self::semaphore(limit_mb);
+        let wanted = length
+            .map(|l| l.div_ceil(1 << 20))
+            .unwrap_or(u64::from(limit_mb.max(1)));
+        let wanted = wanted.clamp(1, u64::from(total)) as u32;
+        match tokio::time::timeout(BUDGET_WAIT, semaphore.clone().acquire_many_owned(wanted)).await
+        {
+            Ok(Ok(permit)) => Ok(permit),
+            _ => Err(ApiError::unavailable(
+                "Too many uploads are being received right now: try again in a moment.",
+            )),
+        }
+    }
+}
+
+/// The largest file a request to the record routes of `c` may carry: the biggest limit of its
+/// file fields (a field's own, or the default), or none when it has no file field.
+pub fn upload_cap(c: &Collection, default_max_size: i64) -> Option<u64> {
+    c.fields
+        .iter()
+        .filter_map(|f| match &f.kind {
+            FieldKind::File(options) => Some(if options.max_size == 0 {
+                match default_max_size {
+                    0 => DEFAULT_MAX_SIZE,
+                    n => n,
+                }
+            } else {
+                options.max_size
+            }),
+            _ => None,
+        })
+        .max()
+        .map(|n| n.max(0) as u64)
+}
+
+/// Reads one file of a multipart request. With a `cap`, a file larger than it is not held: what is
+/// read past `cap + 1` bytes is read and dropped, so the file is still seen as too large (by the
+/// check against its field's limit) without all of it being in memory.
+async fn read_file(
+    field: &mut axum::extract::multipart::Field<'_>,
+    cap: Option<u64>,
+) -> Result<Bytes, ApiError> {
+    let fail = |e: axum::extract::multipart::MultipartError| {
+        ApiError::bad_request(format!("Failed to read an upload: {e}"))
+    };
+    let keep = cap.map_or(usize::MAX, |cap| cap.saturating_add(1) as usize);
+    let mut data = Vec::new();
+    while let Some(chunk) = field.chunk().await.map_err(fail)? {
+        if data.len() < keep {
+            let room = keep - data.len();
+            data.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        }
+    }
+    Ok(Bytes::from(data))
 }
 
 impl<S: Send + Sync> FromRequest<S> for RecordBody {
@@ -227,6 +322,7 @@ impl<S: Send + Sync> FromRequest<S> for RecordBody {
                     data: Map::new(),
                     uploads: vec![],
                     from_form: false,
+                    _budget: None,
                 });
             }
             if !content_type.is_empty() && !content_type.starts_with("application/json") {
@@ -239,6 +335,7 @@ impl<S: Send + Sync> FromRequest<S> for RecordBody {
                     data,
                     uploads: vec![],
                     from_form: false,
+                    _budget: None,
                 }),
                 Ok(_) => Err(ApiError::bad_request(
                     "The request body must be a JSON object.",
@@ -247,13 +344,26 @@ impl<S: Send + Sync> FromRequest<S> for RecordBody {
             };
         }
 
+        // memory for the uploads: a share of the budget, and a cap on each file
+        let cap = req.extensions().get::<UploadCap>().map(|c| c.0);
+        let budget = match req.extensions().get::<UploadLimitMb>() {
+            Some(limit) => {
+                let length = req
+                    .headers()
+                    .get(header::CONTENT_LENGTH)
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok());
+                Some(UploadBudget::reserve(limit.0, length).await?)
+            }
+            None => None,
+        };
         let mut multipart = Multipart::from_request(req, state)
             .await
             .map_err(|e| ApiError::bad_request(format!("Invalid multipart body: {e}")))?;
         let mut values: Vec<(String, String)> = Vec::new();
         let mut data = Map::new();
         let mut uploads = Vec::new();
-        while let Some(field) = multipart
+        while let Some(mut field) = multipart
             .next_field()
             .await
             .map_err(|e| ApiError::bad_request(format!("Invalid multipart body: {e}")))?
@@ -261,9 +371,7 @@ impl<S: Send + Sync> FromRequest<S> for RecordBody {
             let key = field.name().unwrap_or_default().to_string();
             match field.file_name().map(str::to_string) {
                 Some(original_name) => {
-                    let data = field.bytes().await.map_err(|e| {
-                        ApiError::bad_request(format!("Failed to read an upload: {e}"))
-                    })?;
+                    let data = read_file(&mut field, cap).await?;
                     uploads.push(Upload {
                         key,
                         original_name,
@@ -310,6 +418,7 @@ impl<S: Send + Sync> FromRequest<S> for RecordBody {
             data,
             uploads,
             from_form: true,
+            _budget: budget,
         })
     }
 }
@@ -1282,6 +1391,66 @@ async fn client_auth(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The first file of a multipart body made of `data`.
+    async fn multipart_of(data: &[u8]) -> Multipart {
+        let mut body =
+            b"--X\r\nContent-Disposition: form-data; name=\"f\"; filename=\"a.bin\"\r\n\r\n"
+                .to_vec();
+        body.extend_from_slice(data);
+        body.extend_from_slice(
+            b"\r\n--X\r\nContent-Disposition: form-data; name=\"next\"\r\n\r\nvalue\r\n--X--\r\n",
+        );
+        let request = Request::builder()
+            .header(header::CONTENT_TYPE, "multipart/form-data; boundary=X")
+            .body(Body::from(body))
+            .unwrap();
+        Multipart::from_request(request, &()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_file_past_its_cap_is_cut_as_it_is_read() {
+        let data: Vec<u8> = (0..1_500_000u32).map(|i| (i % 251) as u8).collect();
+        // without a cap: all of it
+        let mut multipart = multipart_of(&data).await;
+        let mut field = multipart.next_field().await.unwrap().unwrap();
+        assert_eq!(read_file(&mut field, None).await.unwrap().len(), data.len());
+        // a cap below the size: one byte past the cap is kept (enough to fail the field's check)
+        // and the rest is read and dropped, so the next field is still read
+        let mut multipart = multipart_of(&data).await;
+        let mut field = multipart.next_field().await.unwrap().unwrap();
+        let held = read_file(&mut field, Some(1000)).await.unwrap();
+        assert_eq!(held.len(), 1001);
+        assert_eq!(&held[..], &data[..1001]);
+        drop(field);
+        let next = multipart.next_field().await.unwrap().unwrap();
+        assert_eq!(next.name(), Some("next"));
+        // a cap above the size: all of it
+        let mut multipart = multipart_of(&data).await;
+        let mut field = multipart.next_field().await.unwrap().unwrap();
+        let held = read_file(&mut field, Some(10_000_000)).await.unwrap();
+        assert_eq!(held.len(), data.len());
+    }
+
+    #[tokio::test]
+    async fn uploads_in_memory_share_a_budget() {
+        // two requests of 300 MB don't fit in 512 MB at the same time: the second waits for the
+        // first to be done with its uploads
+        let first = UploadBudget::reserve(1, Some(300 << 20)).await.unwrap();
+        let mut second = Box::pin(UploadBudget::reserve(1, Some(300 << 20)));
+        assert!(
+            tokio::time::timeout(std::time::Duration::from_millis(150), &mut second)
+                .await
+                .is_err(),
+            "the second didn't wait"
+        );
+        drop(first);
+        assert!(second.await.is_ok());
+        // a small one fits next to a large one
+        let large = UploadBudget::reserve(1, Some(300 << 20)).await.unwrap();
+        let small = UploadBudget::reserve(1, Some(1 << 20)).await.unwrap();
+        drop((large, small));
+    }
 
     #[test]
     fn ranges() {

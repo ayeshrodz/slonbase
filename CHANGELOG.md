@@ -135,6 +135,11 @@ changes, listed in its **Upgrading** section.
   starts with `hooks.timeout_seconds = 60` and `hooks.memory_limit_mb = 128`. Existing
   configuration files are not changed. slonbase also logs a warning at start when hooks run
   without limits, and when hooks exist and `database.statement_timeout` is 0.
+- **Uploads use bounded memory.** A file larger than the biggest limit of the collection's file
+  fields is read and dropped as it arrives instead of being held whole (it fails its field's
+  size check with the same error), and the uploads in memory share a budget of 8 times
+  `security.maxUploadMb` (at least 512 MB), so several large uploads at once don't add up
+  without end. Uploads within their limits are unaffected.
 
 ### Fixed
 

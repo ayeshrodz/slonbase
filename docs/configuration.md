@@ -216,6 +216,14 @@ templates) as PocketBase does, and slonbase's `{APP_LOGO}` (the logo, or the nam
 `{APP_LOGO_URL}`, `{ACCENT}` and `{RECORD:field}` (the recipient's fields, escaped; hidden
 fields stay empty).
 
+**Uploads.** A request is at most `security.maxUploadMb` (128 MB; backup uploads have no limit).
+The files of a form are held in memory while the record is saved, so slonbase bounds that
+memory: a file larger than the biggest limit of the collection's file fields is read and dropped
+as it arrives, and not held whole (it fails its field's size check with the same error as
+before), and the uploads of all requests together share a budget of 8 times `maxUploadMb` (at
+least 512 MB): a request waits, up to a minute, for its share before its body is read, and is
+refused with `503` after that. Normal use never meets the budget.
+
 **Lockout.** On by default since 2.4 (10 attempts in 15 minutes): an identity that fails
 `security.loginLockout.attempts` password sign-ins from one address within `minutes` gets `429`
 until the window ends, even with the right password; a successful sign-in clears the count. It's
