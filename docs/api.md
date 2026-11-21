@@ -86,7 +86,11 @@ every superuser was before 2.0.
 | owner | everything |
 | admin | everything but superusers and roles, restoring backups, deleting projects and the SQL console |
 | developer | read everything but backups' files; write collections, records and files; run cron jobs (not SQL jobs) |
-| viewer | read everything but backups' files |
+| viewer | read, with these limits: no backups' files; `GET /api/settings` without the details of the servers and addresses behind it (the SMTP host, user name and local name, the S3 bucket, endpoint and access key of storage and backups, `trustedProxy.peers` and `superuserIPs` come back empty; what is on or off, and passwords and secrets, as for everyone); cron jobs without their settings |
+
+A viewer can still read `GET /api/logs` (request logs, with addresses and paths) and
+`GET /api/team` (the other superusers' emails and roles). Give the role to people who may see
+those, or use `developer`/`admin` only where they need more.
 
 Every superuser may sign in, refresh their session and change their own password. A request
 the role doesn't allow gets `403`. There's always at least one owner.

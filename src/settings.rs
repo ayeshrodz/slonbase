@@ -787,6 +787,40 @@ impl Settings {
     }
 }
 
+impl Settings {
+    /// [`Settings::public_json`] for a viewer: the same shape, without the details of the
+    /// installation's infrastructure (mail and storage servers, the proxies and the addresses
+    /// superusers may use). What is on or off stays visible. Passwords and secrets are never
+    /// returned, to anyone.
+    pub(crate) fn viewer_json(&self) -> Value {
+        let mut value = self.public_json();
+        fn blank(value: &mut Value, pointer: &str) {
+            if let Some(v) = value.pointer_mut(pointer) {
+                *v = match v {
+                    Value::Array(_) => Value::Array(Vec::new()),
+                    _ => Value::String(String::new()),
+                };
+            }
+        }
+        for pointer in [
+            "/smtp/host",
+            "/smtp/username",
+            "/smtp/localName",
+            "/s3/bucket",
+            "/s3/endpoint",
+            "/s3/accessKey",
+            "/backups/s3/bucket",
+            "/backups/s3/endpoint",
+            "/backups/s3/accessKey",
+            "/trustedProxy/peers",
+            "/superuserIPs",
+        ] {
+            blank(&mut value, pointer);
+        }
+        value
+    }
+}
+
 /// Keeps the stored secrets that an update left empty (`merged`: the settings' JSON with the
 /// update applied).
 fn keep_secrets(merged: &mut Value, current: &Value) {
@@ -1111,6 +1145,12 @@ pub async fn get(
 ) -> Result<Response, ApiError> {
     let core = app.core()?;
     auth.require_superuser()?;
+    // a viewer sees what is on, not the details of the servers and addresses behind it
+    let shown = if auth.role == Some(crate::roles::Role::Viewer) {
+        core.settings().viewer_json()
+    } else {
+        core.settings().public_json()
+    };
     let request = request_info(
         &core,
         &auth,
@@ -1124,7 +1164,7 @@ pub async fn get(
         collection: None,
         auth,
         request: Some(request),
-        data: hooks::data([("settings", core.settings().public_json())]),
+        data: hooks::data([("settings", shown)]),
         response: None,
     };
     let listed = Arc::new(std::sync::atomic::AtomicBool::new(false));

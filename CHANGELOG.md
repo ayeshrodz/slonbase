@@ -140,6 +140,11 @@ changes, listed in its **Upgrading** section.
   size check with the same error), and the uploads in memory share a budget of 8 times
   `security.maxUploadMb` (at least 512 MB), so several large uploads at once don't add up
   without end. Uploads within their limits are unaffected.
+- **A viewer no longer sees the infrastructure in `GET /api/settings`.** The SMTP host, user
+  name and local name, the S3 bucket, endpoint and access key (of storage and of backups),
+  `trustedProxy.peers` and `superuserIPs` come back empty for the viewer role; the keys stay, and
+  everything else is as before. Other roles are unchanged. What a viewer can read is listed
+  with the roles in the API documentation.
 
 ### Fixed
 
@@ -224,6 +229,10 @@ changes, listed in its **Upgrading** section.
   sends mail.
 
 ### Upgrading
+
+- Viewers see less in `GET /api/settings` (see Changed): a dashboard or script that reads the
+  SMTP host, the S3 details or the proxy addresses with a viewer's token gets empty values; use
+  a developer or admin token for that.
 
 - Nothing to do for hooks or failure notices: the new limits are off unless set, and notice
   webhooks keep their addresses (an `https://` one is signed from its next save, and its
