@@ -596,14 +596,23 @@ impl Provider {
         download(url, &own_hosts).await
     }
 
-    /// The client for the requests that decide who signs in: with `requireSignature`, redirects
-    /// may not leave `https://`.
+    /// The client for the requests that decide who signs in: with `requireSignature` or
+    /// `httpsOnly`, redirects may not leave `https://`.
     fn client(&self) -> &'static reqwest::Client {
-        if self.requires_signature() {
+        if self.requires_signature() || self.https_only() {
             crate::http::https_only_redirects()
         } else {
             client()
         }
+    }
+
+    /// The `extra.httpsOnly` option: the provider's requests refuse a redirect off `https://`
+    /// (off by default, as in every earlier release).
+    fn https_only(&self) -> bool {
+        self.extra
+            .get("httpsOnly")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
     }
 
     fn requires_signature(&self) -> bool {
@@ -1579,7 +1588,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_that_requires_a_signature_does_not_follow_redirects_off_https() {
+    fn a_provider_that_requires_a_signature_or_https_does_not_follow_redirects_off_https() {
         let strict = std::ptr::from_ref(crate::http::https_only_redirects());
         let shared = std::ptr::from_ref(crate::http::client());
         for name in ["oidc", "twitch", "linear"] {
@@ -1598,6 +1607,16 @@ mod tests {
                 std::ptr::from_ref(make(json!({ "requireSignature": true })).client()),
                 strict,
                 "{name} with requireSignature"
+            );
+            assert_eq!(
+                std::ptr::from_ref(make(json!({ "httpsOnly": true })).client()),
+                strict,
+                "{name} with httpsOnly"
+            );
+            assert_eq!(
+                std::ptr::from_ref(make(json!({ "httpsOnly": false })).client()),
+                shared,
+                "{name} with httpsOnly off"
             );
             assert_eq!(
                 std::ptr::from_ref(make(json!({})).client()),

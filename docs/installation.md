@@ -281,7 +281,14 @@ the installation. The wizard:
    restart.
 
 When the database URL comes from the environment or a flag (as with Docker Compose), the wizard
-skips step 1. Pointing a new server at a database that already has a slonbase installation
+skips step 1. When there is no configuration file and no database URL (flag or environment
+variable) at start, the process runs with the limits of a new installation on hook code (60
+seconds, 128 MB, unless `--hooks-timeout`, `--hooks-memory` or their environment variables set
+them) until it restarts. If the wizard then connects to an installation that already exists, the
+file it saves has no hook limits, so after the next restart hooks run with the limits that file
+sets (none unless you set `hooks.timeout_seconds` and `hooks.memory_limit_mb`, which the settings
+warnings report). Restart once after connecting to an existing installation, and set the limits
+in the file if you want them. Pointing a new server at a database that already has a slonbase installation
 requires signing in as one of its superusers.
 
 The database role needs to create schemas and tables in its database: the owner of the database

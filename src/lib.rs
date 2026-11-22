@@ -68,6 +68,7 @@ pub mod roles;
 pub mod s3;
 pub mod secrets;
 pub mod server;
+pub mod service_status;
 pub mod services;
 pub mod settings;
 pub mod setup;

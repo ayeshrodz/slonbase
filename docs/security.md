@@ -85,6 +85,13 @@ change nothing by themselves:
   `userInfoURL` takes the user from that endpoint, **not** from the signed token, so leave
   `userInfoURL` empty to rely on the signature for sign-in. With `requireSignature`, the token,
   `jwksURL` and `userInfoURL` requests also refuse a redirect to a URL that isn't `https://`.
+- **An OAuth2 provider with an `http://` URL, or whose redirects leave `https://`:** the
+  warnings list a provider whose `authURL`, `tokenURL`, `userInfoURL` or `extra.jwksURL` is plain
+  `http://` (`oauth2PlainHttp`), since what it exchanges is not encrypted. Providers follow
+  redirects as in every earlier release, including a redirect from `https://` to `http://`. Set
+  `extra.httpsOnly` to `true` on a provider to refuse such a redirect on its token, key set and
+  user requests (it is on for providers with `requireSignature`); nothing changes for a provider
+  that doesn't set it.
 - **An empty `manageRule`, `updateRule` or `deleteRule` on a collection that holds accounts:**
   as in PocketBase, an empty rule allows everyone, guests included (on an auth collection, an
   empty `manageRule` lets a guest create records with `verified = true`). A `null` rule keeps it
