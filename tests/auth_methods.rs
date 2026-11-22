@@ -1697,8 +1697,15 @@ async fn auth_emails_are_throttled_per_account() {
         )
         .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    // one reset email and one OTP email
+    // one reset email and one OTP email (mails are sent in the background: wait for them, then
+    // a little longer for one that should not come)
+    for _ in 0..200 {
+        if sent_to(&env) >= before + 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(sent_to(&env), before + 2);
     // the later OTP requests answer with the code already sent, which still works
     assert!(ids.iter().all(|id| *id == ids[0]), "{ids:?}");

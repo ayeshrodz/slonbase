@@ -169,8 +169,13 @@ async fn storage_info() {
     let (_, info) = admin(&app, &token, "GET", "/api/settings/storage", None).await;
     assert_eq!(info["kind"], "local");
     let root = std::path::PathBuf::from(info["path"].as_str().unwrap());
+    // (a temporary directory may be reached through a link, as on macOS, or by a short name, as
+    // on Windows: the directory is made, and both are resolved)
+    std::fs::create_dir_all(&root).unwrap();
     assert!(
-        root.starts_with(std::fs::canonicalize(dir.path()).unwrap()),
+        slonbase::fsutil::canonicalize(&root)
+            .unwrap()
+            .starts_with(slonbase::fsutil::canonicalize(dir.path()).unwrap()),
         "{info}"
     );
     std::fs::create_dir_all(root.join("pbc_1/rec1/thumbs_a.png")).unwrap();
@@ -194,7 +199,10 @@ async fn storage_info() {
     assert_eq!(usage["files"], 2);
     assert_eq!(usage["thumbBytes"], 200);
     assert_eq!(usage["collections"][0]["id"], "pbc_1");
-    assert!(info["disk"]["free"].as_u64().unwrap() > 0, "{info}");
+    // (the free space of the disk is not reported on Windows)
+    if cfg!(unix) {
+        assert!(info["disk"]["free"].as_u64().unwrap() > 0, "{info}");
+    }
 
     let (status, res) = admin(
         &app,

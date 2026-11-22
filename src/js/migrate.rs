@@ -559,7 +559,7 @@ impl MigrationRuntime {
         let shared = Arc::new(Shared {
             handle: tokio::runtime::Handle::current(),
             core: RwLock::new(Arc::downgrade(core)),
-            dir: std::fs::canonicalize(hooks_dir).unwrap_or_else(|_| hooks_dir.to_path_buf()),
+            dir: crate::fsutil::canonicalize(hooks_dir).unwrap_or_else(|_| hooks_dir.to_path_buf()),
             db_wait: None,
             files_dir: None,
             // (migration files are the operator's, run once on deploy: not guarded)

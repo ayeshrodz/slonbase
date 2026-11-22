@@ -622,11 +622,11 @@ pub async fn load(config: &HooksConfig, extensions: &mut Extensions) -> anyhow::
     let shared = Arc::new(Shared {
         handle: tokio::runtime::Handle::current(),
         core: RwLock::new(Weak::new()),
-        dir: std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
+        dir: crate::fsutil::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf()),
         files_dir: config
             .files_dir
             .as_ref()
-            .and_then(|dir| std::fs::canonicalize(dir).ok()),
+            .and_then(|dir| crate::fsutil::canonicalize(dir).ok()),
         db_wait: Some(config.db_wait_seconds)
             .filter(|s| *s > 0)
             .map(std::time::Duration::from_secs),

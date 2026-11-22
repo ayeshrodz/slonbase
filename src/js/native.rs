@@ -599,7 +599,7 @@ fn fs_path_within(shared: &Shared, path: &str, within: &str) -> Result<PathBuf, 
     } else {
         root.join(given)
     };
-    let real = std::fs::canonicalize(&joined).map_err(|e| bad(format!("{path}: {e}.")))?;
+    let real = crate::fsutil::canonicalize(&joined).map_err(|e| bad(format!("{path}: {e}.")))?;
     if !real.starts_with(root) {
         return Err(bad(format!("{path} is outside hooks.files_dir.")));
     }
@@ -738,7 +738,7 @@ fn resolve_module(shared: &Shared, path: &str) -> Result<Value, ApiError> {
     } else {
         shared.dir.join(candidate)
     };
-    let resolved = std::fs::canonicalize(&candidate)
+    let resolved = crate::fsutil::canonicalize(&candidate)
         .map_err(|_| bad(format!("Cannot find module {path:?}.")))?;
     if !inside(&shared.dir, &resolved) {
         return Err(bad("Modules must be inside the hooks directory."));
