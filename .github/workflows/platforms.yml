@@ -53,7 +53,9 @@ jobs:
               PGBIN="$(brew --prefix postgresql@16)/bin"
               ;;
             Windows)
-              PGBIN="$(ls -d "/c/Program Files/PostgreSQL/"*/bin | sort -V | tail -1)"
+              # the newest version installed on the image (the glob sorts by name)
+              PGBIN=""
+              for dir in "/c/Program Files/PostgreSQL/"*/bin; do PGBIN="$dir"; done
               ;;
           esac
           echo "PostgreSQL binaries: $PGBIN"
