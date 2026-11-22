@@ -112,7 +112,7 @@ for (const kind of series) {
   result[kind] = await run(kind);
 }
 fs.mkdirSync("results", { recursive: true });
-fs.writeFileSync("results/footprint.json", JSON.stringify({ poolSize: poolSize || "default", result }, null, 2));
+fs.writeFileSync(`results/footprint-pool-${poolSize || "default"}.json`, JSON.stringify({ poolSize: poolSize || "default", result }, null, 2));
 
 for (const [kind, rows] of Object.entries(result)) {
   console.log(`\n${kind === "hooks" ? "Projects with hooks" : "Projects without hooks"}\n`);
