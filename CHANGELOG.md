@@ -10,6 +10,9 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **What a project costs, measured.** [projects](docs/projects.md#what-a-project-costs) lists the
+  memory, threads and database connections of 1 to 50 projects, with and without hooks, and how
+  long a cascading delete and a batch take, with the scripts in `bench/` that produced them.
 - **`systemctl status` shows when slonbase is waiting for the database.** After the fifth failed
   attempt to connect at start, the service's status line says `database not ready` with the
   target it tries (never the password) and the last error, and clears when it connects. The
