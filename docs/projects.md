@@ -48,7 +48,8 @@ them all.
   off). Requests already in progress finish on the old version, and realtime clients
   reconnect.
   Every project that has hook files starts its own JavaScript runtimes, one thread each:
-  `hooks.pool_size` of them (10 by default), and more on demand while requests wait. With many
+  `hooks.pool_size` of them (10 by default), and more on demand while requests wait (those
+  stop again, gradually, after 30 seconds without work). With many
   projects that have hooks, the threads add up (projects × `pool_size`), so lower
   `hooks.pool_size` (`--hooks-pool`) for a fleet: a runtime runs one hook at a time, so a
   project with light hooks needs few.
@@ -66,6 +67,41 @@ them all.
 
 Only **superusers of the main installation** manage projects. Rust extensions apply to the main
 installation only.
+
+## What a project costs
+
+Measured with the scripts in [`bench/`](../bench/) (`footprint.mjs`; a release build of 2.7, PostgreSQL 16 on the same
+4-vCPU machine, Linux, an idle process first, then traffic to every project):
+
+| Projects | Memory (RSS) without hooks | Memory with hooks (`hooks.pool_size` 10) | Threads with hooks (10) | Memory with hooks (`hooks.pool_size` 2, idle) | Database connections |
+|--:|--:|--:|--:|--:|--:|
+| 0 (the main installation) | 37 MB | 36 MB | 6 | 36 MB | 5 |
+| 1 | 41 MB | 82 MB | 16 | 51 MB | 8 to 10 |
+| 5 | 51 MB | 228 MB | 57 | 87 MB | 23 to 30 |
+| 20 | 50 MB | 729 MB | 207 | 243 MB | 76 to 105 |
+| 50 | 61 MB | 1.8 GB | 512 | 836 MB | 206 to 255 |
+
+- **A project without hooks is cheap:** about 0.5 MB and no threads of its own, and four database
+  connections (`projects.max_connections`), plus one for realtime while it is serving.
+- **A project with hooks costs roughly 11 MB plus about 2.4 MB for each runtime** of its pool: about
+  35 MB and 10 threads at the default `hooks.pool_size`, about 16 MB and 5 threads with 2. Lower
+  `hooks.pool_size` (`--hooks-pool`) for a fleet of projects whose hooks are light.
+- **Runtimes are added when requests arrive together.** A project that receives concurrent requests
+  starts more runtimes than `hooks.pool_size`, and they stop again after 30 seconds without work, one
+  after another, so a burst on every project takes the memory of the default pool or more for a few
+  minutes (with 50 projects and 30 concurrent requests each: about 2.3 GB, 690 threads). Plan for
+  the bursts, not the idle numbers.
+- **Database connections** are 4 or 5 for each project; keep `max_connections` of PostgreSQL above
+  that times the number of projects, and the other instances' share (see above).
+- Creating a project takes about 0.5 seconds, and 1.4 seconds with hooks (a project restarts when its
+  hook files are written).
+
+Hook workers are not shared between projects: each project keeps its own runtimes, so a project's
+hooks never run in another project's runtime. The numbers above are the cost of that isolation.
+
+Deleting a record that 10,000 records refer to (relations with cascade delete) takes about 2.3
+seconds, and 7.8 seconds when the referring collection has a delete hook (the hook runs for each
+record); a batch of 100 creates takes 18 ms, against 176 ms for 100 single requests.
 
 ## Host names
 
