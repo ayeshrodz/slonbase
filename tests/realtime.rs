@@ -129,6 +129,27 @@ fn topic_with_options(base: &str, options: Value) -> String {
     )
 }
 
+/// What the database's sessions are doing, for the message of a failed test.
+async fn sessions(tdb: &TestDb) -> String {
+    let client = tdb.pool().get().await.unwrap();
+    let rows = client
+        .query(
+            "SELECT state, coalesce(wait_event, ''), left(query, 50) FROM pg_stat_activity
+             WHERE datname = current_database() AND pid <> pg_backend_pid() ORDER BY backend_start",
+            &[],
+        )
+        .await
+        .unwrap();
+    rows.iter()
+        .map(|r| {
+            let (state, wait, query): (Option<String>, String, String) =
+                (r.get(0), r.get(1), r.get(2));
+            format!("[{} / {} / {}]", state.unwrap_or_default(), wait, query)
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[tokio::test]
 async fn delivers_changes_according_to_rules() {
     let Some(tdb) = TestDb::create().await else {
@@ -424,7 +445,11 @@ async fn instances_share_events_and_collections() {
         }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(found, "the second instance reloaded its collections");
+    assert!(
+        found,
+        "the second instance reloaded its collections; sessions: {}",
+        sessions(&tdb).await
+    );
 
     // a change made through the first instance reaches subscribers of the second
     let mut stream = Stream::open(&second).await;
