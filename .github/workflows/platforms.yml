@@ -1,0 +1,91 @@
+name: Other platforms
+
+# slonbase is built, tested and released for Linux (see CI and Release). This workflow builds and
+# tests it on macOS and Windows against a PostgreSQL started on the runner, and starts the binary
+# once to check that it sets itself up and answers. It is not part of CI: it runs when started by
+# hand, once a week, and on a pull request that changes this file, so a failure here never blocks
+# a change to the Linux build.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  pull_request:
+    paths:
+      - .github/workflows/platforms.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platforms-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # the database tests must run, not skip
+  SLONBASE_REQUIRE_TEST_DATABASE: "1"
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      # a PostgreSQL of its own on port 5433, in a directory of the run, trusting local logins
+      - name: Start PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$RUNNER_OS" in
+            macOS)
+              brew install postgresql@16
+              PGBIN="$(brew --prefix postgresql@16)/bin"
+              ;;
+            Windows)
+              PGBIN="$(ls -d "/c/Program Files/PostgreSQL/"*/bin | sort -V | tail -1)"
+              ;;
+          esac
+          echo "PostgreSQL binaries: $PGBIN"
+          "$PGBIN/initdb" -D "$RUNNER_TEMP/pgdata" -U postgres --auth=trust -E UTF8
+          "$PGBIN/pg_ctl" -D "$RUNNER_TEMP/pgdata" -o "-p 5433" -l "$RUNNER_TEMP/pg.log" -w start
+          echo "PGBIN=$PGBIN" >> "$GITHUB_ENV"
+          echo "SLONBASE_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres?sslmode=disable" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: cargo build --locked
+
+      # the binary sets itself up on an empty database, starts and answers
+      - name: Start the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="target/debug/slonbase"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
+          "$bin" --version
+          "$PGBIN/psql" -h 127.0.0.1 -p 5433 -U postgres -c "CREATE DATABASE smoke"
+          common=(--config "$RUNNER_TEMP/smoke.toml" --storage-path "$RUNNER_TEMP/smoke-storage" --backups-path "$RUNNER_TEMP/smoke-backups" --hooks-dir "$RUNNER_TEMP/smoke-hooks")
+          "$bin" "${common[@]}" setup --database-url "postgres://postgres@127.0.0.1:5433/smoke?sslmode=disable" --email smoke@example.com --password smoke-password-1
+          "$bin" "${common[@]}" --bind 127.0.0.1:8090 serve > "$RUNNER_TEMP/smoke.log" 2>&1 &
+          pid=$!
+          ok=""
+          for _ in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8090/api/health; then ok=1; break; fi
+            sleep 1
+          done
+          kill "$pid" || true
+          cat "$RUNNER_TEMP/smoke.log"
+          test -n "$ok"
+
+      - name: Test
+        run: cargo test --locked --no-fail-fast
