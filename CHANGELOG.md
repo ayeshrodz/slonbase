@@ -186,6 +186,10 @@ changes, listed in its **Upgrading** section.
 
 ### Fixed
 
+- A new instance no longer misses a change of the collections or the settings that was committed
+  between its start-up reading and the moment its connection began to listen: the listener
+  reads them once when it first connects, as it does after a reconnect. Before, such an instance
+  kept the old collections until the next change (seen in tests on a slow machine; rare in use).
 - A job run that lost its lease to another attempt (for example while the database was out of
   reach for longer than the lease) can no longer record its end over that attempt, or renew its
   lease: finishing and renewing are tied to the attempt that holds the job (a job that was
