@@ -254,3 +254,23 @@ Settings: `BENCH_RUNS` (3), `BENCH_DURATION` (10s), `BENCH_WARMUP` (2s), `BENCH_
 (10000), `SERVER_CPUS` (0-2), `LOAD_CPUS` (3), `HEY_BIN`, `SLONBASE_ARGS`. Results go to `results/`
 (`<name>.json` with the medians and the footprint, `<name>.raw.jsonl` with every run). The
 runs behind the 2.2 tables are kept in [`published/2.2.0/`](published/2.2.0).
+
+## Footprint of projects, cascades and batches
+
+`footprint.mjs` and `cascade.mjs` measure one slonbase process (a release build) on a database they
+create and drop (`ADMIN_DATABASE_URL` names any database of a PostgreSQL server whose role may create
+databases; `SLONBASE_BIN` the binary):
+
+```sh
+cd bench
+ADMIN_DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable \
+  SLONBASE_BIN=../target/release/slonbase node footprint.mjs     # memory, threads and connections per project
+ADMIN_DATABASE_URL=... SLONBASE_BIN=... node cascade.mjs         # cascading deletes and batches
+```
+
+`footprint.mjs` hosts 1, 5, 20 and 50 projects (`FOOTPRINT_COUNTS`), without hooks and with a
+`main.pb.js` in each (`FOOTPRINT_SERIES`), and reads the process's memory and thread count and the
+database's connections idle, after traffic to every project and after a pause (`FOOTPRINT_PAUSE`; at
+least 40 seconds to see extra runtimes stop). `FOOTPRINT_POOL_SIZE` sets `--hooks-pool`. PostgreSQL
+needs `max_connections` of 6 or more per project. Results are written to `results/footprint-pool-*.json` and
+`results/cascade.json`; the tables are in [projects](../docs/projects.md#what-a-project-costs).
