@@ -10,6 +10,17 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **`systemctl status` shows when slonbase is waiting for the database.** After the fifth failed
+  attempt to connect at start, the service's status line says `database not ready` with the
+  target it tries (never the password) and the last error, and clears when it connects. The
+  packaged unit sets `NotifyAccess=main` for it; nothing else about the service changes. A
+  drop-in to start a local PostgreSQL together with slonbase is described in
+  [deployment](docs/deployment.md#systemd).
+- **OAuth2 providers with plain `http://` URLs are listed in the warnings** (`oauth2PlainHttp`),
+  and `extra.httpsOnly` (`true`) makes any provider refuse a redirect from `https://` to
+  `http://` on its token, key set and user requests. Off unless set: providers keep following
+  redirects as before.
+
 - **Automations.** A schedule with up to 20 steps, where each step can use what the steps before
   it produced: find records, continue only if something holds, send an email template (once, or
   once for each record), create, update or delete records, call a URL, run SQL. Made in the

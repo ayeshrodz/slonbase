@@ -106,6 +106,48 @@ pub fn collect(core: &Core) -> Vec<Warning> {
             }
         }
 
+        // a plain `http://` URL sends the authorization code, tokens or profile unencrypted,
+        // and a redirect off `https://` is followed unless extra.httpsOnly is set
+        if auth.oauth2.enabled {
+            for provider in &auth.oauth2.providers {
+                let urls = [
+                    ("authURL", provider.auth_url.as_str()),
+                    ("tokenURL", provider.token_url.as_str()),
+                    ("userInfoURL", provider.user_info_url.as_str()),
+                    (
+                        "extra.jwksURL",
+                        provider
+                            .extra
+                            .get("jwksURL")
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    ),
+                ];
+                let plain: Vec<&str> = urls
+                    .iter()
+                    .filter(|(_, url)| {
+                        url.get(..7)
+                            .is_some_and(|scheme| scheme.eq_ignore_ascii_case("http://"))
+                    })
+                    .map(|(field, _)| *field)
+                    .collect();
+                if !plain.is_empty() {
+                    warnings.push(Warning {
+                        code: "oauth2PlainHttp",
+                        title: "An OAuth2 provider uses http://",
+                        link: "#/schema",
+                        subject: format!("{name}: {}", provider.name),
+                        message: format!(
+                            "The OAuth2 provider {} of {name} has plain http:// URLs ({}), so \
+                             what is exchanged with it is not encrypted. Use https:// URLs.",
+                            provider.name,
+                            plain.join(", ")
+                        ),
+                    });
+                }
+            }
+        }
+
         // an empty rule is open to everyone, guests included
         if auth.manage_rule.as_deref() == Some("") {
             warnings.push(Warning {
