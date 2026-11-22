@@ -74,7 +74,7 @@ async function traffic(server, names, route) {
 async function run(kind) {
   const withHooks = kind === "hooks";
   const route = withHooks ? "/api/js/ping" : "/api/health";
-  const args = poolSize ? ["--hooks-pool-size", poolSize] : [];
+  const args = poolSize ? ["--hooks-pool", poolSize] : [];
   const server = await start({ args });
   const rows = [];
   try {

@@ -43,7 +43,7 @@ function status(pid, key) {
 
 /**
  * A slonbase installation on a new database. `args` go before `serve` (flags such as
- * `--hooks-pool-size`); `hooks` is a hooks directory to fill before starting.
+ * `--hooks-pool`); `hooks` is a hooks directory to fill before starting.
  */
 export async function start({ args = [], hooks = {} } = {}) {
   const name = `fp_${Math.random().toString(36).slice(2, 10)}`;
