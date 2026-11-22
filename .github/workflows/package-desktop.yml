@@ -2,7 +2,8 @@
 # .tar.gz for macOS and a .zip for Windows, with the license files, next to the Linux packages of
 # the Package workflow. Each archive is unpacked and used the way a person would (scripts/
 # e2e-smoke.mjs) before it is uploaded, so what is tested is what is downloaded. Called by the
-# Release workflow, and started by hand to try the archives of any commit.
+# Release workflow, started by hand to try the archives of any commit, and run on a pull request
+# that changes this workflow or what it uses.
 #
 # These builds are experimental: they are not signed (see docs/installation.md#macos and
 # #windows for what each system asks, and how to check a download).
@@ -19,6 +20,11 @@ on:
         description: Commit to build (defaults to the triggering one)
         type: string
         default: ""
+  pull_request:
+    paths:
+      - .github/workflows/package-desktop.yml
+      - .github/actions/local-postgres/**
+      - scripts/e2e-smoke.mjs
   workflow_dispatch:
     inputs:
       version:

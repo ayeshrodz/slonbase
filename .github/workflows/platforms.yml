@@ -12,6 +12,8 @@ on:
   pull_request:
     paths:
       - .github/workflows/platforms.yml
+      - .github/actions/local-postgres/**
+      - scripts/e2e-smoke.mjs
 
 permissions:
   contents: read
