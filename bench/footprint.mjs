@@ -13,6 +13,11 @@ import path from "node:path";
 import { api, measure, sleep, start, stop } from "./lib.mjs";
 
 const counts = (process.env.FOOTPRINT_COUNTS || "1,5,20,50").split(",").map(Number);
+// each reading adds projects to the ones before it, so the counts must grow
+if (counts.some((c, i) => !Number.isInteger(c) || c < 1 || (i > 0 && c <= counts[i - 1]))) {
+  console.error("FOOTPRINT_COUNTS must be positive whole numbers in strictly increasing order, such as 1,5,20");
+  process.exit(2);
+}
 const series = (process.env.FOOTPRINT_SERIES || "none,hooks").split(",");
 const poolSize = process.env.FOOTPRINT_POOL_SIZE;
 const requests = Number(process.env.FOOTPRINT_REQUESTS || 30);

@@ -91,8 +91,10 @@ Measured with the scripts in [`bench/`](../bench/) (`footprint.mjs`; a release b
   after another, so a burst on every project takes the memory of the default pool or more for a few
   minutes (with 50 projects and 30 concurrent requests each: about 2.3 GB, 690 threads). Plan for
   the bursts, not the idle numbers.
-- **Database connections** are 4 or 5 for each project; keep `max_connections` of PostgreSQL above
-  that times the number of projects, and the other instances' share (see above).
+- **Database connections** are 4 or 5 for each project (up to 5 once it serves requests), and
+  about 5 for the main installation. Keep `max_connections` of PostgreSQL above 5 per project plus
+  the main installation's, plus the connections of the other instances and of anything else that uses
+  the server (the table's 50 projects needed 255 at most, so 600 was set for the runs).
 - Creating a project takes about 0.5 seconds, and 1.4 seconds with hooks (a project restarts when its
   hook files are written).
 
