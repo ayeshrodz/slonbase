@@ -11,7 +11,7 @@ changes, listed in its **Upgrading** section.
 ### Added
 
 - **`systemctl status` shows when slonbase is waiting for the database.** After the fifth failed
-  attempt to connect at start, the service's status line says `waiting for the database` with the
+  attempt to connect at start, the service's status line says `database not ready` with the
   target it tries (never the password) and the last error, and clears when it connects. The
   packaged unit sets `NotifyAccess=main` for it; nothing else about the service changes. A
   drop-in to start a local PostgreSQL together with slonbase is described in

@@ -77,7 +77,7 @@ sudoedit /etc/default/slonbase && sudo systemctl restart slonbase   # SLONBASE_B
 
 While PostgreSQL can't be reached at start, the service stays `active (running)` and retries
 (1, 2, 4, 8, 16 seconds, then every 30), and `systemctl status` shows a line such as
-`waiting for the database (slonbase@127.0.0.1:5432 database app): ...` after the fifth failed attempt; the
+`database not ready (slonbase@127.0.0.1:5432 database app): ...` after the fifth failed attempt; the
 journal says the same with an error that names the host, port, user and database (never the
 password). It starts by itself once it can connect. To have systemd start a local PostgreSQL
 together with slonbase (not wanted when the database is remote), add a drop-in:

@@ -55,7 +55,7 @@ const UNREACHABLE_AFTER: u32 = 5;
 /// After that, how many attempts pass between two error reports.
 const REPORT_EVERY: u32 = 20;
 
-/// Clears the service's "waiting for the database" line once the database answered (it was
+/// Clears the service's "database not ready" line once the database answered (it was
 /// only set after `UNREACHABLE_AFTER` failures).
 fn clear_waiting_status(main_app: bool, failures: u32) {
     if main_app && failures >= UNREACHABLE_AFTER {
@@ -293,7 +293,7 @@ impl App {
                     // whose restart can be cancelled)
                     if self.project.is_none() && failures >= UNREACHABLE_AFTER {
                         crate::service_status::set(&format!(
-                            "waiting for the database ({}): {status}",
+                            "database not ready ({}): {status}",
                             database_target(&url)
                         ));
                     }

@@ -39,7 +39,7 @@ onCollectionCreate((e) => {
   if (e.collection.name === "inner") {
     // says that the slow hook has started (a collection the test looks for)
     $app.save(new Collection({ name: "inner_started" }));
-    const until = Date.now() + 2000;
+    const until = Date.now() + 6000;
     while (Date.now() < until) {}
   }
   e.next();
@@ -219,24 +219,31 @@ async fn a_cancelled_collection_change_keeps_the_lock_while_its_nested_hook_runs
     assert!(started, "the nested change's hook should have started");
     request_task.abort();
     assert!(request_task.await.unwrap_err().is_cancelled());
-    let cancelled_at = std::time::Instant::now();
-
-    // another change has to wait for the one still running (its hook ends 2 seconds after it
-    // started)
-    let (status, res) = call(
-        &app,
-        &token,
-        "POST",
-        "/api/collections",
-        Some(json!({ "name": "other" })),
-    )
-    .await;
-    let waited = cancelled_at.elapsed();
-    assert_eq!(status, StatusCode::OK, "{res}");
+    // another change has to wait for the one still running: it is started now and, a while
+    // later (far less than the hook's six seconds, so a slow test thread cannot reach the end
+    // of the hook first), it has still not finished
+    let other_app = app.clone();
+    let other_bearer = bearer.clone();
+    let other = tokio::spawn(async move {
+        request(
+            &other_app,
+            "POST",
+            "/api/collections",
+            &[("authorization", other_bearer.as_str())],
+            Some(json!({ "name": "other" })),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(1000)).await;
     assert!(
-        waited >= Duration::from_millis(1000),
-        "the second change ran beside the first: it took {waited:?}"
+        !other.is_finished(),
+        "the second change ran beside the first instead of waiting for it"
     );
+    let (status, res) = tokio::time::timeout(Duration::from_secs(30), other)
+        .await
+        .expect("the second change finishes once the hook has")
+        .unwrap();
+    assert_eq!(status, StatusCode::OK, "{res}");
 
     // the nested change ended and was saved, whole; nothing is half done
     let (_, list) = call(&app, &token, "GET", "/api/collections?perPage=500", None).await;
