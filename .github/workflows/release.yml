@@ -101,8 +101,19 @@ jobs:
       version: ${{ needs.verify.outputs.version }}
       ref: ${{ needs.verify.outputs.sha }}
 
+  # macOS and Windows archives: experimental, so when they fail the release goes out without them
+  desktop:
+    needs: verify
+    if: needs.verify.outputs.release == 'true'
+    uses: ./.github/workflows/package-desktop.yml
+    with:
+      version: ${{ needs.verify.outputs.version }}
+      ref: ${{ needs.verify.outputs.sha }}
+
   publish:
-    needs: [verify, package]
+    needs: [verify, package, desktop]
+    # (a failed or skipped `desktop` doesn't stop the release of the Linux packages)
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.package.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -120,7 +131,10 @@ jobs:
       - name: Software bill of materials
         run: python3 scripts/sbom.py "${{ needs.verify.outputs.version }}" "dist/slonbase-${{ needs.verify.outputs.version }}.spdx.json"
       - name: Checksums
-        run: cd dist && sha256sum ./*.deb ./*.rpm ./*.tar.gz ./*.spdx.json | sed 's| \./| |' > SHA256SUMS
+        run: |
+          cd dist
+          shopt -s nullglob
+          sha256sum ./*.deb ./*.rpm ./*.tar.gz ./*.zip ./*.spdx.json | sed 's| \./| |' > SHA256SUMS
       - name: Attest where the files were built
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -128,6 +142,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.zip
             dist/*.spdx.json
       - name: Attest what they contain
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -136,6 +151,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.zip
           sbom-path: dist/slonbase-${{ needs.verify.outputs.version }}.spdx.json
       - name: Release notes
         env:
@@ -150,6 +166,12 @@ jobs:
             echo "- Debian/Ubuntu: \`slonbase_${VERSION}_amd64.deb\` / \`_arm64.deb\`"
             echo "- Fedora/RHEL: \`slonbase-${VERSION}-1.x86_64.rpm\` / \`.aarch64.rpm\`"
             echo "- Binaries: \`slonbase-${VERSION}-linux-{amd64,arm64}.tar.gz\`"
+            if [ -e "dist/slonbase-${VERSION}-macos-arm64.tar.gz" ]; then
+              echo "- macOS (Apple silicon, experimental, not signed): \`slonbase-${VERSION}-macos-arm64.tar.gz\`"
+            fi
+            if [ -e "dist/slonbase-${VERSION}-windows-amd64.zip" ]; then
+              echo "- Windows (x64, experimental, not signed): \`slonbase-${VERSION}-windows-amd64.zip\`"
+            fi
             echo
             echo "- Software bill of materials (SPDX): \`slonbase-${VERSION}.spdx.json\`"
             echo
@@ -165,6 +187,7 @@ jobs:
             dist/*.deb
             dist/*.rpm
             dist/*.tar.gz
+            dist/*.zip
             dist/*.spdx.json
             dist/SHA256SUMS
           body_path: release-notes.md

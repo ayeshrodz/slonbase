@@ -775,7 +775,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     <div class="center reveal">
       <div class="eyebrow">Get started</div>
       <h2>Install it your way.</h2>
-      <p class="sub">One command on Linux, or Docker. slonbase connects to any PostgreSQL 14+ server, and the <a href="docs/installation/">installation guide</a> starts from a bare server.</p>
+      <p class="sub">One command on Linux, Docker, or an experimental archive for macOS and Windows. slonbase connects to any PostgreSQL 14+ server, and the <a href="docs/installation/">installation guide</a> starts from a bare server.</p>
     </div>
     <div class="install reveal">
       <div class="code">
@@ -785,6 +785,8 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
           <button role="tab" aria-selected="false" aria-controls="in-apt" id="t-apt">Debian / Ubuntu</button>
           <button role="tab" aria-selected="false" aria-controls="in-dnf" id="t-dnf">Fedora / RHEL</button>
           <button role="tab" aria-selected="false" aria-controls="in-bin" id="t-bin">Binary</button>
+          <button role="tab" aria-selected="false" aria-controls="in-mac" id="t-mac">macOS</button>
+          <button role="tab" aria-selected="false" aria-controls="in-win" id="t-win">Windows</button>
           <button role="tab" aria-selected="false" aria-controls="in-pb" id="t-pb">From PocketBase</button>
           </div>
           <button class="copy" data-copy-active>Copy</button>
@@ -807,6 +809,16 @@ sudo journalctl -u slonbase | grep "setup?token"</pre>
 <pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span id="bin-cmd">curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.6.2/slonbase-2.6.2-linux-amd64.tar.gz
 tar xzf slonbase-2.6.2-linux-amd64.tar.gz
 ./slonbase serve</span>    <span class="cm"># prints the setup link</span></pre>
+<pre role="tabpanel" id="in-mac" aria-labelledby="t-mac" hidden><span id="mac-cmd"><span class="cm"># macOS on Apple silicon (experimental, not signed): archives come with 2.7.0.</span>
+<span class="cm"># Until then, build from source (Rust 1.89+) or use Docker:</span>
+git clone https://github.com/ayeshrodz/slonbase &amp;&amp; cd slonbase
+cargo build --release --locked &amp;&amp; ./target/release/slonbase serve
+<span class="cm"># steps, and how to check a download: https://slonbase.com/docs/installation/#macos</span></span></pre>
+<pre role="tabpanel" id="in-win" aria-labelledby="t-win" hidden><span id="win-cmd"><span class="cm"># Windows x64 (experimental, not signed): archives come with 2.7.0.</span>
+<span class="cm"># Until then, build from source (Rust 1.89+) or use Docker:</span>
+git clone https://github.com/ayeshrodz/slonbase; cd slonbase
+cargo build --release --locked; .\target\release\slonbase.exe serve
+<span class="cm"># steps, and how to check a download: https://slonbase.com/docs/installation/#windows</span></span></pre>
 <pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
 slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
 slonbase import-pocketbase ./pb_data
@@ -1104,6 +1116,29 @@ slonbase serve</pre>
     document.getElementById("bin-cmd").textContent =
       "curl -fsSLO https://github.com/" + REPO + "/releases/download/" + tag + "/" + file + "\n" +
       "tar xzf " + file + "\n./slonbase serve";
+    // the experimental macOS and Windows archives: shown when this release has them
+    var assets = (rel.assets || []).map(function (a) { return a.name; });
+    var base = "https://github.com/" + REPO + "/releases/download/" + tag;
+    var macFile = "slonbase-" + version + "-macos-arm64.tar.gz";
+    var winFile = "slonbase-" + version + "-windows-amd64.zip";
+    if (assets.indexOf(macFile) >= 0 && assets.indexOf("SHA256SUMS") >= 0) {
+      document.getElementById("mac-cmd").textContent =
+        "# macOS on Apple silicon (experimental, not signed): check the download, see the guide\n" +
+        "curl -fsSLO " + base + "/" + macFile + "\n" +
+        "curl -fsSLO " + base + "/SHA256SUMS\n" +
+        "grep macos-arm64.tar.gz SHA256SUMS | shasum -a 256 -c\n" +
+        "tar xzf " + macFile + "\n./slonbase serve";
+    }
+    if (assets.indexOf(winFile) >= 0 && assets.indexOf("SHA256SUMS") >= 0) {
+      document.getElementById("win-cmd").textContent =
+        "# Windows x64 (experimental, not signed): check the download, see the guide\n" +
+        "$base = \"" + base + "\"\n" +
+        "Invoke-WebRequest \"$base/" + winFile + "\" -OutFile slonbase.zip\n" +
+        "Invoke-WebRequest \"$base/SHA256SUMS\" -OutFile SHA256SUMS\n" +
+        "Select-String windows-amd64.zip SHA256SUMS\n" +
+        "(Get-FileHash slonbase.zip -Algorithm SHA256).Hash\n" +
+        "Expand-Archive slonbase.zip -DestinationPath slonbase\n.\\slonbase\\slonbase.exe serve";
+    }
   }).catch(function () {});
 })();
 </script>

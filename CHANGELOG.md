@@ -10,6 +10,15 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Experimental archives for macOS (Apple silicon) and Windows (x64).** Releases from 2.7.0 (and
+  candidates after 2.7.0-rc.4) carry `slonbase-<version>-macos-arm64.tar.gz` and
+  `slonbase-<version>-windows-amd64.zip`, listed in `SHA256SUMS` and attested like the Linux
+  files. They are not signed: the [installation guide](docs/installation.md#macos) says what
+  each system asks and how to check a download. Each archive is unpacked and used (set up, sign
+  in, a collection with a file, a hook, the dashboard) before it is published, and the test
+  suite runs on both systems every week; a failure of these builds never holds back a release.
+  What differs on Windows: no free disk space on the storage page, no `0600` mode on the config
+  file, and no Unix sockets for PostgreSQL.
 - **What a project costs, measured.** [projects](docs/projects.md#what-a-project-costs) lists the
   memory, threads and database connections of 1 to 50 projects, with and without hooks, and how
   long a cascading delete and a batch take, with the scripts in `bench/` that produced them.

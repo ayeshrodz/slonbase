@@ -42,7 +42,7 @@ body:
     id: install
     attributes:
       label: How do you run it?
-      options: [Docker / Compose, .deb / .rpm package, Binary, Built from source, Rust library]
+      options: [Docker / Compose, .deb / .rpm package, Binary, macOS archive (experimental), Windows archive (experimental), Built from source, Rust library]
   - type: textarea
     id: logs
     attributes:
