@@ -423,6 +423,11 @@ async fn auth_subscriptions() {
 
 #[tokio::test]
 async fn instances_share_events_and_collections() {
+    // (the log lines of the instances show in the report of a failure)
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter("slonbase=debug")
+        .with_test_writer()
+        .try_init();
     let Some(tdb) = TestDb::create().await else {
         return;
     };
