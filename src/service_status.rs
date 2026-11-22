@@ -16,6 +16,7 @@ pub fn set(status: &str) {
 }
 
 /// The status as one line, which is what the protocol carries.
+#[cfg(unix)]
 fn one_line(status: &str) -> String {
     status.replace(['\n', '\r'], " ")
 }
@@ -66,6 +67,7 @@ mod tests {
         assert_eq!(&buf[..n], b"STATUS=waiting for the database");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_status_is_one_line() {
         assert_eq!(one_line("a\nb\r\nc"), "a b  c");
