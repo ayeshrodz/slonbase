@@ -600,12 +600,12 @@ fn fs_path_within(shared: &Shared, path: &str, within: &str) -> Result<PathBuf, 
         root.join(given)
     };
     let real = crate::fsutil::canonicalize(&joined).map_err(|e| bad(format!("{path}: {e}.")))?;
-    if !real.starts_with(root) {
+    if !crate::fsutil::is_within(&real, root) {
         return Err(bad(format!("{path} is outside hooks.files_dir.")));
     }
     if !within.is_empty() {
         let narrow = fs_path(shared, within)?;
-        if !real.starts_with(&narrow) {
+        if !crate::fsutil::is_within(&real, &narrow) {
             return Err(bad(format!(
                 "{path} is outside the directory it is served from."
             )));

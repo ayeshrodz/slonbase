@@ -1982,7 +1982,7 @@ pub async fn changed(dir: PathBuf) {
 
 /// Whether `path` is inside the hooks directory.
 fn inside(dir: &Path, path: &Path) -> bool {
-    path.starts_with(dir)
+    crate::fsutil::is_within(path, dir)
 }
 
 #[cfg(test)]

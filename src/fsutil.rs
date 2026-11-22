@@ -41,6 +41,25 @@ fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
     }
 }
 
+/// Whether `path` is `base` or inside it, comparing the two without their `\\?\` prefix: a path
+/// that keeps the prefix (see [`canonicalize`]) is still inside a base that lost it.
+pub fn is_within(path: &Path, base: &Path) -> bool {
+    comparable(path).starts_with(comparable(base))
+}
+
+fn comparable(path: &Path) -> PathBuf {
+    let Some(text) = path.to_str() else {
+        return path.to_path_buf();
+    };
+    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        return PathBuf::from(format!(r"\\{rest}"));
+    }
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+        _ => path.to_path_buf(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,5 +94,38 @@ mod tests {
         let resolved = canonicalize(dir.path()).unwrap();
         assert!(resolved.is_absolute());
         assert!(canonicalize(dir.path().join("missing")).is_err());
+    }
+
+    #[test]
+    fn a_path_is_inside_a_base_by_whole_components() {
+        assert!(is_within(
+            Path::new("/srv/files/a"),
+            Path::new("/srv/files")
+        ));
+        assert!(!is_within(
+            Path::new("/srv/other/a"),
+            Path::new("/srv/files")
+        ));
+        assert!(!is_within(
+            Path::new("/srv/files2/a"),
+            Path::new("/srv/files")
+        ));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_path_that_kept_the_prefix_is_inside_a_base_that_lost_it() {
+        assert!(is_within(
+            Path::new(r"\\?\C:\data\report."),
+            Path::new(r"C:\data")
+        ));
+        assert!(is_within(
+            Path::new(r"C:\data\x"),
+            Path::new(r"\\?\C:\data")
+        ));
+        assert!(!is_within(
+            Path::new(r"\\?\C:\other\x"),
+            Path::new(r"C:\data")
+        ));
     }
 }
