@@ -37,11 +37,11 @@ def build() -> str:
         "",
     ]
     for title, path in BUNDLED:
-        text = (root / path).read_text().strip()
+        text = (root / path).read_text(encoding="utf-8").strip()
         lines += [f"### {title}", "", "```text", text, "```", ""]
     meta = json.loads(
         subprocess.check_output(
-            ["cargo", "metadata", "--format-version", "1", "--locked"], cwd=root, text=True
+            ["cargo", "metadata", "--format-version", "1", "--locked"], cwd=root, encoding="utf-8"
         )
     )
     crates = sorted(
@@ -67,9 +67,10 @@ def build() -> str:
 
 text = build()
 if "--check" in sys.argv:
-    if not out.exists() or out.read_text() != text:
+    if not out.exists() or out.read_bytes().decode("utf-8") != text:
         sys.exit("THIRD-PARTY-LICENSES.md is out of date: run scripts/third-party.py")
     print("THIRD-PARTY-LICENSES.md is up to date")
 else:
-    out.write_text(text)
+    # (UTF-8 and Unix newlines on every system, so the file is the same everywhere)
+    out.write_bytes(text.encode("utf-8"))
     print(f"wrote {out.name}: {text.count(chr(10))} lines")
