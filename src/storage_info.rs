@@ -148,7 +148,7 @@ pub async fn info(
         Storage::S3(_) => ("s3", None),
         Storage::Unavailable(_) => ("unavailable", None),
     };
-    let absolute = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
+    let absolute = |p: &Path| crate::fsutil::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let measured = path
         .as_deref()
         .and_then(|p| usage(p, q.get("refresh").is_some_and(|v| v == "1" || v == "true")));

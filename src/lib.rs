@@ -43,6 +43,7 @@ pub mod extensions;
 pub mod extract;
 pub mod filter;
 pub mod fleet;
+pub mod fsutil;
 pub mod guard;
 pub mod hooks;
 pub mod http;

@@ -11,14 +11,17 @@ as, and an empty database owned by it) and **slonbase** (the program, which crea
 in that database and a first superuser who signs in to the dashboard). The quick install below
 does both in one command; the step-by-step section does the same by hand.
 
-Release builds are static Linux binaries for x86_64 (amd64) and aarch64 (arm64). Other platforms
-can [build from source](#from-source).
+Release builds are static Linux binaries for x86_64 (amd64) and aarch64 (arm64), with
+`.deb` and `.rpm` packages and a Docker image. From 2.7.0 there are also **experimental** archives
+for [macOS](#macos) (Apple silicon) and [Windows](#windows) (x64): a `.tar.gz` and a `.zip`, not
+signed, that you check against the release's checksums. Other platforms can
+[build from source](#from-source).
 
 - [Quick install on Linux](#quick-install-on-linux): one command, on Debian, Ubuntu, Fedora, RHEL
 - [Step by step on Linux](#step-by-step-on-linux): the same, by hand
 - [Docker Compose](#docker-compose) and [Docker](#docker)
 - [Hosting platforms](platforms.md): Render, Railway, Fly.io, Coolify, Dokploy
-- [Plain binary](#plain-binary) and [from source](#from-source)
+- [Plain binary](#plain-binary), [macOS](#macos), [Windows](#windows) and [from source](#from-source)
 - [First-run setup](#first-run-setup)
 - [Check that it works](#check-that-it-works) and [troubleshooting](#troubleshooting)
 - [Upgrading](#upgrading) and [uninstalling](#uninstalling)
@@ -255,6 +258,96 @@ By default it listens on `127.0.0.1:8090` and keeps its config (`slonbase.toml`)
 (`slonbase_data/`, `slonbase_hooks/`) in the current directory; see
 [configuration](configuration.md).
 
+## macOS
+
+**Experimental.** The archive is built for Apple silicon (M1 and later) and is **not signed or
+notarized** (that needs a paid Apple developer account), so you check it yourself, as below. On an
+Intel Mac, use [Docker](#docker) or [build from source](#from-source). Releases carry the archive
+from 2.7.0: a release candidate lists it on its
+[release page](https://github.com/ayeshrodz/slonbase/releases) when it has one.
+
+You need a PostgreSQL 14 or newer first. With [Homebrew](https://brew.sh/):
+
+```sh
+brew install postgresql@16 && brew services start postgresql@16
+"$(brew --prefix postgresql@16)/bin/createdb" slonbase   # an empty database, owned by you
+```
+
+Then download, check and start slonbase (`V` is the version, such as `2.7.0`):
+
+```sh
+V=2.7.0
+curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/slonbase-$V-macos-arm64.tar.gz
+curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/SHA256SUMS
+grep "macos-arm64.tar.gz" SHA256SUMS | shasum -a 256 -c     # must say: OK
+tar xzf slonbase-$V-macos-arm64.tar.gz
+./slonbase serve                                            # prints the setup link
+```
+
+In the setup wizard use the database URL `postgres://YOUR-MAC-USER@localhost:5432/slonbase?sslmode=disable`
+(Homebrew's PostgreSQL trusts local connections, so there is no password). `whoami` prints the
+user name. The config (`slonbase.toml`) and the data are kept in the current directory.
+
+- **"Cannot be opened because the developer cannot be verified".** macOS marks files downloaded
+  with a browser. A file downloaded with `curl`, as above, isn't marked. After you have checked
+  the checksum, you can clear the mark with `xattr -d com.apple.quarantine slonbase`, or allow it in
+  System Settings → Privacy & Security → *Open Anyway*.
+- **Is this the file the project built?** The checksum above matches the file to `SHA256SUMS`;
+  with the [GitHub CLI](https://cli.github.com/), `gh attestation verify slonbase-$V-macos-arm64.tar.gz
+  --repo ayeshrodz/slonbase` also shows that GitHub Actions built it from this repository (see
+  [verify a download](#verify-a-download)).
+- **Running it all the time.** No launchd file is provided yet: run `./slonbase serve` in a
+  terminal, or write a launchd agent that does.
+
+## Windows
+
+**Experimental.** The archive is built for x64 Windows (10, 11 and Server 2019 or newer; Windows
+on Arm runs it through its emulation) and is **not signed**, so Windows may ask before it runs it,
+and you check the download yourself, as below. Releases carry the archive from 2.7.0: a release
+candidate lists it on its [release page](https://github.com/ayeshrodz/slonbase/releases) when it
+has one.
+
+You need a PostgreSQL 14 or newer first, for example from
+[postgresql.org](https://www.postgresql.org/download/windows/) or
+`winget install PostgreSQL.PostgreSQL.16`. In its `psql` shell, make a role and an empty database
+for slonbase:
+
+```sql
+CREATE ROLE slonbase LOGIN PASSWORD 'a-long-password';
+CREATE DATABASE slonbase OWNER slonbase;
+```
+
+Then, in PowerShell, download, check and start slonbase (`$v` is the version, such as `2.7.0`):
+
+```powershell
+$v = "2.7.0"
+$base = "https://github.com/ayeshrodz/slonbase/releases/download/v$v"
+Invoke-WebRequest "$base/slonbase-$v-windows-amd64.zip" -OutFile slonbase.zip
+Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
+Select-String "windows-amd64.zip" SHA256SUMS      # the expected checksum
+(Get-FileHash slonbase.zip -Algorithm SHA256).Hash # must be the same, in any case
+Expand-Archive slonbase.zip -DestinationPath slonbase
+cd slonbase
+.\slonbase.exe serve                               # prints the setup link
+```
+
+In the setup wizard use the database URL
+`postgres://slonbase:a-long-password@localhost:5432/slonbase?sslmode=disable`. The config
+(`slonbase.toml`) and the data are kept in the current directory.
+
+- **"Windows protected your PC" (SmartScreen).** Windows marks files downloaded with a browser.
+  A file downloaded with `Invoke-WebRequest`, as above, isn't marked. After you have checked the
+  checksum, choose *More info → Run anyway*, or clear the mark with `Unblock-File .\slonbase.exe`.
+- **Is this the file the project built?** The checksum above matches the file to `SHA256SUMS`;
+  with the [GitHub CLI](https://cli.github.com/), `gh attestation verify ..\slonbase.zip
+  --repo ayeshrodz/slonbase` (run from the extracted folder) also shows that GitHub Actions built it from this repository (see
+  [verify a download](#verify-a-download)).
+- **What differs from Linux.** The dashboard's storage page doesn't show the free disk space.
+  slonbase can't set the `0600` mode on the config file (it holds the database password), so keep
+  it in a folder only you can read, such as your user profile. PostgreSQL is reached over TCP (no
+  Unix sockets). No Windows service is provided yet: run it in a terminal, or with a tool that
+  runs programs as a service.
+
 ## From source
 
 Rust 1.89 or newer:
@@ -330,8 +423,11 @@ the sidebar checks the database, storage and settings.
 Every release lists the SHA-256 of each file in `SHA256SUMS`:
 
 ```sh
-sha256sum --ignore-missing -c SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS                    # Linux
+grep "macos-arm64.tar.gz" SHA256SUMS | shasum -a 256 -c    # macOS
 ```
+
+On Windows, [`Get-FileHash`](#windows) prints the checksum to compare.
 
 Releases after 2.5.1 also carry **attestations**, signed by GitHub, that say which workflow,
 commit and run built each file, and a **software bill of materials**
@@ -426,7 +522,8 @@ spare server, say) rather than on the one people depend on, and back up first as
   configuration is kept.
 - **Docker:** use the candidate's tag (`ghcr.io/ayeshrodz/slonbase:2.7.0-rc.1`, or
   `SLONBASE_VERSION=2.7.0-rc.1` with Compose).
-- **Binary:** replace the file with the one from the candidate's archive and restart.
+- **Binary:** replace the file with the one from the candidate's archive and restart. A candidate
+  after 2.7.0-rc.4 also has [macOS](#macos) and [Windows](#windows) archives.
 
 Afterwards, `sudo apt upgrade` or `sudo dnf upgrade` moves an installation from the repositories
 on to the release when it comes out (the package's version, `2.7.0~rc.1`, sorts before

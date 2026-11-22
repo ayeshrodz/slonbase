@@ -51,7 +51,7 @@ Georgiev; slonbase isn't affiliated with it.
 | License | Apache 2.0 ([details](licensing.md)) |
 | Written in | Rust (the dashboard in plain JavaScript, no build step) |
 | Database | PostgreSQL 14 or newer |
-| Platforms | Linux on x86_64 and aarch64 (static binaries, `.deb` and `.rpm` packages, a Docker image); other platforms from source |
+| Platforms | Linux on x86_64 and aarch64 (static binaries, `.deb` and `.rpm` packages, a Docker image); experimental archives for macOS (Apple silicon) and Windows (x64) from 2.7.0; other platforms from source |
 | Install | `curl -fsSL https://slonbase.com/install.sh \| sudo sh`, or Docker, or a binary |
 | Stability | Semantic Versioning; see [stability](stability.md) |
 | Website | <https://slonbase.com> |

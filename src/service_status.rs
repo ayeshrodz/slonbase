@@ -16,14 +16,14 @@ pub fn set(status: &str) {
 }
 
 /// The status as one line, which is what the protocol carries.
+#[cfg(unix)]
 fn one_line(status: &str) -> String {
     status.replace(['\n', '\r'], " ")
 }
 
 #[cfg(unix)]
 fn send(path: &std::ffi::OsStr, message: &str) {
-    use std::os::unix::{ffi::OsStrExt, net::UnixDatagram};
-    let bytes = path.as_bytes();
+    use std::os::unix::net::UnixDatagram;
     let Ok(socket) = UnixDatagram::unbound() else {
         return;
     };
@@ -33,21 +33,25 @@ fn send(path: &std::ffi::OsStr, message: &str) {
     }
     // a leading '@' names an abstract socket (Linux)
     #[cfg(any(target_os = "linux", target_os = "android"))]
-    if let Some(name) = bytes.strip_prefix(b"@") {
+    {
         #[cfg(target_os = "android")]
         use std::os::android::net::SocketAddrExt;
         #[cfg(target_os = "linux")]
         use std::os::linux::net::SocketAddrExt;
-        if let Ok(addr) = std::os::unix::net::SocketAddr::from_abstract_name(name) {
-            let _ = socket.send_to_addr(message.as_bytes(), &addr);
+        use std::os::unix::ffi::OsStrExt;
+        if let Some(name) = path.as_bytes().strip_prefix(b"@") {
+            if let Ok(addr) = std::os::unix::net::SocketAddr::from_abstract_name(name) {
+                let _ = socket.send_to_addr(message.as_bytes(), &addr);
+            }
+            return;
         }
-        return;
     }
     let sent = socket.send_to(message.as_bytes(), std::path::Path::new(path));
     let _ = sent;
 }
 
-#[cfg(test)]
+// (every test of it uses a Unix socket)
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
@@ -66,6 +70,7 @@ mod tests {
         assert_eq!(&buf[..n], b"STATUS=waiting for the database");
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_status_is_one_line() {
         assert_eq!(one_line("a\nb\r\nc"), "a b  c");

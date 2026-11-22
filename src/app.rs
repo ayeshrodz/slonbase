@@ -391,7 +391,8 @@ mod target_tests {
             database_target("postgresql:///app?user=u&hostaddr=127.0.0.1&port=6432"),
             "u@127.0.0.1:6432 database app"
         );
-        // a socket, with its port
+        // a socket, with its port (where there are sockets of that kind)
+        #[cfg(unix)]
         assert_eq!(
             database_target("postgresql:///app?user=u&host=/var/run/postgresql&port=6432"),
             "u@/var/run/postgresql/.s.PGSQL.6432 database app"

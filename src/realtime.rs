@@ -1714,7 +1714,11 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
     crate::events::spawn(weak.clone());
     tokio::spawn(async move {
         let mut delay = Duration::from_secs(1);
-        let mut disconnected_at: Option<chrono::DateTime<chrono::Utc>> = None;
+        // (the first connection counts as one that was missing: a change committed after this
+        // instance read the collections and before its connection listened would otherwise
+        // never reach it)
+        let mut disconnected_at: Option<chrono::DateTime<chrono::Utc>> = Some(chrono::Utc::now());
+        let mut first_connection = true;
 
         loop {
             if weak.strong_count() == 0 {
@@ -1731,9 +1735,16 @@ pub fn spawn_listener(core: &Arc<Core>, url: String, cfg: DatabaseConfig) {
             };
             delay = Duration::from_secs(1);
 
-            // catch up on what happened while disconnected
+            // catch up on what happened while not listening (read after LISTEN is active, so
+            // nothing falls between the reading and the first notification)
             if let (Some(_), Some(core)) = (disconnected_at.take(), weak.upgrade()) {
-                tracing::info!("realtime listener reconnected, catching up");
+                if std::mem::take(&mut first_connection) {
+                    tracing::debug!(
+                        "realtime listener connected, reading what changed before it listened"
+                    );
+                } else {
+                    tracing::info!("realtime listener reconnected, catching up");
+                }
                 reload_collections(&core).await;
                 if !reload_settings(&core).await {
                     keep_reloading_settings(&core);

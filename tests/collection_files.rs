@@ -59,11 +59,12 @@ fn stored_files(dir: &tempfile::TempDir) -> Vec<String> {
             if path.is_dir() {
                 stack.push(path);
             } else {
+                // (with `/` on every platform)
                 out.push(
                     path.strip_prefix(&root)
                         .unwrap()
                         .to_string_lossy()
-                        .to_string(),
+                        .replace('\\', "/"),
                 );
             }
         }

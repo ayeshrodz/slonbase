@@ -1,0 +1,63 @@
+name: Other platforms
+
+# slonbase is built, tested and released for Linux (see CI and Release). This workflow builds and
+# tests it on macOS and Windows against a PostgreSQL started on the runner, and starts the binary
+# once to check that it sets itself up and answers. It is not part of CI: it runs when started by
+# hand, once a week, and on a pull request that changes this file, so a failure here never blocks
+# a change to the Linux build.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 3 * * 1"
+  pull_request:
+    paths:
+      - .github/workflows/platforms.yml
+      - .github/actions/local-postgres/**
+      - scripts/e2e-smoke.mjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: platforms-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # the database tests must run, not skip
+  SLONBASE_REQUIRE_TEST_DATABASE: "1"
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple silicon)
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
+      - uses: ./.github/actions/local-postgres
+
+      - name: Build
+        run: cargo build --locked
+
+      # the binary sets itself up on an empty database and is used the way a person would
+      - name: Use the binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$PWD/target/debug/slonbase"
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$bin.exe"; fi
+          "$PGBIN/psql" -h 127.0.0.1 -p 5433 -U postgres -c "CREATE DATABASE e2e"
+          SLONBASE_BIN="$bin" DATABASE_URL="postgres://postgres@127.0.0.1:5433/e2e?sslmode=disable" node scripts/e2e-smoke.mjs
+
+      - name: Test
+        run: cargo test --locked --no-fail-fast

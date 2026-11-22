@@ -48,6 +48,15 @@ Bumping the version on `main` is also a release: when CI passes on `main` and `C
 version without a tag, the **Release** workflow tags that commit and releases it. It checks that
 the changelog has the version's section, builds the packages once (amd64 and arm64), publishes
 the GitHub release, with those notes, and the Docker image (built from the packages' binaries).
+Alongside them it builds the experimental **macOS (Apple silicon) and Windows (x64) archives**
+(`.github/workflows/package-desktop.yml`, a `.tar.gz` and a `.zip` with the licenses): each is
+unpacked and used by `scripts/e2e-smoke.mjs` before it is uploaded, and it can be started by hand
+(Actions → Package (macOS and Windows) → Run workflow) to try the archives of any commit. They
+are not signed (that needs paid Apple and Windows certificates), so the docs tell people to check
+the checksum and the attestation. They never hold back a release: when they fail, the Linux
+packages are published without them, and the release notes list only the files that exist. The
+**Other platforms** workflow (`.github/workflows/platforms.yml`) builds and tests the project on
+macOS and Windows once a week and on a change to itself; it isn't part of CI.
 With the packages it publishes an SBOM (`scripts/sbom.py`: SPDX, from `Cargo.lock` and the
 dashboard's vendored files) and attests every file and the image (build provenance, and the
 SBOM for the archives and packages; `gh attestation verify` checks them). When a vendored file

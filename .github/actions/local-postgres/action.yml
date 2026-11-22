@@ -1,0 +1,31 @@
+name: Local PostgreSQL
+description: >
+  Starts a PostgreSQL of its own on a macOS or Windows runner (port 5433, a directory of the run,
+  trusting local logins) and sets PGBIN and SLONBASE_TEST_DATABASE_URL for the steps after it.
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS" in
+          macOS)
+            brew install postgresql@16
+            PGBIN="$(brew --prefix postgresql@16)/bin"
+            ;;
+          Windows)
+            # the newest version installed on the image (the glob sorts by name)
+            PGBIN=""
+            for dir in "/c/Program Files/PostgreSQL/"*/bin; do PGBIN="$dir"; done
+            ;;
+          *)
+            echo "::error::this action is for macOS and Windows runners"
+            exit 1
+            ;;
+        esac
+        echo "PostgreSQL binaries: $PGBIN"
+        "$PGBIN/initdb" -D "$RUNNER_TEMP/pgdata" -U postgres --auth=trust -E UTF8
+        "$PGBIN/pg_ctl" -D "$RUNNER_TEMP/pgdata" -o "-p 5433" -l "$RUNNER_TEMP/pg.log" -w start
+        echo "PGBIN=$PGBIN" >> "$GITHUB_ENV"
+        echo "SLONBASE_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5433/postgres?sslmode=disable" >> "$GITHUB_ENV"

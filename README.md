@@ -177,6 +177,9 @@ Open the printed link and create your first superuser. That's it: the dashboard 
 **Other ways:** the `.deb`, `.rpm` and static binaries are on the
 [releases](https://github.com/ayeshrodz/slonbase/releases) page, and the apt and dnf
 repositories are described in the [installation guide](docs/installation.md#3-install-slonbase).
+From 2.7.0 the releases also carry **experimental** archives for
+[macOS (Apple silicon)](docs/installation.md#macos) and [Windows (x64)](docs/installation.md#windows),
+not signed, with a checksum and a build attestation for each.
 PostgreSQL isn't bundled: slonbase connects to any 14+ server, on the same machine, elsewhere,
 or a managed service.
 

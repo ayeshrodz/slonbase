@@ -68,6 +68,14 @@ async fn app_with(
     (app, dir)
 }
 
+/// A link to a file: with the call of the platform (Windows needs a privilege the CI runners have).
+fn symlink(original: &std::path::Path, link: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    return std::os::unix::fs::symlink(original, link);
+    #[cfg(windows)]
+    return std::os::windows::fs::symlink_file(original, link);
+}
+
 async fn get(app: &Arc<App>, uri: &str) -> Value {
     let (status, res) = request(app, "GET", uri, &[], None).await;
     assert_eq!(status, StatusCode::OK, "{uri}: {res}");
@@ -95,14 +103,14 @@ async fn hooks_read_files_only_inside_the_configured_directory() {
     std::fs::write(outside.path().join("secret.txt"), "TOP-SECRET-CONTENT").unwrap();
     // a link in a served directory to a file that is inside hooks.files_dir, but not in it
     std::fs::write(files.path().join("private.txt"), "PRIVATE-CONTENT").unwrap();
-    std::os::unix::fs::symlink(
-        files.path().join("private.txt"),
-        files.path().join("public/peek.txt"),
+    symlink(
+        &files.path().join("private.txt"),
+        &files.path().join("public/peek.txt"),
     )
     .unwrap();
-    std::os::unix::fs::symlink(
-        outside.path().join("secret.txt"),
-        files.path().join("link.txt"),
+    symlink(
+        &outside.path().join("secret.txt"),
+        &files.path().join("link.txt"),
     )
     .unwrap();
 
