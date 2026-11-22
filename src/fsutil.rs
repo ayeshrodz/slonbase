@@ -15,15 +15,28 @@ pub fn canonicalize(path: impl AsRef<Path>) -> io::Result<PathBuf> {
 }
 
 /// `\\?\C:\dir` as `C:\dir` and `\\?\UNC\server\share` as `\\server\share`; any other path as it
-/// is (one that cannot be written without the prefix keeps it).
+/// is. A path that cannot be written without the prefix keeps it: one that is not valid Unicode,
+/// or that has a name Windows would change without it (a trailing dot or space).
 #[cfg_attr(not(windows), allow(dead_code))]
 fn without_verbatim_prefix(path: PathBuf) -> PathBuf {
-    let text = path.to_string_lossy().into_owned();
-    if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
-        return PathBuf::from(format!(r"\\{rest}"));
-    }
-    match text.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
+    let Some(text) = path.to_str() else {
+        return path;
+    };
+    let plain = if let Some(rest) = text.strip_prefix(r"\\?\UNC\") {
+        Some(format!(r"\\{rest}"))
+    } else {
+        text.strip_prefix(r"\\?\")
+            .filter(|rest| rest.as_bytes().get(1) == Some(&b':'))
+            .map(str::to_owned)
+    };
+    match plain {
+        Some(plain)
+            if !plain
+                .split('\\')
+                .any(|name| name.ends_with(['.', ' ']) && name != "." && name != "..") =>
+        {
+            PathBuf::from(plain)
+        }
         _ => path,
     }
 }
@@ -49,6 +62,11 @@ mod tests {
             PathBuf::from(r"\\?\Volume{1234}\x")
         );
         assert_eq!(strip("/usr/lib"), PathBuf::from("/usr/lib"));
+        // a name Windows would change without the prefix keeps it
+        assert_eq!(
+            strip(r"\\?\C:\data\report."),
+            PathBuf::from(r"\\?\C:\data\report.")
+        );
     }
 
     #[test]

@@ -198,6 +198,8 @@ jobs:
   # "Re-run failed jobs" runs only this one (see MAINTAINING.md).
   image:
     needs: [verify, package, publish]
+    # (explicit, so a failed optional `desktop` build, an ancestor of `publish`, doesn't skip it)
+    if: ${{ !cancelled() && needs.verify.result == 'success' && needs.package.result == 'success' && needs.publish.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read

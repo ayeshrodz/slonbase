@@ -270,7 +270,7 @@ You need a PostgreSQL 14 or newer first. With [Homebrew](https://brew.sh/):
 
 ```sh
 brew install postgresql@16 && brew services start postgresql@16
-createdb slonbase                         # an empty database, owned by you
+"$(brew --prefix postgresql@16)/bin/createdb" slonbase   # an empty database, owned by you
 ```
 
 Then download, check and start slonbase (`V` is the version, such as `2.7.0`):
@@ -339,8 +339,8 @@ In the setup wizard use the database URL
   A file downloaded with `Invoke-WebRequest`, as above, isn't marked. After you have checked the
   checksum, choose *More info → Run anyway*, or clear the mark with `Unblock-File .\slonbase.exe`.
 - **Is this the file the project built?** The checksum above matches the file to `SHA256SUMS`;
-  with the [GitHub CLI](https://cli.github.com/), `gh attestation verify slonbase-$v-windows-amd64.zip
-  --repo ayeshrodz/slonbase` also shows that GitHub Actions built it from this repository (see
+  with the [GitHub CLI](https://cli.github.com/), `gh attestation verify ..\slonbase.zip
+  --repo ayeshrodz/slonbase` (run from the extracted folder) also shows that GitHub Actions built it from this repository (see
   [verify a download](#verify-a-download)).
 - **What differs from Linux.** The dashboard's storage page doesn't show the free disk space.
   slonbase can't set the `0600` mode on the config file (it holds the database password), so keep
