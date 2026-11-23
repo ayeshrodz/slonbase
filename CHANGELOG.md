@@ -27,7 +27,7 @@ changes, listed in its **Upgrading** section.
   took 1.4 s instead of 3.9 s. Requests for one new thumbnail wait for one to be made instead of
   each decoding the picture. A WebP photograph's thumbnail used to be a PNG ten to fifteen times as
   large as a JPEG (a WebP with transparency is still a PNG); JPEG thumbnails are saved at quality
-  82. Nothing to do: the thumbnails there are keep serving.
+  82. No action is needed: existing thumbnails keep being served.
 
 ### Fixed
 

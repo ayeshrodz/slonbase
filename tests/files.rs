@@ -244,9 +244,17 @@ async fn uploads_serving_and_thumbnails() {
             .unwrap()
             .contains("X-Thumb-Error")
     );
-    // a file that isn't a picture says why too
-    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=bogus")).await;
-    assert!(headers.contains_key("x-thumb-error"));
+    // a file that isn't a picture says why too: a text file (with a size that is allowed) and a
+    // file that is called a picture but isn't one
+    let text = record["files"][0].as_str().unwrap();
+    let (status, headers, bytes) = env.get(&format!("{base}/{text}?thumb=100x100")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"first", "the original");
+    let why = headers["x-thumb-error"].to_str().unwrap();
+    assert!(
+        why.contains("text/plain") && why.contains("can't be resized"),
+        "{why}"
+    );
 
     // unknown files and traversal attempts
     for bad in [
@@ -781,19 +789,31 @@ async fn a_failed_replacement_keeps_the_old_file() {
 #[tokio::test]
 async fn concurrent_requests_for_one_thumbnail_make_it_once() {
     let Some(env) = setup().await else { return };
-    let image = png(120, 60);
+    slonbase::records::files::track_thumbs_made();
+    // a picture big enough to take a while to decode, so the requests overlap
+    let image = {
+        let mut img = image::RgbImage::new(2400, 1600);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgb([(x / 9 % 251) as u8, (y / 9 % 241) as u8, ((x / 13 + y / 7) % 239) as u8]);
+        }
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    };
     let (status, record) = env
         .upload(
             "POST",
             "/api/collections/docs/records",
             &[("title", "public")],
-            &[("avatar", "a.png", &image)],
+            &[("files", "big.png", &image)],
         )
         .await;
     assert_eq!(status, StatusCode::OK, "{record}");
     let id = record["id"].as_str().unwrap();
-    let avatar = record["avatar"].as_str().unwrap();
-    let uri = format!("/api/files/docs/{id}/{avatar}?thumb=50x50");
+    let name = record["files"][0].as_str().unwrap();
+    let uri = format!("/api/files/docs/{id}/{name}?thumb=100x100");
     let answers = futures_util::future::join_all((0..12).map(|_| env.get(&uri))).await;
     let first = &answers[0].2;
     for (status, headers, bytes) in &answers {
@@ -803,11 +823,14 @@ async fn concurrent_requests_for_one_thumbnail_make_it_once() {
     }
     assert_ne!(first, &image, "a thumbnail, not the original");
     assert_eq!(
-        env.stored_files()
-            .iter()
-            .filter(|f| f.contains("thumbs_"))
-            .count(),
+        slonbase::records::files::thumbs_made(&format!("100x100_{name}")),
         1,
-        "one thumbnail was stored"
+        "twelve requests, one thumbnail made"
+    );
+    // asked for again: read, not made again
+    env.get(&uri).await;
+    assert_eq!(
+        slonbase::records::files::thumbs_made(&format!("100x100_{name}")),
+        1
     );
 }

@@ -1402,24 +1402,67 @@ async fn ensure_thumb(
     if exists().await? {
         return Ok(Ok(key));
     }
-    let flight = thumb_flights()
-        .lock()
-        .expect("thumbnail flights lock")
-        .entry(key.clone())
-        .or_default()
-        .clone();
-    let made = {
-        let _turn = flight.lock().await;
-        make_missing_thumb(core, collection_id, record_id, filename, &key, size).await
-    };
-    {
-        // (the last one out takes the entry away)
-        let mut flights = thumb_flights().lock().expect("thumbnail flights lock");
-        if Arc::strong_count(&flight) <= 2 {
-            flights.remove(&key);
+    // (dropped when this request is done or gone: a client that disconnects drops the request
+    // wherever it is waiting)
+    let entry = FlightEntry::join(&key);
+    let _turn = entry.flight.lock().await;
+    make_missing_thumb(core, collection_id, record_id, filename, &key, size).await
+}
+
+/// A request's place in the line for a thumbnail being made. The map's entry goes when the
+/// last request that waits for it is done with it, or dropped.
+struct FlightEntry {
+    key: String,
+    flight: Arc<tokio::sync::Mutex<()>>,
+}
+
+impl FlightEntry {
+    fn join(key: &str) -> Self {
+        let flight = thumb_flights()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .entry(key.to_string())
+            .or_default()
+            .clone();
+        Self {
+            key: key.to_string(),
+            flight,
         }
     }
-    made
+}
+
+impl Drop for FlightEntry {
+    fn drop(&mut self) {
+        let mut flights = thumb_flights().lock().unwrap_or_else(|e| e.into_inner());
+        // (the map's copy and this one: no other request waits)
+        if Arc::strong_count(&self.flight) <= 2 {
+            flights.remove(&self.key);
+        }
+    }
+}
+
+/// The thumbnails made since [`track_thumbs_made`], by key, for tests that check a thumbnail
+/// is made once however many ask for it. Off (and free) otherwise.
+static THUMBS_MADE: std::sync::Mutex<Option<HashMap<String, u32>>> = std::sync::Mutex::new(None);
+
+#[doc(hidden)]
+pub fn track_thumbs_made() {
+    *THUMBS_MADE.lock().unwrap_or_else(|e| e.into_inner()) = Some(HashMap::new());
+}
+
+/// How many thumbnails whose key ends with `suffix` were made since [`track_thumbs_made`].
+#[doc(hidden)]
+pub fn thumbs_made(suffix: &str) -> u32 {
+    THUMBS_MADE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+        .map_or(0, |made| {
+            made.iter()
+                .filter(|(key, _)| key.ends_with(suffix))
+                .map(|(_, n)| n)
+                .sum()
+        })
 }
 
 async fn make_missing_thumb(
@@ -1458,6 +1501,13 @@ async fn make_missing_thumb(
         return Ok(Err(format!(
             "{mime} files can't be resized (PNG, JPEG, GIF and WebP images can)"
         )));
+    }
+    if let Some(made) = THUMBS_MADE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_mut()
+    {
+        *made.entry(key.to_string()).or_default() += 1;
     }
     let thumb = tokio::task::spawn_blocking(move || make_thumb(&original, size))
         .await
