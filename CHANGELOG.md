@@ -115,7 +115,7 @@ changes, listed in its **Upgrading** section.
 - **Hook code without a time or memory limit is reported (#107):** an installation that has hook files and neither `hooks.timeout_seconds` nor `hooks.memory_limit_mb` set (for example one whose database URL is fixed by a flag or an environment variable, so setup writes no configuration file) now lists "Hook code runs without a time or memory limit" in `GET /api/settings/warnings` and the dashboard, next to the startup log message. Nothing changes for an installation that sets either limit.
 
 - **Experimental archives for macOS (Apple silicon) and Windows (x64).** Releases from 2.7.0 (and
-  candidates after 2.7.0-rc.4) carry `slonbase-<version>-macos-arm64.tar.gz` and
+  the release candidates after the fourth) carry `slonbase-<version>-macos-arm64.tar.gz` and
   `slonbase-<version>-windows-amd64.zip`, listed in `SHA256SUMS` and attested like the Linux
   files. They are not signed: the [installation guide](docs/installation.md#macos) says what
   each system asks and how to check a download. Each archive is unpacked and used (set up, sign
