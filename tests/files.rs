@@ -794,7 +794,11 @@ async fn concurrent_requests_for_one_thumbnail_make_it_once() {
     let image = {
         let mut img = image::RgbImage::new(2400, 1600);
         for (x, y, p) in img.enumerate_pixels_mut() {
-            *p = image::Rgb([(x / 9 % 251) as u8, (y / 9 % 241) as u8, ((x / 13 + y / 7) % 239) as u8]);
+            *p = image::Rgb([
+                (x / 9 % 251) as u8,
+                (y / 9 % 241) as u8,
+                ((x / 13 + y / 7) % 239) as u8,
+            ]);
         }
         let mut out = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgb8(img)
