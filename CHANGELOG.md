@@ -142,6 +142,10 @@ changes, listed in its **Upgrading** section.
 
 ### Changed
 
+- **The automation editor opens as a panel from the right, like the record editor.** It used to be a
+  floating window whose backdrop scrolled with the form; now the page stays in view and in place
+  beside it, and the Cancel and Save buttons stay at the bottom while the form scrolls. Nothing
+  about the form itself changed.
 - **Background jobs run from a durable queue.** Scheduled and manual
   runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
   are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued
