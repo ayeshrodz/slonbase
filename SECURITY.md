@@ -9,7 +9,8 @@ to the latest before reporting, if you can.
 
 | Version | Supported |
 |---|---|
-| 2.6.x | ✅ |
+| 2.7.x | ✅ |
+| 2.6.x | ✅ until three months after the next minor (February 23, 2027) |
 | 2.5.x | ✅ until three months after the next minor (February 9, 2027) |
 | 2.4.x | ✅ until three months after the next minor (February 7, 2027) |
 | 2.3.x and older | ❌ |
