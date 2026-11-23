@@ -17,6 +17,24 @@ changes, listed in its **Upgrading** section.
   `logging.dropped`, `logs.requestsPerHour`; the figures are described in
   [configuration](docs/configuration.md#what-the-dashboards-figures-count).
 
+### Changed
+
+- **Data opens on a page of the collections, grouped, before a collection.** Each collection is a
+  card with its type, how many records and fields it has, who may list it (superusers only, anyone,
+  or by a rule) and when its schema last changed; General, Auth and System are groups you can close
+  (System starts closed), and a filter finds one by name. A card opens the collection, as before
+  (records, schema, rules...), and a link above its title goes back. The records come from one
+  request for all of them (`GET /api/collections/meta/counts`), exact up to 200,000 rows a table
+  and then PostgreSQL's estimate, marked `~`; it costs one query however many collections there are.
+  `/data` used to open the first collection.
+- **The sidebar's groups of collections (General, Auth and System) start closed**, so a long list
+  doesn't push Settings out of view; the group of the collection you open opens by itself, and
+  what you open or close is remembered in the browser.
+- **The automation editor opens as a panel from the right, like the record editor.** It used to be a
+  floating window whose backdrop scrolled with the form; now the page stays in view and in place
+  beside it, and the Cancel and Save buttons stay at the bottom while the form scrolls. Nothing
+  about the form itself changed.
+
 ### Fixed
 
 - **The dashboard's request figures count the requests the server answered, not the dashboard's
@@ -176,10 +194,6 @@ changes, listed in its **Upgrading** section.
 
 ### Changed
 
-- **The automation editor opens as a panel from the right, like the record editor.** It used to be a
-  floating window whose backdrop scrolled with the form; now the page stays in view and in place
-  beside it, and the Cancel and Save buttons stay at the bottom while the form scrolls. Nothing
-  about the form itself changed.
 - **Background jobs run from a durable queue.** Scheduled and manual
   runs of every cron job (the dashboard's and the ones hooks register) and the automatic backup
   are now rows in a queue (`_slonbase.jobs`) that every instance's workers share: a run queued

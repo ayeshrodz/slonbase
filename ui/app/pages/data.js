@@ -5,6 +5,7 @@ import { api, enc } from "../lib/api.js";
 import { app, loadCollections, upsertCollection, removeCollection } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
 import { Button, Tabs, CollectionGlyph, CopyButton, Empty, Modal, SheetHead, Field, Input, TextArea, Segmented, Callout, toast, confirmDialog, Menu } from "../lib/ui.js";
+import { DataOverview, groupCollections } from "./collections.js";
 import { Records } from "./records.js";
 import { Schema } from "./schema.js";
 import { Rules } from "./rules.js";
@@ -16,22 +17,44 @@ function clone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
-// The collections, grouped, in the sidebar (main.js): a filter, and a way to add one.
+// The collections, grouped, in the sidebar (main.js): a filter, and a way to add one. The groups
+// start closed (a long list would push the rest of the sidebar out of sight), and the one that
+// holds the open collection opens by itself. What a person opens or closes is kept per browser.
+const GROUPS_KEY = "slonbase.sidebar.groups";
+const ALL_CLOSED = { general: true, auth: true, system: true };
+function storedGroups() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(GROUPS_KEY) || "null");
+    if (stored && typeof stored === "object") return { ...ALL_CLOSED, ...stored };
+  } catch (_) {}
+  return { ...ALL_CLOSED };
+}
+
 export function CollectionTree({ active, onNavigate }) {
   const collections = useStore(app, (s) => s.collections);
   const locked = useStore(app, (s) => s.hideControls);
   const [query, setQuery] = useState("");
-  const [closed, setClosed] = useState({ system: true });
+  const [closed, setClosed] = useState(storedGroups);
   const q = query.trim().toLowerCase();
   const visible = collections.filter((c) => !q || c.name.toLowerCase().includes(q));
-  const groups = [
-    { id: "base", title: "Collections", items: visible.filter((c) => !c.system && c.type !== "auth") },
-    { id: "auth", title: "Auth", items: visible.filter((c) => !c.system && c.type === "auth") },
-    { id: "system", title: "System", items: visible.filter((c) => c.system) },
-  ];
+  const groups = groupCollections(visible);
+  const toggle = (id) => {
+    const next = { ...closed, [id]: !closed[id] };
+    setClosed(next);
+    try {
+      localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
+    } catch (_) {}
+  };
+  // opening a collection (from a card, a link, the palette) shows where it is
+  useEffect(() => {
+    const open = collections.find((c) => c.name === active || c.id === active);
+    if (!open) return;
+    const group = open.system ? "system" : open.type === "auth" ? "auth" : "general";
+    setClosed((now) => (now[group] ? { ...now, [group]: false } : now));
+  }, [active, collections.length]);
   return html`<div class="tree" aria-label="Collections">
     <div class="tree-head side-label">
-      <span class="section-title">Collections</span>
+      <a class="section-title" href="#/data" onClick=${onNavigate}>Collections</a>
       <span class="spacer"></span>
       ${!locked &&
       html`<a class="icon-btn sm" href="#/data?new=1" aria-label="New collection" data-tip="New collection" onClick=${onNavigate}>
@@ -45,22 +68,22 @@ export function CollectionTree({ active, onNavigate }) {
     </label>`}
     ${groups.map(
       (g) =>
-        (g.items.length > 0 || (g.id === "base" && !q)) &&
+        (g.items.length > 0 || (g.id === "general" && !q)) &&
         html`<div class="tree-group">
-          ${g.id !== "base" &&
-          html`<button
+          <button
             class=${cx("tree-group-title side-label", { closed: closed[g.id] && !q })}
-            onClick=${() => setClosed({ ...closed, [g.id]: !closed[g.id] })}
+            aria-expanded=${!closed[g.id] || !!q}
+            onClick=${() => toggle(g.id)}
           >
             <${Icon} name="chevronDown" size=${12} /> ${g.title}<span class="spacer"></span><span class="tree-count">${g.items.length}</span>
-          </button>`}
-          ${(!closed[g.id] || q || g.id === "base") &&
+          </button>
+          ${(!closed[g.id] || q) &&
           html`<div class="tree-items">
             ${g.items.map(
               (c) => html`<a
                 href=${"#/data/" + enc(c.name)}
-                class=${cx("coll-item", { on: c.name === active })}
-                aria-current=${c.name === active ? "page" : undefined}
+                class=${cx("coll-item", { on: c.name === active || c.id === active })}
+                aria-current=${c.name === active || c.id === active ? "page" : undefined}
                 data-tip=${c.name}
                 onClick=${onNavigate}
               >
@@ -68,7 +91,7 @@ export function CollectionTree({ active, onNavigate }) {
                 <span class="grow ellipsis side-label">${c.name}</span>
               </a>`
             )}
-            ${g.id === "base" && g.items.length === 0 && html`<div class="small faint side-label" style="padding:4px 10px">No collections yet.</div>`}
+            ${g.id === "general" && g.items.length === 0 && html`<div class="small faint side-label" style="padding:4px 10px">No collections yet.</div>`}
           </div>`}
         </div>`
     )}
@@ -338,6 +361,7 @@ function CollectionView({ collection, tab, recordId }) {
 
   const props = { draft, setDraft, collection, errors };
   return html`<div class="enter" key=${collection.id}>
+    <a class="coll-back small" href="#/data"><${Icon} name="chevronLeft" size=${13} /> Collections</a>
     <div class="coll-header">
       <${CollectionGlyph} collection=${collection} />
       <div class="grow">
@@ -390,13 +414,6 @@ export function DataWorkspace({ collection: name, tab, record }) {
   }, []);
 
   const collection = name && collections.find((c) => c.name === name || c.id === name);
-  // without a collection, open the first user collection
-  useEffect(() => {
-    if (!name && loaded) {
-      const first = collections.find((c) => !c.system) || collections[0];
-      if (first && !query.new) navigate(`/data/${enc(first.name)}`, true);
-    }
-  }, [name, loaded]);
 
   return html`<div class="workspace">
     <section class="workspace-main">
@@ -404,10 +421,8 @@ export function DataWorkspace({ collection: name, tab, record }) {
         ? html`<${CollectionView} key=${collection.id} collection=${collection} tab=${tab || "records"} recordId=${record} />`
         : loaded && name
         ? html`<${Empty} icon="search" title="Collection not found">There's no collection named “${name}”.</${Empty}>`
-        : loaded && !collections.some((c) => !c.system)
-        ? html`<${Empty} icon="data" title="Create your first collection" action=${html`<${Button} variant="primary" icon="plus" onClick=${() => setCreating(true)}>New collection</${Button}>`}>
-            Collections are tables with an API: fields, validation and access rules.
-          </${Empty}>`
+        : !name
+        ? html`<${DataOverview} onNew=${() => setCreating(true)} />`
         : null}
     </section>
     ${creating &&
