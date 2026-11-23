@@ -270,8 +270,9 @@ JPEG, GIF or WebP image. For a client app:
   the header `X-Thumb-Error` says why (for example `the size "64x64" is not one of this field's
   thumbs (100x100, 300x200)`). Check for the header when a thumbnail looks too large; scripts of another origin may read it.
   With `s3.presigned_downloads` on, the answer is a redirect to the bucket and the header is on
-  that redirect only (a browser follows it without showing it), so check it with `redirect:
-  "manual"`, or leave the setting off for thumbnails you need explained.
+  that redirect only: a browser follows the redirect without showing its headers to a script
+  (`fetch` with `redirect: "manual"` gives an opaque response). Read it with a client that
+  doesn't follow redirects (`curl -i`), or leave the setting off when a page's script needs it.
 - **Sizes:** `WxH` fills the box and crops the middle, with `t` (top), `b` (bottom) or `f` (fits
   inside, no crop) after it; `0xH` and `Wx0` keep the proportions. At most 4000 pixels a side.
 - **What comes out:** a JPEG stays a JPEG, a GIF a (still) GIF, a PNG a PNG, and a WebP a JPEG,
