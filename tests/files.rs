@@ -207,11 +207,46 @@ async fn uploads_serving_and_thumbnails() {
             .iter()
             .any(|f| f.contains("thumbs_") && f.ends_with(&format!("50x50_{avatar}")))
     );
-    let (_, _, bytes) = env.get(&format!("{base}/{avatar}?thumb=10x10")).await;
+    let (_, headers, bytes) = env.get(&format!("{base}/{avatar}?thumb=10x10")).await;
     assert_eq!(
         bytes, image,
         "sizes that aren't configured serve the original"
     );
+    // ... and say so, with the sizes there are, for a client to read
+    let why = headers["x-thumb-error"].to_str().unwrap();
+    assert!(
+        why.contains("\"10x10\"") && why.contains("100x100") && why.contains("50x50"),
+        "{why}"
+    );
+    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=bogus")).await;
+    assert!(
+        headers["x-thumb-error"]
+            .to_str()
+            .unwrap()
+            .contains("not a size")
+    );
+    // a thumbnail that was made has no such header, and a file can be shown by an app of another
+    // origin, which may read the header
+    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=50x50")).await;
+    assert!(headers.get("x-thumb-error").is_none());
+    assert_eq!(headers["cross-origin-resource-policy"], "cross-origin");
+    let (_, headers, _) = raw_request(
+        &env.app,
+        "GET",
+        &format!("{base}/{avatar}?thumb=10x10"),
+        &[("origin", "https://app.example.com")],
+        vec![],
+    )
+    .await;
+    assert!(
+        headers["access-control-expose-headers"]
+            .to_str()
+            .unwrap()
+            .contains("X-Thumb-Error")
+    );
+    // a file that isn't a picture says why too
+    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=bogus")).await;
+    assert!(headers.contains_key("x-thumb-error"));
 
     // unknown files and traversal attempts
     for bad in [
@@ -739,4 +774,40 @@ async fn a_failed_replacement_keeps_the_old_file() {
     assert_eq!(bytes, image);
     assert_eq!(env.stored_files(), before, "files were left behind or lost");
     env.tdb.drop_db().await;
+}
+
+// Requests for a thumbnail that isn't there yet, all at once (a client app's page of pictures):
+// it is made once, and every one of them gets it.
+#[tokio::test]
+async fn concurrent_requests_for_one_thumbnail_make_it_once() {
+    let Some(env) = setup().await else { return };
+    let image = png(120, 60);
+    let (status, record) = env
+        .upload(
+            "POST",
+            "/api/collections/docs/records",
+            &[("title", "public")],
+            &[("avatar", "a.png", &image)],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    let id = record["id"].as_str().unwrap();
+    let avatar = record["avatar"].as_str().unwrap();
+    let uri = format!("/api/files/docs/{id}/{avatar}?thumb=50x50");
+    let answers = futures_util::future::join_all((0..12).map(|_| env.get(&uri))).await;
+    let first = &answers[0].2;
+    for (status, headers, bytes) in &answers {
+        assert_eq!(*status, StatusCode::OK);
+        assert_eq!(bytes, first);
+        assert!(headers.get("x-thumb-error").is_none());
+    }
+    assert_ne!(first, &image, "a thumbnail, not the original");
+    assert_eq!(
+        env.stored_files()
+            .iter()
+            .filter(|f| f.contains("thumbs_"))
+            .count(),
+        1,
+        "one thumbnail was stored"
+    );
 }

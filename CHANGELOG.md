@@ -8,6 +8,35 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+### Added
+
+- **`X-Thumb-Error`: why a thumbnail wasn't served.** For a size that isn't one of the field's
+  `thumbs`, a file that isn't a PNG, JPEG, GIF or WebP (an HEIC photo, say) or one that can't be
+  decoded, the original is served with status `200` as before (PocketBase's behavior), and this
+  header now says why and which sizes there are, so a client app can tell. File answers also
+  carry `Cross-Origin-Resource-Policy: cross-origin`, so a page that isolates itself (COEP) can
+  show them, and CORS exposes `X-Thumb-Error`, `Content-Range`, `Accept-Ranges` and
+  `Content-Disposition` to scripts of other origins. See
+  [thumbnails](docs/api.md#thumbnails).
+
+### Changed
+
+- **Thumbnails are made faster, and a WebP photo's is a JPEG.** A picture is averaged down to twice
+  the size needed before the final resize, so a 48-megapixel photo takes about 0.4 s to make a
+  thumbnail instead of 1.3 s, and 40 new thumbnails of 12-megapixel photos asked for at once
+  took 1.4 s instead of 3.9 s. Requests for one new thumbnail wait for one to be made instead of
+  each decoding the picture. A WebP photograph's thumbnail used to be a PNG ten to fifteen times as
+  large as a JPEG (a WebP with transparency is still a PNG); JPEG thumbnails are saved at quality
+  82. Nothing to do: the thumbnails there are keep serving.
+
+### Fixed
+
+- **Thumbnails of photos taken with a phone were sideways.** A JPEG from a phone is stored as the
+  sensor saw it, with its metadata saying how to turn it, and thumbnails ignored it. They are turned
+  as the metadata says now. A thumbnail made before this keeps the way it was made: Settings →
+  Storage → *Clear thumbnails* makes them again as they are asked for.
+
+
 ## [2.7.0] - 2026-11-23
 
 **Automations, templates and safer hooks.** Automations of up to 20 steps that run on a schedule or when a record changes, email templates and signed webhooks, opt-in limits and guards for hook code, type definitions and a development mode, and experimental archives for macOS and Windows.

@@ -189,6 +189,12 @@ pub async fn middleware(State(app): State<Arc<App>>, request: Request, next: Nex
             h.append(header::VARY, HeaderValue::from_static("Origin"));
         }
         h.insert(header::ACCESS_CONTROL_ALLOW_ORIGIN, origin);
+        // what a script of another origin may read of a file's answer (the others are readable as
+        // they are): why a thumbnail wasn't made, and what a range request answers with
+        h.entry(header::ACCESS_CONTROL_EXPOSE_HEADERS)
+            .or_insert(HeaderValue::from_static(
+                "X-Thumb-Error, Content-Range, Accept-Ranges, Content-Disposition",
+            ));
     }
     if hsts {
         h.insert(

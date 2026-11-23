@@ -18,6 +18,7 @@ use axum::body::{Body, Bytes};
 use axum::extract::{FromRequest, Multipart, Path, Query, Request, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use image::DynamicImage;
 use serde_json::{Map, Value, json};
 
 use super::access::rule_sql;
@@ -681,8 +682,55 @@ impl ThumbSize {
     }
 }
 
+/// How far a source is reduced before the final resize: twice the size that resize needs, by
+/// averaging (fast). A photo of 48 megapixels was resized to a thumbnail by Lanczos alone in
+/// about 0.9 s; averaged down first and then resized, it takes about a tenth of that, and the
+/// result is as sharp, since the filter still has twice the pixels it needs.
+fn pre_shrink(img: DynamicImage, size: ThumbSize, swapped: bool) -> DynamicImage {
+    // the size the picture will have (a turned one has its sides swapped)
+    let (w, h) = if swapped {
+        (img.height(), img.width())
+    } else {
+        (img.width(), img.height())
+    };
+    let scale = match (size.width, size.height, size.crop) {
+        (0, ht, _) => ht as f64 / h as f64,
+        (wt, 0, _) => wt as f64 / w as f64,
+        (wt, ht, Crop::Fit) => f64::min(wt as f64 / w as f64, ht as f64 / h as f64),
+        (wt, ht, _) => f64::max(wt as f64 / w as f64, ht as f64 / h as f64),
+    };
+    let keep = scale * 2.0;
+    if keep >= 1.0 {
+        return img;
+    }
+    let nw = ((img.width() as f64 * keep).ceil() as u32).max(1);
+    let nh = ((img.height() as f64 * keep).ceil() as u32).max(1);
+    img.thumbnail_exact(nw, nh)
+}
+
+/// What a thumbnail is saved as, from what the picture was: a JPEG stays one, a GIF stays one
+/// (the first frame), a PNG stays one, and a WebP becomes a JPEG unless it has transparency
+/// (when it becomes a PNG): a photograph as a PNG is ten times as large, and a list of
+/// thumbnails is what a mobile client downloads.
+fn thumb_format(source: image::ImageFormat, thumb: &DynamicImage) -> image::ImageFormat {
+    use image::ImageFormat;
+    match source {
+        ImageFormat::Jpeg | ImageFormat::Gif => source,
+        ImageFormat::WebP
+            if !thumb.color().has_alpha() || thumb.to_rgba8().pixels().all(|p| p[3] == 255) =>
+        {
+            ImageFormat::Jpeg
+        }
+        _ => ImageFormat::Png,
+    }
+}
+
+/// The quality of a thumbnail saved as a JPEG: a visible detail at the size of a thumbnail
+/// costs little (a 100x100 one is about 2 KB).
+const THUMB_JPEG_QUALITY: u8 = 82;
+
 fn make_thumb(data: &[u8], size: ThumbSize) -> anyhow::Result<Vec<u8>> {
-    use image::{ImageFormat, ImageReader, Limits, imageops::FilterType};
+    use image::{ImageDecoder, ImageFormat, ImageReader, Limits, imageops::FilterType};
     use std::io::Cursor;
 
     let mut reader = ImageReader::new(Cursor::new(data)).with_guessed_format()?;
@@ -693,7 +741,19 @@ fn make_thumb(data: &[u8], size: ThumbSize) -> anyhow::Result<Vec<u8>> {
     limits.max_alloc = Some(256 << 20);
     reader.limits(limits);
     let format = reader.format().unwrap_or(ImageFormat::Png);
-    let img = reader.decode()?;
+    let mut decoder = reader.into_decoder()?;
+    // a photo from a phone is stored as the sensor saw it and says in its metadata how to turn it
+    let orientation = decoder
+        .orientation()
+        .unwrap_or(image::metadata::Orientation::NoTransforms);
+    let img = DynamicImage::from_decoder(decoder)?;
+    use image::metadata::Orientation as O;
+    let swapped = matches!(
+        orientation,
+        O::Rotate90 | O::Rotate270 | O::Rotate90FlipH | O::Rotate270FlipH
+    );
+    let mut img = pre_shrink(img, size, swapped);
+    img.apply_orientation(orientation);
     let (w, h) = (size.width, size.height);
 
     let thumb = match (w, h, size.crop) {
@@ -722,12 +782,15 @@ fn make_thumb(data: &[u8], size: ThumbSize) -> anyhow::Result<Vec<u8>> {
         }
     };
 
-    let out_format = match format {
-        ImageFormat::Jpeg | ImageFormat::Gif => format,
-        _ => ImageFormat::Png,
-    };
+    let out_format = thumb_format(format, &thumb);
     let mut out = Cursor::new(Vec::new());
-    thumb.write_to(&mut out, out_format)?;
+    if out_format == ImageFormat::Jpeg {
+        let encoder =
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, THUMB_JPEG_QUALITY);
+        thumb.to_rgb8().write_with_encoder(encoder)?;
+    } else {
+        thumb.write_to(&mut out, out_format)?;
+    }
     Ok(out.into_inner())
 }
 
@@ -884,25 +947,53 @@ pub async fn serve(
     let mut served_name = filename.clone();
     let mut thumb_error = Value::Null;
 
+    // why a thumbnail asked for was not served (the original is), for the client to read in
+    // `X-Thumb-Error`; the hooks get PocketBase's message
+    let mut thumb_reason: Option<String> = None;
     if let Some(thumb) = query.get("thumb").filter(|t| !t.is_empty()) {
-        // thumbnails off in the settings: the original, as for an unsupported size
-        let allowed = core.settings().files.thumbs
-            && matches!(&field.kind, FieldKind::File(o) if thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
-        if let (true, Some(size)) = (allowed, ThumbSize::parse(thumb)) {
-            if let Some(key) = ensure_thumb(
-                &core,
-                &owner_collection,
-                &owner_record,
-                &filename,
-                thumb,
-                size,
-            )
-            .await?
-            {
-                served_key = key;
-                served_name = format!("{thumb}_{filename}");
+        let declared = match &field.kind {
+            FieldKind::File(o) => Some(o),
+            _ => None,
+        };
+        let allowed = declared.is_some_and(|o| thumb == DEFAULT_THUMB || o.thumbs.contains(thumb));
+        thumb_reason = if !core.settings().files.thumbs {
+            Some("thumbnails are turned off in the settings".to_string())
+        } else if let Some(size) = ThumbSize::parse(thumb) {
+            if !allowed {
+                let mut sizes = vec![DEFAULT_THUMB.to_string()];
+                sizes.extend(
+                    declared
+                        .into_iter()
+                        .flat_map(|o| o.thumbs.iter().filter(|t| *t != DEFAULT_THUMB).cloned()),
+                );
+                Some(format!(
+                    "the size {thumb:?} is not one of this field's thumbs ({})",
+                    sizes.join(", ")
+                ))
+            } else {
+                match ensure_thumb(
+                    &core,
+                    &owner_collection,
+                    &owner_record,
+                    &filename,
+                    thumb,
+                    size,
+                )
+                .await?
+                {
+                    Ok(key) => {
+                        served_key = key;
+                        served_name = format!("{thumb}_{filename}");
+                        None
+                    }
+                    Err(reason) => Some(reason),
+                }
             }
-        }
+        } else {
+            Some(format!(
+                "{thumb:?} is not a size (like 100x100, 0x300 or 200x100t)"
+            ))
+        };
         if served_key == original_key {
             // PocketBase's message; the original file is served instead
             thumb_error = Value::String(format!(
@@ -970,7 +1061,7 @@ pub async fn serve(
         .is_some_and(|v| matches!(v.as_str(), "1" | "true" | "t"));
     if core.settings().s3.presigned_downloads {
         if let Some(client) = storage.s3_client() {
-            return presigned_redirect(
+            let mut response = presigned_redirect(
                 &storage,
                 client,
                 &served_key,
@@ -978,7 +1069,11 @@ pub async fn serve(
                 download,
                 protected,
             )
-            .await;
+            .await?;
+            if let Some(reason) = &thumb_reason {
+                set_thumb_error(response.headers_mut(), reason);
+            }
+            return Ok(response);
         }
     }
     // a single byte range (media players, resumed downloads); several ranges, or If-Range
@@ -1078,12 +1173,41 @@ pub async fn serve(
         "default-src 'none'; media-src 'self'; style-src 'unsafe-inline'; sandbox".into(),
     );
     set(headers, header::X_CONTENT_TYPE_OPTIONS, "nosniff".into());
+    // (an app on another site may show the file: it is readable to scripts by CORS already, and
+    // a page that isolates itself (COEP) refuses what doesn't say so)
+    set(
+        headers,
+        header::HeaderName::from_static("cross-origin-resource-policy"),
+        "cross-origin".into(),
+    );
+    if let Some(reason) = &thumb_reason {
+        set_thumb_error(headers, reason);
+    }
     set(
         headers,
         header::CACHE_CONTROL,
         cache_control(protected).into(),
     );
     Ok(response)
+}
+
+/// Says in `X-Thumb-Error` why the original is served for a thumbnail that was asked for (the
+/// status is `200` as PocketBase's is, so a client can't otherwise tell).
+fn set_thumb_error(headers: &mut axum::http::HeaderMap, reason: &str) {
+    // a header holds visible ASCII
+    let reason: String = reason
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !c.is_ascii_control() {
+                c
+            } else {
+                ' '
+            }
+        })
+        .collect();
+    if let Ok(v) = HeaderValue::from_str(&reason) {
+        headers.insert(header::HeaderName::from_static("x-thumb-error"), v);
+    }
 }
 
 /// `inline` for the types browsers may show ([`INLINE`]), unless a download was asked for.
@@ -1238,8 +1362,6 @@ fn file_field_with<'c>(c: &'c Collection, record: &Values, filename: &str) -> Op
     })
 }
 
-/// Returns the thumbnail's key, generating it on first use. `None` when the file
-/// isn't an image that can be thumbnailed.
 /// How many thumbnails may be generated at once: a few, by the number of CPUs.
 fn thumb_permits() -> &'static tokio::sync::Semaphore {
     static PERMITS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
@@ -1249,6 +1371,19 @@ fn thumb_permits() -> &'static tokio::sync::Semaphore {
     })
 }
 
+type Flights = std::sync::Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>;
+
+/// The thumbnails being made, by key: requests for one that is not there yet (a page of a
+/// client app asks for the same one many times at once) wait for the first to make it, instead
+/// of each decoding the same image.
+fn thumb_flights() -> &'static Flights {
+    static FLIGHTS: std::sync::OnceLock<Flights> = std::sync::OnceLock::new();
+    FLIGHTS.get_or_init(Default::default)
+}
+
+/// Returns the thumbnail's key, generating it on first use, or why there is none (a file that
+/// isn't an image of a type that can be resized, or one that can't be read): the original is
+/// served then.
 async fn ensure_thumb(
     core: &Core,
     collection_id: &str,
@@ -1256,7 +1391,7 @@ async fn ensure_thumb(
     filename: &str,
     raw_size: &str,
     size: ThumbSize,
-) -> Result<Option<String>, ApiError> {
+) -> Result<Result<String, String>, ApiError> {
     let key = thumb_key(collection_id, record_id, filename, raw_size);
     let exists = || async {
         core.storage()
@@ -1265,27 +1400,64 @@ async fn ensure_thumb(
             .map_err(ApiError::internal)
     };
     if exists().await? {
-        return Ok(Some(key));
+        return Ok(Ok(key));
+    }
+    let flight = thumb_flights()
+        .lock()
+        .expect("thumbnail flights lock")
+        .entry(key.clone())
+        .or_default()
+        .clone();
+    let made = {
+        let _turn = flight.lock().await;
+        make_missing_thumb(core, collection_id, record_id, filename, &key, size).await
+    };
+    {
+        // (the last one out takes the entry away)
+        let mut flights = thumb_flights().lock().expect("thumbnail flights lock");
+        if Arc::strong_count(&flight) <= 2 {
+            flights.remove(&key);
+        }
+    }
+    made
+}
+
+async fn make_missing_thumb(
+    core: &Core,
+    collection_id: &str,
+    record_id: &str,
+    filename: &str,
+    key: &str,
+    size: ThumbSize,
+) -> Result<Result<String, String>, ApiError> {
+    // another request may have made it while this one waited its turn
+    if core
+        .storage()
+        .exists(key)
+        .await
+        .map_err(ApiError::internal)?
+    {
+        return Ok(Ok(key.to_string()));
     }
     // decoding an image can take hundreds of megabytes: a few at a time, so parallel
-    // requests can't exhaust the memory, and each one first checks whether another made it
+    // requests can't exhaust the memory
     let _permit = thumb_permits()
         .acquire()
         .await
         .map_err(|e| ApiError::internal(e.into()))?;
-    if exists().await? {
-        return Ok(Some(key));
-    }
     let Some(original) = core
         .storage()
         .read(&file_key(collection_id, record_id, filename))
         .await
         .map_err(ApiError::internal)?
     else {
-        return Ok(None);
+        return Ok(Err("the file was not found".into()));
     };
-    if !THUMBABLE.contains(&detect_mime(&original, filename).as_str()) {
-        return Ok(None);
+    let mime = detect_mime(&original, filename);
+    if !THUMBABLE.contains(&mime.as_str()) {
+        return Ok(Err(format!(
+            "{mime} files can't be resized (PNG, JPEG, GIF and WebP images can)"
+        )));
     }
     let thumb = tokio::task::spawn_blocking(move || make_thumb(&original, size))
         .await
@@ -1293,15 +1465,15 @@ async fn ensure_thumb(
     match thumb {
         Ok(data) => {
             core.storage()
-                .put(&key, Bytes::from(data))
+                .put(key, Bytes::from(data))
                 .await
                 .map_err(ApiError::internal)?;
-            Ok(Some(key))
+            Ok(Ok(key.to_string()))
         }
         Err(err) => {
             // a corrupt or unsupported image: serve the original instead
             tracing::debug!(error = %format!("{err:#}"), "failed to create a thumbnail");
-            Ok(None)
+            Ok(Err("the image could not be decoded".into()))
         }
     }
 }
@@ -1565,5 +1737,154 @@ mod tests {
             assert_eq!((decoded.width(), decoded.height()), expected, "{raw}");
         }
         assert!(make_thumb(b"not an image", ThumbSize::parse("10x10").unwrap()).is_err());
+    }
+
+    /// A picture with a red box at its left (a landscape one), as bytes in `format`.
+    fn picture(width: u32, height: u32, format: image::ImageFormat, alpha: bool) -> Vec<u8> {
+        let mut img = image::RgbaImage::from_pixel(width, height, image::Rgba([20, 120, 220, 255]));
+        for y in 0..height / 4 {
+            for x in 0..width / 4 {
+                img.put_pixel(
+                    x,
+                    y,
+                    image::Rgba([255, 0, 0, if alpha { 128 } else { 255 }]),
+                );
+            }
+        }
+        let img = if alpha {
+            DynamicImage::ImageRgba8(img)
+        } else {
+            DynamicImage::ImageRgb8(DynamicImage::ImageRgba8(img).to_rgb8())
+        };
+        let mut out = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut out, format).unwrap();
+        out.into_inner()
+    }
+
+    /// `jpeg` with an EXIF orientation (1 to 8) after its start.
+    fn with_orientation(jpeg: &[u8], orientation: u16) -> Vec<u8> {
+        let mut exif = b"Exif\0\0MM\0\x2a\0\0\0\x08".to_vec();
+        exif.extend_from_slice(&[0, 1, 0x01, 0x12, 0, 3, 0, 0, 0, 1]);
+        exif.extend_from_slice(&orientation.to_be_bytes());
+        exif.extend_from_slice(&[0, 0, 0, 0, 0, 0]);
+        let mut out = jpeg[..2].to_vec();
+        out.extend_from_slice(&[0xff, 0xe1]);
+        out.extend_from_slice(&((exif.len() + 2) as u16).to_be_bytes());
+        out.extend_from_slice(&exif);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    fn red_at(img: &DynamicImage) -> (f64, f64) {
+        let rgb = img.to_rgb8();
+        let (mut xs, mut ys, mut n) = (0.0, 0.0, 0.0);
+        for (x, y, p) in rgb.enumerate_pixels() {
+            if p[0] > 200 && p[1] < 80 && p[2] < 80 {
+                xs += x as f64;
+                ys += y as f64;
+                n += 1.0;
+            }
+        }
+        assert!(n > 0.0, "no red in the thumbnail");
+        (xs / n / rgb.width() as f64, ys / n / rgb.height() as f64)
+    }
+
+    #[test]
+    fn a_photo_is_turned_as_its_metadata_says() {
+        let jpeg = picture(400, 200, image::ImageFormat::Jpeg, false);
+        let fit = ThumbSize::parse("100x100f").unwrap();
+        // not turned: landscape, the red box at the left and top
+        let plain = image::load_from_memory(&make_thumb(&jpeg, fit).unwrap()).unwrap();
+        assert_eq!((plain.width(), plain.height()), (100, 50));
+        let (x, y) = red_at(&plain);
+        assert!(x < 0.2 && y < 0.2, "{x} {y}");
+        // turned 90 degrees clockwise (what a phone held upright writes): portrait, the box at the
+        // top right
+        let turned =
+            image::load_from_memory(&make_thumb(&with_orientation(&jpeg, 6), fit).unwrap())
+                .unwrap();
+        assert_eq!((turned.width(), turned.height()), (50, 100));
+        let (x, y) = red_at(&turned);
+        assert!(x > 0.8 && y < 0.2, "{x} {y}");
+        // the box that is cropped to is the turned picture's, not the stored one's
+        let square = ThumbSize::parse("100x100").unwrap();
+        let cropped =
+            image::load_from_memory(&make_thumb(&with_orientation(&jpeg, 6), square).unwrap())
+                .unwrap();
+        assert_eq!((cropped.width(), cropped.height()), (100, 100));
+        // the other turns and flips give a portrait or a landscape as they should
+        for (orientation, portrait) in [
+            (1, false),
+            (2, false),
+            (3, false),
+            (5, true),
+            (6, true),
+            (7, true),
+            (8, true),
+        ] {
+            let out = image::load_from_memory(
+                &make_thumb(&with_orientation(&jpeg, orientation), fit).unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                out.height() > out.width(),
+                portrait,
+                "orientation {orientation}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_thumbnail_is_saved_as_a_small_file_of_the_kind_of_its_picture() {
+        let magic = |bytes: &[u8]| match bytes {
+            [0xff, 0xd8, ..] => "jpeg",
+            [0x89, b'P', b'N', b'G', ..] => "png",
+            [b'G', b'I', b'F', ..] => "gif",
+            _ => "other",
+        };
+        let size = ThumbSize::parse("100x100").unwrap();
+        for (source, alpha, expected) in [
+            (image::ImageFormat::Jpeg, false, "jpeg"),
+            (image::ImageFormat::Png, false, "png"),
+            (image::ImageFormat::Png, true, "png"),
+            (image::ImageFormat::Gif, false, "gif"),
+            // a WebP photograph is a JPEG, a WebP with transparency a PNG
+            (image::ImageFormat::WebP, false, "jpeg"),
+            (image::ImageFormat::WebP, true, "png"),
+        ] {
+            let out = make_thumb(&picture(300, 200, source, alpha), size).unwrap();
+            assert_eq!(magic(&out), expected, "{source:?} alpha {alpha}");
+            assert_eq!(
+                image::load_from_memory(&out).unwrap().width(),
+                100,
+                "{source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_large_picture_is_reduced_before_it_is_resized_with_the_same_result_size() {
+        let png = picture(2400, 1600, image::ImageFormat::Png, false);
+        for (raw, expected) in [
+            ("100x100", (100, 100)),
+            ("100x100b", (100, 100)),
+            ("300x200f", (300, 200)),
+            ("0x120", (180, 120)),
+            ("90x0", (90, 60)),
+            // as large as the picture or larger: not reduced first
+            ("2400x1600f", (2400, 1600)),
+            ("3000x2000", (3000, 2000)),
+        ] {
+            let out = make_thumb(&png, ThumbSize::parse(raw).unwrap()).unwrap();
+            let decoded = image::load_from_memory(&out).unwrap();
+            assert_eq!((decoded.width(), decoded.height()), expected, "{raw}");
+        }
+        // the red box (a quarter of each side) is where it was
+        let out = make_thumb(&png, ThumbSize::parse("120x80f").unwrap()).unwrap();
+        let (x, y) = red_at(&image::load_from_memory(&out).unwrap());
+        assert!(
+            (x - 0.125).abs() < 0.03 && (y - 0.125).abs() < 0.03,
+            "{x} {y}"
+        );
     }
 }

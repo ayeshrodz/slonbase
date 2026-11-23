@@ -551,9 +551,14 @@ between text formats, so a text file named `x.png` is rejected by an `image/png`
 - Public files are cached for 30 days.
 - Protected files need a file token (`POST /api/files/token`, a separate token type) and the
   record's `viewRule`. They're served with `private, no-store`.
-- Thumbnails are allowed for `100x100` and the field's `thumbs` sizes only. They're generated
-  once, off the async threads, with decoding limits (12,000 px, 256 MiB) against decompression
-  bombs.
+- Thumbnails are allowed for `100x100` and the field's `thumbs` sizes only (any other size is
+  answered with the original and `X-Thumb-Error`, as PocketBase's `200` with the original). They're
+  generated once, off the async threads, with decoding limits (12,000 px, 256 MiB) against
+  decompression bombs; a few at a time (by the CPUs), and one request makes a thumbnail that
+  many ask for. A picture is reduced by averaging to twice the size the final filter needs (a
+  48-megapixel photo took 1.3 s, with Lanczos alone, and takes 0.4 s) and turned as its EXIF
+  orientation says; a JPEG, GIF or PNG keeps its type and a WebP becomes a JPEG (a PNG with
+  transparency).
 
 Single byte ranges (`Range: bytes=a-b`, `a-`, `-n`) are answered with `206` (seeking on disk,
 a `Range` GET on S3), with the type sniffed from the file's start like a full response; several
