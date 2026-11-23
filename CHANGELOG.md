@@ -8,30 +8,9 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
-### Added
+**Automations, templates and safer hooks.** Automations of up to 20 steps that run on a schedule or when a record changes, email templates and signed webhooks, opt-in limits and guards for hook code, type definitions and a development mode, and experimental archives for macOS and Windows.
 
-- **Experimental archives for macOS (Apple silicon) and Windows (x64).** Releases from 2.7.0 (and
-  candidates after 2.7.0-rc.4) carry `slonbase-<version>-macos-arm64.tar.gz` and
-  `slonbase-<version>-windows-amd64.zip`, listed in `SHA256SUMS` and attested like the Linux
-  files. They are not signed: the [installation guide](docs/installation.md#macos) says what
-  each system asks and how to check a download. Each archive is unpacked and used (set up, sign
-  in, a collection with a file, a hook, the dashboard) before it is published, and the test
-  suite runs on both systems every week; a failure of these builds never holds back a release.
-  What differs on Windows: no free disk space on the storage page, no `0600` mode on the config
-  file, and no Unix sockets for PostgreSQL.
-- **What a project costs, measured.** [projects](docs/projects.md#what-a-project-costs) lists the
-  memory, threads and database connections of 1 to 50 projects, with and without hooks, and how
-  long a cascading delete and a batch take, with the scripts in `bench/` that produced them.
-- **`systemctl status` shows when slonbase is waiting for the database.** After the fifth failed
-  attempt to connect at start, the service's status line says `database not ready` with the
-  target it tries (never the password) and the last error, and clears when it connects. The
-  packaged unit sets `NotifyAccess=main` for it; nothing else about the service changes. A
-  drop-in to start a local PostgreSQL together with slonbase is described in
-  [deployment](docs/deployment.md#systemd).
-- **OAuth2 providers with plain `http://` URLs are listed in the warnings** (`oauth2PlainHttp`),
-  and `extra.httpsOnly` (`true`) makes any provider refuse a redirect from `https://` to
-  `http://` on its token, key set and user requests. Off unless set: providers keep following
-  redirects as before.
+### Added
 
 - **Automations.** A schedule with up to 20 steps, where each step can use what the steps before
   it produced: find records, continue only if something holds, send an email template (once, or
@@ -45,6 +24,7 @@ changes, listed in its **Upgrading** section.
     sent is not sent again (unless the server stops, or the database can't be written, in the
     instant between sending it and noting it).
   - The history shows what each step came to in numbers, never what was read.
+
 - **Email templates.** Emails written once (a subject and an HTML body in Jinja syntax) and sent
   by automations with the data of each run, under Automations, Templates: an editor with a live
   preview against sample data, and a test send. Values are escaped, and the body is put in the
@@ -57,66 +37,108 @@ changes, listed in its **Upgrading** section.
   change starts each automation once, also across instances and restarts; a change an
   automation makes doesn't start it again, and a chain of automations is at most three long.
   See [automations](docs/automations.md#when-a-record-changes).
+
 - **Signed webhooks.** A "Send a signed webhook" step posts JSON to an `https://` address with a
   [Standard Webhooks](https://www.standardwebhooks.com/) signature (`webhook-id`,
   `webhook-timestamp`, `webhook-signature`), so its receiver can verify it. The secret is made
   by the server and shown once; replacing it keeps the old one signing for 24 hours. The webhook
   for failure notices is signed the same way when it is `https://`.
+
 - **Functions of hook files as steps.** `automationStep("name", (input, context) => …)` in a
   hook file registers a function that a "Run a hook function" step runs; what it returns is the
   step's result.
+
 - **Templates sent through the API and from code.** `POST /api/templates/{id}/send` (developers,
   admins and owners; API keys work) queues a template to up to 10 addresses, with an
   `Idempotency-Key` and a limit of 100 emails a minute per caller; `$templates.send(id, to,
   data)` does it from a hook file.
+
 - **Settings pages for extensions.** `settingsAdd(name, { title, fields })` in a hook file
   declares a form the dashboard draws under Settings, Extensions. The values are stored with
   the settings (encrypted with them, in backups, the same on every instance) and read with
   `$app.settings().ext(name)`.
+
 - **Type definitions.** `slonbase types` writes `types.d.ts` with the hook API and a type for
   the records of each collection, for completion and checks in an editor.
+
 - **Development mode.** `--dev` keeps `types.d.ts` up to date, logs the SQL that runs, tells
   superusers the details of errors and shows a banner in the dashboard. Not for production.
+
 - **Extensions page.** Settings, Extensions shows what the instance has loaded: the hook files
   with their handlers and routes, the cron jobs registered by code, the kinds of background jobs
   its workers run and the sections of the settings (`GET /api/extensions`, developers and up).
+
 - **Configuration warnings.** Settings that are valid and allowed, and need something more to
   be safe, now show as checks on the Health page (and in `GET /api/settings/warnings`, and in
   the log at start): `trustedProxy.headers` without `trustedProxy.peers`, an OpenID Connect
   provider without `extra.jwksURL`, and an empty `manageRule`, `updateRule` or `deleteRule` on
   a collection that holds user accounts. Nothing changes in what slonbase does.
+
 - **`extra.requireSignature` for OpenID Connect providers.** With it set to `true`, a provider
   without `extra.jwksURL` is refused when saved and when a token arrives, so an `id_token` is
   never trusted without its signature being checked. Providers without it behave as before.
+
 - **Account lockout across addresses (opt-in).** `security.loginLockout.accountAttempts` (0, off,
   by default) also counts an account's failed password sign-ins from every address together, so
   a guesser who changes address for each try gets locked out too. Superusers are never locked
   out this way. It is off for existing installations, whose lockout is unchanged.
+
 - **Guarded network calls from hooks (opt-in).** `hooks.guard_http = true` refuses what
   `$http.send` and `$filesystem.fileFromURL` would send to this server or to a private network,
   also through redirects, except to the hosts in `hooks.allow_hosts`. Off by default, so hooks
   that call internal services are unchanged.
+
 - **A bounded wait for database reads from hooks (opt-in).** `hooks.db_wait_seconds` makes a
   read from a hook that waits (for a row lock, say) fail in the hook after that many seconds,
   instead of holding its JavaScript runtime. Writes are bounded by `database.statement_timeout`.
   Off by default.
+
 - **A longer encryption key derives a key per value (opt-in).** A `server.encryption_key` of
   more than 32 characters (`openssl rand -base64 48`) is no longer the AES key itself: each value
   is sealed under its own key, derived with HKDF-SHA256 and a random salt. A key of exactly 32
   characters keeps PocketBase's scheme, unchanged. `slonbase rekey --to <key>` moves an
   installation between the two and rotates the key.
+
 - **Stored templates and automations are checked again.** One that would not be saved under
   today's rules (a stricter limit, a renamed collection or field) is listed on the Health page
   and in `GET /api/settings/warnings`, with what fails, instead of only failing when it runs.
   The check runs at start and when the settings or the collections change, and changes
   nothing.
+
 - **Read-only files for hooks (opt-in), for server-rendered pages.** With `hooks.files_dir` set,
   hooks can use `$os.readFile`, `$os.dirFS`, `e.fileFS` and `$filepath` (`join`, `dir`, `base`,
   `ext`, `toSlash`, `walkDir`, `glob`, ...), the APIs frameworks such as
   [PocketPages](https://github.com/benallfree/pocketpages) use. Reads stay inside that directory
   (`..` and links that lead out are refused); without the setting the calls fail and nothing
   else changes.
+
 - **Hook code without a time or memory limit is reported (#107):** an installation that has hook files and neither `hooks.timeout_seconds` nor `hooks.memory_limit_mb` set (for example one whose database URL is fixed by a flag or an environment variable, so setup writes no configuration file) now lists "Hook code runs without a time or memory limit" in `GET /api/settings/warnings` and the dashboard, next to the startup log message. Nothing changes for an installation that sets either limit.
+
+- **Experimental archives for macOS (Apple silicon) and Windows (x64).** Releases from 2.7.0 (and
+  candidates after 2.7.0-rc.4) carry `slonbase-<version>-macos-arm64.tar.gz` and
+  `slonbase-<version>-windows-amd64.zip`, listed in `SHA256SUMS` and attested like the Linux
+  files. They are not signed: the [installation guide](docs/installation.md#macos) says what
+  each system asks and how to check a download. Each archive is unpacked and used (set up, sign
+  in, a collection with a file, a hook, the dashboard) before it is published, and the test
+  suite runs on both systems every week; a failure of these builds never holds back a release.
+  What differs on Windows: no free disk space on the storage page, no `0600` mode on the config
+  file, and no Unix sockets for PostgreSQL.
+
+- **What a project costs, measured.** [projects](docs/projects.md#what-a-project-costs) lists the
+  memory, threads and database connections of 1 to 50 projects, with and without hooks, and how
+  long a cascading delete and a batch take, with the scripts in `bench/` that produced them.
+
+- **`systemctl status` shows when slonbase is waiting for the database.** After the fifth failed
+  attempt to connect at start, the service's status line says `database not ready` with the
+  target it tries (never the password) and the last error, and clears when it connects. The
+  packaged unit sets `NotifyAccess=main` for it; nothing else about the service changes. A
+  drop-in to start a local PostgreSQL together with slonbase is described in
+  [deployment](docs/deployment.md#systemd).
+
+- **OAuth2 providers with plain `http://` URLs are listed in the warnings** (`oauth2PlainHttp`),
+  and `extra.httpsOnly` (`true`) makes any provider refuse a redirect from `https://` to
+  `http://` on its token, key set and user requests. Off unless set: providers keep following
+  redirects as before.
 
 ### Changed
 
