@@ -47,7 +47,7 @@ export function CollectionTree({ active, onNavigate }) {
   };
   // opening a collection (from a card, a link, the palette) shows where it is
   useEffect(() => {
-    const open = collections.find((c) => c.name === active);
+    const open = collections.find((c) => c.name === active || c.id === active);
     if (!open) return;
     const group = open.system ? "system" : open.type === "auth" ? "auth" : "general";
     setClosed((now) => (now[group] ? { ...now, [group]: false } : now));
@@ -82,8 +82,8 @@ export function CollectionTree({ active, onNavigate }) {
             ${g.items.map(
               (c) => html`<a
                 href=${"#/data/" + enc(c.name)}
-                class=${cx("coll-item", { on: c.name === active })}
-                aria-current=${c.name === active ? "page" : undefined}
+                class=${cx("coll-item", { on: c.name === active || c.id === active })}
+                aria-current=${c.name === active || c.id === active ? "page" : undefined}
                 data-tip=${c.name}
                 onClick=${onNavigate}
               >

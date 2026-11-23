@@ -92,11 +92,12 @@ export function DataOverview({ onNew }) {
     </div>
     ${!loaded
       ? html`<div class="coll-grid">${[0, 1, 2, 3].map(() => html`<${Skeleton} height=${118} />`)}</div>`
-      : user.length === 0 && !q
-      ? html`<${Empty} icon="data" title="Create your first collection" action=${!locked && html`<${Button} variant="primary" icon="plus" onClick=${onNew}>New collection</${Button}>`}>
-          Collections are tables with an API: fields, validation and access rules.
-        </${Empty}>`
       : html`
+          ${user.length === 0 &&
+          !q &&
+          html`<${Empty} icon="data" title="Create your first collection" action=${!locked && html`<${Button} variant="primary" icon="plus" onClick=${onNew}>New collection</${Button}>`}>
+            Collections are tables with an API: fields, validation and access rules.
+          </${Empty}>`}
           ${collections.length > 6 &&
           html`<label class="tree-filter coll-search">
             <${Icon} name="search" size=${14} />
