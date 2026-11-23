@@ -2161,6 +2161,7 @@ table.grid .col-actions {
 }
 .sheet-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   padding: 12px 20px;
