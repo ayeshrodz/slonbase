@@ -200,10 +200,10 @@ export function CommandCenter({ onCreate, onDelete, onHosts, version }) {
     <div class="cc-tiles">
       <${Tile} label="Installations" value=${data ? `${ready}/${items.length}` : null} sub=${data && `${plural(projects.length, "project")} · ${plural(servers, "server")}`} tone=${ready < items.length ? "warn" : "ok"} />
       <${Tile} label="Requests, 24h" value=${data && num(sum(items, (i) => i.traffic && i.traffic.requests))} sub=${data && `${num(Math.round(sum(items, lastMinute)))}/min now`} />
-      <${Tile} label="Server errors, 24h" value=${data && num(sum(items, (i) => i.traffic && i.traffic.errors))} tone=${sum(items, (i) => i.traffic && i.traffic.errors) ? "danger" : ""} sub=${data && `${items.filter((i) => i.traffic && i.traffic.errors).length} with errors`} />
+      <${Tile} label="Errors, 24h" value=${data && num(sum(items, (i) => i.traffic && i.traffic.errors))} tone=${sum(items, (i) => i.traffic && i.traffic.errors) ? "danger" : ""} sub=${data && `${items.filter((i) => i.traffic && i.traffic.errors).length} with errors`} />
       <${Tile} label="Slowest p95" value=${slowest ? ms(slowest.traffic.p95Ms) : data && "—"} sub=${slowest && slowest.name} />
       <${Tile} label="Data" value=${data && bytes(sum(items, (i) => i.db && i.db.sizeBytes))} sub=${data && `${num(sum(items, (i) => i.records))} records`} />
-      <${Tile} label="Realtime" value=${data && num(sum(items, (i) => i.realtimeClients))} sub="clients connected" />
+      <${Tile} label="Realtime" value=${data && num(sum(items, (i) => i.realtimeClients))} sub="clients on this instance" />
     </div>
 
     <div class="cc-overview">
@@ -451,7 +451,7 @@ function Drawer({ item, onClose, onHosts, onDelete, onChanged }) {
           <div class="cc-drawer-stats">
             <div><span class="metric-label">Req/min</span><b>${t ? num(Math.round(lastMinute(item))) : "—"}</b></div>
             <div><span class="metric-label">Requests 24h</span><b>${t ? num(t.requests) : "—"}</b></div>
-            <div><span class="metric-label">Server errors</span><b class=${cx({ "cc-bad": t && t.errors })}>${t ? num(t.errors) : "—"}</b></div>
+            <div><span class="metric-label">Errors, 24h</span><b class=${cx({ "cc-bad": t && t.errors })}>${t ? num(t.errors) : "—"}</b></div>
             <div><span class="metric-label">Avg · p95</span><b>${t ? `${ms(t.avgMs)} · ${ms(t.p95Ms)}` : "—"}</b></div>
           </div>
           ${t &&
@@ -467,7 +467,7 @@ function Drawer({ item, onClose, onHosts, onDelete, onChanged }) {
             <dt>Database size</dt><dd>${item.db ? bytes(item.db.sizeBytes) : "—"}</dd>
             <dt>Round trip</dt><dd>${item.db ? ms(item.db.latencyMs) : "—"}</dd>
             <dt>Connections</dt><dd>${item.pool ? `${item.pool.inUse} in use, ${item.pool.size} open, ${item.pool.max} at most` : "—"}</dd>
-            <dt>Realtime</dt><dd>${plural(item.realtimeClients || 0, "client")}</dd>
+            <dt>Realtime (this instance)</dt><dd>${plural(item.realtimeClients || 0, "client")}</dd>
           </dl>
           <div class="stack tight"><span class="section-title">Configuration</span><${ConfigChips} config=${item.config} /></div>
         </div>`}

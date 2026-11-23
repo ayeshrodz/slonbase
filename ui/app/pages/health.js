@@ -138,7 +138,7 @@ export function Health() {
       <${Tile} i=${2} label="Memory (this instance)" icon="server" color="var(--tone-8)" value=${status.instance.memoryBytes ? bytes(status.instance.memoryBytes) : "—"} sub=${`${status.instance.realtimeClients} realtime ${status.instance.realtimeClients === 1 ? "client" : "clients"}`}>
         <${Sparkline} values=${h.memory} />
       </${Tile}>
-      <${Tile} i=${3} label="Last 24 hours" icon="chart" color=${status.logs.errors24h ? "var(--danger)" : "var(--tone-3)"} value=${status.logs.requests24h.toLocaleString() + " requests"} sub=${`${plural(status.logs.errors24h, "error")} · ${plural(status.logs.warnings24h, "warning")}`} />
+      <${Tile} i=${3} label="Requests, last 24 hours" icon="chart" color=${status.logs.errors24h ? "var(--danger)" : "var(--tone-3)"} value=${status.logs.requests24h.toLocaleString() + " requests"} sub=${`${plural(status.logs.errors24h, "error")} · ${plural(status.logs.warnings24h, "warning")}`} />
     </div>
 
     <div class="split-2-1" style="margin-bottom:18px">

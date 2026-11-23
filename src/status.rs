@@ -42,12 +42,14 @@ pub async fn status(
     let mut checks = Vec::new();
 
     // the database: a round trip, its version and size, the pool
-    let started = Instant::now();
     let client = core
         .db()
         .get()
         .await
         .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    // the round trip of a query on a connection in hand: waiting for a free one is not part of
+    // it (the pool's own figures, and its check, say that)
+    let started = Instant::now();
     client.simple_query("SELECT 1").await.map_err(db_error)?;
     let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
     let row = client
@@ -78,7 +80,7 @@ pub async fn status(
         .collect();
     let logs = client
         .query_one(
-            "SELECT count(*) FILTER (WHERE data->>'type' = 'request'),
+            "SELECT
                     -- errors that need looking at: a request that failed on the server (5xx), or an
                     -- error outside requests (hooks, crons, mail). A 401 or 403 is logged at the
                     -- error level too (PocketBase's format), but it's the client's, not the server's.
@@ -91,7 +93,13 @@ pub async fn status(
         )
         .await
         .map_err(db_error)?;
-    let (requests, errors, warnings): (i64, i64, i64) = (logs.get(0), logs.get(1), logs.get(2));
+    let (errors, warnings): (i64, i64) = (logs.get(0), logs.get(1));
+    // requests are the ones the server answered, not the dashboard's own calls to show itself;
+    // the total is the sum of the hours, read once, so the two always agree
+    let requests_per_hour = crate::logs::counted_requests_by_period(&client, 3600, 24)
+        .await
+        .map_err(ApiError::internal)?;
+    let requests: i64 = requests_per_hour.iter().sum();
     // every client of the server, not only this instance's: what the server's limit is spent on
     let connections = client
         .query_one(
@@ -137,6 +145,41 @@ pub async fn status(
             "Request logging is off",
             "Requests aren't logged, so the overview and the logs show nothing about traffic. Turn it on by keeping logs for at least a day.",
             "#/settings/logs",
+        ));
+    }
+    // what the request figures leave out, when the settings say so
+    let log_settings = core.settings().logs.clone();
+    let mut partial = Vec::new();
+    if log_settings.min_level > 0 {
+        partial.push(
+            "only requests that failed or were slow are kept (the minimum level is above info)",
+        );
+    }
+    if !log_settings.exclude_paths.is_empty() {
+        partial.push("requests to the paths Settings → Logs leaves out are not kept");
+    }
+    let partial = if logs_off {
+        String::new()
+    } else {
+        partial.join("; ")
+    };
+    if !partial.is_empty() {
+        checks.push(check(
+            "logging-partial",
+            "info",
+            "Not every request is counted",
+            format!("The request figures count what is logged: {partial}."),
+            "#/settings/logs",
+        ));
+    }
+    let dropped = core.logs.dropped();
+    if dropped > 0 {
+        checks.push(check(
+            "logging-dropped",
+            "warn",
+            "Some log entries were dropped",
+            format!("{dropped} log entries were dropped since this instance started, because they came faster than the database took them, so the request and error figures may be incomplete. Check that the database is not slow or down."),
+            "#/health",
         ));
     }
     if pool.waiting > 0 {
@@ -446,7 +489,7 @@ pub async fn status(
         .as_secs();
     let started_at: chrono::DateTime<chrono::Utc> = started.into();
     Ok(Json(json!({
-        "logging": { "enabled": !logs_off },
+        "logging": { "enabled": !logs_off, "partial": partial, "dropped": dropped },
         "version": env!("CARGO_PKG_VERSION"),
         "startedAt": crate::datetime::format(&started_at),
         "uptimeSeconds": uptime,
@@ -474,7 +517,7 @@ pub async fn status(
             "schedule": settings.backups.cron,
             "inS3": backups_in_s3,
         },
-        "logs": { "requests24h": requests, "errors24h": errors, "warnings24h": warnings },
+        "logs": { "requests24h": requests, "requestsPerHour": requests_per_hour, "errors24h": errors, "warnings24h": warnings },
         "checks": checks,
     })))
 }

@@ -187,7 +187,9 @@ the main one included, updated every 5 seconds (it pauses while the tab is hidde
 **Live**):
 
 - **Fleet totals:** installations running, requests in the last 24 hours and per minute now,
-  server errors, the slowest p95 latency, data size and records, realtime clients.
+  errors, the slowest p95 latency, data size and records, realtime clients. Requests are those
+  the server answered, not the dashboard's own calls, and records leave out the system
+  collections; see [what the dashboard's figures count](configuration.md#what-the-dashboards-figures-count).
 - **Requests per minute** over the last hour, one line per installation (click a name to hide
   it), and how traffic, storage and records divide between them.
 - **A card per installation** (or a sortable table): status, server and database, a sparkline
