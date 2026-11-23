@@ -1405,7 +1405,11 @@ async fn ensure_thumb(
     // (dropped when this request is done or gone: a client that disconnects drops the request
     // wherever it is waiting)
     let entry = FlightEntry::join(&key);
-    let _turn = entry.flight.lock().await;
+    let flight = entry
+        .flight
+        .as_ref()
+        .expect("held until the entry is dropped");
+    let _turn = flight.lock().await;
     make_missing_thumb(core, collection_id, record_id, filename, &key, size).await
 }
 
@@ -1413,7 +1417,7 @@ async fn ensure_thumb(
 /// last request that waits for it is done with it, or dropped.
 struct FlightEntry {
     key: String,
-    flight: Arc<tokio::sync::Mutex<()>>,
+    flight: Option<Arc<tokio::sync::Mutex<()>>>,
 }
 
 impl FlightEntry {
@@ -1426,7 +1430,7 @@ impl FlightEntry {
             .clone();
         Self {
             key: key.to_string(),
-            flight,
+            flight: Some(flight),
         }
     }
 }
@@ -1434,8 +1438,14 @@ impl FlightEntry {
 impl Drop for FlightEntry {
     fn drop(&mut self) {
         let mut flights = thumb_flights().lock().unwrap_or_else(|e| e.into_inner());
-        // (the map's copy and this one: no other request waits)
-        if Arc::strong_count(&self.flight) <= 2 {
+        // This request's reference goes while the map is locked, so requests finishing together
+        // cannot each see the other's reference and leave the entry behind.
+        drop(self.flight.take());
+        // Only the map's copy left: no other request waits.
+        if flights
+            .get(&self.key)
+            .is_some_and(|flight| Arc::strong_count(flight) == 1)
+        {
             flights.remove(&self.key);
         }
     }
