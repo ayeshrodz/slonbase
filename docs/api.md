@@ -269,6 +269,9 @@ JPEG, GIF or WebP image. For a client app:
   size. For any other size the answer is `200` with the **original** file, as PocketBase's is, and
   the header `X-Thumb-Error` says why (for example `the size "64x64" is not one of this field's
   thumbs (100x100, 300x200)`). Check for the header when a thumbnail looks too large; scripts of another origin may read it.
+  With `s3.presigned_downloads` on, the answer is a redirect to the bucket and the header is on
+  that redirect only (a browser follows it without showing it), so check it with `redirect:
+  "manual"`, or leave the setting off for thumbnails you need explained.
 - **Sizes:** `WxH` fills the box and crops the middle, with `t` (top), `b` (bottom) or `f` (fits
   inside, no crop) after it; `0xH` and `Wx0` keep the proportions. At most 4000 pixels a side.
 - **What comes out:** a JPEG stays a JPEG, a GIF a (still) GIF, a PNG a PNG, and a WebP a JPEG,
@@ -285,7 +288,8 @@ JPEG, GIF or WebP image. For a client app:
   stale-while-revalidate=86400` (protected ones with `private, no-store`), `Access-Control-Allow-Origin`
   and `Cross-Origin-Resource-Policy: cross-origin`, so an app on another origin can show them, also
   from a page that isolates itself. A file's name changes with its content, so a cached copy
-  is never stale.
+  of the file is never stale. A thumbnail keeps its URL when *Clear thumbnails* makes it again,
+  so a cached one can show the previous image for up to 30 days.
 - A thumbnail is deleted with its file. To make them again (after changing how they are made), use
   Settings → Storage → *Clear thumbnails*; they are generated again as they are asked for.
 
