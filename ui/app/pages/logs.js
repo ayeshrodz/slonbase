@@ -18,11 +18,12 @@ function Chart({ filter }) {
   }, [filter]);
   if (!stats) return html`<${Skeleton} height=${120} />`;
   const map = new Map(stats.map((s) => [parseDate(s.date).getTime(), s.total]));
-  const now = new Date();
-  now.setMinutes(0, 0, 0);
+  // the server groups by hour in UTC, so the bars start on UTC hours (a local hour is not one in
+  // a time zone that is off by half an hour)
+  const thisHour = Math.floor(Date.now() / 3600000) * 3600000;
   const hours = [];
   for (let i = 47; i >= 0; i--) {
-    const t = now.getTime() - i * 3600000;
+    const t = thisHour - i * 3600000;
     hours.push({ t, total: map.get(t) || 0 });
   }
   const max = Math.max(1, ...hours.map((h) => h.total));

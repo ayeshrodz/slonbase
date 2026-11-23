@@ -172,6 +172,10 @@ fn app_router(app: Arc<App>) -> Router {
             get(collections::api::scaffolds),
         )
         .route(
+            "/api/collections/meta/counts",
+            get(collections::api::counts),
+        )
+        .route(
             "/api/collections/meta/dry-run-view",
             post(collections::api::dry_run_view),
         )

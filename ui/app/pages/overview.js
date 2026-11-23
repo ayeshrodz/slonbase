@@ -4,7 +4,11 @@ import { api, qs, enc, session, BASE } from "../lib/api.js";
 import { app } from "../lib/state.js";
 import { Icon } from "../lib/icons.js";
 import { Button, CollectionGlyph, CopyButton, CountUp, Skeleton } from "../lib/ui.js";
-import { parseDate, plural, relativeTime } from "../lib/format.js";
+import { plural, relativeTime } from "../lib/format.js";
+
+// the errors that need looking at, as the Health page counts them: a request the server failed
+// (5xx), or an error outside requests (a hook, a job, an email); a 401 or 403 is the caller's
+const ERRORS = "level >= 8 && (data.type != 'request' || data.status >= 500)";
 
 function greeting() {
   const h = new Date().getHours();
@@ -15,35 +19,30 @@ export function Overview() {
   const collections = useStore(app, (s) => s.collections);
   const loaded = useStore(app, (s) => s.collectionsLoaded);
   const [counts, setCounts] = useState({});
-  const [stats, setStats] = useState(null);
-  const [errors, setErrors] = useState(null);
+  const [estimated, setEstimated] = useState([]);
   const [backups, setBackups] = useState(null);
   const [status, setStatus] = useState(null);
   const [filter, setFilter] = useState("");
   // request logging off: the request figures would be zeros that mean nothing
   const logsOff = !!status && status.logging && status.logging.enabled === false;
 
+  // the request figures come with the status (the Health page's too), so both agree
   useEffect(() => {
-    api.get("/api/logs/stats" + qs({ filter: "data.type = 'request'" })).then(setStats).catch(() => setStats([]));
-    api
-      .get("/api/logs" + qs({ perPage: 1, filter: `data.status >= 500 && created >= '${new Date(Date.now() - 86400000).toISOString().replace("T", " ")}'` }))
-      .then((r) => setErrors(r.totalItems))
-      .catch(() => setErrors(0));
     api.get("/api/backups").then(setBackups).catch(() => setBackups([]));
     api.get("/api/system/status").then(setStatus).catch(() => {});
   }, []);
 
+  // the records of every collection, counted in one request
   useEffect(() => {
     let live = true;
-    const visible = collections.filter((c) => c.type !== "view").slice(0, 40);
-    Promise.all(
-      visible.map((c) =>
-        api
-          .get(`/api/collections/${enc(c.name)}/records` + qs({ perPage: 1, fields: "id" }))
-          .then((r) => [c.id, r.totalItems])
-          .catch(() => [c.id, null])
-      )
-    ).then((pairs) => live && setCounts(Object.fromEntries(pairs)));
+    api
+      .get("/api/collections/meta/counts")
+      .then((r) => {
+        if (!live) return;
+        setCounts(r.counts || {});
+        setEstimated(r.estimated || []);
+      })
+      .catch(() => live && setCounts({}));
     return () => {
       live = false;
     };
@@ -53,9 +52,13 @@ export function Overview() {
   const totalRecords = Object.entries(counts)
     .filter(([id]) => user.some((c) => c.id === id))
     .reduce((sum, [, n]) => sum + (n || 0), 0);
-  const hourly = buildHours(stats || []);
-  const requests = hourly.reduce((s, h) => s + h.total, 0);
+  const someEstimated = user.some((c) => estimated.includes(c.id));
+  const hourly = buildHours(status ? status.logs.requestsPerHour : []);
+  const requests = status ? status.logs.requests24h : 0;
   const max = Math.max(1, ...hourly.map((h) => h.total));
+  const errors = status ? status.logs.errors24h : null;
+  const partial = status && status.logging ? status.logging.partial : "";
+  const countsLoaded = Object.keys(counts).length > 0 || (loaded && !user.length);
   const lastBackup = backups && backups.length ? backups.slice().sort((a, b) => (a.modified < b.modified ? 1 : -1))[0] : null;
   const name = (session.record && session.record.email || "").split("@")[0];
 
@@ -80,25 +83,26 @@ export function Overview() {
       <div class="hero-chart">
         <div class="row hero-chart-head">
           <div>
-            <div class="small muted">Requests, last 24 hours</div>
-            <div class="hero-total">${stats === null || status === null ? html`<${Skeleton} width="80px" height=${30} />` : logsOff ? html`<span class="muted">Not logged</span>` : html`<${CountUp} value=${requests} />`}</div>
+            <div class="small muted" title="Requests to the API that the server answered. The dashboard's own calls, its files and successful health checks are not counted.">Requests, last 24 hours</div>
+            <div class="hero-total">${status === null ? html`<${Skeleton} width="80px" height=${30} />` : logsOff ? html`<span class="muted">Not logged</span>` : html`<${CountUp} value=${requests} />`}</div>
           </div>
           <span class="spacer"></span>
           <a class="small" href=${logsOff ? "#/settings/logs" : "#/logs"}>${logsOff ? "Turn on logging" : "Open logs"} <${Icon} name="arrowRight" size=${13} /></a>
         </div>
-        ${stats === null || status === null
+        ${status === null
           ? html`<${Skeleton} height=${150} />`
           : logsOff
           ? html`<div class="muted small" style="padding:48px 0;text-align:center">Request logging is off, so traffic isn't counted. Keep logs for at least a day in Settings → Logs to see requests here.</div>`
           : html`<${AreaChart} hours=${hourly} max=${max} total=${requests} />`}
+        ${!logsOff && partial && html`<div class="tiny faint" style="margin-top:6px">Counts what is logged: ${partial}. <a href="#/settings/logs">Settings → Logs</a></div>`}
       </div>
     </section>
 
     <div class="metrics">
       ${[
         { label: "Collections", value: loaded ? user.length : undefined, icon: "data", to: "/data", color: "var(--tone-1)" },
-        { label: "Records", value: Object.keys(counts).length || (loaded && !user.length) ? totalRecords : undefined, icon: "table", to: "/data", color: "var(--tone-2)" },
-        { label: "Server errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent("data.status >= 500"), color: errors ? "var(--danger)" : "var(--tone-3)" },
+        { label: someEstimated ? "Records (approx.)" : "Records", value: countsLoaded ? totalRecords : undefined, icon: "table", to: "/data", color: "var(--tone-2)" },
+        { label: "Errors (24h)", value: errors ?? undefined, icon: "warning", to: "/logs?filter=" + encodeURIComponent(ERRORS), color: errors ? "var(--danger)" : "var(--tone-3)" },
         { label: "Database round trip", value: status ? status.database.latencyMs : undefined, suffix: " ms", icon: "server", to: "/health", color: "var(--tone-4)", raw: true },
       ].map(
         (s, i) => html`<a class="card metric" href=${"#" + s.to} style=${{ "--i": i, "--c": s.color }}>
@@ -139,7 +143,7 @@ export function Overview() {
                       <div class="tiny muted">${c.type === "auth" ? "Auth" : c.type === "view" ? "View" : "Base"} · ${plural(c.fields.length, "field")}</div>
                     </div>
                     <div class="coll-row-bar" aria-hidden="true"><span style=${{ width: Math.max(2, ((counts[c.id] || 0) / largest) * 100) + "%" }}></span></div>
-                    <div class="coll-row-count">${counts[c.id] == null ? "…" : (counts[c.id] || 0).toLocaleString()}</div>
+                    <div class="coll-row-count" title=${estimated.includes(c.id) ? "A large table: counted from PostgreSQL's estimate" : undefined}>${counts[c.id] == null ? "…" : (estimated.includes(c.id) ? "~" : "") + (counts[c.id] || 0).toLocaleString()}</div>
                     <${Icon} name="chevronRight" size=${16} class="faint" />
                   </a>`
                 )}
@@ -165,7 +169,7 @@ export function Overview() {
             detail=${backups === null ? "…" : lastBackup ? relativeTime(lastBackup.modified) : "none yet"}
             href="#/settings/backups"
           />
-          <${Check} ok=${!errors} danger=${!!errors} title="Server errors today" detail=${errors ?? "…"} href="#/logs" />
+          <${Check} ok=${!errors} danger=${!!errors} title="Errors, last 24 hours" detail=${errors ?? "…"} href=${"#/logs?filter=" + encodeURIComponent(ERRORS)} />
         </div>
       </section>
     </div>
@@ -214,21 +218,23 @@ function AreaChart({ hours, max, total }) {
     </div>
     ${h &&
     html`<div class="area-tip" style=${{ left: `${(hover / (hours.length - 1)) * 100}%` }}>
-      <b>${h.total.toLocaleString()}</b> <span class="muted">at ${h.label}</span>
+      <b>${h.total.toLocaleString()}</b> <span class="muted">${h.label}</span>
     </div>`}
-    <div class="row tiny faint area-axis"><span>${hours[0].label}</span><span>${hours[12].label}</span><span>now</span></div>
+    <div class="row tiny faint area-axis"><span>24 h ago</span><span>12 h ago</span><span>now</span></div>
   </div>`;
 }
 
-function buildHours(stats) {
-  const byHour = new Map(stats.map((s) => [parseDate(s.date).getTime(), s.total]));
-  const now = new Date();
-  now.setMinutes(0, 0, 0);
-  const out = [];
-  for (let i = 23; i >= 0; i--) {
-    const t = now.getTime() - i * 3600000;
-    const d = new Date(t);
-    out.push({ total: byHour.get(t) || 0, label: d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) });
-  }
-  return out;
+// The 24 rolling hours the server counted, oldest first, the last one ending now: what each
+// bar is called is how long ago it ended, so no time zone is involved.
+function buildHours(perHour) {
+  const now = Date.now();
+  return Array.from({ length: 24 }, (_, i) => {
+    const ago = 23 - i;
+    const end = new Date(now - ago * 3600000);
+    return {
+      total: (perHour && perHour[i]) || 0,
+      label: ago === 0 ? "the last hour" : `${ago + 1}–${ago} hours ago`,
+      axis: end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }),
+    };
+  });
 }

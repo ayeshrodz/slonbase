@@ -762,6 +762,7 @@ mod tests {
             "/api/collections/meta/oauth2-providers",
             Some(Role::Viewer),
         ),
+        ("GET", "/api/collections/meta/counts", Some(Role::Viewer)),
         ("GET", "/api/collections/meta/scaffolds", Some(Role::Viewer)),
         ("GET", "/api/collections/{collection}", Some(Role::Viewer)),
         (
