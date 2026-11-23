@@ -226,19 +226,30 @@ for (const theme of ["light", "dark"]) {
   const context = await browser.newContext({ viewport: VIEWPORT, timezoneId: "Asia/Kolkata", bypassCSP: true, reducedMotion: "reduce" });
   const page = await context.newPage();
   page.on("pageerror", (e) => errors.push(`Asia/Kolkata: ${e}`));
-  await page.goto(base + "/_/");
-  await page.waitForSelector("input[type=password]");
-  await page.fill("input[type=email]", email);
-  await page.fill("input[type=password]", password);
-  await page.click("button[type=submit]");
-  await page.waitForSelector(".hero-total");
-  await page.waitForFunction(() => /\d/.test(document.querySelector(".hero-total").textContent), null, { timeout: 15000 }).catch(() => {});
-  const requests = Number((await page.locator(".hero-total").innerText()).replace(/\D/g, "") || 0);
-  if (!(requests > 0)) failures.push(`overview in Asia/Kolkata: ${requests} requests in the last 24 hours, the seeding made some`);
-  await page.goto(`${base}/_/#/logs`);
-  await page.waitForSelector(".bars");
-  const entries = Number((await page.locator(".bars").locator("xpath=..").locator("b").first().innerText()).replace(/\D/g, "") || 0);
-  if (!(entries > 0)) failures.push(`logs in Asia/Kolkata: ${entries} entries in the last 48 hours, the seeding made some`);
+  try {
+    await page.goto(base + "/_/");
+    await page.waitForSelector("input[type=password]");
+    // (sign-ins are rate limited, 2 in 3 seconds: when one is refused, wait the window out)
+    for (let attempt = 0; attempt < 4; attempt++) {
+      await page.fill("input[type=email]", email);
+      await page.fill("input[type=password]", password);
+      await page.click("button[type=submit]");
+      if (await page.waitForSelector(".sidebar", { timeout: 6000 }).then(() => true, () => false)) break;
+      await page.waitForTimeout(3500);
+    }
+    await page.goto(`${base}/_/#/`);
+    await page.waitForSelector(".hero-total", { timeout: 15000 });
+    await page.waitForFunction(() => /\d/.test(document.querySelector(".hero-total").textContent), null, { timeout: 15000 });
+    const requests = Number((await page.locator(".hero-total").innerText()).replace(/\D/g, "") || 0);
+    if (!(requests > 0)) failures.push(`overview in Asia/Kolkata: ${requests} requests in the last 24 hours, the seeding made some`);
+    await page.goto(`${base}/_/#/logs`);
+    await page.waitForSelector(".bars", { timeout: 15000 });
+    const entries = Number((await page.locator(".bars").locator("xpath=..").locator("b").first().innerText()).replace(/\D/g, "") || 0);
+    if (!(entries > 0)) failures.push(`logs in Asia/Kolkata: ${entries} entries in the last 48 hours, the seeding made some`);
+  } catch (err) {
+    const seen = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 200);
+    failures.push(`Asia/Kolkata: ${String(err).split("\n")[0]} (at ${page.url()}: ${seen})`);
+  }
   await context.close();
 }
 await browser.close();
