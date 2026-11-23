@@ -295,8 +295,9 @@ aborted, so no parts are left behind.
 ### Logs
 
 Every request is logged at level 0, or level 8 with the error for failed requests. Dashboard
-files and successful health checks are skipped. slonbase's own warnings and errors are logged
-too. Logs are kept for `logs.maxDays` days (5 by default) in an unlogged PostgreSQL table, so
+files (and the browser's checks that its copy is current), the redirect from `/` to the dashboard
+and successful health checks are skipped; a failed one is logged. slonbase's own warnings and
+errors are logged too. Logs are kept for `logs.maxDays` days (5 by default) in an unlogged PostgreSQL table, so
 writing them is cheap. They're written in batches in the background, and they don't survive a
 PostgreSQL crash. Browse them in the dashboard or with `/api/logs`. An entry's data is kept
 under `logs.maxDataSize` bytes (16 KiB when 0): a larger one keeps the attributes that fit and
@@ -306,6 +307,28 @@ marked `"slow": true`) whatever `minLevel`; `logs.maxRows` caps the entries kept
 
 Turning request logging off (`maxDays` 0), as a bulk import often does, means traffic isn't
 counted: the overview says so, and Health warns.
+
+#### What the dashboard's figures count
+
+The request figures are counted from these logs, so they count what is logged, in the last 24
+hours (rolling, not since midnight), and every place shows the same number:
+
+- **Requests** (the Overview's graph and total, Health, and each installation in the command
+  center) are the requests the server answered, from the application and from API clients. They
+  leave out the dashboard's own calls: a request whose `Referer` is a page of the dashboard
+  (`/_/`, or `/p/{name}/_/` for a project) on the same host is logged with `"dashboard": true`
+  and not counted, so opening the dashboard doesn't move the figures. They also leave out the
+  requests that aren't logged (above), and they are short by what a setting keeps out: Health
+  says so when `minLevel` is above 0 or `excludePaths` is set (*Not every request is counted*),
+  and when entries were dropped because the database took them too slowly (*Some log entries were
+  dropped*; the queue holds 10,000). The logs list every entry, the dashboard's own included.
+- **Errors** are the requests that failed on the server (5xx) and the errors outside requests
+  (hooks, jobs, mail). A `401` or `403` is the caller's, so it isn't one.
+- **Records** are the records of your collections, without the system ones (the superusers and
+  linked sign-in accounts), exact up to 200,000 rows a table; a larger table is taken at
+  PostgreSQL's estimate and marked `~`.
+- **Latency** (average and 95th percentile, in the command center) is the time the server took
+  to answer the counted requests.
 
 ### Rate limits
 

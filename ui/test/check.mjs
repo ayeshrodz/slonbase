@@ -219,6 +219,28 @@ for (const theme of ["light", "dark"]) {
   await check(page, "editor", {}, theme, failures);
   await context.close();
 }
+// A time zone that is off by half an hour: the hours the server groups by (UTC) are not the
+// browser's local hours there, and the overview and logs charts found no requests at all. The
+// requests the seeding made are in the last 24 hours, so both must show some.
+{
+  const context = await browser.newContext({ viewport: VIEWPORT, timezoneId: "Asia/Kolkata", bypassCSP: true, reducedMotion: "reduce" });
+  const page = await context.newPage();
+  page.on("pageerror", (e) => errors.push(`Asia/Kolkata: ${e}`));
+  await page.goto(base + "/_/");
+  await page.waitForSelector("input[type=password]");
+  await page.fill("input[type=email]", email);
+  await page.fill("input[type=password]", password);
+  await page.click("button[type=submit]");
+  await page.waitForSelector(".hero-total");
+  await page.waitForFunction(() => /\d/.test(document.querySelector(".hero-total").textContent), null, { timeout: 15000 }).catch(() => {});
+  const requests = Number((await page.locator(".hero-total").innerText()).replace(/\D/g, "") || 0);
+  if (!(requests > 0)) failures.push(`overview in Asia/Kolkata: ${requests} requests in the last 24 hours, the seeding made some`);
+  await page.goto(`${base}/_/#/logs`);
+  await page.waitForSelector(".bars");
+  const entries = Number((await page.locator(".bars").locator("xpath=..").locator("b").first().innerText()).replace(/\D/g, "") || 0);
+  if (!(entries > 0)) failures.push(`logs in Asia/Kolkata: ${entries} entries in the last 48 hours, the seeding made some`);
+  await context.close();
+}
 await browser.close();
 for (const e of errors) failures.push(`page error: ${e}`);
 if (failures.length) {

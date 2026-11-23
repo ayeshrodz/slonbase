@@ -174,7 +174,7 @@ the settings on every instance, and signs everyone out, since the signing key is
   and is meant for container health checks.
 - Errors and warnings go to stderr (the journal or `docker logs`), and are also stored in the
   request logs (dashboard → Logs, level ≥ 4).
-- `GET /api/logs/stats` gives requests per hour.
+- `GET /api/logs/stats` gives the log entries per hour (UTC, `filter` narrows them); it counts every entry, the dashboard's own requests included. For the requests the server answered, as the dashboard shows them, read `logs.requests24h` and `logs.requestsPerHour` of `GET /api/system/status`.
 - **Prometheus metrics** at `/metrics` on a separate address, with `--metrics-bind
   127.0.0.1:9090` (or `SLONBASE_METRICS_BIND`). The endpoint isn't authenticated, so bind it to a
   private interface. It has:

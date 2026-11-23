@@ -1091,6 +1091,37 @@ pub async fn scaffolds(
     })))
 }
 
+/// `GET /api/collections/meta/counts`: how many records each collection has, in one answer
+/// (the dashboard's overview shows them): `{ "counts": { "<collection id>": n }, "estimated": [ids] }`.
+/// Small tables are counted exactly; a table of more than 200,000 rows (PostgreSQL's estimate)
+/// is taken at the estimate, and its id is listed in `estimated`. Views are left out.
+pub async fn counts(
+    State(app): State<Arc<App>>,
+    auth: RequestAuth,
+) -> Result<Json<Value>, ApiError> {
+    let core = app.core()?;
+    auth.require_superuser()?;
+    let client = core
+        .db()
+        .get()
+        .await
+        .map_err(|e| ApiError::internal(crate::db::describe_pool_error(e)))?;
+    let tables = crate::fleet::table_counts(&client, true)
+        .await
+        .map_err(ApiError::internal)?;
+    let mut counts = Map::new();
+    let mut estimated = Vec::new();
+    for c in core.registry().all() {
+        if let Some((_, n, approximate)) = tables.iter().find(|(name, _, _)| *name == c.name) {
+            counts.insert(c.id.clone(), json!(n));
+            if *approximate {
+                estimated.push(json!(c.id));
+            }
+        }
+    }
+    Ok(Json(json!({ "counts": counts, "estimated": estimated })))
+}
+
 /// `GET /api/collections/meta/oauth2-providers`: the supported OAuth2 providers.
 pub async fn oauth2_providers(
     State(app): State<Arc<App>>,

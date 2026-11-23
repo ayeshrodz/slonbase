@@ -12,6 +12,12 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **Health says when the request figures are partial.** *Not every request is counted* when
+  `logs.minLevel` is above 0 or `logs.excludePaths` is set, and *Some log entries were dropped*
+  when the logs' queue overflowed (the database took them too slowly), with the number. The
+  Overview also notes it under its graph. `GET /api/system/status` has `logging.partial` and
+  `logging.dropped`, `logs.requestsPerHour`; the figures are described in
+  [configuration](docs/configuration.md#what-the-dashboards-figures-count).
 - **Automations.** A schedule with up to 20 steps, where each step can use what the steps before
   it produced: find records, continue only if something holds, send an email template (once, or
   once for each record), create, update or delete records, call a URL, run SQL. Made in the
@@ -217,6 +223,26 @@ changes, listed in its **Upgrading** section.
 
 ### Fixed
 
+- **The dashboard's request figures count the requests the server answered, not the dashboard's
+  own pages.** The Overview's graph and total, Health and the command center counted every
+  logged request, and opening the dashboard logs about a dozen of its own (the Overview alone
+  made up to 40 more to count records), so on a quiet installation the figures followed whoever
+  looked at the dashboard. A request the dashboard's pages make is now logged with `"dashboard":
+  true` and left out of those figures (the Logs page still lists it); the dashboard's files,
+  the revalidation of them (`304`) and the redirect from `/` to it are not logged any more (a
+  failure still is, and a page a hook serves at `/` is). Nothing else about the logs changes.
+- **The Overview's request graph showed no requests in time zones that are half an hour off UTC**
+  (Sri Lanka, India, Nepal, Newfoundland, South Australia, …), and the Logs page's chart too: the
+  server groups by hour in UTC and the browser looked for its own local hours. The Overview
+  now reads its 24 hours from the same answer as Health (rolling hours, so the bars add up to
+  the total), and the Logs chart looks for UTC hours.
+- **The same figure is the same everywhere.** The command center counted the superusers'
+  records in its total of records while counting collections without the system ones (so a fresh
+  installation had 1 record and no collection); it no longer counts the system collections'.
+  The Overview's total of records covered only the first 40 collections, and the rows of the
+  others kept showing "…"; one request (`GET /api/collections/meta/counts`) now counts them all.
+  The Overview's "Server errors" and the command center's errors are one figure, the one Health
+  has (a failed request, or an error outside requests), and are called *Errors*.
 - A new instance no longer misses a change of the collections or the settings that was committed
   between its start-up reading and the moment its connection began to listen: the listener
   reads them once when it first connects, as it does after a reconnect. Before, such an instance
