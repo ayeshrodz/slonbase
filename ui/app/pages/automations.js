@@ -387,9 +387,11 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
         <div class="row"><span class="spacer"></span><${Button} variant="primary" onClick=${onClose}>Done</${Button}></div>
       </div>
     </${Modal}>`;
-  return html`<${Modal} onClose=${onClose} size="mid" labelledBy="sheet-title">
-    <${SheetHead} title=${editing ? "Edit automation" : copyOf ? "Copy automation" : "New automation"} subtitle="Runs its steps in order, on a schedule or when a record changes, and shows in the history" onClose=${onClose} />
-    <form class="sheet-body stack" onSubmit=${submit}>
+  // a drawer from the right, as the record editor: the page stays in view and in place beside it
+  return html`<${Modal} onClose=${onClose} size="drawer" labelledBy="sheet-title">
+    ${(close) => html`<form onSubmit=${submit}>
+    <${SheetHead} title=${editing ? "Edit automation" : copyOf ? "Copy automation" : "New automation"} subtitle="Runs its steps in order, on a schedule or when a record changes, and shows in the history" onClose=${close} />
+    <div class="sheet-body stack">
       ${!job && html`<div class="stack tight"><span class="small muted">Start from an example</span><div class="chips">${examples.map((x) => html`<button type="button" class="chip selectable outline" onClick=${() => start(x)}>${x.label}</button>`)}</div></div>`}
       <${Field} label="Name" error=${errors.name} help="What it's for, e.g. “Remind customers of overdue invoices”"><${Input} value=${name} onInput=${setName} required autofocus maxlength="60" /></${Field}>
       <${Field} label="Runs" error=${errors["trigger.type"]}><${Select} value=${starts} onChange=${setStarts} options=${[{ value: "schedule", label: "On a schedule" }, { value: "record", label: "When a record changes" }]} /></${Field}>
@@ -448,9 +450,14 @@ function AutomationEditor({ job, copyOf, onClose, onDone }) {
       <${Field} label="Tell me when it fails (webhook)" error=${errors["notify.webhook"]} help="A public URL that gets a JSON POST (event, job, error), signed when it is https:// (its secret is shown once, when it is made). Saved URLs are hidden; leave it as it is to keep it."><${Input} class="mono" value=${notifyHook} onInput=${setNotifyHook} placeholder="https://hooks.example.com/…" /></${Field}>
       ${editing && job.notify && job.notify.webhook && notifyHook === job.notify.webhook && html`<${Switch} checked=${rotateNotice} onChange=${setRotateNotice} label=${rotateNotice ? "A new signing secret for notices is made when you save" : "Replace the notices' signing secret"} />`}
       ${preview && preview.next && preview.next.length > 0 && html`<div class="small muted">Next runs: ${preview.next.slice(0, 3).map((t) => formatDateIn(t, preview.timezone)).join(" · ")}</div>`}
-      <div class="row"><${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} /><span class="spacer"></span>
-        <${Button} variant="ghost" onClick=${onClose}>Cancel</${Button}><${Button} variant="primary" type="submit" loading=${busy}>${editing ? "Save" : "Make automation"}</${Button}></div>
-    </form>
+    </div>
+    <div class="sheet-foot">
+      <${Switch} checked=${enabled} onChange=${setEnabled} label=${enabled ? "On" : "Off: it won't run"} />
+      <span class="spacer"></span>
+      <${Button} variant="ghost" onClick=${close}>Cancel</${Button}>
+      <${Button} variant="primary" type="submit" loading=${busy}>${editing ? "Save" : "Make automation"}</${Button}>
+    </div>
+    </form>`}
   </${Modal}>`;
 }
 
