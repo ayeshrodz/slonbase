@@ -175,6 +175,7 @@ for (const theme of ["light", "dark"]) {
   await page.waitForSelector(".sidebar");
   const screens = [
     ["overview", "#/", { screenshot: false }],
+    ["collections", "#/data", { screenshot: false }],
     ["records", "#/data/tasks/records", {}],
     ["schema", "#/data/tasks/schema", {}],
     ["rules", "#/data/tasks/rules", {}],
