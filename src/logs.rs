@@ -7,7 +7,7 @@
 //! entries are dropped rather than slowing requests down.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -70,6 +70,8 @@ pub struct Logger {
     sender: mpsc::Sender<Entry>,
     /// `logs.maxDataSize`
     max_data_size: Arc<AtomicI64>,
+    /// Entries dropped since the start because the queue was full.
+    dropped: Arc<AtomicU64>,
 }
 
 impl Logger {
@@ -80,7 +82,14 @@ impl Logger {
         Self {
             sender,
             max_data_size: Arc::new(AtomicI64::new(max_data_size)),
+            dropped: Arc::new(AtomicU64::new(0)),
         }
+    }
+
+    /// How many entries were dropped since the start because the queue was full: the figures
+    /// counted from the logs (requests, errors) may be incomplete.
+    pub fn dropped(&self) -> u64 {
+        self.dropped.load(Ordering::Relaxed)
     }
 
     /// Applies a changed `logs.maxDataSize`.
@@ -94,8 +103,10 @@ impl Logger {
             n => usize::try_from(n).unwrap_or(usize::MAX),
         };
         fit(&mut entry, limit);
-        // full: dropped (see the module docs)
-        let _ = self.sender.try_send(entry);
+        // full: dropped (see the module docs), and counted
+        if self.sender.try_send(entry).is_err() {
+            self.dropped.fetch_add(1, Ordering::Relaxed);
+        }
     }
 }
 
@@ -200,6 +211,66 @@ pub async fn cleanup(pool: &Pool, max_days: u32, max_rows: u32) -> anyhow::Resul
 // ---------------------------------------------------------------------------
 // request logs
 
+/// The log entries the dashboard counts as requests (the Overview, Health and the command
+/// center): the requests the server answered, not the calls the dashboard's own pages make to
+/// show themselves (see [`from_dashboard`]). A SQL condition on the `data` column.
+pub const COUNTED_REQUESTS: &str =
+    "data->>'type' = 'request' AND (data->>'dashboard') IS DISTINCT FROM 'true'";
+
+/// How many [`COUNTED_REQUESTS`] each of the last `n` periods of `seconds` had, oldest first,
+/// the last one ending now (rolling, not on the clock: the sum of the 24 hourly buckets is the
+/// last 24 hours exactly).
+pub async fn counted_requests_by_period(
+    client: &deadpool_postgres::Object,
+    seconds: i32,
+    n: usize,
+) -> anyhow::Result<Vec<i64>> {
+    let rows = client
+        .query(
+            &format!(
+                "SELECT floor(extract(epoch FROM now() - created)::float8 / $1::float8)::int AS ago, count(*)
+                 FROM _slonbase.logs
+                 WHERE created > now() - ($1::float8 * $2::float8) * interval '1 second' AND {COUNTED_REQUESTS}
+                 GROUP BY 1"
+            ),
+            &[&f64::from(seconds), &(n as f64)],
+        )
+        .await?;
+    let mut counts = vec![0i64; n];
+    for row in rows {
+        let ago: i32 = row.get(0);
+        if (0..n as i32).contains(&ago) {
+            counts[n - 1 - ago as usize] = row.get(1);
+        }
+    }
+    Ok(counts)
+}
+
+/// Whether a request was made by a page of the dashboard: its `Referer` is a page of the
+/// dashboard (`/_/`, or `/p/{name}/_/` for a project) on the host the request was sent to.
+/// The browser sends it with the dashboard's API calls and with the images and files its
+/// pages show. It only sorts the figures (a request is logged either way), so a client that
+/// sends or hides it changes nothing but where it is counted.
+fn from_dashboard(referer: &str, host: &str) -> bool {
+    let Some(rest) = referer
+        .strip_prefix("https://")
+        .or_else(|| referer.strip_prefix("http://"))
+    else {
+        return false;
+    };
+    // the browser writes the host as it sent it in `Host`, with the port when it isn't the scheme's
+    let (authority, tail) = rest.split_at(rest.find(['/', '?', '#']).unwrap_or(rest.len()));
+    if authority.is_empty() || !authority.eq_ignore_ascii_case(host.trim()) {
+        return false;
+    }
+    let path = tail.split(['?', '#']).next().unwrap_or_default();
+    let path = match path.strip_prefix("/p/") {
+        Some(rest) => rest.find('/').map_or("", |i| &rest[i..]),
+        None => path,
+    };
+    path.starts_with("/_/")
+}
+
 /// Filled in while a request is handled (by the auth extractor).
 #[derive(Debug, Clone, Default)]
 pub struct LogContext(Arc<Mutex<Caller>>);
@@ -287,7 +358,7 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
         .path_and_query()
         .map(|p| redact_url(p.as_str()))
         .unwrap_or_else(|| path.clone());
-    let (user_agent, referer) = {
+    let (user_agent, referer, host) = {
         // scoped: a reference to the request can't be held across the await below
         let header = |name: header::HeaderName| -> String {
             request
@@ -297,7 +368,13 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
                 .unwrap_or_default()
                 .to_string()
         };
-        (header(header::USER_AGENT), header(header::REFERER))
+        // (behind a proxy the host the browser used may be the one it forwards)
+        let forwarded = header(header::HeaderName::from_static("x-forwarded-host"));
+        let host = match forwarded.split(',').next().map(str::trim) {
+            Some(first) if !first.is_empty() => first.to_string(),
+            _ => header(header::HOST),
+        };
+        (header(header::USER_AGENT), header(header::REFERER), host)
     };
     let remote_ip = crate::ip::remote_ip(request.extensions());
     let user_ip = crate::ip::user_ip(request.headers(), remote_ip, &settings.trusted_proxy);
@@ -314,8 +391,16 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     }
 
     let status = response.status();
-    // static dashboard files and successful health checks would mostly be noise
-    if status.is_success() && (path.starts_with("/_/") || path == "/api/health" || path == "/") {
+    // The dashboard's files (answered 200, or 304 when the browser's copy is current), the
+    // redirect from `/` to it and successful health checks would mostly be noise, and a
+    // reload of the dashboard would count as dozens of requests. Failures are logged. A page
+    // a hook serves at `/` is a request, so only the redirect is left out.
+    let failed = status.as_u16() >= 400;
+    if !failed
+        && (path.starts_with("/_/")
+            || (path == "/" && status.is_redirection())
+            || (path == "/api/health" && status.is_success()))
+    {
         return response;
     }
     // nor paths left out in the settings, unless they failed on the server
@@ -363,6 +448,10 @@ pub async fn middleware(State(app): State<Arc<App>>, mut request: Request, next:
     if settings.logs.log_ip {
         data.insert("remoteIP".into(), ip(remote_ip).into());
         data.insert("userIP".into(), ip(user_ip).into());
+    }
+    // (only set when true, so other entries keep the format PocketBase's tools know)
+    if from_dashboard(&referer, &host) {
+        data.insert("dashboard".into(), true.into());
     }
     data.insert("userAgent".into(), user_agent.into());
     data.insert("referer".into(), referer.into());
@@ -681,6 +770,29 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn the_dashboards_pages_are_told_from_other_referers() {
+        let ours = |referer: &str| from_dashboard(referer, "dash.example.com");
+        // its pages, with a fragment or a query, and a project's
+        assert!(ours("https://dash.example.com/_/"));
+        assert!(ours("https://dash.example.com/_/#/data/posts"));
+        assert!(ours("https://dash.example.com/_/?x=1#/logs"));
+        assert!(ours("https://DASH.example.com/p/demo/_/#/"));
+        assert!(from_dashboard("http://localhost:8090/_/", "localhost:8090"));
+        // another host, port, path or look-alike
+        assert!(!ours("https://other.example.com/_/"));
+        assert!(!ours("https://dash.example.com.evil.example/_/"));
+        assert!(!ours("https://dash.example.com:8443/_/"));
+        assert!(!ours("https://dash.example.com/_x/"));
+        assert!(!ours("https://dash.example.com/api/docs"));
+        assert!(!ours("https://dash.example.com/p/demo/"));
+        assert!(!ours("https://dash.example.com/?next=/_/"));
+        assert!(!ours("https://dash.example.com"));
+        assert!(!ours("/_/"));
+        assert!(!ours(""));
+        assert!(!from_dashboard("https://dash.example.com/_/", ""));
+    }
 
     #[test]
     fn entries_fit_the_limits() {

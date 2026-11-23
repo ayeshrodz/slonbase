@@ -32,55 +32,74 @@ fn require_superuser(auth: &RequestAuth) -> Result<(), ApiError> {
 /// taken at the estimate, so a large installation doesn't scan its tables every few seconds.
 const EXACT_COUNT_LIMIT: f32 = 200_000.0;
 
-/// The records in the collections' tables: exact for small tables, PostgreSQL's estimate for
-/// large ones (`true` when any number is an estimate).
-async fn count_records(client: &deadpool_postgres::Object) -> anyhow::Result<(i64, bool)> {
+/// The records of each collection's table: exact for small tables, PostgreSQL's estimate for
+/// large ones. `(collection name, records, estimated)`, views (which have no table) left out,
+/// and the system collections (the superusers, linked sign-in accounts) too unless asked for.
+pub(crate) async fn table_counts(
+    client: &deadpool_postgres::Object,
+    with_system: bool,
+) -> anyhow::Result<Vec<(String, i64, bool)>> {
     let tables = client
         .query(
             "SELECT c.relname, c.reltuples FROM pg_class c
              JOIN pg_namespace n ON n.oid = c.relnamespace
-             WHERE n.nspname = 'slonbase' AND c.relkind IN ('r', 'p') AND NOT c.relispartition",
-            &[],
+             WHERE n.nspname = 'slonbase' AND c.relkind IN ('r', 'p') AND NOT c.relispartition
+               AND ($1 OR c.relname NOT IN (SELECT data->>'name' FROM _slonbase.collections
+                                            WHERE data->>'system' = 'true'))
+             ORDER BY 1",
+            &[&with_system],
         )
         .await?;
-    let mut estimated = 0i64;
+    let mut out = Vec::new();
     let mut exact = Vec::new();
     for t in &tables {
         let (name, tuples): (String, f32) = (t.get(0), t.get(1));
         if tuples > EXACT_COUNT_LIMIT {
-            estimated += tuples as i64;
+            out.push((name, tuples as i64, true));
         } else {
-            exact.push(format!(
-                "SELECT count(*) AS n FROM slonbase.{}",
-                crate::filter::compile::quote_ident(&name)
-            ));
+            exact.push(name);
         }
     }
-    let counted: i64 = if exact.is_empty() {
-        0
-    } else {
-        client
-            .query_one(
-                &format!(
-                    "SELECT COALESCE(sum(n), 0)::bigint FROM ({}) t",
-                    exact.join(" UNION ALL ")
-                ),
-                &[],
-            )
-            .await?
-            .get(0)
-    };
-    Ok((counted + estimated, estimated > 0))
+    if !exact.is_empty() {
+        // one statement, so the count of a hundred collections is one round trip
+        let sql = exact
+            .iter()
+            .map(|name| {
+                format!(
+                    "SELECT '{}'::text AS t, count(*) AS n FROM slonbase.{}",
+                    name.replace('\'', "''"),
+                    crate::filter::compile::quote_ident(name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" UNION ALL ");
+        for row in client.query(&sql, &[]).await? {
+            out.push((row.get(0), row.get(1), false));
+        }
+    }
+    Ok(out)
+}
+
+/// The records in the collections' tables, without the system collections (as the dashboard's
+/// Overview counts them): exact for small tables, PostgreSQL's estimate for large ones (`true`
+/// when any number is an estimate).
+async fn count_records(client: &deadpool_postgres::Object) -> anyhow::Result<(i64, bool)> {
+    let counts = table_counts(client, false).await?;
+    Ok((
+        counts.iter().map(|(_, n, _)| n).sum(),
+        counts.iter().any(|(_, _, estimated)| *estimated),
+    ))
 }
 
 /// A running installation's numbers: its database, pool, data, traffic and configuration.
 async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
-    let started = Instant::now();
     let client = core
         .db()
         .get()
         .await
         .map_err(crate::db::describe_pool_error)?;
+    // the round trip of a query on a connection in hand, not the wait for a free one
+    let started = Instant::now();
     client.simple_query("SELECT 1").await?;
     let latency_ms = (started.elapsed().as_secs_f64() * 10_000.0).round() / 10.0;
     let db = client
@@ -93,50 +112,27 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
         .await?;
     let (records, estimated) = count_records(&client).await?;
     // the last 24 hours of requests: counts, server errors (as the Health page counts them),
-    // and latency
+    // and latency, of the requests the server answered (not the dashboard's own calls)
     let traffic = client
         .query_one(
-            "WITH l AS (
-                SELECT level, data,
-                       CASE WHEN data->>'execTime' ~ '^[0-9]{1,15}(\\.[0-9]{1,15})?$' THEN (data->>'execTime')::float8 END AS ms
-                FROM _slonbase.logs WHERE created > now() - interval '24 hours'
-             )
-             SELECT count(*) FILTER (WHERE data->>'type' = 'request'),
-                    count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
-                        OR CASE WHEN data->>'status' ~ '^[0-9]{1,9}$' THEN (data->>'status')::int >= 500 END)),
-                    COALESCE(avg(ms) FILTER (WHERE data->>'type' = 'request'), 0)::float8,
-                    COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0)::float8
-             FROM l",
+            &format!(
+                "WITH l AS (
+                    SELECT level, data,
+                           CASE WHEN data->>'execTime' ~ '^[0-9]{{1,15}}(\\.[0-9]{{1,15}})?$' THEN (data->>'execTime')::float8 END AS ms
+                    FROM _slonbase.logs WHERE created > now() - interval '24 hours'
+                 )
+                 SELECT count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
+                            OR CASE WHEN data->>'status' ~ '^[0-9]{{1,9}}$' THEN (data->>'status')::int >= 500 END)),
+                        COALESCE(avg(ms) FILTER (WHERE {counted}), 0)::float8,
+                        COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms) FILTER (WHERE {counted}), 0)::float8
+                 FROM l",
+                counted = crate::logs::COUNTED_REQUESTS
+            ),
             &[],
         )
         .await?;
-    let buckets = |minutes: bool| {
-        let (span, unit, n) = if minutes {
-            ("60 minutes", 60.0, 60)
-        } else {
-            ("24 hours", 3600.0, 24)
-        };
-        let sql = format!(
-            "SELECT floor(extract(epoch FROM now() - created) / {unit})::int AS ago, count(*)
-             FROM _slonbase.logs
-             WHERE created > now() - interval '{span}' AND data->>'type' = 'request'
-             GROUP BY 1"
-        );
-        (sql, n)
-    };
-    let mut series = Vec::new();
-    for minutes in [true, false] {
-        let (sql, n) = buckets(minutes);
-        let mut counts = vec![0i64; n];
-        for row in client.query(&sql, &[]).await? {
-            let ago: i32 = row.get(0);
-            if (0..n as i32).contains(&ago) {
-                // oldest first
-                counts[n - 1 - ago as usize] = row.get(1);
-            }
-        }
-        series.push(counts);
-    }
+    let per_minute = crate::logs::counted_requests_by_period(&client, 60, 60).await?;
+    let per_hour = crate::logs::counted_requests_by_period(&client, 3600, 24).await?;
     drop(client);
     let pool = core.db().status();
     let settings = core.settings();
@@ -158,12 +154,13 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
         "collections": db.get::<_, i64>(3),
         "realtimeClients": core.realtime.client_count(),
         "traffic": {
-            "requests": traffic.get::<_, i64>(0),
-            "errors": traffic.get::<_, i64>(1),
-            "avgMs": round(traffic.get(2)),
-            "p95Ms": round(traffic.get(3)),
-            "perMinute": series[0],
-            "perHour": series[1],
+            // (the sum of the hours, read once, so the total and the bars agree)
+            "requests": per_hour.iter().sum::<i64>(),
+            "errors": traffic.get::<_, i64>(0),
+            "avgMs": round(traffic.get(1)),
+            "p95Ms": round(traffic.get(2)),
+            "perMinute": per_minute,
+            "perHour": per_hour,
         },
         "config": {
             "appName": settings.meta.app_name,

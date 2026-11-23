@@ -68,7 +68,8 @@ pb.collection("posts").subscribe("*", (e) => console.log(e.action, e.record));
 | `GET/POST /api/collections/{collection}/records` | List (`page`, `perPage`, `sort`, `filter`, `expand`, `fields`, `skipTotal`) and create records |
 | `GET/PATCH/DELETE /api/collections/{collection}/records/{id}` | View, update and delete a record |
 | `GET /api/health` | Health check |
-| `GET /api/system/status` | The installation's status and checks, for the dashboard's Health page (superusers) |
+| `GET /api/system/status` | The installation's status and checks, for the dashboard's Health page (superusers); `logs` has the requests, errors and warnings of the last 24 hours (`requests24h`, and `requestsPerHour`: 24 counts, oldest first), and `logging` says what the figures leave out (see [what the dashboard's figures count](configuration.md#what-the-dashboards-figures-count)) |
+| `GET /api/collections/meta/counts` | How many records each collection has, in one answer (`counts` by collection id, and `estimated` for the ids of tables counted from PostgreSQL's estimate), for the dashboard's overview (superusers) |
 | `GET/POST /api/projects`, `GET/PATCH/DELETE /api/projects/{name}` | Projects (superusers of the main installation; see [projects](projects.md)) |
 | `GET /api/projects/overview`, `GET/PATCH /api/projects/{name}/settings`, `POST /api/projects/{name}/restart` | The command center: every installation's numbers, a project's settings, a restart (see [projects](projects.md#the-command-center)) |
 
