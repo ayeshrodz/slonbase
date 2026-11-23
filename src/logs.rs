@@ -87,7 +87,7 @@ impl Logger {
     }
 
     /// How many entries were dropped since the start because the queue was full: the figures
-    /// counted from the logs (requests, errors) are short by that many.
+    /// counted from the logs (requests, errors) may be incomplete.
     pub fn dropped(&self) -> u64 {
         self.dropped.load(Ordering::Relaxed)
     }

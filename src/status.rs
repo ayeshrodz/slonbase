@@ -78,29 +78,28 @@ pub async fn status(
             json!({ "id": id, "lastSeen": r.get::<_, String>(1), "current": id == core.realtime.instance_id() })
         })
         .collect();
-    // requests are the ones the server answered, not the dashboard's own calls to show itself
     let logs = client
         .query_one(
-            &format!(
-                "SELECT count(*) FILTER (WHERE {counted}),
+            "SELECT
                     -- errors that need looking at: a request that failed on the server (5xx), or an
                     -- error outside requests (hooks, crons, mail). A 401 or 403 is logged at the
                     -- error level too (PocketBase's format), but it's the client's, not the server's.
                     count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
-                                                          OR CASE WHEN data->>'status' ~ '^[0-9]{{1,9}}$'
+                                                          OR CASE WHEN data->>'status' ~ '^[0-9]{1,9}$'
                                                                THEN (data->>'status')::int >= 500 END)),
                     count(*) FILTER (WHERE level >= 4 AND level < 8)
              FROM _slonbase.logs WHERE created > now() - interval '24 hours'",
-                counted = crate::logs::COUNTED_REQUESTS
-            ),
             &[],
         )
         .await
         .map_err(db_error)?;
-    let (requests, errors, warnings): (i64, i64, i64) = (logs.get(0), logs.get(1), logs.get(2));
+    let (errors, warnings): (i64, i64) = (logs.get(0), logs.get(1));
+    // requests are the ones the server answered, not the dashboard's own calls to show itself;
+    // the total is the sum of the hours, read once, so the two always agree
     let requests_per_hour = crate::logs::counted_requests_by_period(&client, 3600, 24)
         .await
         .map_err(ApiError::internal)?;
+    let requests: i64 = requests_per_hour.iter().sum();
     // every client of the server, not only this instance's: what the server's limit is spent on
     let connections = client
         .query_one(
@@ -179,7 +178,7 @@ pub async fn status(
             "logging-dropped",
             "warn",
             "Some log entries were dropped",
-            format!("{dropped} log entries were dropped since this instance started, because they came faster than the database took them. The request and error figures are short by that many. Check that the database is not slow or down."),
+            format!("{dropped} log entries were dropped since this instance started, because they came faster than the database took them, so the request and error figures may be incomplete. Check that the database is not slow or down."),
             "#/health",
         ));
     }

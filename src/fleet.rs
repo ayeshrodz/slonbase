@@ -121,8 +121,7 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
                            CASE WHEN data->>'execTime' ~ '^[0-9]{{1,15}}(\\.[0-9]{{1,15}})?$' THEN (data->>'execTime')::float8 END AS ms
                     FROM _slonbase.logs WHERE created > now() - interval '24 hours'
                  )
-                 SELECT count(*) FILTER (WHERE {counted}),
-                        count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
+                 SELECT count(*) FILTER (WHERE level >= 8 AND (data->>'type' IS DISTINCT FROM 'request'
                             OR CASE WHEN data->>'status' ~ '^[0-9]{{1,9}}$' THEN (data->>'status')::int >= 500 END)),
                         COALESCE(avg(ms) FILTER (WHERE {counted}), 0)::float8,
                         COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms) FILTER (WHERE {counted}), 0)::float8
@@ -155,10 +154,11 @@ async fn snapshot(core: &Arc<Core>) -> anyhow::Result<Value> {
         "collections": db.get::<_, i64>(3),
         "realtimeClients": core.realtime.client_count(),
         "traffic": {
-            "requests": traffic.get::<_, i64>(0),
-            "errors": traffic.get::<_, i64>(1),
-            "avgMs": round(traffic.get(2)),
-            "p95Ms": round(traffic.get(3)),
+            // (the sum of the hours, read once, so the total and the bars agree)
+            "requests": per_hour.iter().sum::<i64>(),
+            "errors": traffic.get::<_, i64>(0),
+            "avgMs": round(traffic.get(1)),
+            "p95Ms": round(traffic.get(2)),
             "perMinute": per_minute,
             "perHour": per_hour,
         },
