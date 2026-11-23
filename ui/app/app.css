@@ -6122,3 +6122,123 @@ table.table tr.on td {
     grid-template-columns: 1fr;
   }
 }
+
+/* ------------------------------------------------------------------ data: the collections */
+
+a.section-title {
+  text-decoration: none;
+}
+a.section-title:hover {
+  color: var(--ink);
+}
+.coll-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  text-decoration: none;
+}
+.coll-back:hover {
+  color: var(--ink);
+}
+.coll-search {
+  max-width: 320px;
+  margin: 0 0 14px;
+}
+.coll-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+}
+.coll-section {
+  margin-bottom: 22px;
+}
+.coll-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 2px 2px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-family: var(--font-label);
+  font-size: var(--text-2xs);
+  font-weight: var(--w-semibold);
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.coll-section-title:hover {
+  color: var(--ink);
+}
+.coll-section-title.closed .icon {
+  transform: rotate(-90deg);
+}
+.coll-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+}
+.coll-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--t-fast), transform var(--t-fast), box-shadow var(--t-fast);
+  animation: rise var(--t-slow) var(--ease-out) both;
+  animation-delay: calc(var(--i, 0) * 20ms);
+}
+.coll-card:hover {
+  border-color: color-mix(in srgb, var(--accent), transparent 55%);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.coll-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.coll-card-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.coll-card-name {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  font-weight: var(--w-semibold);
+}
+.coll-card-stats {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+.coll-card-num {
+  font-size: var(--text-lg);
+  font-weight: var(--w-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.coll-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .coll-card {
+    animation: none;
+    transition: none;
+  }
+  .coll-card:hover {
+    transform: none;
+  }
+}
