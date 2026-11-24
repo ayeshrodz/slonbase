@@ -64,11 +64,15 @@ export function Health() {
   const [updated, setUpdated] = useState(null);
   const [loading, setLoading] = useState(false);
   const history = useRef({ latency: [], memory: [], pool: [] });
+  // the latest request: an answer that arrives after a newer one was asked for is dropped
+  const latest = useRef(0);
 
   const load = async () => {
+    const mine = ++latest.current;
     setLoading(true);
     try {
       const s = await api.get("/api/system/status");
+      if (mine !== latest.current) return;
       const h = history.current;
       const push = (list, v) => {
         list.push(v);
@@ -81,9 +85,9 @@ export function Health() {
       setError(null);
       setUpdated(Date.now());
     } catch (err) {
-      setError(err.message || "The status couldn't be loaded.");
+      if (mine === latest.current) setError(err.message || "The status couldn't be loaded.");
     } finally {
-      setLoading(false);
+      if (mine === latest.current) setLoading(false);
     }
   };
   useEffect(() => {
