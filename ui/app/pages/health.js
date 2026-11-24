@@ -163,9 +163,10 @@ export function Health() {
   // one is live while its age, as it advances, is under a minute, whatever the last answer said
   // (a failed refresh leaves that answer on the page)
   const aged = (i) => i.ageSeconds + seconds;
-  const instances = status.instances.length
-    ? status.instances.map((i) => ({ ...i, live: i.live && aged(i) < 60 })).sort((a, b) => b.current - a.current || b.live - a.live || (a.host || a.id).localeCompare(b.host || b.id))
-    : [{ id: status.instance.id, current: true, live: true, ageSeconds: 0 }];
+  const reported = status.instances.length ? status.instances : [{ id: status.instance.id, current: true, live: true, ageSeconds: 0 }];
+  const instances = reported
+    .map((i) => ({ ...i, live: i.live && aged(i) < 60 }))
+    .sort((a, b) => b.current - a.current || b.live - a.live || (a.host || a.id).localeCompare(b.host || b.id));
   const live = instances.filter((i) => i.live).length;
   const sinceRead = seconds;
 
@@ -174,7 +175,7 @@ export function Health() {
       <div class="grow">
         <div class="eyebrow"><span class=${cx("dot", STATUS[worst].tone === "info" ? "ok" : STATUS[worst].tone, { live: worst === "ok" || worst === "info" })}></span> ${STATUS[worst].label}</div>
         <h1>Health</h1>
-        <p class="muted small" style="margin:4px 0 0">slonbase ${status.version} · up ${duration(status.uptimeSeconds)} · ${plural(live || 1, "instance")}</p>
+        <p class="muted small" style="margin:4px 0 0">slonbase ${status.version} · up ${duration(status.uptimeSeconds)} · ${plural(live, "instance")}</p>
       </div>
       <span class="tiny faint">${error ? html`<span style="color:var(--danger)">${error}</span>` : `Refreshed ${seconds < 2 ? "just now" : seconds + " s ago"}`}</span>
       <${Button} size="sm" icon="refresh" loading=${loading} onClick=${load}>Refresh</${Button}>
