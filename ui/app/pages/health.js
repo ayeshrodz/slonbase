@@ -8,6 +8,7 @@ import { Button, Skeleton } from "../lib/ui.js";
 import { bytes, duration, relativeTime, plural } from "../lib/format.js";
 
 const REFRESH = 10_000;
+const REQUEST_TIMEOUT = 60_000;
 const ORDER = { error: 0, warn: 1, info: 2, ok: 3 };
 const STATUS = {
   ok: { icon: "check", label: "Healthy", tone: "ok" },
@@ -66,19 +67,27 @@ export function Health() {
   const history = useRef({ latency: [], memory: [], pool: [] });
   // Requests are numbered. An answer is applied unless a newer request's answer was applied
   // already (so an older one arriving late can't undo it, and a slow server still gets its
-  // answers shown). The timed refreshes skip a turn while a request younger than half a minute
-  // is still out, so a slow server isn't asked again and again.
+  // answers shown). The timed refreshes wait for the request that is out; each request is
+  // given a minute (far more than a slow answer takes) and is then cancelled, so one that never
+  // completes can't hold up the next. The Refresh button replaces a request that is out.
   const requested = useRef(0);
   const applied = useRef(0);
-  const inFlight = useRef(0);
+  const controller = useRef(null);
 
   const load = async (options) => {
-    if (options?.auto && inFlight.current && Date.now() - inFlight.current < 30_000) return;
+    if (options?.auto && controller.current) return;
+    controller.current?.abort();
+    const ctl = new AbortController();
+    controller.current = ctl;
     const mine = ++requested.current;
-    inFlight.current = Date.now();
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      ctl.abort();
+    }, REQUEST_TIMEOUT);
     setLoading(true);
     try {
-      const s = await api.get("/api/system/status");
+      const s = await api.get("/api/system/status", { signal: ctl.signal });
       if (mine < applied.current) return;
       applied.current = mine;
       const h = history.current;
@@ -93,10 +102,16 @@ export function Health() {
       setError(null);
       setUpdated(Date.now());
     } catch (err) {
-      if (mine > applied.current) setError(err.message || "The status couldn't be loaded.");
+      // (cancelled by a newer request or by leaving the page: nothing to say)
+      if (err.name !== "AbortError") {
+        if (mine > applied.current) setError(err.message || "The status couldn't be loaded.");
+      } else if (timedOut && mine > applied.current) {
+        setError("The status took more than a minute to answer.");
+      }
     } finally {
-      if (mine === requested.current) {
-        inFlight.current = 0;
+      clearTimeout(timer);
+      if (controller.current === ctl) {
+        controller.current = null;
         setLoading(false);
       }
     }
@@ -110,6 +125,9 @@ export function Health() {
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", back);
+      const out = controller.current;
+      controller.current = null;
+      out?.abort();
     };
   }, []);
   // "refreshed 4 s ago" stays current
