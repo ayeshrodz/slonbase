@@ -35,9 +35,9 @@ function Sparkline({ values, max }) {
   </svg>`;
 }
 
-function Meter({ value, max, tone }) {
+function Meter({ value, max, tone, label }) {
   const pct = max ? Math.min(100, (value / max) * 100) : 0;
-  return html`<div class="meter" role="meter" aria-valuenow=${value} aria-valuemax=${max}>
+  return html`<div class="meter" role="meter" aria-label=${label} aria-valuemin="0" aria-valuenow=${value} aria-valuemax=${max}>
     <span class=${cx("meter-fill", tone)} style=${{ width: pct + "%" }}></span>
   </div>`;
 }
@@ -89,7 +89,13 @@ export function Health() {
   useEffect(() => {
     load();
     const timer = setInterval(() => document.visibilityState === "visible" && load(), REFRESH);
-    return () => clearInterval(timer);
+    // a tab that was in the background shows what it last read: read again as it comes back
+    const back = () => document.visibilityState === "visible" && load();
+    document.addEventListener("visibilitychange", back);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", back);
+    };
   }, []);
   // "refreshed 4 s ago" stays current
   const [, tick] = useState(0);
@@ -116,13 +122,19 @@ export function Health() {
   const pool = db.pool;
   const h = history.current;
   const seconds = updated ? Math.round((Date.now() - updated) / 1000) : 0;
+  // the instances sharing the database (this one first, before its first heartbeat is written)
+  const instances = status.instances.length
+    ? [...status.instances].sort((a, b) => b.current - a.current || b.live - a.live || (a.host || a.id).localeCompare(b.host || b.id))
+    : [{ id: status.instance.id, current: true, live: true, ageSeconds: 0 }];
+  const live = instances.filter((i) => i.live).length;
+  const sinceRead = seconds;
 
   return html`<div class="page enter health">
     <div class="page-head">
       <div class="grow">
         <div class="eyebrow"><span class=${cx("dot", STATUS[worst].tone === "info" ? "ok" : STATUS[worst].tone, { live: worst === "ok" || worst === "info" })}></span> ${STATUS[worst].label}</div>
         <h1>Health</h1>
-        <p class="muted small" style="margin:4px 0 0">slonbase ${status.version} · up ${duration(status.uptimeSeconds)} · ${plural(status.instances.length || 1, "instance")}</p>
+        <p class="muted small" style="margin:4px 0 0">slonbase ${status.version} · up ${duration(status.uptimeSeconds)} · ${plural(live || 1, "instance")}</p>
       </div>
       <span class="tiny faint">${error ? html`<span style="color:var(--danger)">${error}</span>` : `Refreshed ${seconds < 2 ? "just now" : seconds + " s ago"}`}</span>
       <${Button} size="sm" icon="refresh" loading=${loading} onClick=${load}>Refresh</${Button}>
@@ -133,7 +145,7 @@ export function Health() {
         <${Sparkline} values=${h.latency} />
       </${Tile}>
       <${Tile} i=${1} label="Connections in use" icon="layers" color="var(--tone-1)" value=${`${pool.inUse} / ${pool.max}`} sub=${pool.waiting ? `${pool.waiting} waiting` : `${pool.idle} idle`}>
-        <${Meter} value=${pool.inUse} max=${pool.max} tone=${pool.waiting ? "warn" : pool.inUse / pool.max > 0.8 ? "warn" : ""} />
+        <${Meter} label="Database connections in use" value=${pool.inUse} max=${pool.max} tone=${pool.waiting ? "warn" : pool.inUse / pool.max > 0.8 ? "warn" : ""} />
       </${Tile}>
       <${Tile} i=${2} label="Memory (this instance)" icon="server" color="var(--tone-8)" value=${status.instance.memoryBytes ? bytes(status.instance.memoryBytes) : "—"} sub=${`${status.instance.realtimeClients} realtime ${status.instance.realtimeClients === 1 ? "client" : "clients"}`}>
         <${Sparkline} values=${h.memory} />
@@ -186,17 +198,42 @@ export function Health() {
     </div>
 
     <div class="card pad">
-      <div class="row" style="margin-bottom:10px"><h3>Instances</h3><span class="muted small">sharing this database, seen in the last minute</span></div>
-      <div class="instances">
-        ${(status.instances.length ? status.instances : [{ id: status.instance.id, current: true, lastSeen: null }]).map(
-          (inst, i) => html`<div class=${cx("instance", { current: inst.current })} style=${{ "--i": i }}>
-            <span class="dot ok live"></span>
-            <code class="grow ellipsis">${inst.id}</code>
-            ${inst.current && html`<span class="chip accent">this one</span>`}
-            <span class="tiny faint">${inst.lastSeen ? "seen " + relativeTime(inst.lastSeen) : ""}</span>
-          </div>`
-        )}
+      <div class="row" style="margin-bottom:10px">
+        <h3>Instances</h3>
+        <span class="muted small">every slonbase process connected to this database; each reports in every 20 seconds</span>
       </div>
+      <div class="instances">
+        ${instances.map((inst, i) => {
+          // the age is the database's clock (not the browser's), plus the time since it was read
+          const age = inst.ageSeconds + sinceRead;
+          const state = !inst.live ? "" : inst.sync === "broken" ? "warn" : "ok";
+          // a silent instance's last figures would only mislead
+          const facts = inst.live
+            ? [
+                inst.uptimeSeconds != null && "up " + duration(inst.uptimeSeconds + age),
+                inst.memoryBytes && bytes(inst.memoryBytes),
+                inst.pool && "pool " + inst.pool.inUse + "/" + inst.pool.max,
+                inst.realtimeClients != null && plural(inst.realtimeClients, "realtime client"),
+              ].filter(Boolean)
+            : [];
+          return html`<div class=${cx("instance", { current: inst.current, gone: !inst.live })} style=${{ "--i": i }} title=${"Instance id " + inst.id}>
+            <span class=${cx("dot", state, { live: inst.live })}></span>
+            <div class="grow stack tight" style="min-width:0">
+              <div class="row" style="gap:6px;flex-wrap:wrap">
+                <strong class="ellipsis">${inst.host || inst.id}</strong>
+                ${inst.current && html`<span class="chip accent">this one</span>`}
+                ${inst.version && html`<span class="chip">${inst.version}</span>`}
+                ${inst.sync === "broken" && html`<span class="chip warn">not receiving changes</span>`}
+              </div>
+              <div class="tiny faint">
+                ${inst.live ? (age < 2 ? "reported just now" : "reported " + duration(age) + " ago") : "not heard from for " + duration(age) + ": stopped or unreachable"}
+                ${facts.length > 0 && " · " + facts.join(" · ")}
+              </div>
+            </div>
+          </div>`;
+        })}
+      </div>
+      ${live === 1 && html`<p class="muted small" style="margin:10px 0 0">Only this instance is connected. Another one started with the same database URL appears here within 20 seconds, with nothing else to set up.</p>`}
     </div>
   </div>`;
 }

@@ -11,6 +11,8 @@ PgBouncer in transaction mode).
 - [A. One instance](#a-one-instance)
 - [B. One instance, several projects, several servers](#b-one-instance-several-projects-several-servers)
 - [C. Several instances behind a load balancer](#c-several-instances-behind-a-load-balancer)
+  - [How instances find each other](#how-instances-find-each-other)
+  - [Seeing the instances on Health](#seeing-the-instances-on-health)
 - [D. Several instances behind PgBouncer](#d-several-instances-behind-pgbouncer)
 - [E. Managed PostgreSQL with failover](#e-managed-postgresql-with-failover)
 - [The connection budget](#the-connection-budget)
@@ -85,6 +87,58 @@ Two things need your attention, because they are **per instance** unless you mak
    a 404 on the others. Use S3 storage, or mount one directory on every instance. Health shows a
    warning when instances share a database but the storage is local.
 2. **Connections.** Each instance adds to the total. Plan the [connection budget](#the-connection-budget).
+
+### How instances find each other
+
+There is nothing to connect and no list of instances to keep: **instances that use the same
+database are connected.** Each one writes a row about itself to the table `_slonbase.instances`
+every 20 seconds (a heartbeat: its id, host name, version, uptime, memory, pool use and whether it
+hears the others) and reads the rows of the others from the same table. Changes travel the same
+way, through PostgreSQL's `LISTEN`/`NOTIFY`, so every instance needs a connection that can
+`LISTEN` (see [D](#d-several-instances-behind-pgbouncer) for poolers). To add an instance:
+
+1. Start it with the **same database**: the same `database.url` (`SLONBASE_DATABASE_URL`).
+2. Give it the **same settings encryption key** (`SLONBASE_ENCRYPTION_KEY`), if you use one.
+3. Give it the **same files**: S3 storage, or one directory mounted on every instance. The same
+   goes for the JavaScript hooks and migrations directories, deployed from one source.
+4. Put it behind the balancer. No sticky sessions, and no address or port of another instance
+   to configure: the instances never talk to each other directly, only through the database.
+
+Within about 20 seconds every instance's **Health → Instances** lists it. A project is its own
+database, so a project's Health lists the instances that serve that project (every
+instance serves every project).
+
+### Seeing the instances on Health
+
+**Health → Instances** has a card for each instance that reported in the last ten minutes:
+
+| On the card | Means |
+|---|---|
+| name | the host name of the machine (a container's id, a Kubernetes pod's name); the instance's random id is in the tooltip |
+| **this one** | the instance whose dashboard you are looking at |
+| version | the slonbase version; instances should run the same one |
+| green dot, *reported 8s ago* | it has reported in the last minute; the age is by the database's clock |
+| uptime, memory, pool, realtime clients | what it reported with its last heartbeat (up to 20 seconds old) |
+| **not receiving changes** (yellow) | it can't hear the others: see the check below |
+| dashed, grey, *not heard from for 3m* | it reported in the last ten minutes but not in the last one: stopped, crashed or cut off from the database. It disappears after ten minutes |
+
+Every instance reads the same table, so every instance's Health shows the same cards, each with
+the figures its own instance last reported: you can look at any of them. The same list is
+`instances` in `GET /api/system/status` (superusers), and `slonbase_instances` in
+[`/metrics`](deployment.md#monitoring) is the number of live ones. Health's checks look at them
+too: *Instances stay in step* (more than one instance, and they hear each other),
+*Several instances store files locally* (a warning: use S3), and *Another instance isn't
+receiving changes* (an instance reports that it doesn't get the notifications, usually because of
+a pooler in transaction mode: set `database.listen_url`, see [D](#d-several-instances-behind-pgbouncer)).
+
+**Only one instance on Health, though you started two?**
+
+| Check | Why |
+|---|---|
+| Both use the same `database.url`, down to the database name | different databases are different installations; Health → Database shows the name |
+| It has been running for 20 seconds | the first heartbeat is written as the instance starts, the next 20 seconds later |
+| The second one is a *project* instance, or the first one is the main installation | Health lists the instances of the database it is showing; a project's is its own |
+| The database user can write to `_slonbase.instances` | a failing heartbeat is logged at debug level (`RUST_LOG=slonbase=debug`) |
 
 If an instance is killed, its realtime clients reconnect through the balancer (the SDKs do this
 on their own). The other instances notice it is gone within a minute, and requests that were

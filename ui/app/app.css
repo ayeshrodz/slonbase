@@ -3501,6 +3501,10 @@ a.btn:hover {
 .instance.current {
   border-color: var(--accent-ring);
 }
+.instance.gone {
+  opacity: 0.65;
+  border-style: dashed;
+}
 
 /* ------------------------------------------------------------------ diagram */
 

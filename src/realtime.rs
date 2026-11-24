@@ -1670,17 +1670,42 @@ pub async fn check_sync(core: &Core) {
     }
 }
 
+/// What this instance tells the others about itself with each heartbeat, for Health: small and
+/// cheap to read (a file in `/proc`, counters), and only what helps tell the instances apart.
+fn instance_info(core: &Core) -> serde_json::Value {
+    let pool = core.db().status();
+    // (seconds, not a date: Health compares clocks no further than the database's)
+    let uptime = (*crate::metrics::STARTED)
+        .elapsed()
+        .unwrap_or_default()
+        .as_secs();
+    serde_json::json!({
+        "host": crate::status::host_name(),
+        "version": env!("CARGO_PKG_VERSION"),
+        "uptimeSeconds": uptime,
+        "memoryBytes": crate::status::memory(),
+        "pool": { "inUse": pool.size.saturating_sub(pool.available), "max": pool.max_size },
+        "realtimeClients": core.realtime.client_count(),
+        "sync": match core.realtime.sync_state() {
+            SyncState::Working => "ok",
+            SyncState::Broken => "broken",
+            SyncState::Unknown => "unknown",
+        },
+    })
+}
+
 /// Marks this instance as live (every 20 seconds, from the listener), so other instances
-/// forward subscribe requests to it, and counts the others (for shared rate limits).
+/// forward subscribe requests to it, shows it on their Health pages, and counts the others (for
+/// shared rate limits).
 async fn heartbeat(core: &Core) {
     let beat = async {
         let client = core.db().get().await.map_err(db::describe_pool_error)?;
         let others: i64 = client
             .query_one(
-                "WITH beat AS (INSERT INTO _slonbase.instances (id) VALUES ($1) \
-                     ON CONFLICT (id) DO UPDATE SET seen = now()) \
+                "WITH beat AS (INSERT INTO _slonbase.instances (id, info) VALUES ($1, $2) \
+                     ON CONFLICT (id) DO UPDATE SET seen = now(), info = $2) \
                  SELECT count(*) FROM _slonbase.instances WHERE id <> $1 AND seen > now() - interval '60 seconds'",
-                &[&core.realtime.instance],
+                &[&core.realtime.instance, &instance_info(core)],
             )
             .await?
             .get(0);

@@ -24,6 +24,18 @@ changes, listed in its **Upgrading** section.
   Overview also notes it under its graph. `GET /api/system/status` has `logging.partial` and
   `logging.dropped`, `logs.requestsPerHour`; the figures are described in
   [configuration](docs/configuration.md#what-the-dashboards-figures-count).
+- **Health tells the instances sharing a database apart, and how each is doing.** Each instance
+  reports its host name (a container's id, a pod's name), version, uptime, memory, pool use and
+  realtime clients with its 20-second heartbeat, and Health → Instances shows them, so you can
+  tell a second instance from the first and see that it is healthy. An instance that reports it
+  doesn't receive the others' changes (a pooler in transaction mode between it and PostgreSQL)
+  raises *Another instance isn't receiving changes* on the others too. `instances` in
+  `GET /api/system/status` has `host`, `version`, `uptimeSeconds`, `memoryBytes`, `pool`,
+  `realtimeClients`, `sync`, `live` and `ageSeconds`. A new migration adds the column the
+  heartbeat writes it to; instances of an older version leave it empty. The
+  [scaling guide](docs/scaling.md#how-instances-find-each-other) now says how instances find each
+  other (nothing to configure but the same database), what each must share, how to read the
+  card, and what to check when Health lists only one.
 
 ### Changed
 
@@ -49,6 +61,9 @@ changes, listed in its **Upgrading** section.
   each decoding the picture. A WebP photograph's thumbnail used to be a PNG ten to fifteen times as
   large as a JPEG (a WebP with transparency is still a PNG); JPEG thumbnails are saved at quality
   82. No action is needed: existing thumbnails keep being served.
+- **An instance that stops reporting stays on Health for ten minutes**, greyed with how long it
+  has been silent, instead of vanishing after a minute: a crashed instance is now visible as one.
+  The checks and `slonbase_instances` still count only the ones that reported in the last minute.
 
 ### Fixed
 
@@ -76,6 +91,10 @@ changes, listed in its **Upgrading** section.
   others kept showing "…"; one request (`GET /api/collections/meta/counts`) now counts them all.
   The Overview's "Server errors" and the command center's errors are one figure, the one Health
   has (a failed request, or an error outside requests), and are called *Errors*.
+- **Health could show an instance as seen minutes ago while it was running.** The age was worked
+  out against the browser's clock, which can differ from the server's, and a tab that had been in
+  the background kept showing what it last read. The server now gives the age by the database's
+  clock, and Health reads again as soon as the tab is shown.
 
 ## [2.7.0] - 2026-11-23
 

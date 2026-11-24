@@ -176,6 +176,7 @@ for (const theme of ["light", "dark"]) {
   const screens = [
     ["overview", "#/", { screenshot: false }],
     ["collections", "#/data", { screenshot: false }],
+    ["health", "#/health", { screenshot: false }],
     ["records", "#/data/tasks/records", {}],
     ["schema", "#/data/tasks/schema", {}],
     ["rules", "#/data/tasks/rules", {}],
