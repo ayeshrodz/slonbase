@@ -10,6 +10,14 @@ changes, listed in its **Upgrading** section.
 
 ### Added
 
+- **`X-Thumb-Error`: why a thumbnail wasn't served.** For a size that isn't one of the field's
+  `thumbs`, a file that isn't a PNG, JPEG, GIF or WebP (an HEIC photo, say) or one that can't be
+  decoded, the original is served with status `200` as before (PocketBase's behavior), and this
+  header now says why and which sizes there are, so a client app can tell. File answers also
+  carry `Cross-Origin-Resource-Policy: cross-origin`, so a page that isolates itself (COEP) can
+  show them, and CORS exposes `X-Thumb-Error`, `Content-Range`, `Accept-Ranges` and
+  `Content-Disposition` to scripts of other origins. See
+  [thumbnails](docs/api.md#thumbnails).
 - **Health says when the request figures are partial.** *Not every request is counted* when
   `logs.minLevel` is above 0 or `logs.excludePaths` is set, and *Some log entries were dropped*
   when the logs' queue overflowed (the database took them too slowly), with the number. The
@@ -34,9 +42,20 @@ changes, listed in its **Upgrading** section.
   floating window whose backdrop scrolled with the form; now the page stays in view and in place
   beside it, and the Cancel and Save buttons stay at the bottom while the form scrolls. Nothing
   about the form itself changed.
+- **Thumbnails are made faster, and a WebP photo's is a JPEG.** A picture is averaged down to twice
+  the size needed before the final resize, so a 48-megapixel photo takes about 0.4 s to make a
+  thumbnail instead of 1.3 s, and 40 new thumbnails of 12-megapixel photos asked for at once
+  took 1.4 s instead of 3.9 s. Requests for one new thumbnail wait for one to be made instead of
+  each decoding the picture. A WebP photograph's thumbnail used to be a PNG ten to fifteen times as
+  large as a JPEG (a WebP with transparency is still a PNG); JPEG thumbnails are saved at quality
+  82. No action is needed: existing thumbnails keep being served.
 
 ### Fixed
 
+- **Thumbnails of photos taken with a phone were sideways.** A JPEG from a phone is stored as the
+  sensor saw it, with its metadata saying how to turn it, and thumbnails ignored it. They are turned
+  as the metadata says now. A thumbnail made before this keeps the way it was made: Settings →
+  Storage → *Clear thumbnails* makes them again as they are asked for.
 - **The dashboard's request figures count the requests the server answered, not the dashboard's
   own pages.** The Overview's graph and total, Health and the command center counted every
   logged request, and opening the dashboard logs about a dozen of its own (the Overview alone

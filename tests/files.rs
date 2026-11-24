@@ -207,10 +207,53 @@ async fn uploads_serving_and_thumbnails() {
             .iter()
             .any(|f| f.contains("thumbs_") && f.ends_with(&format!("50x50_{avatar}")))
     );
-    let (_, _, bytes) = env.get(&format!("{base}/{avatar}?thumb=10x10")).await;
+    let (_, headers, bytes) = env.get(&format!("{base}/{avatar}?thumb=10x10")).await;
     assert_eq!(
         bytes, image,
         "sizes that aren't configured serve the original"
+    );
+    // ... and say so, with the sizes there are, for a client to read
+    let why = headers["x-thumb-error"].to_str().unwrap();
+    assert!(
+        why.contains("\"10x10\"") && why.contains("100x100") && why.contains("50x50"),
+        "{why}"
+    );
+    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=bogus")).await;
+    assert!(
+        headers["x-thumb-error"]
+            .to_str()
+            .unwrap()
+            .contains("not a size")
+    );
+    // a thumbnail that was made has no such header, and a file can be shown by an app of another
+    // origin, which may read the header
+    let (_, headers, _) = env.get(&format!("{base}/{avatar}?thumb=50x50")).await;
+    assert!(headers.get("x-thumb-error").is_none());
+    assert_eq!(headers["cross-origin-resource-policy"], "cross-origin");
+    let (_, headers, _) = raw_request(
+        &env.app,
+        "GET",
+        &format!("{base}/{avatar}?thumb=10x10"),
+        &[("origin", "https://app.example.com")],
+        vec![],
+    )
+    .await;
+    assert!(
+        headers["access-control-expose-headers"]
+            .to_str()
+            .unwrap()
+            .contains("X-Thumb-Error")
+    );
+    // a file that isn't a picture says why too: a text file (with a size that is allowed) and a
+    // file that is called a picture but isn't one
+    let text = record["files"][0].as_str().unwrap();
+    let (status, headers, bytes) = env.get(&format!("{base}/{text}?thumb=100x100")).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(bytes, b"first", "the original");
+    let why = headers["x-thumb-error"].to_str().unwrap();
+    assert!(
+        why.contains("text/plain") && why.contains("can't be resized"),
+        "{why}"
     );
 
     // unknown files and traversal attempts
@@ -739,4 +782,59 @@ async fn a_failed_replacement_keeps_the_old_file() {
     assert_eq!(bytes, image);
     assert_eq!(env.stored_files(), before, "files were left behind or lost");
     env.tdb.drop_db().await;
+}
+
+// Requests for a thumbnail that isn't there yet, all at once (a client app's page of pictures):
+// it is made once, and every one of them gets it.
+#[tokio::test]
+async fn concurrent_requests_for_one_thumbnail_make_it_once() {
+    let Some(env) = setup().await else { return };
+    slonbase::records::files::track_thumbs_made();
+    // a picture big enough to take a while to decode, so the requests overlap
+    let image = {
+        let mut img = image::RgbImage::new(2400, 1600);
+        for (x, y, p) in img.enumerate_pixels_mut() {
+            *p = image::Rgb([
+                (x / 9 % 251) as u8,
+                (y / 9 % 241) as u8,
+                ((x / 13 + y / 7) % 239) as u8,
+            ]);
+        }
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    };
+    let (status, record) = env
+        .upload(
+            "POST",
+            "/api/collections/docs/records",
+            &[("title", "public")],
+            &[("files", "big.png", &image)],
+        )
+        .await;
+    assert_eq!(status, StatusCode::OK, "{record}");
+    let id = record["id"].as_str().unwrap();
+    let name = record["files"][0].as_str().unwrap();
+    let uri = format!("/api/files/docs/{id}/{name}?thumb=100x100");
+    let answers = futures_util::future::join_all((0..12).map(|_| env.get(&uri))).await;
+    let first = &answers[0].2;
+    for (status, headers, bytes) in &answers {
+        assert_eq!(*status, StatusCode::OK);
+        assert_eq!(bytes, first);
+        assert!(headers.get("x-thumb-error").is_none());
+    }
+    assert_ne!(first, &image, "a thumbnail, not the original");
+    assert_eq!(
+        slonbase::records::files::thumbs_made(&format!("100x100_{name}")),
+        1,
+        "twelve requests, one thumbnail made"
+    );
+    // asked for again: read, not made again
+    env.get(&uri).await;
+    assert_eq!(
+        slonbase::records::files::thumbs_made(&format!("100x100_{name}")),
+        1
+    );
 }

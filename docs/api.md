@@ -249,7 +249,8 @@ Files are uploaded with `multipart/form-data` on create and update:
   keep) removes.
 - Other fields are sent as form values, or as JSON in `@jsonPayload`.
 - Types are detected from the content (never the name) and checked against `mimeTypes`.
-- Thumbnails (`100x100`, `0x300`, `200x100t`/`b`/`f`) are generated on first request.
+- Thumbnails (`?thumb=100x100`, `0x300`, `200x100t`/`b`/`f`) are generated on first request and kept;
+  see [thumbnails](#thumbnails) for what a client app should know.
 - Downloads support byte ranges (`Range`), so audio and video can be streamed.
 - Protected files need a file token (`POST /api/files/token`, `?token=`).
 - Deleting a record deletes its files, and removing a file field from a collection deletes that
@@ -257,6 +258,42 @@ Files are uploaded with `multipart/form-data` on create and update:
 
 Files are stored under `--storage-path`, or in an S3 bucket
 ([configuration](configuration.md#file-storage-in-s3)).
+
+### Thumbnails
+
+`GET /api/files/{collection}/{record}/{filename}?thumb=WxH` answers with a resized copy of a PNG,
+JPEG, GIF or WebP image. For a client app:
+
+- **Declare the sizes you use.** A size is served only when it is `100x100` or one of the file
+  field's `thumbs` (Data → the collection → Schema), so that nobody can make a thumbnail of every
+  size. For any other size the answer is `200` with the **original** file, as PocketBase's is, and
+  the header `X-Thumb-Error` says why (for example `the size "64x64" is not one of this field's
+  thumbs (100x100, 300x200)`). Check for the header when a thumbnail looks too large; scripts of another origin may read it.
+  With `s3.presigned_downloads` on, the answer is a redirect to the bucket and the header is on
+  that redirect only: a browser follows the redirect without showing its headers to a script
+  (`fetch` with `redirect: "manual"` gives an opaque response). Read it with a client that
+  doesn't follow redirects (`curl -i`), or leave the setting off when a page's script needs it.
+- **Sizes:** `WxH` fills the box and crops the middle, with `t` (top), `b` (bottom) or `f` (fits
+  inside, no crop) after it; `0xH` and `Wx0` keep the proportions. At most 4000 pixels a side.
+- **What comes out:** a JPEG stays a JPEG, a GIF a (still) GIF, a PNG a PNG, and a WebP a JPEG,
+  or a PNG when it has transparency. A photograph is turned as its metadata says, so a picture
+  taken with a phone held upright is upright. A file that isn't one of those types (an HEIC photo
+  from an iPhone, an SVG, a PDF) is served as it is, with `X-Thumb-Error` saying so; resize it
+  before the upload, or store a JPEG next to it.
+- **The first request makes the thumbnail**, in a few tens of milliseconds for a photo of a few
+  megapixels and about half a second for one of 48; later requests read it from storage. Requests
+  for the same new thumbnail wait for one to be made. A few thumbnails are made at the same time
+  (by the number of CPUs), so a page that asks for hundreds new ones at once is answered as they
+  are made.
+- **Caching:** public files and their thumbnails are served with `Cache-Control: max-age=2592000,
+  stale-while-revalidate=86400` (protected ones with `private, no-store`), `Access-Control-Allow-Origin`
+  and `Cross-Origin-Resource-Policy: cross-origin`, so an app on another origin can show them, also
+  from a page that isolates itself. A file's name changes with its content, so a cached copy
+  of the file is never stale. A thumbnail keeps its URL when *Clear thumbnails* makes it again,
+  so a cached one can show the previous image for up to 30 days.
+- A thumbnail is deleted with its file. To make them again (after changing how they are made), use
+  Settings → Storage → *Clear thumbnails*; they are generated again as they are asked for.
+
 
 ## Realtime
 
