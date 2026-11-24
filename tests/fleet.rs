@@ -401,6 +401,8 @@ async fn health_lists_the_instances_sharing_the_database() {
         other["detail"].as_str().unwrap().contains("web-8"),
         "{other}"
     );
+    // and "instances stay in step" isn't said while one of them doesn't
+    assert!(check("sync").is_none(), "{body}");
     // the quiet one isn't counted: the live ones are this one, the second and the stuck one
     let storage = check("shared-storage").expect("local files with several instances");
     assert!(

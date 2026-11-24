@@ -122,9 +122,12 @@ export function Health() {
   const pool = db.pool;
   const h = history.current;
   const seconds = updated ? Math.round((Date.now() - updated) / 1000) : 0;
-  // the instances sharing the database (this one first, before its first heartbeat is written)
+  // the instances sharing the database (this one first, before its first heartbeat is written);
+  // one is live while its age, as it advances, is under a minute, whatever the last answer said
+  // (a failed refresh leaves that answer on the page)
+  const aged = (i) => i.ageSeconds + seconds;
   const instances = status.instances.length
-    ? [...status.instances].sort((a, b) => b.current - a.current || b.live - a.live || (a.host || a.id).localeCompare(b.host || b.id))
+    ? status.instances.map((i) => ({ ...i, live: i.live && aged(i) < 60 })).sort((a, b) => b.current - a.current || b.live - a.live || (a.host || a.id).localeCompare(b.host || b.id))
     : [{ id: status.instance.id, current: true, live: true, ageSeconds: 0 }];
   const live = instances.filter((i) => i.live).length;
   const sinceRead = seconds;

@@ -30,13 +30,23 @@ pub(crate) fn memory() -> Option<u64> {
 
 /// The machine's name (a container's id, a pod's name), what tells instances apart on Health.
 pub(crate) fn host_name() -> Option<String> {
+    // (an empty or blank value, as a container may set, moves on to the next source)
+    let clean = |name: String| {
+        Some(name.trim().chars().take(100).collect::<String>()).filter(|n| !n.is_empty())
+    };
     ["HOSTNAME", "COMPUTERNAME"]
         .iter()
-        .find_map(|name| std::env::var(name).ok())
-        .or_else(|| std::fs::read_to_string("/proc/sys/kernel/hostname").ok())
-        .or_else(|| std::fs::read_to_string("/etc/hostname").ok())
-        .map(|name| name.trim().chars().take(100).collect::<String>())
-        .filter(|name| !name.is_empty())
+        .find_map(|name| std::env::var(name).ok().and_then(clean))
+        .or_else(|| {
+            std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .ok()
+                .and_then(clean)
+        })
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .and_then(clean)
+        })
 }
 
 fn db_error(e: tokio_postgres::Error) -> ApiError {
@@ -252,7 +262,11 @@ pub async fn status(
         ));
     }
 
-    // do the instances hear each other
+    // do the instances hear each other (the live ones that say they don't, besides this one)
+    let deaf_peers: Vec<&Value> = instances
+        .iter()
+        .filter(|i| i["live"] == true && i["current"] == false && i["sync"] == "broken")
+        .collect();
     match core.realtime.sync_state() {
         SyncState::Broken => checks.push(check(
             "sync",
@@ -261,7 +275,7 @@ pub async fn status(
             "This instance sent itself a notification through PostgreSQL and didn't get it back, so schema changes, settings, realtime events and rate limits from other instances don't arrive (and its own don't reach them). The usual cause is a connection pooler (PgBouncer) in transaction mode between slonbase and PostgreSQL, which can't carry LISTEN: set database.listen_url (--database-listen-url, SLONBASE_DATABASE_LISTEN_URL) to a direct or session-mode connection to the same server. See the scaling guide.",
             "",
         )),
-        SyncState::Working if live_instances > 1 => checks.push(check(
+        SyncState::Working if live_instances > 1 && deaf_peers.is_empty() => checks.push(check(
             "sync",
             "ok",
             "Instances stay in step",
@@ -271,10 +285,7 @@ pub async fn status(
         _ => {}
     }
     // an instance that reports, with its heartbeat, that it doesn't get the others' changes
-    for other in instances
-        .iter()
-        .filter(|i| i["live"] == true && i["current"] == false && i["sync"] == "broken")
-    {
+    for other in deaf_peers {
         let name = other["host"]
             .as_str()
             .unwrap_or_else(|| other["id"].as_str().unwrap_or("?"));
