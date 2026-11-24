@@ -69,7 +69,8 @@ export function Health() {
   // already (so an older one arriving late can't undo it, and a slow server still gets its
   // answers shown). The timed refreshes wait for the request that is out; each request is
   // given a minute (far more than a slow answer takes) and is then cancelled, so one that never
-  // completes can't hold up the next. The Refresh button replaces a request that is out.
+  // completes can't hold up the next. "Try again" replaces a request that is out (the Refresh
+  // button waits for it: it is disabled while loading).
   const requested = useRef(0);
   const applied = useRef(0);
   const controller = useRef(null);
@@ -88,6 +89,9 @@ export function Health() {
     setLoading(true);
     try {
       const s = await api.get("/api/system/status", { signal: ctl.signal });
+      // (an answer whose body stalled and was cancelled comes back empty, not as an error)
+      if (ctl.signal.aborted) throw new DOMException("The request was cancelled.", "AbortError");
+      if (!s?.database) throw new Error("The status answer was incomplete.");
       if (mine < applied.current) return;
       applied.current = mine;
       const h = history.current;
