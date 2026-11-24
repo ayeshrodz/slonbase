@@ -64,15 +64,23 @@ export function Health() {
   const [updated, setUpdated] = useState(null);
   const [loading, setLoading] = useState(false);
   const history = useRef({ latency: [], memory: [], pool: [] });
-  // the latest request: an answer that arrives after a newer one was asked for is dropped
-  const latest = useRef(0);
+  // Requests are numbered. An answer is applied unless a newer request's answer was applied
+  // already (so an older one arriving late can't undo it, and a slow server still gets its
+  // answers shown). The timed refreshes skip a turn while a request younger than half a minute
+  // is still out, so a slow server isn't asked again and again.
+  const requested = useRef(0);
+  const applied = useRef(0);
+  const inFlight = useRef(0);
 
-  const load = async () => {
-    const mine = ++latest.current;
+  const load = async (options) => {
+    if (options?.auto && inFlight.current && Date.now() - inFlight.current < 30_000) return;
+    const mine = ++requested.current;
+    inFlight.current = Date.now();
     setLoading(true);
     try {
       const s = await api.get("/api/system/status");
-      if (mine !== latest.current) return;
+      if (mine < applied.current) return;
+      applied.current = mine;
       const h = history.current;
       const push = (list, v) => {
         list.push(v);
@@ -85,16 +93,19 @@ export function Health() {
       setError(null);
       setUpdated(Date.now());
     } catch (err) {
-      if (mine === latest.current) setError(err.message || "The status couldn't be loaded.");
+      if (mine > applied.current) setError(err.message || "The status couldn't be loaded.");
     } finally {
-      if (mine === latest.current) setLoading(false);
+      if (mine === requested.current) {
+        inFlight.current = 0;
+        setLoading(false);
+      }
     }
   };
   useEffect(() => {
     load();
-    const timer = setInterval(() => document.visibilityState === "visible" && load(), REFRESH);
+    const timer = setInterval(() => document.visibilityState === "visible" && load({ auto: true }), REFRESH);
     // a tab that was in the background shows what it last read: read again as it comes back
-    const back = () => document.visibilityState === "visible" && load();
+    const back = () => document.visibilityState === "visible" && load({ auto: true });
     document.addEventListener("visibilitychange", back);
     return () => {
       clearInterval(timer);
