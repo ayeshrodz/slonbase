@@ -396,6 +396,15 @@ instance said no (or after 5 seconds). Live instances come from `_slonbase.insta
 heartbeat every 20 seconds from each listener (and a `instance` notification when one starts,
 so the others count it at once). Alone, an instance doesn't forward at all.
 
+The heartbeat row also carries `info` (migration 25), a small JSON object an instance reports
+about itself: host name, version, uptime in seconds, resident memory, pool use, realtime clients
+and whether it gets back its own notifications. Health lists the instances seen in the last ten
+minutes (rows are deleted after ten); those seen in the last 60 seconds are `live`, the ones
+that count for forwarding, rate limits and the checks. The age comes from the database's clock
+(`now() - seen`), so a browser's or a server's clock being off can't make a live instance look
+silent. A live instance that reports `sync: "broken"` raises the *Another instance isn't
+receiving changes* check on the others.
+
 **Shared rate limits.** The guard counts requests in memory while `other_instances()` is 0,
 and otherwise with one upsert per request on the unlogged `_slonbase.rate_limits` table (the
 same fixed windows), falling back to memory if the database can't be reached.

@@ -21,11 +21,32 @@ fn check(id: &str, status: &str, title: &str, detail: impl Into<String>, link: &
 }
 
 /// This process's resident memory, from `/proc` (Linux), in bytes.
-fn memory() -> Option<u64> {
+pub(crate) fn memory() -> Option<u64> {
     let status = std::fs::read_to_string("/proc/self/status").ok()?;
     let line = status.lines().find(|l| l.starts_with("VmRSS:"))?;
     let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
     Some(kb * 1024)
+}
+
+/// The machine's name (a container's id, a pod's name), what tells instances apart on Health.
+pub(crate) fn host_name() -> Option<String> {
+    // (an empty or blank value, as a container may set, moves on to the next source)
+    let clean = |name: String| {
+        Some(name.trim().chars().take(100).collect::<String>()).filter(|n| !n.is_empty())
+    };
+    ["HOSTNAME", "COMPUTERNAME"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok().and_then(clean))
+        .or_else(|| {
+            std::fs::read_to_string("/proc/sys/kernel/hostname")
+                .ok()
+                .and_then(clean)
+        })
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .and_then(clean)
+        })
 }
 
 fn db_error(e: tokio_postgres::Error) -> ApiError {
@@ -64,10 +85,13 @@ pub async fn status(
         .map_err(db_error)?;
     let (pg_version, db_size, db_name, migration, app_migrations): (String, i64, String, i32, i64) =
         (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4));
+    // every instance that reported in the last ten minutes (the heartbeat is every 20 seconds, a
+    // row is deleted after ten): `live` when it reported in the last minute, the age as the
+    // database's clock sees it (a browser's clock may differ from the server's)
     let instances: Vec<Value> = client
         .query(
-            "SELECT id, to_char(seen AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS.MS\"Z\"')
-             FROM _slonbase.instances WHERE seen > now() - interval '60 seconds' ORDER BY id",
+            "SELECT id, extract(epoch FROM now() - seen)::float8, info
+             FROM _slonbase.instances WHERE seen > now() - interval '10 minutes' ORDER BY id",
             &[],
         )
         .await
@@ -75,9 +99,22 @@ pub async fn status(
         .iter()
         .map(|r| {
             let id: String = r.get(0);
-            json!({ "id": id, "lastSeen": r.get::<_, String>(1), "current": id == core.realtime.instance_id() })
+            let age: f64 = r.get(1);
+            let mut instance = json!({
+                "id": id,
+                "ageSeconds": age.max(0.0).round() as i64,
+                "live": age < 60.0,
+                "current": id == core.realtime.instance_id(),
+            });
+            if let (Some(map), Value::Object(info)) =
+                (instance.as_object_mut(), r.get::<_, Value>(2))
+            {
+                map.extend(info);
+            }
+            instance
         })
         .collect();
+    let live_instances = instances.iter().filter(|i| i["live"] == true).count();
     let logs = client
         .query_one(
             "SELECT
@@ -213,20 +250,23 @@ pub async fn status(
             "#/settings/storage",
         ));
     }
-    if instances.len() > 1 && local_files {
+    if live_instances > 1 && local_files {
         checks.push(check(
             "shared-storage",
             "warn",
             "Several instances store files locally",
             format!(
-                "{} instances share this database. Unless they share the storage directory, a file uploaded through one isn't found by the others: use S3.",
-                instances.len()
+                "{live_instances} instances share this database. Unless they share the storage directory, a file uploaded through one isn't found by the others: use S3."
             ),
             "#/settings/storage",
         ));
     }
 
-    // do the instances hear each other
+    // do the instances hear each other (the live ones that say they don't, besides this one)
+    let deaf_peers: Vec<&Value> = instances
+        .iter()
+        .filter(|i| i["live"] == true && i["current"] == false && i["sync"] == "broken")
+        .collect();
     match core.realtime.sync_state() {
         SyncState::Broken => checks.push(check(
             "sync",
@@ -235,17 +275,27 @@ pub async fn status(
             "This instance sent itself a notification through PostgreSQL and didn't get it back, so schema changes, settings, realtime events and rate limits from other instances don't arrive (and its own don't reach them). The usual cause is a connection pooler (PgBouncer) in transaction mode between slonbase and PostgreSQL, which can't carry LISTEN: set database.listen_url (--database-listen-url, SLONBASE_DATABASE_LISTEN_URL) to a direct or session-mode connection to the same server. See the scaling guide.",
             "",
         )),
-        SyncState::Working if instances.len() > 1 => checks.push(check(
+        SyncState::Working if live_instances > 1 && deaf_peers.is_empty() => checks.push(check(
             "sync",
             "ok",
             "Instances stay in step",
-            format!(
-                "{} instances share this database and hear each other's changes",
-                instances.len()
-            ),
+            format!("{live_instances} instances share this database and hear each other's changes"),
             "",
         )),
         _ => {}
+    }
+    // an instance that reports, with its heartbeat, that it doesn't get the others' changes
+    for other in deaf_peers {
+        let name = other["host"]
+            .as_str()
+            .unwrap_or_else(|| other["id"].as_str().unwrap_or("?"));
+        checks.push(check(
+            "sync-other",
+            "error",
+            "Another instance isn't receiving changes",
+            format!("The instance {name} sent itself a notification through PostgreSQL and didn't get it back, so it misses schema changes, settings and realtime events from the others. Look at its own Health page: the usual cause is a connection pooler in transaction mode, fixed with database.listen_url (see the scaling guide)."),
+            "",
+        ));
     }
     // the server's connection limit, which every instance and every project spends from
     if connections_max > 0 {

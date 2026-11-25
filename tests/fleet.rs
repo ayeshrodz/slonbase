@@ -321,3 +321,97 @@ async fn health_reports_the_connection_budget_only_when_it_is_nearly_spent() {
     drop(app);
     tdb.drop_db().await;
 }
+
+/// Health lists every instance that shares the database, with what each reports about itself;
+/// one that went quiet stays in view (and isn't counted as live) for ten minutes, and an
+/// instance that says it doesn't get the others' changes is named by the others' checks.
+#[tokio::test]
+async fn health_lists_the_instances_sharing_the_database() {
+    let Some(tdb) = TestDb::create().await else {
+        return;
+    };
+    let (first, admin, _dir1) = ready_app(&tdb).await;
+    let (_second, _dir2) = second_instance(&tdb).await;
+    let pool = tdb.pool();
+    let client = pool.get().await.unwrap();
+    // both report in, with their details (the heartbeat is the listener's, every 20 seconds)
+    let mut reported = 0_i64;
+    for _ in 0..400 {
+        reported = client
+            .query_one(
+                "SELECT count(*) FROM _slonbase.instances WHERE info ? 'version'",
+                &[],
+            )
+            .await
+            .unwrap()
+            .get(0);
+        if reported == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    assert_eq!(reported, 2, "both instances report their details");
+
+    let (status, body) = as_admin(&first, &admin, "GET", "/api/system/status", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let instances = body["instances"].as_array().unwrap();
+    assert_eq!(instances.len(), 2, "{body}");
+    assert_eq!(instances.iter().filter(|i| i["current"] == true).count(), 1);
+    for instance in instances {
+        assert_eq!(instance["live"], true, "{instance}");
+        assert_eq!(instance["version"], env!("CARGO_PKG_VERSION"));
+        assert!(instance["ageSeconds"].as_i64().unwrap() >= 0);
+        assert!(instance["uptimeSeconds"].as_u64().is_some(), "{instance}");
+        assert!(instance["pool"]["max"].as_u64().unwrap() > 0, "{instance}");
+        assert!(instance["sync"].is_string(), "{instance}");
+    }
+
+    // one that went quiet three minutes ago, one that left eleven minutes ago (it's not listed
+    // any more) and one that is live and doesn't get the others' notifications
+    client
+        .batch_execute(
+            "INSERT INTO _slonbase.instances (id, seen, info) VALUES
+               ('quiet', now() - interval '3 minutes', '{\"host\": \"web-9\"}'),
+               ('left', now() - interval '11 minutes', '{\"host\": \"web-7\"}'),
+               ('stuck', now(), '{\"host\": \"web-8\", \"sync\": \"broken\"}')",
+        )
+        .await
+        .unwrap();
+    let (_, body) = as_admin(&first, &admin, "GET", "/api/system/status", None).await;
+    let instances = body["instances"].as_array().unwrap();
+    let find = |id: &str| instances.iter().find(|i| i["id"] == id);
+    assert_eq!(instances.len(), 4, "{body}");
+    assert!(find("left").is_none(), "{body}");
+    let quiet = find("quiet").expect("a quiet instance stays listed");
+    assert_eq!(quiet["live"], false);
+    assert!(quiet["ageSeconds"].as_i64().unwrap() >= 180, "{quiet}");
+    assert_eq!(quiet["host"], "web-9");
+    assert_eq!(find("stuck").unwrap()["live"], true);
+
+    let check = |id: &str| {
+        body["checks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|c| c["id"] == id)
+    };
+    let other = check("sync-other").expect("the check about the other instance");
+    assert_eq!(other["status"], "error");
+    assert!(
+        other["detail"].as_str().unwrap().contains("web-8"),
+        "{other}"
+    );
+    // and "instances stay in step" isn't said while one of them doesn't
+    assert!(check("sync").is_none(), "{body}");
+    // the quiet one isn't counted: the live ones are this one, the second and the stuck one
+    let storage = check("shared-storage").expect("local files with several instances");
+    assert!(
+        storage["detail"]
+            .as_str()
+            .unwrap()
+            .starts_with("3 instances"),
+        "{storage}"
+    );
+
+    tdb.drop_db().await;
+}

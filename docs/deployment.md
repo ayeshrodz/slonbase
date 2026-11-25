@@ -132,7 +132,10 @@ Any number of slonbase instances can share one database behind a load balancer, 
 sessions: a token issued by one instance is accepted by all, and realtime events, collection
 changes, settings, rate limits and backup restores reach every instance through PostgreSQL. Cron
 jobs (including automatic backups) run on one instance per scheduled minute, and migrations run
-once. Three things to plan for:
+once. Nothing connects them but the database: instances that use the same `database.url` find each
+other and appear on **Health → Instances** within 20 seconds, each with its host name, version,
+uptime, memory and pool use ([how it works](scaling.md#how-instances-find-each-other)). Three
+things to plan for:
 
 - **Files** are local to an instance by default: use S3 storage, or one directory shared by every
   instance. Health warns when instances share a database but not their files.
