@@ -8,6 +8,8 @@ changes, listed in its **Upgrading** section.
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-11-25
+
 ### Added
 
 - **`X-Thumb-Error`: why a thumbnail wasn't served.** For a size that isn't one of the field's
@@ -2131,7 +2133,8 @@ The first release: a PocketBase-compatible backend on PostgreSQL.
   PocketBase 0.40.5 in CI.
 - Benchmarks against PocketBase are in [bench/README.md](https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md).
 
-[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.7.0...HEAD
+[Unreleased]: https://github.com/ayeshrodz/slonbase/compare/v2.7.1...HEAD
+[2.7.1]: https://github.com/ayeshrodz/slonbase/compare/v2.7.0...v2.7.1
 [2.7.0]: https://github.com/ayeshrodz/slonbase/compare/v2.6.2...v2.7.0
 [2.6.2]: https://github.com/ayeshrodz/slonbase/compare/v2.6.1...v2.6.2
 [2.6.1]: https://github.com/ayeshrodz/slonbase/compare/v2.6.0...v2.6.1
