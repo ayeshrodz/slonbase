@@ -276,7 +276,7 @@ brew install postgresql@16 && brew services start postgresql@16
 Then download, check and start slonbase (`V` is the version, such as `2.7.1`):
 
 ```sh
-V=2.7.0
+V=2.7.1
 curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/slonbase-$V-macos-arm64.tar.gz
 curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/SHA256SUMS
 grep "macos-arm64.tar.gz" SHA256SUMS | shasum -a 256 -c     # must say: OK
