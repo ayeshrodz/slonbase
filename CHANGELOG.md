@@ -10,6 +10,8 @@ changes, listed in its **Upgrading** section.
 
 ## [2.7.1] - 2026-11-25
 
+**Accurate figures, a clearer Data page and better thumbnails.** The dashboard's request and record figures now count what the server answered, Data opens on a grouped page of the collections, a photo's thumbnail is upright and says why when the original is served instead, and Health shows each instance that shares the database and how it is doing.
+
 ### Added
 
 - **`X-Thumb-Error`: why a thumbnail wasn't served.** For a size that isn't one of the field's
@@ -97,6 +99,14 @@ changes, listed in its **Upgrading** section.
   out against the browser's clock, which can differ from the server's, and a tab that had been in
   the background kept showing what it last read. The server now gives the age by the database's
   clock, and Health reads again as soon as the tab is shown.
+
+### Upgrading
+
+- One migration runs when slonbase starts (it adds what each instance reports on Health). Instances
+  that share a database should all be on the new version: stop them, then start the new one, as for
+  any upgrade with a migration.
+- Existing thumbnails keep being served. *Settings → Storage → Clear thumbnails* makes them again
+  with the new orientation handling.
 
 ## [2.7.0] - 2026-11-23
 
