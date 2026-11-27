@@ -6,26 +6,185 @@
 <title>Page not found · slonbase</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="/assets/logo.svg" type="image/svg+xml">
+<script>
+  // the theme the visitor chose on the site, else the system's
+  try { var t = localStorage.getItem("theme"); } catch (e) {}
+  document.documentElement.dataset.theme = t || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+</script>
 <style>
-@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-display: swap; src: url("/assets/fonts/ibm-plex-sans-latin.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 100 700; font-stretch: 75% 100%; font-display: swap; src: url("/assets/fonts/ibm-plex-sans-latin.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-weight: 100 800; font-display: swap; src: url("/assets/fonts/jetbrains-mono-latin.woff2") format("woff2"); }
-:root { --canvas: #eff2f5; --surface: #fff; --ink: #1f2328; --muted: #59636e; --line: #d1d9e0; --accent: #3f6a5c; color-scheme: light; }
-@media (prefers-color-scheme: dark) { :root { --canvas: #0b0f14; --surface: #161d28; --ink: #f0f6fc; --muted: #9198a1; --line: #3d444d; --accent: #6fc2a2; color-scheme: dark; } }
+/* @tokens:start: the dashboard's tokens (ui/app/app.css), written by scripts/build-tokens.mjs. Don't edit by hand. */
+:root {
+  --accent: #4f7a6c;
+  --accent-strong: color-mix(in srgb, var(--accent), black 18%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 89%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 72%);
+  --canvas: #eff2f5;
+  --canvas-2: #e7ebf0;
+  --sidebar: #e8ecf0;
+  --surface: #ffffff;
+  --surface-2: #f4f6f9;
+  --raised: #ffffff;
+  --ink: #1f2328;
+  --ink-2: #31373d;
+  --ink-3: #4b535c;
+  --muted: #59636e;
+  --faint: #5d6670;
+  --text-mix: 41%;
+  --line: #e1e6eb;
+  --line-2: #d1d9e0;
+  --hover: rgba(129, 139, 152, 0.12);
+  --press: rgba(129, 139, 152, 0.2);
+  --primary: var(--accent);
+  --primary-ink: #ffffff;
+  --ok: #4f8a68;
+  --warn: #ad7d36;
+  --danger: #b5544f;
+  --info: #5a7ca3;
+  --ok-soft: color-mix(in srgb, var(--ok), transparent 89%);
+  --warn-soft: color-mix(in srgb, var(--warn), transparent 89%);
+  --danger-soft: color-mix(in srgb, var(--danger), transparent 90%);
+  --info-soft: color-mix(in srgb, var(--info), transparent 90%);
+  --tone-1: #5b8174;
+  --tone-2: #5f7593;
+  --tone-3: #7c8452;
+  --tone-4: #ad8542;
+  --tone-5: #b06a50;
+  --tone-6: #9d6582;
+  --tone-7: #7a6b9c;
+  --tone-8: #4d8287;
+  --shadow-1: 0 1px 2px rgba(31, 35, 40, 0.08), 0 0 0 0 transparent;
+  --shadow-2: 0 8px 24px rgba(140, 149, 159, 0.2), 0 0 0 1px var(--line-2);
+  --shadow-3: 0 16px 48px rgba(140, 149, 159, 0.3), 0 0 0 1px var(--line-2);
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-pill: 999px;
+  --r-ctl: 8px;
+  --r-ctl-sm: 7px;
+  --r-ctl-lg: 10px;
+  --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-display: var(--font);
+  --display-stretch: 85%;
+  --display-weight: 600;
+  --display-track: 0.035em;
+  --font-label: var(--mono);
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 25px;
+  --text-3xl: 30px;
+  --w-regular: 400;
+  --w-book: 430;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 650;
+  --track-display: -0.012em;
+  --track-title: -0.014em;
+  --track-tight: -0.006em;
+  --track-caps: 0.07em;
+  --ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-glide: var(--ease-out);
+  --t-fast: 90ms;
+  --t-med: 140ms;
+  --t-slow: 200ms;
+  --pg: var(--tone-2);
+  --glow: color-mix(in srgb, var(--accent), transparent 82%);
+  --control: var(--surface);
+  --control-hover: color-mix(in srgb, var(--control), var(--ink) 4%);
+  --hero-shadow: 0 30px 80px -20px rgba(31, 35, 40, 0.35), 0 0 0 1px var(--line-2);
+  --code-bg: #0d1117;
+  --code-bar: #161b22;
+  --code-line: #30363d;
+  --code-ink: #e6edf3;
+  --code-dim: #8b949e;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-function: #d2a8ff;
+  --syn-number: #79c0ff;
+  --syn-comment: #8b949e;
+  --light-close: #ec6a5e;
+  --light-min: #f4be4f;
+  --light-max: #61c554;
+  color-scheme: light;
+}
+:root[data-theme="dark"] {
+  --accent: #6fc2a2;
+  --accent-strong: color-mix(in srgb, var(--accent), white 14%);
+  --accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+  --accent-ring: color-mix(in srgb, var(--accent), transparent 55%);
+  --canvas: #0b0f14;
+  --canvas-2: #080b10;
+  --sidebar: #010409;
+  --surface: #161d28;
+  --surface-2: #1f2733;
+  --raised: #1f2733;
+  --ink: #f0f6fc;
+  --ink-2: #d1d9e0;
+  --ink-3: #b2bac4;
+  --muted: #9198a1;
+  --faint: #8b929b;
+  --text-mix: 0%;
+  --line: #2a313c;
+  --line-2: #3d444d;
+  --hover: rgba(101, 108, 118, 0.16);
+  --press: rgba(101, 108, 118, 0.26);
+  --primary: color-mix(in srgb, var(--accent), #0d1117 52%);
+  --primary-ink: #ffffff;
+  --ok: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+  --info: #4493f8;
+  --tone-1: #7cc7ab;
+  --tone-2: #8fb2e8;
+  --tone-3: #b6c27a;
+  --tone-4: #e0b25f;
+  --tone-5: #f0957a;
+  --tone-6: #e597c0;
+  --tone-7: #b6a2ef;
+  --tone-8: #6cc5d0;
+  --shadow-1: 0 0 transparent;
+  --shadow-2: 0 8px 24px rgba(1, 4, 9, 0.55), 0 0 0 1px var(--line-2);
+  --shadow-3: 0 16px 48px rgba(1, 4, 9, 0.7), 0 0 0 1px var(--line-2);
+  --control: #212830;
+  --control-hover: #2a313b;
+  --hero-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--line-2);
+  --code-bg: #080b10;
+  --code-bar: #0d1117;
+  color-scheme: dark;
+}
+/* @tokens:end */
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--canvas); color: var(--ink); font: 16px/1.6 "IBM Plex Sans", system-ui, sans-serif; padding: 24px; }
+body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: var(--canvas); color: var(--ink); font: 16px/1.6 var(--font); padding: 24px; -webkit-font-smoothing: antialiased; }
 main { max-width: 520px; text-align: center; }
-.code { font: 600 13px "JetBrains Mono", monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--accent); }
-h1 { font-size: 40px; letter-spacing: -.03em; margin: 12px 0; }
+.brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 600; font-size: 19px; text-decoration: none; }
+.brand img { width: 26px; height: 26px; }
+.brand b { font-weight: 400; color: var(--muted); }
+.code { margin-top: 36px; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--accent), var(--ink) 30%); }
+h1 { font-size: 40px; letter-spacing: -.03em; line-height: 1.1; margin: 12px 0; }
 p { color: var(--muted); margin: 0 0 24px; }
 .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-a.btn { display: inline-flex; height: 42px; align-items: center; padding: 0 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); text-decoration: none; font-weight: 600; }
-a.btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
-@media (prefers-color-scheme: dark) { a.btn.primary { color: #0b0f14; } }
-a.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+a.btn { display: inline-flex; height: 42px; align-items: center; padding: 0 18px; border-radius: var(--r-ctl-lg); border: 1px solid var(--line-2); background: var(--control); color: var(--ink); text-decoration: none; font-weight: var(--w-medium); transition: background-color var(--t-fast); }
+a.btn:hover { background: var(--control-hover); }
+a.btn.primary { background: var(--primary); border-color: color-mix(in srgb, var(--primary), black 16%); color: var(--primary-ink); }
+a.btn.primary:hover { background: color-mix(in srgb, var(--primary), white 9%); }
+:root[data-theme="dark"] a.btn.primary { border-color: color-mix(in srgb, var(--accent), transparent 55%); }
+a:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px var(--accent-ring); }
+@media (pointer: coarse) { a.btn, .brand { min-height: 44px; } }
 </style>
 </head>
 <body>
 <main>
+  <a class="brand" href="/"><img src="/assets/logo.svg" alt=""><span>slon<b>base</b></span></a>
   <div class="code">404</div>
   <h1>That page isn't here.</h1>
   <p>It may have moved or never existed. The guides, the API reference and the install instructions are all on the documentation site.</p>

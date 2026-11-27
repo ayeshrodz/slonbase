@@ -35,7 +35,7 @@ jobs:
       # the installer people pipe into a root shell
       - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh scripts/installer-test/run.sh
       # the other scripts (bash), warnings and errors
-      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh
+      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh site/test/run.sh
       # the workflows themselves (expressions, permissions, shell in `run:`)
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       # the third-party license list (written at packaging time, from Cargo.lock) can be generated
@@ -49,6 +49,8 @@ jobs:
       - run: cargo clippy --all-targets --locked -- -D warnings
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
+      # the site, the docs and the 404 page carry the dashboard's current tokens, and no loose colours
+      - run: node scripts/build-tokens.mjs --check
 
   # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
   msrv:
@@ -314,6 +316,30 @@ jobs:
       - run: compat/diff/run.sh
 
   # the dashboard: accessibility (axe, WCAG 2 AA) and screenshots against the baselines
+  # the project page, the docs and the 404 page on phones, a tablet and desktops, in both themes:
+  # nothing wider than the screen, tap targets of 44px, no axe violations, no console errors
+  site:
+    name: site (layout and accessibility)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - name: Install the checks and Chromium
+        working-directory: site/test
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - run: site/test/run.sh
+      - name: Upload the screenshots
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: site-screenshots
+          path: site/test/out/
+          if-no-files-found: ignore
+
   dashboard:
     name: dashboard (accessibility and screenshots)
     needs: build

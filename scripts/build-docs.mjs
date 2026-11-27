@@ -326,6 +326,7 @@ ${slug ? `<link rel="alternate" type="text/markdown" href="${SITE}/docs/${slug}.
 </script>
 </head>
 <body data-prefix="${prefix}">
+<a class="skip" href="#content">Skip to the guide</a>
 <header class="top">
   <button class="icon-btn menu-btn" aria-label="Menu">${ICON.menu}</button>
   <a class="brand" href="${prefix}../"><img src="${prefix}../assets/logo.svg" alt="" width="26" height="26"><span>slon<b>base</b></span></a>
@@ -334,11 +335,11 @@ ${slug ? `<link rel="alternate" type="text/markdown" href="${SITE}/docs/${slug}.
   <button class="search-btn" aria-label="Search the docs">${ICON.search}<span>Search the docs</span><kbd>/</kbd></button>
   <span class="spacer"></span>
   <a class="icon-btn" href="${REPO}" aria-label="slonbase on GitHub">${ICON.github}</a>
-  <button class="icon-btn" id="theme" aria-label="Switch between light and dark">${ICON.theme}</button>
+  <button class="icon-btn" id="theme" aria-label="Dark theme" aria-pressed="false">${ICON.theme}</button>
 </header>
 <div class="layout">
-  <nav class="sidebar" aria-label="Guides">${nav}</nav>
-  <main class="content">${content}</main>
+  <nav class="sidebar" id="sidebar" aria-label="Guides">${nav}</nav>
+  <main class="content" id="content">${content}</main>
   ${outline}
 </div>
 <div class="search" hidden>

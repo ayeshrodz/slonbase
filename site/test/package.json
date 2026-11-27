@@ -1,0 +1,10 @@
+{
+  "name": "slonbase-site-check",
+  "private": true,
+  "description": "Layout, tap-target, accessibility and console checks of the project page and docs (see check.mjs)",
+  "type": "module",
+  "dependencies": {
+    "axe-core": "4.10.3",
+    "playwright": "1.56.1"
+  }
+}

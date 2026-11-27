@@ -85,6 +85,11 @@ mkdir -p /tmp/site && cp -r site/. /tmp/site && cp -r docs/assets /tmp/site/asse
 node scripts/build-docs.mjs /tmp/site/docs && python3 -m http.server -d /tmp/site 8000
 ```
 
+The project page, its 404 page and the documentation share the dashboard's design tokens:
+`node scripts/build-tokens.mjs` copies them from `ui/app/app.css` into each (CI fails when they
+are out of date, or when a colour is written outside them). `site/test/run.sh` checks the pages on
+phones, a tablet and desktops in both themes (CI runs it too).
+
 The build fails on a link to a page or heading that doesn't exist (CI runs it). A new guide goes
 in `SECTIONS` at the top of the script.
 

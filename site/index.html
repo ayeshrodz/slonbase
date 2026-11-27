@@ -35,7 +35,7 @@
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/jetbrains-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: "JetBrains Mono"; font-style: normal; font-display: swap; font-weight: 100 800; src: url("assets/fonts/jetbrains-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
 
-/* The dashboard's own tokens (ui/app/app.css): three surface layers, hairlines, one sage accent */
+/* @tokens:start: the dashboard's tokens (ui/app/app.css), written by scripts/build-tokens.mjs. Don't edit by hand. */
 :root {
   --accent: #4f7a6c;
   --accent-strong: color-mix(in srgb, var(--accent), black 18%);
@@ -46,29 +46,96 @@
   --sidebar: #e8ecf0;
   --surface: #ffffff;
   --surface-2: #f4f6f9;
+  --raised: #ffffff;
   --ink: #1f2328;
   --ink-2: #31373d;
   --ink-3: #4b535c;
   --muted: #59636e;
+  --faint: #5d6670;
+  --text-mix: 41%;
   --line: #e1e6eb;
   --line-2: #d1d9e0;
+  --hover: rgba(129, 139, 152, 0.12);
+  --press: rgba(129, 139, 152, 0.2);
   --primary: var(--accent);
   --primary-ink: #ffffff;
   --ok: #4f8a68;
   --warn: #ad7d36;
   --danger: #b5544f;
   --info: #5a7ca3;
-  --pg: #5f7593;
-  --code-bg: #0d1117;
-  --code-ink: #e6edf3;
-  --code-dim: #8b949e;
-  --shadow-1: 0 1px 2px rgba(31, 35, 40, 0.08);
-  --shadow-2: 0 8px 24px rgba(140, 149, 159, 0.22), 0 0 0 1px var(--line-2);
-  --shadow-3: 0 30px 80px -20px rgba(31, 35, 40, 0.35), 0 0 0 1px var(--line-2);
-  --glow: rgba(79, 122, 108, 0.18);
+  --ok-soft: color-mix(in srgb, var(--ok), transparent 89%);
+  --warn-soft: color-mix(in srgb, var(--warn), transparent 89%);
+  --danger-soft: color-mix(in srgb, var(--danger), transparent 90%);
+  --info-soft: color-mix(in srgb, var(--info), transparent 90%);
+  --tone-1: #5b8174;
+  --tone-2: #5f7593;
+  --tone-3: #7c8452;
+  --tone-4: #ad8542;
+  --tone-5: #b06a50;
+  --tone-6: #9d6582;
+  --tone-7: #7a6b9c;
+  --tone-8: #4d8287;
+  --shadow-1: 0 1px 2px rgba(31, 35, 40, 0.08), 0 0 0 0 transparent;
+  --shadow-2: 0 8px 24px rgba(140, 149, 159, 0.2), 0 0 0 1px var(--line-2);
+  --shadow-3: 0 16px 48px rgba(140, 149, 159, 0.3), 0 0 0 1px var(--line-2);
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-xl: 10px;
+  --r-pill: 999px;
+  --r-ctl: 8px;
+  --r-ctl-sm: 7px;
+  --r-ctl-lg: 10px;
   --font: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  --r: 10px;
+  --font-display: var(--font);
+  --display-stretch: 85%;
+  --display-weight: 600;
+  --display-track: 0.035em;
+  --font-label: var(--mono);
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-md: 15px;
+  --text-lg: 17px;
+  --text-xl: 20px;
+  --text-2xl: 25px;
+  --text-3xl: 30px;
+  --w-regular: 400;
+  --w-book: 430;
+  --w-medium: 500;
+  --w-semibold: 600;
+  --w-bold: 650;
+  --track-display: -0.012em;
+  --track-title: -0.014em;
+  --track-tight: -0.006em;
+  --track-caps: 0.07em;
+  --ease: cubic-bezier(0.25, 0.8, 0.25, 1);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-glide: var(--ease-out);
+  --t-fast: 90ms;
+  --t-med: 140ms;
+  --t-slow: 200ms;
+  --pg: var(--tone-2);
+  --glow: color-mix(in srgb, var(--accent), transparent 82%);
+  --control: var(--surface);
+  --control-hover: color-mix(in srgb, var(--control), var(--ink) 4%);
+  --hero-shadow: 0 30px 80px -20px rgba(31, 35, 40, 0.35), 0 0 0 1px var(--line-2);
+  --code-bg: #0d1117;
+  --code-bar: #161b22;
+  --code-line: #30363d;
+  --code-ink: #e6edf3;
+  --code-dim: #8b949e;
+  --syn-keyword: #ff7b72;
+  --syn-string: #a5d6ff;
+  --syn-function: #d2a8ff;
+  --syn-number: #79c0ff;
+  --syn-comment: #8b949e;
+  --light-close: #ec6a5e;
+  --light-min: #f4be4f;
+  --light-max: #61c554;
   color-scheme: light;
 }
 :root[data-theme="dark"] {
@@ -81,42 +148,63 @@
   --sidebar: #010409;
   --surface: #161d28;
   --surface-2: #1f2733;
+  --raised: #1f2733;
   --ink: #f0f6fc;
   --ink-2: #d1d9e0;
   --ink-3: #b2bac4;
   --muted: #9198a1;
+  --faint: #8b929b;
+  --text-mix: 0%;
   --line: #2a313c;
   --line-2: #3d444d;
+  --hover: rgba(101, 108, 118, 0.16);
+  --press: rgba(101, 108, 118, 0.26);
   --primary: color-mix(in srgb, var(--accent), #0d1117 52%);
+  --primary-ink: #ffffff;
   --ok: #3fb950;
   --warn: #d29922;
   --danger: #f85149;
   --info: #4493f8;
-  --pg: #8fb2e8;
-  --code-bg: #080b10;
+  --tone-1: #7cc7ab;
+  --tone-2: #8fb2e8;
+  --tone-3: #b6c27a;
+  --tone-4: #e0b25f;
+  --tone-5: #f0957a;
+  --tone-6: #e597c0;
+  --tone-7: #b6a2ef;
+  --tone-8: #6cc5d0;
   --shadow-1: 0 0 transparent;
   --shadow-2: 0 8px 24px rgba(1, 4, 9, 0.55), 0 0 0 1px var(--line-2);
-  --shadow-3: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--line-2);
-  --glow: rgba(111, 194, 162, 0.16);
+  --shadow-3: 0 16px 48px rgba(1, 4, 9, 0.7), 0 0 0 1px var(--line-2);
+  --control: #212830;
+  --control-hover: #2a313b;
+  --hero-shadow: 0 30px 80px -20px rgba(0, 0, 0, 0.75), 0 0 0 1px var(--line-2);
+  --code-bg: #080b10;
+  --code-bar: #0d1117;
   color-scheme: dark;
 }
+/* @tokens:end */
 * { box-sizing: border-box; }
 html { scroll-behavior: smooth; scroll-padding-top: 76px; }
-body { margin: 0; background: var(--canvas); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden; }
+body { margin: 0; background: var(--canvas); color: var(--ink); font: 16px/1.6 var(--font); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+/* the decorations that reach past the edge are clipped by their own sections, not by the page */
 a { color: color-mix(in srgb, var(--accent), var(--ink) 38%); text-decoration: none; }
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 p a, .sub a, .under a, li a, .fineprint a, .install-note a { text-decoration: underline; text-decoration-color: color-mix(in srgb, currentColor, transparent 55%); text-underline-offset: 3px; }
 p a:hover, .sub a:hover, li a:hover { text-decoration-color: currentColor; }
 code, pre, .mono { font-family: var(--mono); }
 code { font-size: .88em; background: var(--surface-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+/* focus as in the dashboard: a soft ring in the accent (the transparent outline still shows in forced colours) */
+:focus-visible { outline: 2px solid transparent; box-shadow: 0 0 0 3px var(--accent-ring); border-radius: var(--r-xs); }
 ::selection { background: var(--accent-ring); }
 .wrap { width: min(1160px, 100% - 40px); margin-inline: auto; }
 .center { text-align: center; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.skip { position: absolute; left: 12px; top: -60px; z-index: 100; padding: 10px 14px; border-radius: var(--r-ctl); background: var(--surface); color: var(--ink); box-shadow: var(--shadow-2); }
+.skip:focus { top: 10px; text-decoration: none; }
 
 /* small capitals over sections, as in the dashboard */
-.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: color-mix(in srgb, var(--accent), var(--ink) 30%); display: inline-flex; align-items: center; gap: 10px; }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--accent), var(--ink) 30%); display: inline-flex; align-items: center; gap: 10px; }
 .eyebrow::before { content: ""; width: 18px; height: 2px; background: var(--accent); border-radius: 2px; }
 .center .eyebrow::after { content: ""; width: 18px; height: 2px; background: var(--accent); border-radius: 2px; }
 h1, h2, h3 { margin: 0; line-height: 1.1; letter-spacing: -.02em; }
@@ -128,11 +216,13 @@ section.alt { background: var(--surface); border-block: 1px solid var(--line); }
 :root[data-theme="dark"] section.alt { background: color-mix(in srgb, var(--surface), var(--canvas) 55%); }
 
 /* buttons: flat, hairline, like the dashboard's */
-.btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: 8px; font: 600 15px var(--font); border: 1px solid var(--line-2); background: var(--surface); color: var(--ink); cursor: pointer; transition: background .15s, border-color .15s; }
-.btn:hover { text-decoration: none; border-color: var(--accent); }
-.btn.primary { background: var(--primary); color: var(--primary-ink); border-color: transparent; }
-.btn.primary:hover { background: var(--accent-strong); }
-.btn .count { font: 600 12px var(--mono); padding: 2px 7px; border-radius: 99px; background: var(--hover, rgba(129,139,152,.16)); }
+.btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: var(--r-ctl-lg); font: var(--w-medium) 15px var(--font); border: 1px solid var(--line-2); background: var(--control); color: var(--ink); cursor: pointer; transition: background-color var(--t-fast), border-color var(--t-fast); }
+.btn:hover { text-decoration: none; background: var(--control-hover); }
+.btn.primary { background: var(--primary); color: var(--primary-ink); border-color: color-mix(in srgb, var(--primary), black 16%); }
+.btn.primary:hover { background: color-mix(in srgb, var(--primary), white 9%); }
+:root[data-theme="dark"] .btn.primary { border-color: color-mix(in srgb, var(--accent), transparent 55%); }
+:root[data-theme="dark"] .btn.primary:hover { background: color-mix(in srgb, var(--primary), var(--accent) 14%); }
+.btn .count { font: 600 12px var(--mono); padding: 2px 7px; border-radius: var(--r-pill); background: var(--hover); }
 
 /* nav */
 .nav { position: sticky; top: 0; z-index: 50; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); background: color-mix(in srgb, var(--canvas), transparent 22%); border-bottom: 1px solid var(--line); }
@@ -140,14 +230,15 @@ section.alt { background: var(--surface); border-block: 1px solid var(--line); }
 .brand { display: inline-flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 600; font-size: 19px; letter-spacing: -.01em; }
 .brand:hover { text-decoration: none; }
 .brand img { width: 26px; height: 26px; }
-.brand .word span { color: color-mix(in srgb, var(--accent), var(--ink) 30%); }
+.brand .word span { font-weight: 400; color: var(--muted); }
 .nav nav { margin-left: auto; display: flex; align-items: center; gap: 4px; }
 .nav nav a { color: var(--ink-3); font-size: 14px; padding: 7px 11px; border-radius: 7px; }
-.nav nav a:hover { background: rgba(129,139,152,.14); text-decoration: none; color: var(--ink); }
-.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; min-width: 36px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-2); cursor: pointer; font: 500 14px var(--font); }
-.icon-btn:hover { border-color: var(--accent); text-decoration: none; }
+.nav nav a:hover { background: var(--hover); text-decoration: none; color: var(--ink); }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 36px; min-width: 36px; padding: 0 10px; border-radius: var(--r-ctl-sm); border: 0; background: transparent; color: var(--muted); cursor: pointer; font: 500 14px var(--font); transition: background-color var(--t-fast), color var(--t-fast); }
+.icon-btn:hover { background: var(--hover); color: var(--ink); text-decoration: none; }
 @media (max-width: 860px) { .hide-sm { display: none !important; } }
 @media (max-width: 760px) { .orb { display: none; } }
+
 
 /* hero */
 .hero { position: relative; padding: 88px 0 0; overflow: hidden; isolation: isolate; }
@@ -161,32 +252,34 @@ section.alt { background: var(--surface); border-block: 1px solid var(--line); }
 @keyframes drift { to { transform: translate(60px, 40px) scale(1.12); } }
 .hero-copy { text-align: center; max-width: 860px; margin-inline: auto; }
 .pill { display: inline-flex; align-items: center; gap: 10px; padding: 5px 14px 5px 5px; border-radius: 99px; border: 1px solid var(--line-2); background: var(--surface); color: var(--ink-3); font-size: 13.5px; box-shadow: var(--shadow-1); transition: border-color .15s; }
-.pill:hover { text-decoration: none; border-color: var(--accent); }
-.pill b { font: 600 12px var(--mono); background: var(--primary); color: var(--primary-ink); padding: 4px 9px; border-radius: 99px; }
+.pill:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent), var(--line-2) 40%); }
+.pill .pill-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pill { max-width: 100%; }
+.pill b { flex: none; font: 600 12px var(--mono); background: var(--primary); color: var(--primary-ink); padding: 4px 9px; border-radius: var(--r-pill); }
 .pill .arrow { transition: transform .2s; }
 .pill:hover .arrow { transform: translateX(3px); }
 h1 { font-size: clamp(40px, 7vw, 76px); font-weight: 700; letter-spacing: -.035em; line-height: 1.03; margin: 24px 0 0; }
 h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .lede { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 680px; margin: 22px auto 0; }
 .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 32px; }
-.install-line { margin: 28px auto 0; max-width: 640px; display: flex; align-items: center; gap: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; border: 1px solid color-mix(in srgb, var(--code-bg), white 14%); box-shadow: var(--shadow-2); overflow: hidden; text-align: left; }
+.install-line { margin: 28px auto 0; max-width: 640px; display: flex; align-items: center; gap: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; border: 1px solid var(--code-line); box-shadow: var(--shadow-2); overflow: hidden; text-align: left; }
 .install-line code { flex: 1; background: none; border: 0; border-radius: 0; font-size: 14px; padding: 14px 16px; white-space: nowrap; overflow-x: auto; color: inherit; scrollbar-width: none; }
 .install-line .p { color: var(--accent); user-select: none; }
 .install-line .caret { display: inline-block; width: 8px; height: 1.1em; vertical-align: -3px; background: var(--accent); margin-left: 2px; animation: blink 1s steps(1) infinite; }
 @keyframes blink { 50% { opacity: 0; } }
-.install-line button { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 104px; padding: 0 20px; border: 0; border-left: 1px solid color-mix(in srgb, var(--code-bg), white 14%); background: color-mix(in srgb, var(--accent), var(--code-bg) 62%); color: #fff; font: 600 12.5px var(--mono); letter-spacing: .06em; cursor: pointer; text-transform: uppercase; transition: background .15s; }
+.install-line button { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 104px; padding: 0 20px; border: 0; border-left: 1px solid var(--code-line); background: color-mix(in srgb, var(--accent), var(--code-bg) 62%); color: var(--primary-ink); font: 600 12.5px var(--mono); letter-spacing: .06em; cursor: pointer; text-transform: uppercase; transition: background .15s; }
 .install-line button::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; }
 .install-line button:hover { background: color-mix(in srgb, var(--accent), var(--code-bg) 40%); }
 .under { color: var(--muted); font-size: 13.5px; margin: 12px 0 0; }
 
 /* the dashboard in an app window */
 .stage { position: relative; margin: 64px auto 0; max-width: 1080px; perspective: 1600px; }
-.window { border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: var(--shadow-3); transform: rotateX(var(--tilt, 7deg)) translateY(var(--lift, 0px)) scale(var(--scale, .965)); transform-origin: 50% 0; transition: transform .25s ease-out; will-change: transform; }
+.window { border-radius: 12px; overflow: hidden; background: var(--surface); box-shadow: var(--hero-shadow); transform: rotateX(var(--tilt, 7deg)) translateY(var(--lift, 0px)) scale(var(--scale, .965)); transform-origin: 50% 0; transition: transform .25s ease-out; will-change: transform; }
 .window-bar { display: flex; align-items: center; gap: 7px; height: 38px; padding: 0 14px; background: var(--sidebar); border-bottom: 1px solid var(--line); }
 .window-bar i { width: 11px; height: 11px; border-radius: 50%; background: var(--line-2); }
-.window-bar i:nth-child(1) { background: #ec6a5e; } .window-bar i:nth-child(2) { background: #f4be4f; } .window-bar i:nth-child(3) { background: #61c554; }
+.window-bar i:nth-child(1) { background: var(--light-close); } .window-bar i:nth-child(2) { background: var(--light-min); } .window-bar i:nth-child(3) { background: var(--light-max); }
 .window-bar .url { margin: 0 auto; transform: translateX(-24px); font: 500 12px var(--mono); color: var(--muted); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 3px 38px; display: flex; align-items: center; gap: 8px; }
-.window-bar .url::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok), transparent 80%); animation: pulse 2.4s ease-in-out infinite; }
+.window-bar .url::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); animation: pulse 2.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 .window video, .window img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; background: var(--canvas); }
 .stage::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -40px; height: 80px; background: radial-gradient(50% 100% at 50% 0%, var(--glow), transparent 70%); filter: blur(24px); z-index: -1; }
@@ -202,6 +295,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .stat > span { display: block; margin-top: 8px; font-size: 13.5px; color: var(--muted); line-height: 1.45; }
 .stat::before { content: attr(data-label); display: block; font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--accent), var(--ink) 30%); margin-bottom: 10px; }
 @media (max-width: 860px) { .stats { grid-template-columns: repeat(2, 1fr); } .stat:nth-child(2) { border-right: 0; } .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+@media (max-width: 420px) { .stats { grid-template-columns: 1fr; } .stat { border-right: 0; border-bottom: 1px solid var(--line); } .stat:last-child { border-bottom: 0; } }
 
 /* cards */
 .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 56px; }
@@ -210,7 +304,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .card:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--accent), var(--line) 55%); box-shadow: var(--shadow-2); }
 .card:hover::before { opacity: 1; }
 :root[data-theme="dark"] .alt .card { background: var(--surface); }
-.ic { width: 42px; height: 42px; border-radius: 9px; display: grid; place-items: center; background: var(--accent-soft); color: color-mix(in srgb, var(--accent), var(--ink) 25%); margin-bottom: 18px; border: 1px solid color-mix(in srgb, var(--accent), transparent 78%); }
+.ic { width: 42px; height: 42px; border-radius: var(--r-ctl-lg); display: grid; place-items: center; background: var(--accent-soft); color: color-mix(in srgb, var(--accent), var(--ink) 25%); margin-bottom: 18px; border: 1px solid color-mix(in srgb, var(--accent), transparent 78%); }
 .card h3 { font-size: 19px; letter-spacing: -.01em; }
 .card p { color: var(--muted); font-size: 15px; margin: 10px 0 0; }
 @media (max-width: 960px) { .grid { grid-template-columns: repeat(2, 1fr); } }
@@ -224,7 +318,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .bento .third { grid-column: span 2; }
 .bento .half { grid-column: span 3; }
 .bento .tag { font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: color-mix(in srgb, var(--accent), var(--ink) 30%); display: block; margin-bottom: 12px; }
-.bento .big { font: 600 44px/1 var(--font); font-stretch: 85%; margin: 16px 0 4px; font-variant-numeric: tabular-nums; }
+.bento .big { font: 600 clamp(34px, 6vw, 44px)/1 var(--font); font-stretch: 85%; margin: 16px 0 4px; font-variant-numeric: tabular-nums; }
 .bento .big small { font-size: 13px; font-weight: 500; font-stretch: 100%; color: var(--muted); margin-left: 8px; letter-spacing: 0; }
 .bento .peek { margin: 22px -26px -26px; border-top: 1px solid var(--line); background: var(--canvas); overflow: hidden; }
 .bento .peek img { display: block; width: 100%; height: auto; }
@@ -233,10 +327,15 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 
 /* the tour */
 .shots { margin-top: 48px; }
-.shot-tabs { display: flex; gap: 6px; overflow-x: auto; padding: 4px; margin: 0 auto 22px; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); scrollbar-width: thin; }
-.shot-tabs button { flex: none; border: 0; background: transparent; color: var(--ink-3); font: 500 14px var(--font); padding: 8px 14px; border-radius: 7px; cursor: pointer; transition: background .15s, color .15s; white-space: nowrap; }
-.shot-tabs button:hover { color: var(--ink); background: rgba(129,139,152,.14); }
-.shot-tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: var(--shadow-1), 0 0 0 1px var(--line-2); }
+.shot-tabs { display: flex; gap: 2px; overflow-x: auto; padding: 3px; margin: 0 auto 22px; width: fit-content; max-width: 100%; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--canvas-2); scrollbar-width: none; }
+.shot-tabs::-webkit-scrollbar { display: none; }
+/* a row that scrolls says so: its far edge fades while there is more */
+.fade-x { -webkit-mask: linear-gradient(90deg, black calc(100% - 36px), transparent); mask: linear-gradient(90deg, black calc(100% - 36px), transparent); }
+.fade-x.at-end { -webkit-mask: none; mask: none; }
+.shot-tabs button { flex: none; border: 0; background: transparent; color: var(--muted); font: var(--w-semibold) var(--text-sm) var(--font); padding: 7px 13px; border-radius: var(--r-ctl-sm); cursor: pointer; transition: background-color var(--t-fast), color var(--t-med); white-space: nowrap; }
+.shot-tabs button:hover { color: var(--ink-2); }
+.shot-tabs button[aria-selected="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-2); }
+:root[data-theme="dark"] .shot-tabs button[aria-selected="true"] { background: var(--control-hover); }
 .shot-frame { max-width: 1080px; margin-inline: auto; }
 .shot-frame .window { transform: none; }
 .shot-frame img { transition: opacity .25s; }
@@ -256,19 +355,21 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 }
 .checks { list-style: none; padding: 0; margin: 26px 0 0; display: grid; gap: 13px; }
 .checks li { position: relative; padding-left: 32px; color: var(--ink-3); }
-.checks li::before { content: ""; position: absolute; left: 0; top: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f7a6c' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / 12px no-repeat; border: 1px solid color-mix(in srgb, var(--accent), transparent 70%); }
+.checks li::before { content: ""; position: absolute; left: 0; top: 4px; width: 20px; height: 20px; border-radius: 50%; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent), transparent 70%); }
+.checks li::after { content: ""; position: absolute; left: 4px; top: 8px; width: 12px; height: 12px; background: color-mix(in srgb, var(--accent), var(--ink) 20%); -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E") center / contain no-repeat; }
 
 /* code */
-.code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; border: 1px solid color-mix(in srgb, var(--code-bg), white 12%); box-shadow: var(--shadow-2); overflow: hidden; }
-.tabs { display: flex; align-items: center; gap: 2px; padding: 8px 8px 0; background: color-mix(in srgb, var(--code-bg), white 4%); border-bottom: 1px solid color-mix(in srgb, var(--code-bg), white 12%); overflow-x: auto; }
+.code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; border: 1px solid var(--code-line); box-shadow: var(--shadow-2); overflow: hidden; }
+.tabs { display: flex; align-items: center; gap: 2px; padding: 8px 8px 0; background: var(--code-bar); border-bottom: 1px solid var(--code-line); overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
 .tabs .tl { display: contents; }
-.tabs button[role="tab"] { border: 0; background: transparent; color: var(--code-dim); font: 500 12.5px var(--mono); padding: 9px 13px; border-radius: 7px 7px 0 0; cursor: pointer; white-space: nowrap; }
-.tabs button[role="tab"][aria-selected="true"] { color: #fff; background: var(--code-bg); box-shadow: inset 0 2px 0 var(--accent); }
-.tabs .copy { margin: 0 4px 6px auto; border: 1px solid color-mix(in srgb, var(--code-bg), white 18%); background: transparent; color: var(--code-dim); font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: 6px; cursor: pointer; }
-.tabs .copy:hover { color: #fff; border-color: var(--accent); }
+.tabs button[role="tab"] { flex: none; border: 0; background: transparent; color: var(--code-dim); font: 500 12.5px var(--mono); padding: 9px 13px; border-radius: var(--r-ctl-sm) var(--r-ctl-sm) 0 0; cursor: pointer; white-space: nowrap; }
+.tabs button[role="tab"][aria-selected="true"] { color: var(--code-ink); background: var(--code-bg); box-shadow: inset 0 2px 0 var(--accent); }
+.tabs .copy { flex: none; position: sticky; right: 0; margin: 0 0 6px auto; border: 1px solid var(--code-line); background: var(--code-bar); color: var(--code-dim); font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: var(--r-sm); cursor: pointer; box-shadow: -12px 0 12px var(--code-bar); z-index: 1; }
+.tabs .copy:hover { color: var(--code-ink); border-color: var(--accent); }
 .code pre { margin: 0; padding: 20px 22px; font-size: 13.5px; line-height: 1.7; overflow-x: auto; }
 .code [role="tabpanel"][hidden] { display: none; }
-.k { color: #ff7b72; } .s { color: #a5d6ff; } .f { color: #d2a8ff; } .n { color: #79c0ff; } .cm { color: #8b949e; font-style: italic; }
+.k { color: var(--syn-keyword); } .s { color: var(--syn-string); } .f { color: var(--syn-function); } .n { color: var(--syn-number); } .cm { color: var(--syn-comment); font-style: italic; }
 
 /* performance */
 .perf { margin-top: 52px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-1); padding: 10px 28px 28px; }
@@ -310,9 +411,22 @@ table.cmp { width: 100%; border-collapse: collapse; min-width: 720px; font-size:
 .cmp tr:last-child td { border-bottom: 0; }
 .cmp thead th { font: 600 12px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); background: var(--surface-2); }
 .cmp thead th.us { color: color-mix(in srgb, var(--accent), var(--ink) 25%); }
-.cmp td:first-child { font-weight: 600; width: 17%; }
+.cmp td:first-child { font-weight: 600; width: 17%; position: sticky; left: 0; z-index: 1; background: var(--surface); box-shadow: 1px 0 0 var(--line); }
+.cmp thead th:first-child { position: sticky; left: 0; z-index: 2; }
 .cmp td.us { background: var(--accent-soft); }
 .cmp .yes { color: color-mix(in srgb, var(--ok), var(--ink) 38%); font-weight: 600; } .cmp .no { color: var(--muted); }
+/* on a phone each row is a card: the feature, then the three answers, each with its column's name */
+@media (max-width: 620px) {
+  table.cmp { min-width: 0; }
+  .cmp thead { display: none; }
+  .cmp, .cmp tbody, .cmp tr, .cmp td { display: block; width: auto !important; }
+  .cmp tr { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .cmp tr:last-child { border-bottom: 0; }
+  .cmp td { border: 0; padding: 4px 0; position: static; box-shadow: none; background: none; }
+  .cmp td:first-child { font-size: 16px; padding-bottom: 8px; position: static; box-shadow: none; background: none; }
+  .cmp td[data-col]::before { content: attr(data-col); display: block; font: 600 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .cmp td.us { background: var(--accent-soft); border-radius: var(--r-lg); padding: 8px 10px; margin: 2px -10px; }
+}
 
 /* scale diagram */
 .topo { max-width: 860px; margin: 0 auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-1); padding: 18px 18px 8px; }
@@ -348,7 +462,7 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
 
 /* FAQ */
 .faq { max-width: 820px; margin: 48px auto 0; display: grid; gap: 10px; }
-.qa { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 0 20px; transition: border-color .15s; }
+.qa { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0 20px; transition: border-color .15s; }
 .qa[open] { border-color: color-mix(in srgb, var(--accent), var(--line) 55%); }
 .qa summary { cursor: pointer; list-style: none; padding: 16px 28px 16px 0; font-weight: 600; font-size: 16.5px; position: relative; }
 .qa summary::-webkit-details-marker { display: none; }
@@ -367,11 +481,35 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
   .window { transform: none; transition: none; }
   .card, .btn, .pill .arrow { transition: none; }
 }
-@media (max-width: 560px) { .install-line { flex-direction: column; align-items: stretch; } .install-line button { padding: 12px; border-left: 0; border-top: 1px solid color-mix(in srgb, var(--code-bg), white 14%); } }
+/* long commands wrap on a phone rather than hide past the edge */
+@media (max-width: 620px) { #install .code pre { white-space: pre-wrap; overflow-wrap: anywhere; } }
+@media (max-width: 560px) {
+  .install-line { flex-direction: column; align-items: stretch; }
+  .install-line code { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .install-line button { min-height: 44px; padding: 12px; border-left: 0; border-top: 1px solid var(--code-line); }
+}
+@media (max-width: 760px) { .window { transform: none; } }
 @media print { .nav, .orb { display: none; } }
+/* fingers need 44px: the dashboard's sizes stay for a mouse (last, so it wins over the rules above) */
+@media (pointer: coarse) {
+  .nav nav a, .icon-btn, .btn, .brand, .pill { min-height: 44px; }
+  .icon-btn { min-width: 44px; }
+  .nav nav a { display: inline-flex; align-items: center; }
+  .shot-tabs button, .tabs button[role="tab"] { min-height: 44px; }
+  .tabs .copy, .install-line button { min-height: 44px; min-width: 64px; }
+  .video-note button { min-height: 44px; min-width: 44px; }
+  .foot a { display: flex; align-items: center; min-height: 44px; padding: 0; }
+  .qa summary { padding-block: 18px; }
+}
 </style>
+<script>
+  // the theme before the first paint: the visitor's choice, else the system's
+  try { var t = localStorage.getItem("theme"); } catch (e) {}
+  document.documentElement.dataset.theme = t || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+</script>
 </head>
 <body>
+<a class="skip" href="#main">Skip to the content</a>
 
 <header class="nav">
   <div class="wrap">
@@ -383,37 +521,37 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
       <a class="hide-sm" href="#compare">Compare</a>
       <a class="hide-sm" href="#install">Install</a>
       <a href="docs/">Docs</a>
-      <button class="icon-btn" id="theme" aria-label="Switch between light and dark">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <button class="icon-btn" id="theme" aria-label="Dark theme" aria-pressed="false">
+        <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
       </button>
       <a class="icon-btn" href="https://github.com/ayeshrodz/slonbase" aria-label="slonbase on GitHub">
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+        <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
         <span class="hide-sm">GitHub</span>
       </a>
     </nav>
   </div>
 </header>
 
-<main>
+<main id="main">
 <div class="hero">
   <div class="orb a"></div><div class="orb b"></div>
   <div class="wrap">
     <div class="hero-copy">
       <a class="pill" id="release-pill" href="https://github.com/ayeshrodz/slonbase/releases/latest">
-        <b id="pill-version">v2.7.1</b><span id="pill-title">Accurate figures, a clearer Data page and better thumbnails</span><span class="arrow">→</span>
+        <b id="pill-version">v2.7.1</b><span class="pill-title" id="pill-title">Accurate figures, a clearer Data page and better thumbnails</span><span class="arrow">→</span>
       </a>
       <h1>Your whole backend,<br>built on <span class="pg">PostgreSQL.</span></h1>
       <p class="lede">slonbase is an open-source backend platform on PostgreSQL: a REST and realtime API, authentication with roles, files, hooks and an admin dashboard for many projects, in one Rust binary. Every collection is a real table, and every server you add shares it.</p>
       <div class="ctas">
         <a class="btn primary" href="#install">Get started</a>
         <a class="btn" href="https://github.com/ayeshrodz/slonbase">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z"/></svg>
+          <svg aria-hidden="true" focusable="false" width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5l2.9 6.1 6.6.8-4.9 4.6 1.3 6.6L12 17.3l-5.9 3.3 1.3-6.6L2.5 9.4l6.6-.8z"/></svg>
           Star on GitHub<span class="count" id="stars" hidden></span>
         </a>
       </div>
       <div class="install-line">
-        <code id="quick"><span class="p">$ </span><span id="typed" data-text="curl -fsSL https://slonbase.com/install.sh | sudo sh">curl -fsSL https://slonbase.com/install.sh | sudo sh</span><span class="caret" aria-hidden="true"></span></code>
-        <button type="button" data-copy-text="curl -fsSL https://slonbase.com/install.sh | sudo sh">Copy</button>
+        <code id="quick"><span class="p" aria-hidden="true">$ </span><span class="sr">curl -fsSL https://slonbase.com/install.sh | sudo sh</span><span id="typed" aria-hidden="true" data-text="curl -fsSL https://slonbase.com/install.sh | sudo sh">curl -fsSL https://slonbase.com/install.sh | sudo sh</span><span class="caret" aria-hidden="true"></span></code>
+        <button type="button" data-copy-text="curl -fsSL https://slonbase.com/install.sh | sudo sh" aria-label="Copy the install command">Copy</button>
       </div>
       <p class="under">On Debian, Ubuntu, Fedora and RHEL. It installs PostgreSQL if needed and sets everything up. <a href="#install">Docker and other ways</a></p>
     </div>
@@ -421,7 +559,7 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
     <div class="stage reveal">
       <div class="window" id="window">
         <div class="window-bar"><i></i><i></i><i></i><span class="url">localhost:8090/_/</span></div>
-        <video id="tour" muted loop playsinline autoplay preload="none" poster="assets/tour-poster.jpg" aria-label="A short tour of the slonbase dashboard: records, schema, the SQL console, projects and settings">
+        <video id="tour-video" muted loop playsinline autoplay preload="none" poster="assets/tour-poster.jpg" aria-label="A short tour of the slonbase dashboard: records, schema, the SQL console, projects and settings">
           <source src="assets/tour.webm" type="video/webm">
           <source src="assets/tour.mp4" type="video/mp4">
         </video>
@@ -442,47 +580,47 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
     </div>
     <div class="grid">
       <div class="card reveal" style="--i:0">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
         <h3>Auth and access rules</h3>
         <p>Password, OAuth2, one-time password and MFA sign-in, email flows, and per-collection API rules in one small filter language, compiled to SQL your indexes can use.</p>
       </div>
       <div class="card reveal" style="--i:1">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3"/></svg></div>
         <h3>Real PostgreSQL tables</h3>
         <p>Each collection is a table in the <code>slonbase</code> schema. Query it with SQL, replicate it, <code>pg_dump</code> it, or run it on a managed service.</p>
       </div>
       <div class="card reveal" style="--i:2">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L4 14h7l-1 8 9-12h-7z"/></svg></div>
         <h3>Realtime for every change</h3>
         <p>A trigger on each table announces every write, whoever makes it: the API, SQL, auth flows or another program. Subscribers see it, with their rules applied.</p>
       </div>
       <div class="card reveal" style="--i:3">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M9.5 17l1.5-5M14.5 17L13 12"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="19" r="2.5"/><circle cx="19" cy="19" r="2.5"/><path d="M12 7.5v4M9.5 17l1.5-5M14.5 17L13 12"/></svg></div>
         <h3>Scales out</h3>
         <p>Run several instances on one database behind any load balancer. Realtime, schema changes, settings and rate limits are shared through <code>LISTEN/NOTIFY</code>. No sticky sessions.</p>
       </div>
       <div class="card reveal" style="--i:4">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7l-5 5 5 5M16 7l5 5-5 5"/></svg></div>
         <h3>Extend it your way</h3>
         <p>JavaScript hooks for requests, records, realtime, files and mail, plus routes, cron jobs, migrations and a query builder. Or embed it as a Rust library.</p>
       </div>
       <div class="card reveal" style="--i:5">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
         <h3>Operations built in</h3>
         <p>Rate limits, sign-in lockout, request logs, scheduled backups to S3 with a history, Prometheus metrics, projects on one server, roles and API keys, and upgrades tested from the first release.</p>
       </div>
       <div class="card reveal" style="--i:6">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5M3 17.5l9 5 9-5" opacity=".6"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5M3 17.5l9 5 9-5" opacity=".6"/></svg></div>
         <h3>Many projects, one server</h3>
         <p>Each project is an isolated installation with its own users, collections, settings and database, on one server or several, run from a command center that shows requests, errors and latency side by side.</p>
       </div>
       <div class="card reveal" style="--i:7">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
         <h3>An SQL console and designers</h3>
         <p>Query your data in the dashboard (read-only unless you allow writes), and design your emails and your sign-in page with a live preview, with your name, colours and logo everywhere.</p>
       </div>
       <div class="card reveal" style="--i:8">
-        <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.4-3.4 2.8-5.4 6-5.4s5.6 2 6 5.4M16 11l5 0M16 15l5 0"/></svg></div>
+        <div class="ic"><svg aria-hidden="true" focusable="false" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M3 20c.4-3.4 2.8-5.4 6-5.4s5.6 2 6 5.4M16 11l5 0M16 15l5 0"/></svg></div>
         <h3>Roles and API keys</h3>
         <p>Owner, Admin, Developer and Viewer roles for the people who run it, and API keys with a role, an expiry and allowed IPs for scripts and CI.</p>
       </div>
@@ -498,21 +636,21 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
       <p class="sub">Live grids, a schema editor, API rules, logs, an SQL console and a command center for every project. It follows your light or dark theme, takes your accent colour and your logo, and ⌘K jumps anywhere.</p>
     </div>
     <div class="shots reveal">
-      <div class="shot-tabs" role="tablist" aria-label="Dashboard screens">
-        <button role="tab" aria-selected="true" data-shot="records">Records</button>
-        <button role="tab" aria-selected="false" data-shot="editor">Record editor</button>
-        <button role="tab" aria-selected="false" data-shot="projects">Projects</button>
-        <button role="tab" aria-selected="false" data-shot="sql">SQL console</button>
-        <button role="tab" aria-selected="false" data-shot="schema">Schema</button>
-        <button role="tab" aria-selected="false" data-shot="rules">API rules</button>
-        <button role="tab" aria-selected="false" data-shot="api">API preview</button>
-        <button role="tab" aria-selected="false" data-shot="logs">Logs</button>
-        <button role="tab" aria-selected="false" data-shot="diagram">Diagram</button>
-        <button role="tab" aria-selected="false" data-shot="settings">Settings</button>
-        <button role="tab" aria-selected="false" data-shot="mail">Email designer</button>
-        <button role="tab" aria-selected="false" data-shot="overview">Overview</button>
+      <div class="shot-tabs fade-x" role="tablist" aria-label="Dashboard screens">
+        <button role="tab" aria-selected="true" aria-controls="shot-panel" data-shot="records">Records</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="editor">Record editor</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="projects">Projects</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="sql">SQL console</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="schema">Schema</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="rules">API rules</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="api">API preview</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="logs">Logs</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="diagram">Diagram</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="settings">Settings</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="mail">Email designer</button>
+        <button role="tab" aria-selected="false" aria-controls="shot-panel" data-shot="overview">Overview</button>
       </div>
-      <div class="shot-frame">
+      <div class="shot-frame" role="tabpanel" id="shot-panel" aria-label="Dashboard screen">
         <div class="window">
           <div class="window-bar"><i></i><i></i><i></i><span class="url" id="shot-url">localhost:8090/_/</span></div>
           <img id="shot" alt="The slonbase dashboard" width="2880" height="1800" loading="lazy">
@@ -580,7 +718,7 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
       </ul>
     </div>
     <div class="code reveal">
-      <div class="tabs" role="tablist" aria-label="Code examples">
+      <div class="tabs fade-x" role="tablist" aria-label="Code examples">
         <button role="tab" aria-selected="true" aria-controls="ex-sdk" id="tab-sdk">app.js</button>
         <button role="tab" aria-selected="false" aria-controls="ex-hook" id="tab-hook">pb_hooks/main.pb.js</button>
         <button role="tab" aria-selected="false" aria-controls="ex-sql" id="tab-sql">psql</button>
@@ -641,7 +779,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       <h2>Measured, not promised.</h2>
       <p class="sub">The same seeded data and the same workloads, on the same machine, through the same HTTP API, against PocketBase and PostgREST. Every number below is from a run you can repeat: the scripts, the raw results and the caveats are in <a href="https://github.com/ayeshrodz/slonbase/blob/main/bench/README.md">bench/</a>.</p>
     </div>
-    <div class="perf reveal"><div class="perf-head"><div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase 2.2.0</span><span><i style="background:color-mix(in srgb,var(--warn),var(--surface-2) 45%)"></i>PocketBase 0.40.6</span><span><i style="background:color-mix(in srgb,var(--info),var(--surface-2) 40%)"></i>PostgREST 16.5</span></div><div class="meta">32 clients unless noted · 4 CPUs, loopback, medians of 3 runs of 10s</div></div><div class="bar-row"><div class="label">Filtered list<small>7,100 · PocketBase 105 · PostgREST 3,315</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:0"></i></div><div class="track"><i class="pb" style="--w:1.5%;--d:0"></i></div><div class="track"><i class="pr" style="--w:46.7%;--d:0"></i></div></div><div class="x">68×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List 30 records<small>7,814 · PocketBase 1,610 · PostgREST 3,733</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:1"></i></div><div class="track"><i class="pb" style="--w:20.6%;--d:1"></i></div><div class="track"><i class="pr" style="--w:47.8%;--d:1"></i></div></div><div class="x">4.9×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List, sorted<small>7,117 · PocketBase 1,578 · PostgREST 3,345</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:2"></i></div><div class="track"><i class="pb" style="--w:22.2%;--d:2"></i></div><div class="track"><i class="pr" style="--w:47.0%;--d:2"></i></div></div><div class="x">4.5×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List with expand<small>3,906 · PocketBase 1,065 · PostgREST n/a</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:3"></i></div><div class="track"><i class="pb" style="--w:27.3%;--d:3"></i></div></div><div class="x">3.7×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">View one record<small>19,965 · PocketBase 11,484 · PostgREST 5,197</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:4"></i></div><div class="track"><i class="pb" style="--w:57.5%;--d:4"></i></div><div class="track"><i class="pr" style="--w:26.0%;--d:4"></i></div></div><div class="x">1.7×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">View one, one client<small>5,765 · PocketBase 3,188 · PostgREST 1,726</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:5"></i></div><div class="track"><i class="pb" style="--w:55.3%;--d:5"></i></div><div class="track"><i class="pr" style="--w:29.9%;--d:5"></i></div></div><div class="x">1.8×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">Create a record<small>7,424 · PocketBase 4,051 · PostgREST 3,828</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:6"></i></div><div class="track"><i class="pb" style="--w:54.6%;--d:6"></i></div><div class="track"><i class="pr" style="--w:51.6%;--d:6"></i></div></div><div class="x">1.8×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">Sign in (bcrypt)<small>39.1 · PocketBase 34.3 · PostgREST n/a</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:7"></i></div><div class="track"><i class="pb" style="--w:87.8%;--d:7"></i></div></div><div class="x">1.1×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">p99 latency, filtered list<small>8.2 ms · PocketBase 439 ms · PostgREST 15.4 ms</small></div><div class="tracks"><div class="track"><i class="us" style="--w:1.9%;--d:8"></i></div><div class="track"><i class="pb" style="--w:100.0%;--d:8"></i></div><div class="track"><i class="pr" style="--w:3.5%;--d:8"></i></div></div><div class="x">54×<small>lower p99</small></div></div><div class="bar-row"><div class="label">p99 latency, list of 30<small>7.8 ms · PocketBase 67.1 ms · PostgREST 13.7 ms</small></div><div class="tracks"><div class="track"><i class="us" style="--w:11.6%;--d:9"></i></div><div class="track"><i class="pb" style="--w:100.0%;--d:9"></i></div><div class="track"><i class="pr" style="--w:20.4%;--d:9"></i></div></div><div class="x">8.6×<small>lower p99</small></div></div></div><div class="foot-cards reveal"><div class="fc"><h3>Binary on disk</h3><table><tr><td>slonbase</td><td>21.3 MB</td></tr><tr><td>PocketBase</td><td>32.0 MB</td></tr><tr class="best"><td>PostgREST</td><td>19.6 MB</td></tr></table></div><div class="fc"><h3>Download</h3><table><tr><td>slonbase</td><td>9.8 MB</td></tr><tr><td>PocketBase</td><td>12.2 MB</td></tr><tr class="best"><td>PostgREST</td><td>4.3 MB</td></tr></table></div><div class="fc"><h3>Memory, idle → under load</h3><table><tr><td>slonbase</td><td>40 MB → 64 MB</td></tr><tr><td>PocketBase</td><td>41 MB → 1343 MB</td></tr><tr class="best"><td>PostgREST</td><td>15 MB → 99 MB</td></tr></table></div></div><p class="under" style="text-align:center;margin-top:14px">Resident memory of the server process only. slonbase and PostgREST keep their data in a PostgreSQL server, whose memory is not counted; PocketBase's SQLite runs inside its process. The PostgreSQL server is shared by every instance.</p><div class="honest reveal"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg><div><b>Where each one wins.</b> slonbase is ahead on throughput in every scenario measured here: by 1.2× (sign-in, which bcrypt bounds) up to 68× (filtered lists) against PocketBase, and by 1.2× up to 3.8× against PostgREST. It isn't free: slonbase and PostgREST need a PostgreSQL server (its memory isn't counted in these figures), and PocketBase is one file with nothing else to run. PostgREST is much lighter, with a resident process of 15 MB and a 4.5 MB download, because it does much less: no sign-in, files, realtime or dashboard. Sign-in is bound by bcrypt on all of them. One 4-vCPU VM, loopback, database on the same cores as the server: the numbers show how the three compare here, and they will differ on your hardware.</div></div>
+    <div class="perf reveal"><div class="perf-head"><div class="legend"><span><i style="background:linear-gradient(90deg,var(--accent),var(--pg))"></i>slonbase 2.2.0</span><span><i style="background:color-mix(in srgb,var(--warn),var(--surface-2) 45%)"></i>PocketBase 0.40.6</span><span><i style="background:color-mix(in srgb,var(--info),var(--surface-2) 40%)"></i>PostgREST 16.5</span></div><div class="meta">32 clients unless noted · 4 CPUs, loopback, medians of 3 runs of 10s</div></div><div class="bar-row"><div class="label">Filtered list<small>7,100 · PocketBase 105 · PostgREST 3,315</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:0"></i></div><div class="track"><i class="pb" style="--w:1.5%;--d:0"></i></div><div class="track"><i class="pr" style="--w:46.7%;--d:0"></i></div></div><div class="x">68×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List 30 records<small>7,814 · PocketBase 1,610 · PostgREST 3,733</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:1"></i></div><div class="track"><i class="pb" style="--w:20.6%;--d:1"></i></div><div class="track"><i class="pr" style="--w:47.8%;--d:1"></i></div></div><div class="x">4.9×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List, sorted<small>7,117 · PocketBase 1,578 · PostgREST 3,345</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:2"></i></div><div class="track"><i class="pb" style="--w:22.2%;--d:2"></i></div><div class="track"><i class="pr" style="--w:47.0%;--d:2"></i></div></div><div class="x">4.5×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">List with expand<small>3,906 · PocketBase 1,065 · PostgREST n/a</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:3"></i></div><div class="track"><i class="pb" style="--w:27.3%;--d:3"></i></div></div><div class="x">3.7×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">View one record<small>19,965 · PocketBase 11,484 · PostgREST 5,197</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:4"></i></div><div class="track"><i class="pb" style="--w:57.5%;--d:4"></i></div><div class="track"><i class="pr" style="--w:26.0%;--d:4"></i></div></div><div class="x">1.7×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">View one, one client<small>5,765 · PocketBase 3,188 · PostgREST 1,726</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:5"></i></div><div class="track"><i class="pb" style="--w:55.3%;--d:5"></i></div><div class="track"><i class="pr" style="--w:29.9%;--d:5"></i></div></div><div class="x">1.8×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">Create a record<small>7,424 · PocketBase 4,051 · PostgREST 3,828</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:6"></i></div><div class="track"><i class="pb" style="--w:54.6%;--d:6"></i></div><div class="track"><i class="pr" style="--w:51.6%;--d:6"></i></div></div><div class="x">1.8×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">Sign in (bcrypt)<small>39.1 · PocketBase 34.3 · PostgREST n/a</small></div><div class="tracks"><div class="track"><i class="us" style="--w:100.0%;--d:7"></i></div><div class="track"><i class="pb" style="--w:87.8%;--d:7"></i></div></div><div class="x">1.1×<small>vs PocketBase</small></div></div><div class="bar-row"><div class="label">p99 latency, filtered list<small>8.2 ms · PocketBase 439 ms · PostgREST 15.4 ms</small></div><div class="tracks"><div class="track"><i class="us" style="--w:1.9%;--d:8"></i></div><div class="track"><i class="pb" style="--w:100.0%;--d:8"></i></div><div class="track"><i class="pr" style="--w:3.5%;--d:8"></i></div></div><div class="x">54×<small>lower p99</small></div></div><div class="bar-row"><div class="label">p99 latency, list of 30<small>7.8 ms · PocketBase 67.1 ms · PostgREST 13.7 ms</small></div><div class="tracks"><div class="track"><i class="us" style="--w:11.6%;--d:9"></i></div><div class="track"><i class="pb" style="--w:100.0%;--d:9"></i></div><div class="track"><i class="pr" style="--w:20.4%;--d:9"></i></div></div><div class="x">8.6×<small>lower p99</small></div></div></div><div class="foot-cards reveal"><div class="fc"><h3>Binary on disk</h3><table><tr><td>slonbase</td><td>21.3 MB</td></tr><tr><td>PocketBase</td><td>32.0 MB</td></tr><tr class="best"><td>PostgREST</td><td>19.6 MB</td></tr></table></div><div class="fc"><h3>Download</h3><table><tr><td>slonbase</td><td>9.8 MB</td></tr><tr><td>PocketBase</td><td>12.2 MB</td></tr><tr class="best"><td>PostgREST</td><td>4.3 MB</td></tr></table></div><div class="fc"><h3>Memory, idle → under load</h3><table><tr><td>slonbase</td><td>40 MB → 64 MB</td></tr><tr><td>PocketBase</td><td>41 MB → 1343 MB</td></tr><tr class="best"><td>PostgREST</td><td>15 MB → 99 MB</td></tr></table></div></div><p class="under" style="text-align:center;margin-top:14px">Resident memory of the server process only. slonbase and PostgREST keep their data in a PostgreSQL server, whose memory is not counted; PocketBase's SQLite runs inside its process. The PostgreSQL server is shared by every instance.</p><div class="honest reveal"><svg aria-hidden="true" focusable="false" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.5"/></svg><div><b>Where each one wins.</b> slonbase is ahead on throughput in every scenario measured here: by 1.2× (sign-in, which bcrypt bounds) up to 68× (filtered lists) against PocketBase, and by 1.2× up to 3.8× against PostgREST. It isn't free: slonbase and PostgREST need a PostgreSQL server (its memory isn't counted in these figures), and PocketBase is one file with nothing else to run. PostgREST is much lighter, with a resident process of 15 MB and a 4.5 MB download, because it does much less: no sign-in, files, realtime or dashboard. Sign-in is bound by bcrypt on all of them. One 4-vCPU VM, loopback, database on the same cores as the server: the numbers show how the three compare here, and they will differ on your hardware.</div></div>
   </div>
 </section>
 
@@ -656,18 +794,18 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       <table class="cmp">
         <thead><tr><th></th><th class="us">slonbase</th><th>PocketBase</th><th>PostgREST</th></tr></thead>
         <tbody>
-          <tr><td>What it is</td><td class="us">A whole backend: API, auth, files, realtime, hooks, dashboard</td><td>A whole backend: API, auth, files, realtime, hooks, dashboard</td><td>A REST layer over a PostgreSQL schema, nothing else attached</td></tr>
-          <tr><td>Database</td><td class="us">PostgreSQL 14+ (yours, or managed)</td><td>SQLite, inside the process</td><td>PostgreSQL (yours, or managed)</td></tr>
-          <tr><td>Your data</td><td class="us">Real tables: SQL, replicas, <code>pg_dump</code>, BI tools</td><td>A SQLite file</td><td>Real tables, which you design and migrate yourself</td></tr>
-          <tr><td>API and SDKs</td><td class="us">Compatible with the PocketBase SDKs</td><td>The PocketBase SDKs</td><td>Its own query syntax and OpenAPI; generic HTTP clients</td></tr>
-          <tr><td>Sign-in and users</td><td class="us"><span class="yes">Built in:</span> passwords, OAuth2, one-time codes, MFA, roles</td><td><span class="yes">Built in:</span> passwords, OAuth2, one-time codes, MFA</td><td><span class="no">Verifies JWTs; issuing them and managing users is up to you</span></td></tr>
-          <tr><td>Access rules</td><td class="us">Per-collection rules in a filter language</td><td>Per-collection rules in a filter language</td><td>PostgreSQL's row-level security</td></tr>
-          <tr><td>Files</td><td class="us"><span class="yes">Disk or S3</span>, thumbnails</td><td><span class="yes">Disk or S3</span>, thumbnails</td><td><span class="no">No</span></td></tr>
-          <tr><td>Realtime</td><td class="us"><span class="yes">Every change</span>, including SQL and other programs</td><td>Changes made through the app</td><td><span class="no">No</span></td></tr>
-          <tr><td>Dashboard</td><td class="us"><span class="yes">Yes</span></td><td><span class="yes">Yes</span></td><td><span class="no">No</span></td></tr>
-          <tr><td>Extending</td><td class="us">JavaScript hooks (PocketBase's run as they are), or Rust</td><td>JavaScript hooks, or Go</td><td>PostgreSQL functions and views</td></tr>
-          <tr><td>Instances</td><td class="us">Any number on one database, behind any load balancer</td><td>One</td><td>Any number on one database</td></tr>
-          <tr><td>Moving parts</td><td class="us">One binary and a PostgreSQL server</td><td>One binary</td><td>One binary and a PostgreSQL server</td></tr>
+          <tr><td>What it is</td><td data-col="slonbase" class="us">A whole backend: API, auth, files, realtime, hooks, dashboard</td><td data-col="PocketBase">A whole backend: API, auth, files, realtime, hooks, dashboard</td><td data-col="PostgREST">A REST layer over a PostgreSQL schema, nothing else attached</td></tr>
+          <tr><td>Database</td><td data-col="slonbase" class="us">PostgreSQL 14+ (yours, or managed)</td><td data-col="PocketBase">SQLite, inside the process</td><td data-col="PostgREST">PostgreSQL (yours, or managed)</td></tr>
+          <tr><td>Your data</td><td data-col="slonbase" class="us">Real tables: SQL, replicas, <code>pg_dump</code>, BI tools</td><td data-col="PocketBase">A SQLite file</td><td data-col="PostgREST">Real tables, which you design and migrate yourself</td></tr>
+          <tr><td>API and SDKs</td><td data-col="slonbase" class="us">Compatible with the PocketBase SDKs</td><td data-col="PocketBase">The PocketBase SDKs</td><td data-col="PostgREST">Its own query syntax and OpenAPI; generic HTTP clients</td></tr>
+          <tr><td>Sign-in and users</td><td data-col="slonbase" class="us"><span class="yes">Built in:</span> passwords, OAuth2, one-time codes, MFA, roles</td><td data-col="PocketBase"><span class="yes">Built in:</span> passwords, OAuth2, one-time codes, MFA</td><td data-col="PostgREST"><span class="no">Verifies JWTs; issuing them and managing users is up to you</span></td></tr>
+          <tr><td>Access rules</td><td data-col="slonbase" class="us">Per-collection rules in a filter language</td><td data-col="PocketBase">Per-collection rules in a filter language</td><td data-col="PostgREST">PostgreSQL's row-level security</td></tr>
+          <tr><td>Files</td><td data-col="slonbase" class="us"><span class="yes">Disk or S3</span>, thumbnails</td><td data-col="PocketBase"><span class="yes">Disk or S3</span>, thumbnails</td><td data-col="PostgREST"><span class="no">No</span></td></tr>
+          <tr><td>Realtime</td><td data-col="slonbase" class="us"><span class="yes">Every change</span>, including SQL and other programs</td><td data-col="PocketBase">Changes made through the app</td><td data-col="PostgREST"><span class="no">No</span></td></tr>
+          <tr><td>Dashboard</td><td data-col="slonbase" class="us"><span class="yes">Yes</span></td><td data-col="PocketBase"><span class="yes">Yes</span></td><td data-col="PostgREST"><span class="no">No</span></td></tr>
+          <tr><td>Extending</td><td data-col="slonbase" class="us">JavaScript hooks (PocketBase's run as they are), or Rust</td><td data-col="PocketBase">JavaScript hooks, or Go</td><td data-col="PostgREST">PostgreSQL functions and views</td></tr>
+          <tr><td>Instances</td><td data-col="slonbase" class="us">Any number on one database, behind any load balancer</td><td data-col="PocketBase">One</td><td data-col="PostgREST">Any number on one database</td></tr>
+          <tr><td>Moving parts</td><td data-col="slonbase" class="us">One binary and a PostgreSQL server</td><td data-col="PocketBase">One binary</td><td data-col="PostgREST">One binary and a PostgreSQL server</td></tr>
         </tbody>
       </table>
     </div>
@@ -696,13 +834,13 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       <h2>From one binary<br>to a fleet.</h2>
       <p class="sub">Start with one instance. When you need more, add instances behind any load balancer, a pooler, or other PostgreSQL servers. Each layout below was run and tested, not just drawn.</p>
     </div>
-    <div class="shot-tabs reveal" role="tablist" aria-label="Deployment layouts" style="margin-top:36px">
-      <button role="tab" aria-selected="true" data-topo="single">One server</button>
-      <button role="tab" aria-selected="false" data-topo="fleet">Several instances</button>
-      <button role="tab" aria-selected="false" data-topo="pooler">With a pooler</button>
-      <button role="tab" aria-selected="false" data-topo="projects">Projects across servers</button>
+    <div class="shot-tabs fade-x reveal" role="tablist" aria-label="Deployment layouts" style="margin-top:36px">
+      <button role="tab" aria-selected="true" aria-controls="topo-panel" data-topo="single">One server</button>
+      <button role="tab" aria-selected="false" aria-controls="topo-panel" data-topo="fleet">Several instances</button>
+      <button role="tab" aria-selected="false" aria-controls="topo-panel" data-topo="pooler">With a pooler</button>
+      <button role="tab" aria-selected="false" aria-controls="topo-panel" data-topo="projects">Projects across servers</button>
     </div>
-    <figure class="topo reveal">
+    <figure class="topo reveal" role="tabpanel" id="topo-panel" aria-label="Deployment layout">
       <img id="topo-img" src="assets/topology-single-light.svg" width="760" height="260" alt="One slonbase instance on one PostgreSQL server">
       <figcaption id="topo-cap"></figcaption>
     </figure>
@@ -778,7 +916,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     </div>
     <div class="install reveal">
       <div class="code">
-        <div class="tabs"><div role="tablist" aria-label="Installation" class="tl">
+        <div class="tabs fade-x"><div role="tablist" aria-label="Installation" class="tl">
           <button role="tab" aria-selected="true" aria-controls="in-linux" id="t-linux">Linux</button>
           <button role="tab" aria-selected="false" aria-controls="in-docker" id="t-docker">Docker</button>
           <button role="tab" aria-selected="false" aria-controls="in-apt" id="t-apt">Debian / Ubuntu</button>
@@ -881,15 +1019,22 @@ slonbase serve</pre>
   var REPO = "ayeshrodz/slonbase";
   var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // theme: the saved choice, else the system's (set early in <head>'s inline script below the fold)
-  try { var saved = localStorage.getItem("theme"); if (saved) root.dataset.theme = saved; else if (matchMedia("(prefers-color-scheme: dark)").matches) root.dataset.theme = "dark"; } catch (e) {}
-  document.getElementById("theme").addEventListener("click", function () {
+  // theme (set in <head> before the first paint); the browser's bar follows it
+  var themeBtn = document.getElementById("theme");
+  function themeChanged() {
+    themeBtn.setAttribute("aria-pressed", root.dataset.theme === "dark" ? "true" : "false");
+    var canvas = getComputedStyle(root).getPropertyValue("--canvas").trim();
+    document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) { m.setAttribute("content", canvas); m.removeAttribute("media"); });
+  }
+  themeBtn.addEventListener("click", function () {
     var next = root.dataset.theme === "dark" ? "light" : "dark";
     root.dataset.theme = next;
     try { localStorage.setItem("theme", next); } catch (e) {}
+    themeChanged();
     showShot(current);
     if (typeof showTopo === "function") showTopo(topoCur);
   });
+  themeChanged();
 
   // the dashboard tour: real screenshots, in the page's theme
   var SHOTS = {
@@ -927,7 +1072,7 @@ slonbase serve</pre>
   }
   document.querySelectorAll("[data-shot]").forEach(function (b) {
     b.addEventListener("click", function () {
-      document.querySelectorAll("[data-shot]").forEach(function (o) { o.setAttribute("aria-selected", o === b); });
+      b.scrollIntoView({ block: "nearest", inline: "nearest" });
       showShot(b.dataset.shot, true);
     });
   });
@@ -952,7 +1097,7 @@ slonbase serve</pre>
   }
   document.querySelectorAll("[data-topo]").forEach(function (b) {
     b.addEventListener("click", function () {
-      document.querySelectorAll("[data-topo]").forEach(function (o) { o.setAttribute("aria-selected", o === b); });
+      b.scrollIntoView({ block: "nearest", inline: "nearest" });
       showTopo(b.dataset.topo);
     });
   });
@@ -960,18 +1105,43 @@ slonbase serve</pre>
 
   document.querySelectorAll(".code pre, pre.mini, .install-line code, .table-wrap").forEach(function (el) { el.setAttribute("tabindex", "0"); });
 
-  // tabs (code and installation)
+  // tabs, all alike: a click or the arrow keys (Home and End too) select one; only the selected
+  // tab is in the Tab order. Panels of their own are shown and hidden here; the tour and the
+  // layouts change one shared panel in their own click handlers.
   document.querySelectorAll('[role="tablist"]').forEach(function (list) {
-    var tabs = list.querySelectorAll('[role="tab"][aria-controls]');
+    var tabs = Array.prototype.slice.call(list.querySelectorAll('[role="tab"]'));
+    function select(tab) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute("aria-selected", on ? "true" : "false");
+        t.tabIndex = on ? 0 : -1;
+        var panel = t.getAttribute("aria-controls");
+        if (panel && !t.dataset.shot && !t.dataset.topo) document.getElementById(panel).hidden = !on;
+      });
+    }
     tabs.forEach(function (tab) {
-      tab.addEventListener("click", function () {
-        tabs.forEach(function (t) {
-          var on = t === tab;
-          t.setAttribute("aria-selected", on);
-          document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
-        });
+      tab.tabIndex = tab.getAttribute("aria-selected") === "true" ? 0 : -1;
+      tab.addEventListener("click", function () { select(tab); });
+      tab.addEventListener("keydown", function (e) {
+        var i = tabs.indexOf(tab), next = null;
+        if (e.key === "ArrowRight") next = tabs[(i + 1) % tabs.length];
+        else if (e.key === "ArrowLeft") next = tabs[(i - 1 + tabs.length) % tabs.length];
+        else if (e.key === "Home") next = tabs[0];
+        else if (e.key === "End") next = tabs[tabs.length - 1];
+        if (!next) return;
+        e.preventDefault();
+        next.focus();
+        next.click();
       });
     });
+  });
+
+  // a row that scrolls sideways fades at its far edge until its end is reached
+  document.querySelectorAll(".fade-x").forEach(function (row) {
+    function edge() { row.classList.toggle("at-end", row.scrollLeft + row.clientWidth >= row.scrollWidth - 2); }
+    row.addEventListener("scroll", edge, { passive: true });
+    addEventListener("resize", edge);
+    edge();
   });
 
   // copy buttons
@@ -1007,7 +1177,7 @@ slonbase serve</pre>
   }
 
   // the tour video: plays while on screen, a poster with controls when motion is reduced
-  var video = document.getElementById("tour");
+  var video = document.getElementById("tour-video");
   if (video) {
     var small = window.matchMedia("(max-width: 760px)").matches || (navigator.connection && navigator.connection.saveData);
     if (reduce || small) { video.removeAttribute("autoplay"); video.setAttribute("controls", ""); video.pause(); }
@@ -1021,7 +1191,7 @@ slonbase serve</pre>
 
   // the window flattens as it scrolls into place
   var win = document.getElementById("window");
-  if (win && !reduce) {
+  if (win && !reduce && !matchMedia("(max-width: 760px)").matches) {
     var update = function () {
       var r = win.getBoundingClientRect(), vh = window.innerHeight;
       var t = Math.min(1, Math.max(0, (vh - r.top) / (vh * 0.75)));
