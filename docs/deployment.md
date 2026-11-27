@@ -106,7 +106,7 @@ root, as the [platform setups](platforms.md) do. Its health check
 
 ## PostgreSQL
 
-- **Version:** 14 or newer. CI runs on 14 and 17.
+- **Version:** 14 or newer. CI runs the tests on every supported version, 14 to 18.
 - **Role:** slonbase needs a role that can create schemas in its database (`CREATE` on the
   database), such as the database owner. It doesn't need to be a PostgreSQL superuser, and
   shouldn't be one: view collections' queries and the SQL console run with its privileges (see
@@ -196,6 +196,36 @@ the settings on every instance, and signs everyone out, since the signing key is
       static_configs:
         - targets: ["10.0.0.11:9090", "10.0.0.12:9090"]
   ```
+
+### The Health page
+
+The dashboard's Health page (`GET /api/system/status`, superusers) lists the instances on the
+database and a set of checks. A check is `ok`, `info` (worth knowing), `warn` (worth fixing) or
+`error` (something doesn't work):
+
+| Check | Shown when |
+|---|---|
+| Database | always; `warn` when a round trip takes over 100 ms |
+| Connections | the database server's connections are 80% used (`error` from 95%) |
+| Pool | requests are waiting for one of this instance's database connections |
+| Database role | slonbase connects as a PostgreSQL superuser |
+| Sync, sync of another instance | changes made through one instance don't reach another, as behind a pooler in transaction mode (see [behind a pooler](configuration.md#behind-a-pooler)) |
+| Storage | the file storage can't be reached (`error`) |
+| Shared storage | several instances keep files on their own disks |
+| Backups | none yet, or the last is a week old or more; `info` when they aren't scheduled, kept only on this server, or not encrypted |
+| SMTP | mail is off, so verification, password reset and OTP emails only reach the logs |
+| Application URL | it's a local address, or `http://` for a public one |
+| Rate limits | they're off, or the shared counting in the database failed recently |
+| Sign-in lockout | it's off (`attempts: 0`) |
+| Trusted proxy | proxy headers are read without `trustedProxy.peers` |
+| SQL console | it's on (`info`) |
+| Logging | request logging is off, the figures leave some requests out (`info`), or entries were dropped |
+| Automations | record changes have waited over a minute to start automations |
+| Errors | errors were logged in the last 24 hours |
+
+The page also lists everything `GET /api/settings/warnings` returns (open API rules, hooks with
+no limits, templates or automations that no longer validate, ...), which slonbase also logs
+once at start. Each check links to the page where it is fixed.
 
 ## Security checklist
 

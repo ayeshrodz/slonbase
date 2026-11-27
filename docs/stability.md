@@ -71,10 +71,12 @@ doesn't understand. Take a backup before upgrading, and restore it to go back.
 
 ## Supported environments
 
-- **PostgreSQL:** every version the PostgreSQL project still supports, from 14 (CI tests the
-  oldest and the newest). Support for a version can end once the PostgreSQL project's ends,
+- **PostgreSQL:** every version the PostgreSQL project still supports, from 14 (CI tests every
+  one of them, 14 to 18). Support for a version can end once the PostgreSQL project's ends,
   announced a release ahead.
-- **Platforms:** Linux on x86-64 and ARM64, as packages, binaries and the Docker image.
+- **Platforms:** Linux on x86-64 and ARM64, as packages, binaries and the Docker image. The macOS
+  (Apple silicon) and Windows (x64) archives are experimental: they are built and smoke-tested
+  for every release, but not covered by this promise yet.
 
 ## Security fixes
 

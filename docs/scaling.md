@@ -252,7 +252,7 @@ limit, a warning from 80% and an error from 95%.
 
 Shared, through PostgreSQL, with nothing to configure: records and files' metadata, collection
 and field changes, settings, the signing secrets and token keys, rate limit counters, realtime
-events and subscriptions, cron job runs and automatic backups (once per scheduled minute),
+events and subscriptions, the runs of cron jobs, automations and automatic backups (once per scheduled minute),
 migrations (once, behind an advisory lock) and the list of live instances.
 
 Per instance, and yours to keep identical:

@@ -48,7 +48,12 @@ build step. See [ui/README.md](ui/README.md).
   cargo clippy --all-targets --locked -- -D warnings
   cargo test
   cargo audit        # known vulnerabilities in dependencies (cargo install cargo-audit)
+  node scripts/build-docs.mjs /tmp/docs        # when you change docs/: links and headings
+  DATABASE_URL='postgres://...' ui/test/run.sh  # when you change the dashboard (ui/); see the script
   ```
+
+  CI also runs the compatibility suites in `compat/` against PocketBase, shellcheck on the
+  shell scripts and the installer and upgrade tests; see `.github/workflows/ci.yml`.
 
 - The API stays compatible with the PocketBase SDKs. When a change touches behavior the SDKs see,
   add a test to `compat/` for it, and run that test against PocketBase too.

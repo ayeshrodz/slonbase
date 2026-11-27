@@ -32,11 +32,11 @@
 </p>
 
 <p align="center">
-  <img alt="A tour of the slonbase dashboard: signing in, the overview and a live records grid" src="docs/assets/demo.webp" width="900">
+  <img alt="A short tour of the slonbase dashboard: the overview, then a collection's records in the live grid" src="docs/assets/demo.webp" width="900">
 </p>
 
 <p align="center">
-  <sub>A JavaScript client creating and updating a task. The dashboard's grid is live: realtime events arrive as the code runs.</sub>
+  <sub>A short tour of the dashboard: the overview, then a collection's records in the live grid.</sub>
 </p>
 
 ## Install
@@ -106,11 +106,15 @@ can query, replicate, back up and scale with the tools you already trust.
 - File fields on disk or any S3-compatible bucket; thumbnails, protected files, byte ranges
 
 **Operations**
-- An admin dashboard with live grids, a schema editor and diagram, logs and an SQL console
+- An admin dashboard with a data overview, live grids, a schema editor and diagram, logs, a
+  Health page and an SQL console
 - Request logs, rate limits, superuser IP restrictions, Prometheus metrics
 - gzip compression of JSON that never touches tokens
 - Backups (on a schedule, to S3) and one-click restores
-- JavaScript hooks, cron jobs, a query builder, and a Rust library API
+- [Automations](docs/automations.md): steps on a schedule or when a record changes, email
+  templates, signed webhooks, with no code
+- JavaScript hooks with time, memory and network limits, typed for your editor; a query builder
+  and a Rust library API
 - Migrations in JavaScript, each in a transaction, with automigrate
 
 </td>
@@ -221,6 +225,8 @@ anything it does, you can script too.
 The guides are also on the documentation site, with search:
 **[slonbase.com/docs](https://slonbase.com/docs/)**.
 
+- [Quick start](docs/quickstart.md): from nothing to a running backend and a first request
+- [Features](docs/features.md): everything slonbase does, in one page
 - [Installation](docs/installation.md): Docker, packages, binaries, first-run setup, upgrades
 - [Configuration](docs/configuration.md): server options and application settings
 - [Scaling](docs/scaling.md): several instances, PgBouncer, projects on several servers, connections
@@ -233,7 +239,8 @@ The guides are also on the documentation site, with search:
 - [Migrations](docs/migrations.md): collections and data changes in code
 - [Projects](docs/projects.md): several isolated installations, one database each, on one server
 - [Migrating from PocketBase](docs/migrating-from-pocketbase.md): the importer and the differences
-- [Benchmarks](bench/README.md): slonbase next to PocketBase on the same workloads
+- [Security](docs/security.md): how slonbase protects your data, and what to configure
+- [Benchmarks](docs/benchmarks.md): slonbase next to PocketBase and PostgREST on the same workloads ([how they are run](bench/README.md))
 - [Design](docs/design.md): the decisions behind slonbase
 - [Stability](docs/stability.md): what 1.0 keeps compatible, deprecations and upgrades
 - [Changelog](CHANGELOG.md)
@@ -247,9 +254,11 @@ The guides are also on the documentation site, with search:
 | `slonbase health` | Exit 0 if the local server is healthy (for container health checks). |
 | `slonbase superuser upsert\|update\|delete\|otp ...` | Manage superusers. `otp <email>` prints a one-time password for signing in with MFA when emails can't be sent. |
 | `slonbase import-pocketbase <pb_data or backup.zip>` | Import a PocketBase installation. |
-| `slonbase migrate up\|down\|create\|collections\|list ...` | Apply, revert or write [migrations](docs/migrations.md). |
+| `slonbase migrate up\|down\|create\|collections\|history-sync\|list ...` | Apply, revert or write [migrations](docs/migrations.md); `history-sync` forgets applied migrations whose files were deleted. |
 | `slonbase types` | Write `types.d.ts`: the hook API and each collection's records, [for your editor](docs/extending.md#types-for-your-editor). |
-| `slonbase project list\|create\|delete ...` | Manage [projects](docs/projects.md); `--project <name>` runs `superuser`, `import-pocketbase` and `migrate` on one. |
+| `slonbase project list\|create\|hosts\|delete ...` | Manage [projects](docs/projects.md); `hosts` shows or sets the host names a project is served on. `--project <name>` runs `superuser`, `import-pocketbase` and `migrate` on one. |
+| `slonbase rekey [--to <key>]` | Re-encrypt the settings of every installation with another [encryption key](docs/configuration.md#encrypting-the-settings), or remove the encryption. Stop every instance first. |
+| `slonbase decrypt-backup <backup> <archive.zip>` | Turn an encrypted [backup](docs/configuration.md#backups) back into its zip. |
 
 `slonbase --help` lists every option.
 

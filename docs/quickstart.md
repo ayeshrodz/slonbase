@@ -2,7 +2,9 @@
 
 This takes a bare Linux server to a running backend with an API, sign-in, realtime and files, on
 your own PostgreSQL. You need a Debian, Ubuntu, Fedora, RHEL, Rocky or Alma server (amd64 or
-arm64) and `sudo`. For Docker, see [installation](installation.md#docker-compose).
+arm64) and `sudo`. For Docker, see [installation](installation.md#docker-compose); for a Mac or a
+Windows machine, the experimental [macOS](installation.md#macos) and
+[Windows](installation.md#windows) archives.
 
 ## 1. Install
 

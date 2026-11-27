@@ -641,7 +641,7 @@ ordinary record auth, so OTP, MFA and password reset work for superusers too.
 SMTP password and both S3 secrets masked and kept when left empty), `test/email` (sent
 synchronously so SMTP errors are reported), scaffolds (without the auth email index, which
 slonbase manages itself), the OAuth2 provider list, collection import (validated against the
-registry as it will be, applied in one transaction), truncate, and crons (none yet).
+registry as it will be, applied in one transaction), truncate, and crons (the jobs' list and a run now; the dashboard could make its own jobs from 2.6).
 
 **The SQL console** is off by default: on SQLite PocketBase's console can only touch its own
 database file, but on PostgreSQL it runs with the role's privileges, which for a superuser role
@@ -1279,7 +1279,7 @@ project's, in one transaction each.
 - Integration tests against real PostgreSQL (`SLONBASE_TEST_DATABASE_URL`). Each test creates and
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
-- CI runs them against PostgreSQL 14 (the oldest supported) and 17.
+- CI runs them against every supported PostgreSQL version, 14 (the oldest) to 18.
 - S3 tests run against an S3-compatible server when `SLONBASE_TEST_S3_ENDPOINT` is set (MinIO in
   CI): the client (pagination, batch deletes, bad credentials), and files through the API with S3
   enabled in the settings (serving from a second instance, thumbnails, replacement and delete
@@ -1420,5 +1420,18 @@ project's, in one transaction each.
 22. **2.2** (done): the site on its own domain, <https://slonbase.com>, and an installation that
     starts from a bare Linux server: `install.sh` installs PostgreSQL if needed, creates its role
     and database, installs the package and creates the first superuser.
-23. **Next:** the differential runner over file uploads and realtime events, and the remaining
+23. **2.3** (done): several instances tested for real (behind a balancer, behind PgBouncer with
+    `database.listen_url`, projects on other servers), Health checks for a fleet, and a
+    [scaling guide](scaling.md).
+24. **2.4 and 2.5** (done): security hardening after an outside review: the sign-in lockout on
+    by default, configuration warnings, a realtime stream that ends with its session, and an
+    explicit role decision for every API route (see the
+    [security reviews](security-review.md)).
+25. **2.6** (done): cron jobs made in the dashboard (clean up records, call a URL, send an email,
+    run SQL), with retries and failure notices.
+26. **2.7** (done): [automations](automations.md) of up to 20 steps on a schedule or when a
+    record changes, email templates and signed webhooks; time, memory and network limits for
+    hooks; types and a development mode for hook authors; a two-level Data page and a Health
+    page per instance; experimental macOS and Windows archives.
+27. **Next:** the differential runner over file uploads and realtime events, and the remaining
     per-request overhead on lists.

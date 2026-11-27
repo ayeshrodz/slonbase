@@ -24,7 +24,10 @@ Stop PocketBase first, and import into an installation that doesn't have those c
 Things it can't carry over are reported instead of failing the import:
 - view collections whose queries use SQLite-only SQL (`strftime`, ...): recreate them with a
   PostgreSQL query;
-- settings encrypted with `PB_ENCRYPTION`: set them again in the dashboard;
+- settings encrypted with `PB_ENCRYPTION`, unless slonbase runs with the same value as its
+  encryption key (`SLONBASE_ENCRYPTION_KEY`), in which case the import brings them along
+  ([encrypting the settings](configuration.md#encrypting-the-settings)); otherwise set them again
+  in the dashboard;
 - files kept in S3 by PocketBase: copy them to slonbase's storage under the same
   `{collectionId}/{recordId}/` keys.
 
@@ -70,6 +73,18 @@ everything that's available. The differences to watch for:
   in all; the SDKs reconnect either way).
 - **`$template` escapes everything the same way**, where Go escapes by context (inside
   `<script>`, URLs, ...). Use `js` and `urlquery` there.
+- **File reads are off until you choose a directory.** `$os.readFile`, `$os.dirFS` and
+  `e.fileFS` read only inside `hooks.files_dir`; PocketBase's hooks can read any file the
+  process can. Set it to the directory your hooks read from (templates, fixtures) before
+  moving them over.
+- **Handlers can have time and memory limits.** `hooks.timeout_seconds` and
+  `hooks.memory_limit_mb` stop a handler that runs too long or uses too much memory; a new
+  installation made with `slonbase setup` starts with 60 seconds and 128 MB. A hook that does
+  slow work (a large import, a long export) may need a higher limit or a cron job, which has
+  an hour. See [how hooks run](extending.md#how-it-runs).
+- **Outbound calls can be guarded.** With `hooks.guard_http = true`, `$http.send` refuses
+  this server and private networks except the hosts in `hooks.allow_hosts`. It is off by
+  default, as in PocketBase.
 - **The engine is QuickJS** rather than Goja. It's standard JavaScript (ES2023), with no Go types.
 - Go extensions (`main.go`) can't be carried over. slonbase's equivalent is its
   [Rust library](extending.md#rust).
@@ -91,7 +106,7 @@ marks PocketBase's applied migrations as applied, so they don't run again.
 | Backups | Zip with the SQLite file | Zip in slonbase's own format, plus any PostgreSQL backup tool |
 | Settings encryption | `PB_ENCRYPTION` | `SLONBASE_ENCRYPTION_KEY`, in the same format; it also covers the token signing secret ([encrypting the settings](configuration.md#encrypting-the-settings)) |
 | Migrations | Go/JS migrations, automigrate | [JS migrations](migrations.md) and automigrate; Go migrations aren't supported |
-| Rate limits | Per process, off on new installations | Per instance, on for new installations (an import keeps PocketBase's setting) |
+| Rate limits | Per process, off on new installations | Shared by all the instances on one database (counted in PostgreSQL), on for new installations (an import keeps PocketBase's setting) |
 | Dashboard | PocketBase's | slonbase's own, with the same features |
 
 A few answers differ on purpose:

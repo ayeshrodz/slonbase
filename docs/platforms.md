@@ -30,7 +30,7 @@ The button reads [`render.yaml`](../render.yaml). It creates:
   the service as `SLONBASE_DATABASE_URL`.
 
 Disks need a paid instance. To use the free plan, remove the `disk` section and keep files on S3
-(Settings → Files storage). Without a disk, hooks and local backups don't survive a redeploy.
+(Settings → File storage). Without a disk, hooks and local backups don't survive a redeploy.
 
 Once it's live, find the setup link in the service's **Logs**. It shows `http://127.0.0.1:8090`;
 replace that with the service's `https://….onrender.com` address.

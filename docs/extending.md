@@ -268,6 +268,15 @@ onRecordAfterCreateSuccess((e) => {
   sent back. `$app.settings().ext(name)` gives the values, with each field's `default` while
   nothing is saved.
 
+### What an instance has loaded
+
+**Settings → Extensions** in the dashboard shows what the instance that answered has loaded
+(`GET /api/extensions`, developers and up): the hook files, each handler with its event and
+collections, the routes with their method and path, the cron jobs registered by code, the step
+functions, the kinds of background jobs its workers run and the settings pages. Open one of those pages there to fill in its values. With
+several instances, each shows its own; they load the same files when they share a hooks
+directory.
+
 ### Types for your editor
 
 `slonbase types` writes `types.d.ts` (next to the storage directory: `slonbase_data/types.d.ts`
