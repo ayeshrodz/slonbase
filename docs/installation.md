@@ -226,7 +226,7 @@ Open the printed link (the token in it is required) to create the first superuse
 two volumes: `pgdata` (the database) and `slonbase_data` (`/data`: files, backups, hooks and the
 config file).
 
-`SLONBASE_VERSION` in `.env` pins a release (`2.7.0`); the default is `latest`. When the image
+`SLONBASE_VERSION` in `.env` pins a release (`2.7.1`); the default is `latest`. When the image
 can't be pulled, or with `docker compose up --build`, Compose builds it from a checkout of the
 repository (run it there).
 
@@ -239,7 +239,7 @@ and has a health check (`slonbase health`).
 ```sh
 docker run -d --name slonbase -p 8090:8090 -v slonbase_data:/data \
   -e SLONBASE_DATABASE_URL='postgres://user:pass@db.example.com:5432/app?sslmode=require' \
-  ghcr.io/ayeshrodz/slonbase:2.7.0
+  ghcr.io/ayeshrodz/slonbase:2.7.1
 docker logs slonbase 2>&1 | grep "setup?token"
 ```
 
@@ -249,8 +249,8 @@ Without `SLONBASE_DATABASE_URL` the setup wizard asks for the connection and sav
 ## Plain binary
 
 ```sh
-curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.0/slonbase-2.7.0-linux-amd64.tar.gz
-tar xzf slonbase-2.7.0-linux-amd64.tar.gz
+curl -LO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/slonbase-2.7.1-linux-amd64.tar.gz
+tar xzf slonbase-2.7.1-linux-amd64.tar.gz
 ./slonbase serve      # starts in setup mode and prints the setup link
 ```
 
@@ -273,10 +273,10 @@ brew install postgresql@16 && brew services start postgresql@16
 "$(brew --prefix postgresql@16)/bin/createdb" slonbase   # an empty database, owned by you
 ```
 
-Then download, check and start slonbase (`V` is the version, such as `2.7.0`):
+Then download, check and start slonbase (`V` is the version, such as `2.7.1`):
 
 ```sh
-V=2.7.0
+V=2.7.1
 curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/slonbase-$V-macos-arm64.tar.gz
 curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v$V/SHA256SUMS
 grep "macos-arm64.tar.gz" SHA256SUMS | shasum -a 256 -c     # must say: OK
@@ -317,10 +317,10 @@ CREATE ROLE slonbase LOGIN PASSWORD 'a-long-password';
 CREATE DATABASE slonbase OWNER slonbase;
 ```
 
-Then, in PowerShell, download, check and start slonbase (`$v` is the version, such as `2.7.0`):
+Then, in PowerShell, download, check and start slonbase (`$v` is the version, such as `2.7.1`):
 
 ```powershell
-$v = "2.7.0"
+$v = "2.7.1"
 $base = "https://github.com/ayeshrodz/slonbase/releases/download/v$v"
 Invoke-WebRequest "$base/slonbase-$v-windows-amd64.zip" -OutFile slonbase.zip
 Invoke-WebRequest "$base/SHA256SUMS" -OutFile SHA256SUMS
@@ -465,7 +465,9 @@ The apt and dnf repositories are signed with the key published at
 ## Upgrading
 
 Back up first (a slonbase backup, a database dump, or both; see
-[deployment](deployment.md#backups)). Then:
+[deployment](deployment.md#backups)). If several instances share one database, stop all of them
+before the steps below and start them together afterwards: a migration runs at the first start,
+and rolling upgrades aren't supported (the notes for 2.7.1 and 2.7 below say why). Then:
 
 - **Compose:** `docker compose pull && docker compose up -d` (or set `SLONBASE_VERSION`).
 - **Docker:** run the new tag with the same volume and environment.
@@ -481,6 +483,11 @@ Downgrading after a migration isn't supported: restore the backup instead. Every
 for upgrades in place from the first release (0.1.0) and from the previous one: CI seeds the
 old release with data, starts the new build on it, and checks the data, files, settings, old
 passwords and tokens, rules, realtime and backups (`compat/upgrade/run.sh`).
+
+**To 2.7.1:** if several instances share one database, stop all of them before you start the new
+version: 2.7.1 adds one migration (it stores what each instance reports on Health), and rolling
+upgrades aren't supported (see [several instances](deployment.md#several-instances)). A single
+instance needs nothing more than the steps above.
 
 **To 2.7:** stop every instance before starting the new version (2.7 stores settings and job
 schedules in a form 2.6 doesn't read, so the two must not run side by side). Nothing else needs
@@ -526,8 +533,8 @@ spare server, say) rather than on the one people depend on, and back up first as
   after 2.7.0-rc.4 also has [macOS](#macos) and [Windows](#windows) archives.
 
 Afterwards, `sudo apt upgrade` or `sudo dnf upgrade` moves an installation from the repositories
-on to the release when it comes out (the package's version, `2.7.0~rc.1`, sorts before
-`2.7.0`), and to a later candidate only if you install it the same way. Going back to the
+on to the release when it comes out (the package's version, `2.7.1~rc.1`, sorts before
+`2.7.1`), and to a later candidate only if you install it the same way. Going back to the
 previous release is the same as after any upgrade: restore the backup.
 
 ## Uninstalling
