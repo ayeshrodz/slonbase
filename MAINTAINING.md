@@ -20,8 +20,7 @@ when CI passes (squash merge, branch deleted afterwards). `main` is protected by
 - release tags (`v*`) can't be deleted or moved (creating them stays open, because the Release
   workflow creates the tag with the workflow token, which a ruleset can't exempt).
 
-The steps for setting this up on GitHub are in the repository's settings guide (the PDF that
-came with this change, and the checklist at the end of this page).
+The checklist at the end of this page lists the steps for setting this up on GitHub.
 
 ## Releasing
 
@@ -86,7 +85,9 @@ node scripts/build-docs.mjs /tmp/site/docs && python3 -m http.server -d /tmp/sit
 ```
 
 The build fails on a link to a page or heading that doesn't exist (CI runs it). A new guide goes
-in `SECTIONS` at the top of the script.
+in `SECTIONS` at the top of the script, with its sidebar name in `SHORT` and its description in
+`BLURB` (and a search title in `SEO_TITLE` if it needs one); the build fails on a guide in
+`docs/` that isn't listed or described.
 
 The repositories need, once:
 

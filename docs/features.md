@@ -88,5 +88,7 @@ platform on PostgreSQL: one Rust binary, with the dashboard built in.
 
 ## Requirements
 
-PostgreSQL 14 or newer (not bundled), and Linux on x86_64 or aarch64 for the release builds.
+PostgreSQL 14 or newer (not bundled), and Linux on x86_64 or aarch64 for the release builds
+(experimental archives for macOS on Apple silicon and Windows on x64 are there too, see
+[installation](installation.md#macos)).
 The [quickstart](quickstart.md) takes a bare server to a working backend in a few minutes.

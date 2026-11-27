@@ -22,7 +22,7 @@ const out = path.resolve(process.argv[2] || "site-out/docs");
 const SECTIONS = [
   { title: "About slonbase", pages: ["about", "features", "licensing"] },
   { title: "Get started", pages: ["quickstart", "installation", "configuration", "deployment", "scaling", "platforms"] },
-  { title: "Build", pages: ["api", "extending", "migrations", "projects"] },
+  { title: "Build", pages: ["api", "extending", "automations", "migrations", "projects"] },
   { title: "Move over", pages: ["migrating-from-pocketbase"] },
   { title: "Compare", pages: ["slonbase-and-pocketbase", "slonbase-vs-postgrest", "benchmarks"] },
   { title: "Under the hood", pages: ["design", "security", "security-review"] },
@@ -43,6 +43,7 @@ const SHORT = {
   platforms: "Hosting platforms",
   api: "API",
   extending: "Hooks and extending",
+  automations: "Automations",
   migrations: "Migrations",
   projects: "Projects",
   "migrating-from-pocketbase": "From PocketBase",
@@ -60,13 +61,14 @@ const BLURB = {
   "slonbase-and-pocketbase": "What slonbase and PocketBase share, how they differ, and which to choose.",
   "slonbase-vs-postgrest": "A whole backend platform against a lean REST layer, with measured differences.",
   benchmarks: "Throughput, latency and footprint against PocketBase and PostgREST, with the method and caveats.",
-  installation: "Install slonbase on Linux with one command, or with Docker, .deb and .rpm packages or a plain binary, then do the first-run setup and upgrade.",
+  installation: "Install slonbase on Linux with one command, or with Docker, .deb and .rpm packages, a plain binary or the experimental macOS and Windows archives, then do the first-run setup and upgrade.",
   configuration: "Every slonbase server option, environment variable and application setting: database, storage, backups, mail, logs, rate limits and security.",
   deployment: "Run slonbase in production: TLS and reverse proxies, several instances behind a load balancer, PostgreSQL tuning, backups and monitoring.",
   scaling: "Run several slonbase instances and projects: five tested deployment layouts with diagrams, the PostgreSQL connection budget, PgBouncer, sessions and sign-out across instances, upgrades and limits.",
   platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy, step by step, with a PostgreSQL database for each.",
   api: "The slonbase REST and realtime API: collections, records, sign-in, filters and rules, files, batch requests and realtime subscriptions.",
   extending: "Extend slonbase with JavaScript hooks, routes and cron jobs, a query builder, and a Rust library API for embedding it in your own program.",
+  automations: "Automations of up to 20 steps that run on a schedule or when a record changes: find records, conditions, email templates, signed webhooks and your own hook functions.",
   migrations: "Manage schema changes as code with slonbase migrations in JavaScript, each in a transaction, applied on start with automigrate.",
   projects: "Run several isolated backends from one slonbase installation, each with its own users, collections, settings and PostgreSQL database.",
   "migrating-from-pocketbase": "Move a PocketBase app to slonbase and PostgreSQL: import the data with password hashes, keep your hooks and SDKs, and what differs.",
@@ -87,13 +89,14 @@ const SEO_TITLE = {
   "slonbase-vs-postgrest": "slonbase vs PostgREST: a backend platform or a REST layer",
   benchmarks: "slonbase benchmarks against PocketBase and PostgREST",
   "migrating-from-pocketbase": "Migrate from PocketBase to PostgreSQL with slonbase",
-  installation: "Install slonbase: Linux, Docker, packages and binaries",
+  installation: "Install slonbase: Linux, Docker, packages, binaries, macOS and Windows",
   configuration: "slonbase configuration: options, environment variables and settings",
   deployment: "Run slonbase in production: TLS, proxies, scaling and backups",
   scaling: "Scale slonbase: several instances, projects and PostgreSQL servers, PgBouncer and connections",
   platforms: "Deploy slonbase on Render, Railway, Fly.io, Coolify and Dokploy",
   api: "slonbase API reference: REST, filters, auth, files and realtime",
   extending: "Extend slonbase with JavaScript hooks, routes, cron jobs and Rust",
+  automations: "slonbase automations: scheduled and record-triggered workflows, email templates and signed webhooks",
   migrations: "slonbase migrations: schema changes as code",
   stability: "slonbase stability promise and versioning",
   design: "How slonbase works: design notes and roadmap",
@@ -113,6 +116,18 @@ const lastModified = (file) => {
 
 const version = /^version = "([^"]+)"/m.exec(fs.readFileSync(path.join(ROOT, "Cargo.toml"), "utf8"))[1];
 const order = SECTIONS.flatMap((s) => s.pages);
+{
+  // every guide in docs/ is listed above, with a short title and a description: a page missing
+  // here would silently not be published (its links would leave the site for GitHub)
+  const listed = new Set(order);
+  const missing = fs.readdirSync(path.join(ROOT, "docs")).filter((f) => f.endsWith(".md")).map((f) => f.slice(0, -3)).filter((slug) => !listed.has(slug));
+  const undescribed = order.filter((slug) => !SHORT[slug] || !BLURB[slug]);
+  if (missing.length || undescribed.length) {
+    if (missing.length) console.error(`docs/ pages not listed in SECTIONS: ${missing.join(", ")}`);
+    if (undescribed.length) console.error(`pages without a SHORT title or a BLURB: ${undescribed.join(", ")}`);
+    process.exit(1);
+  }
+}
 const sectionOf = Object.fromEntries(SECTIONS.flatMap((s) => s.pages.map((p) => [p, s.title])));
 const source = (slug) => (slug === "changelog" ? "CHANGELOG.md" : `docs/${slug}.md`);
 
@@ -469,7 +484,7 @@ if (path.basename(out) === "docs") {
 
 > ${SUMMARY}
 
-Key facts: license Apache-2.0; written in Rust; needs PostgreSQL 14 or newer; Linux x86_64 and aarch64 (static binaries, .deb and .rpm packages, a Docker image); install with \`curl -fsSL ${SITE}/install.sh | sudo sh\`; current version ${version}. Website: ${SITE}/ . Source: ${REPO} .
+Key facts: license Apache-2.0; written in Rust; needs PostgreSQL 14 or newer; Linux x86_64 and aarch64 (static binaries, .deb and .rpm packages, a Docker image), with experimental archives for macOS (Apple silicon) and Windows (x64); install with \`curl -fsSL ${SITE}/install.sh | sudo sh\`; current version ${version}. Website: ${SITE}/ . Source: ${REPO} .
 
 ${groups.map((g) => `## ${g.title}\n\n${g.pages.map(line).join("\n")}`).join("\n\n")}
 

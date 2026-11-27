@@ -37,8 +37,12 @@ file, and then the defaults.
 | `--hooks-dir` | `SLONBASE_HOOKS_DIR` | `hooks.dir` | `slonbase_hooks` |
 | `--hooks-pool` | `SLONBASE_HOOKS_POOL` | `hooks.pool_size` | `10` |
 | `--hooks-watch` | `SLONBASE_HOOKS_WATCH` | `hooks.watch` | `true` |
-| `--hooks-timeout` | `SLONBASE_HOOKS_TIMEOUT` | `hooks.timeout_seconds` | `0` (seconds a JavaScript handler may run; `0`: no limit) |
-| `--hooks-memory` | `SLONBASE_HOOKS_MEMORY` | `hooks.memory_limit_mb` | `0` (MB per JavaScript runtime; `0`: no limit) |
+| `--hooks-timeout` | `SLONBASE_HOOKS_TIMEOUT` | `hooks.timeout_seconds` | `0` (seconds a JavaScript handler may run; `0`: no limit). `setup` writes `60` into the config file of a new installation |
+| `--hooks-memory` | `SLONBASE_HOOKS_MEMORY` | `hooks.memory_limit_mb` | `0` (MB per JavaScript runtime; `0`: no limit). `setup` writes `128` into the config file of a new installation |
+| | | `hooks.db_wait_seconds` | `0` (the longest a database read from a hook may take; `0`: no limit) |
+| | | `hooks.guard_http` | `false` (`true` refuses hook calls to this server and to private networks, see [extending](extending.md)) |
+| | | `hooks.allow_hosts` | `[]` (with `guard_http`: internal hosts that hooks may still call) |
+| | | `hooks.files_dir` | none (the one directory hooks may read with `$os.readFile`, `$os.dirFS` and `e.fileFS`; off unless set) |
 | `--dev` | `SLONBASE_DEV` | `server.dev` | off ([development mode](extending.md#development-mode)) |
 | `--migrations-dir` | `SLONBASE_MIGRATIONS_DIR` | `migrations.dir` | `slonbase_migrations` |
 | `--automigrate` | `SLONBASE_AUTOMIGRATE` | `migrations.automigrate` | `false` |
@@ -47,6 +51,8 @@ file, and then the defaults.
 | `serve --setup-token` | `SLONBASE_SETUP_TOKEN` | | random |
 | `setup --email`, `--password` | `SLONBASE_SUPERUSER_EMAIL`, `SLONBASE_SUPERUSER_PASSWORD` | | required by `setup` (the password is better in the environment) |
 | `rekey --to` | `SLONBASE_NEW_ENCRYPTION_KEY` | | none (removes the encryption) |
+
+Settings with no flag or environment variable are set in the config file only.
 
 Relative paths are relative to the working directory. The Docker image sets
 `SLONBASE_CONFIG=/data/slonbase.toml` and keeps the paths under `/data`. The packages pass
@@ -101,11 +107,15 @@ max_connections = 4
 The setup wizard writes `database.url` into this file with `0600` permissions, since it contains
 the password. When the URL comes from a flag or the environment, the wizard doesn't change it.
 
+### Database URLs
+
 **Database URLs** use the libpq format, e.g.
 `postgres://user:pass@host:5432/db?sslmode=require`. Percent-encode special characters in the
 password. `sslmode` can be `disable`, `prefer` (the default) or `require`. TLS checks the server's
 certificate against the Mozilla root certificates; for providers with their own CA (such as
 Amazon RDS), pass it with `--database-ca-file`.
+
+### Connections
 
 **Connections:** each instance opens up to `max_connections` to PostgreSQL, plus two for
 `LISTEN` (realtime and projects), and each [project](projects.md) adds up to `projects.max_connections`
@@ -116,15 +126,21 @@ or use a pooler. Health warns from 80% of the limit. Of `max_connections`,
 while they run, and requests have the others, so neither waits for the other in the usual case;
 0 reserves none. See [the connection budget](scaling.md#the-connection-budget).
 
+### Behind a pooler
+
 **Behind a pooler:** a transaction-mode pooler (PgBouncer `pool_mode = transaction`, version 1.21
 or newer, with `max_prepared_statements` set) can carry the queries but not `LISTEN`. Set
 `database.listen_url` to a direct (or session-mode) URL for the same database, and the listeners
 use it while everything else goes through `database.url`. Without it the instances stop hearing
 each other, and Health shows a **sync** error saying so. See the [scaling guide](scaling.md#d-several-instances-behind-pgbouncer).
 
+### Server logging
+
 **Logging** goes to stderr and is controlled by `RUST_LOG` (default `info`; `warn`, `debug`, and
 per-module filters such as `info,slonbase=debug` also work). Requests are logged to the
 database too; see [logs](#logs).
+
+### SQL console
 
 **SQL console** (`--sql-console`): the dashboard's SQL page, for superusers. See
 [security](deployment.md#security-checklist) before you turn it on.
@@ -208,7 +224,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `smtp` | Outgoing mail: `enabled`, `host`, `port`, `username`, `password`, `authMethod`, `tls`, `localName`. While it's disabled, emails are written to the log. |
 | `s3` | File storage in an S3 bucket instead of `--storage-path` |
 | `backups` | `cron` (automatic backups), `cronMaxKeep`, and `s3` (keep backups in a bucket) |
-| `logs` | `maxDays` (0 turns request logs off), `minLevel`, `logIP`, `logAuthId`, and slonbase's `excludePaths`, `slowRequestMs`, `maxRows` |
+| `logs` | `maxDays` (0 turns request logs off), `minLevel`, `logIP`, `logAuthId`, `maxDataSize`, and slonbase's `excludePaths`, `slowRequestMs`, `maxRows` |
 | `batch` | `enabled`, `maxRequests`, `timeout`, `maxBodySize` for `/api/batch` |
 | `rateLimits` | `enabled`, `rules` |
 | `trustedProxy` | `headers` carrying the client IP, `useLeftmostIP` |
@@ -217,7 +233,7 @@ These are the sections of `GET/PATCH /api/settings`, and of the dashboard's Sett
 | `files` | slonbase's: `defaultMaxSize` (bytes, for file fields without a size of their own; 0 is 5 MB), `thumbs` (off: the original file is served instead of a thumbnail) |
 | `login` | slonbase's: the sign-in page's `layout` (`split`, `centered`, `minimal`), `background` (`none`, `grid`, `asset`) and `backgroundAsset`, `title`, `subtitle`, `logo`, `notice`, `footerLinks` (up to 3, `https:` or `mailto:`), `showPoweredBy` |
 | `mailLayout` | slonbase's: `enabled`, `html` (a document with `{CONTENT}` where each email's body goes) |
-| `schedule` | slonbase's: `timezone`: `UTC` (default, as in PocketBase) or an IANA name (`Pacific/Auckland`) that cron expressions are read in, for the automatic backups and the cron jobs of hooks; `pauseJobs` (default `false`): `true` stops the cron jobs made in the dashboard from running on their schedule ("Run now" still works; hook jobs and the backup are not affected) |
+| `schedule` | slonbase's: `timezone`: `UTC` (default, as in PocketBase) or an IANA name (`Pacific/Auckland`) that cron expressions are read in, for the automatic backups, the cron jobs of hooks and scheduled [automations](automations.md); `pauseJobs` (default `false`): `true` stops the cron jobs made in the dashboard from running on their schedule ("Run now" still works; hook jobs and the backup are not affected) |
 
 Roles and API keys are kept with the settings but only `/api/team` shows and changes them.
 

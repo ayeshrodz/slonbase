@@ -159,7 +159,7 @@ sudo dnf install slonbase            # accept the signing key when asked
 ```
 
 The repositories carry the newest three versions of every [supported release line](https://github.com/ayeshrodz/slonbase/blob/main/SECURITY.md#supported-versions)
-(today 2.5.x and 2.4.x). To install an older one, or a package file
+(today 2.7.x, 2.6.x, 2.5.x and 2.4.x). To install an older one, or a package file
 instead of the repository, download the `.deb` or `.rpm` for your architecture from the
 [releases page](https://github.com/ayeshrodz/slonbase/releases), check it against `SHA256SUMS`
 (`sha256sum --ignore-missing -c SHA256SUMS`, or see [Verify a download](#verify-a-download)) and install it with `sudo apt install ./slonbase_<version>_amd64.deb`
@@ -262,9 +262,8 @@ By default it listens on `127.0.0.1:8090` and keeps its config (`slonbase.toml`)
 
 **Experimental.** The archive is built for Apple silicon (M1 and later) and is **not signed or
 notarized** (that needs a paid Apple developer account), so you check it yourself, as below. On an
-Intel Mac, use [Docker](#docker) or [build from source](#from-source). Releases carry the archive
-from 2.7.0: a release candidate lists it on its
-[release page](https://github.com/ayeshrodz/slonbase/releases) when it has one.
+Intel Mac, use [Docker](#docker) or [build from source](#from-source). Releases from 2.7.0 carry
+the archive when its build succeeds: check the release's assets before you download.
 
 You need a PostgreSQL 14 or newer first. With [Homebrew](https://brew.sh/):
 
@@ -296,16 +295,50 @@ user name. The config (`slonbase.toml`) and the data are kept in the current dir
   with the [GitHub CLI](https://cli.github.com/), `gh attestation verify slonbase-$V-macos-arm64.tar.gz
   --repo ayeshrodz/slonbase` also shows that GitHub Actions built it from this repository (see
   [verify a download](#verify-a-download)).
-- **Running it all the time.** No launchd file is provided yet: run `./slonbase serve` in a
-  terminal, or write a launchd agent that does.
+
+### Running it in the background on macOS
+
+Finish the setup wizard first, so that `slonbase.toml` exists, and stop the `slonbase serve`
+you started for it (Ctrl+C), so the address is free. Then a launchd agent starts
+slonbase when you log in and restarts it if it stops. Save this as
+`~/Library/LaunchAgents/slonbase.plist`, with `/Users/you/slonbase` replaced by the folder that
+holds `slonbase` and `slonbase.toml`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>slonbase</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/you/slonbase/slonbase</string>
+    <string>serve</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/you/slonbase</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>/Users/you/slonbase/slonbase.log</string>
+  <key>StandardErrorPath</key><string>/Users/you/slonbase/slonbase.log</string>
+</dict>
+</plist>
+```
+
+```sh
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/slonbase.plist   # start it now and at login
+launchctl kickstart -k gui/$(id -u)/slonbase                              # restart it (after an upgrade)
+launchctl bootout gui/$(id -u)/slonbase                                   # stop it
+```
+
+If PostgreSQL isn't up yet when you log in, slonbase exits and launchd starts it again a few
+seconds later.
 
 ## Windows
 
 **Experimental.** The archive is built for x64 Windows (10, 11 and Server 2019 or newer; Windows
 on Arm runs it through its emulation) and is **not signed**, so Windows may ask before it runs it,
-and you check the download yourself, as below. Releases carry the archive from 2.7.0: a release
-candidate lists it on its [release page](https://github.com/ayeshrodz/slonbase/releases) when it
-has one.
+and you check the download yourself, as below. Releases from 2.7.0 carry the archive when
+its build succeeds: check the release's assets before you download.
 
 You need a PostgreSQL 14 or newer first, for example from
 [postgresql.org](https://www.postgresql.org/download/windows/) or
@@ -345,8 +378,31 @@ In the setup wizard use the database URL
 - **What differs from Linux.** The dashboard's storage page doesn't show the free disk space.
   slonbase can't set the `0600` mode on the config file (it holds the database password), so keep
   it in a folder only you can read, such as your user profile. PostgreSQL is reached over TCP (no
-  Unix sockets). No Windows service is provided yet: run it in a terminal, or with a tool that
-  runs programs as a service.
+  Unix sockets).
+
+### Running it as a Windows service
+
+`slonbase.exe` is a console program, so it runs as a service through a service wrapper such as
+[NSSM](https://nssm.cc/) (`winget install NSSM.NSSM`). Finish the setup wizard first, so that
+`slonbase.toml` exists, and stop the `slonbase.exe serve` you started for it (Ctrl+C), so the
+address is free. Then, in an administrator PowerShell, with `C:\slonbase` the folder that
+holds `slonbase.exe` and `slonbase.toml`:
+
+```powershell
+nssm install slonbase C:\slonbase\slonbase.exe serve
+nssm set slonbase AppDirectory C:\slonbase
+nssm set slonbase AppStdout C:\slonbase\slonbase.log
+nssm set slonbase AppStderr C:\slonbase\slonbase.log
+nssm set slonbase AppStopMethodConsole 10000          # wait up to 10 s after Ctrl+C
+nssm set slonbase DependOnService postgresql-x64-16   # the name of your PostgreSQL service
+nssm start slonbase
+```
+
+NSSM stops it with Ctrl+C. slonbase then stops accepting connections and gives open requests
+up to five seconds to finish; the 10 seconds above let it do that before NSSM ends the process. The
+service runs as LocalSystem unless you choose an account (`nssm set slonbase ObjectName`); that
+account needs to read and write the folder. `sc.exe create` alone does not work, because it
+expects a program written as a service.
 
 ## From source
 
@@ -459,14 +515,14 @@ The apt and dnf repositories are signed with the key published at
 | `address already in use` | Another program uses port 8090: change `SLONBASE_BIND` in `/etc/default/slonbase`. |
 | The setup link is lost | `sudo journalctl -u slonbase \| grep "setup?token"`, or restart the service for a new token, or use the headless setup. |
 | Setup mode is back after an upgrade | The config file wasn't found: the packages use `/etc/slonbase/config.toml`; a plain binary uses `slonbase.toml` in its working directory. |
-| The password is forgotten | See *Lost superuser access* below. |
+| The password is forgotten | See *Lost superuser access* above. |
 | Nothing answers from another machine | The service listens on `127.0.0.1` only (by design): use a tunnel or a reverse proxy. |
 
 ## Upgrading
 
 Back up first (a slonbase backup, a database dump, or both; see
 [deployment](deployment.md#backups)). If several instances share one database, stop all of them
-before the steps below and start them together afterwards: a migration runs at the first start,
+before the steps below and start them afterwards: a migration runs at the first start,
 and rolling upgrades aren't supported (the notes for 2.7.1 and 2.7 below say why). Then:
 
 - **Compose:** `docker compose pull && docker compose up -d` (or set `SLONBASE_VERSION`).
@@ -516,7 +572,7 @@ events, which 1.7 no longer sends (see [several instances](deployment.md#several
 
 ### Trying a release candidate
 
-Before some releases, a release candidate (`2.7.0-rc.1`) is published on the
+Before some releases, a release candidate (such as `2.8.0-rc.1`) is published on the
 [releases page](https://github.com/ayeshrodz/slonbase/releases) as a pre-release. It is never in
 the apt and dnf repositories and never the image's `latest`, so nothing upgrades to it on its own:
 installing it is a choice. Try it on a copy of a real installation (restore a backup into a
@@ -524,17 +580,17 @@ spare server, say) rather than on the one people depend on, and back up first as
 
 - **Packages:** download the `.deb` or `.rpm` for your architecture from the candidate's
   release page, check it against its `SHA256SUMS`, and install it over the installed version
-  with `sudo apt install ./slonbase_2.7.0-rc.1_amd64.deb` or
-  `sudo dnf install ./slonbase-2.7.0-rc.1-1.x86_64.rpm`. The service restarts with it, and the
+  with `sudo apt install ./slonbase_2.8.0-rc.1_amd64.deb` or
+  `sudo dnf install ./slonbase-2.8.0-rc.1-1.x86_64.rpm`. The service restarts with it, and the
   configuration is kept.
-- **Docker:** use the candidate's tag (`ghcr.io/ayeshrodz/slonbase:2.7.0-rc.1`, or
-  `SLONBASE_VERSION=2.7.0-rc.1` with Compose).
-- **Binary:** replace the file with the one from the candidate's archive and restart. A candidate
-  after 2.7.0-rc.4 also has [macOS](#macos) and [Windows](#windows) archives.
+- **Docker:** use the candidate's tag (`ghcr.io/ayeshrodz/slonbase:2.8.0-rc.1`, or
+  `SLONBASE_VERSION=2.8.0-rc.1` with Compose).
+- **Binary:** replace the file with the one from the candidate's archive and restart; candidates can have
+  [macOS](#macos) and [Windows](#windows) archives too (see the candidate's assets).
 
 Afterwards, `sudo apt upgrade` or `sudo dnf upgrade` moves an installation from the repositories
-on to the release when it comes out (the package's version, `2.7.1~rc.1`, sorts before
-`2.7.1`), and to a later candidate only if you install it the same way. Going back to the
+on to the release when it comes out (the package's version, `2.8.0~rc.1`, sorts before
+`2.8.0`), and to a later candidate only if you install it the same way. Going back to the
 previous release is the same as after any upgrade: restore the backup.
 
 ## Uninstalling

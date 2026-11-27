@@ -56,14 +56,15 @@ allows any origin by default (as PocketBase), and can be narrowed.
 
 **Superuser tools.** The SQL console is off by default; when on, it only reads unless writes are
 allowed too, and it can run as a separate, restricted PostgreSQL role
-(`--sql-console-role`). Hooks run with the server's privileges, by design. A dashboard cron job
-of type *Run SQL* is the console on a schedule: owners only, only with the console on, writes only
+(`--sql-console-role`). Hooks run with the server's privileges, by design. An automation's
+*Run SQL* step (or a cron job of that type) is the console on a schedule: owners only, only with the console on, writes only
 when the console allows them, as the console's role and with its limits.
 
-**Outbound calls.** The OAuth2 avatar download and the dashboard's *Call a URL* cron jobs only
-reach public addresses: every address a name resolves to must be public (no loopback, private,
+**Outbound calls.** The OAuth2 avatar download and the *Call a URL* and *Send a signed
+webhook* steps of automations (and cron jobs of those types) only reach public addresses: every address a name resolves to must be public (no loopback, private,
 link-local or metadata address), the connection goes to the addresses just checked, and each
-redirect is checked the same way (the same goes for a cron job's failure webhook). Only admins and owners can make such a job; header values are
+redirect is checked the same way (the same goes for the webhook that reports a failing automation). Only admins and owners can
+make such a step; header values are
 stored with the other private settings and shown hidden.
 
 ## Configuration warnings

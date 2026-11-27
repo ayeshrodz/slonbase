@@ -177,8 +177,11 @@ give it, and can send you a test.
   for seven days (the key is the caller's own; used again with other addresses or data, it is
   refused with `422`). One caller can queue 100 emails a minute.
 
-What sends email (either kind of step) can run at most every five minutes, and to at most ten
-addresses per step run.
+A schedule that sends email (either kind of step) is refused when its next 24 runs, worked out
+as it is saved, include two less than five minutes apart. This is a check of the schedule, not a
+sending limit: an unusual expression can still bring two runs closer later on, and it doesn't
+apply to runs started by hand or by a record change, nor to how many emails a step sends once
+for each item. Each step run sends to at most ten addresses.
 
 ## When a step fails
 
@@ -212,6 +215,57 @@ webhook.
 
 The history shows what each step came to in numbers (how many records, which status, how many
 emails), never what was read or answered.
+
+## Through the API
+
+`/api/automations` and `/api/crons` serve the same jobs, with the same roles and fields
+([API](api.md)). `GET` lists every job with its schedule in words, its next run and its last
+run; `POST /api/automations/{id}` (or `/api/crons/{id}`) runs one now. A job's settings
+(`config`, `notify`) are returned to admins and owners only, and an SQL step's statement to
+owners only.
+
+A job is `{name, expression, type, enabled, config, retries?, retryDelaySeconds?, notify?, copyOf?}`:
+
+- **`name`** is one line of plain text. Ids of the jobs made this way start with `user:`.
+- **`expression`** is the cron schedule. Instead of it, **`trigger`**
+  `{type: "record", collection, actions: ["create", "update", "delete"], condition?}` starts the
+  job when a record changes; its steps see `trigger.action`, `trigger.record` and
+  `trigger.changed`.
+- **`type`** is `steps` for an automation, whose `config` is
+  `{steps: [{name, type, config, forEach?}]}` (1 to 20 steps). A job of one of the older single
+  types (`cleanup`, `http`, `mail`, `sql`) has that step's `config` as its own.
+- **`retries`** (0 to 5) tries again after a failed run, waiting `retryDelaySeconds` first (1 to
+  300), then twice as long each time.
+- **`notify`** is `{emails, webhook}`: told once when a scheduled run starts failing and once when
+  it works again. The webhook is a JSON `POST` to a public URL, shown as `••••••••`. An https one
+  is signed (an http one is sent unsigned): its secret is returned once, in the answer's
+  `secrets.notify`, and `notify.rotateSecret: true` replaces it. An https webhook saved before
+  2.7 has no secret and is sent unsigned until the job is saved again, which gives it one.
+- **`copyOf`**, on `POST`, is the id of a job to copy the saved secrets from; header values only
+  follow when the URL is unchanged.
+
+The `config` of each step type:
+
+| `type` | `config` |
+|---|---|
+| `query` | `collection`, `filter`, `params`, `sort`, `limit` |
+| `condition` | `expression` |
+| `email` | `template`, `to`, `data` |
+| `write` | `action` (`create`, `update` or `delete`), `collection`, `id`, `data` |
+| `http` | `url`, `method`, `headers`, `body`, `timeoutSeconds`, `expectStatus`. Public addresses only; a credential header (`Authorization`, `Cookie`, `X-Api-Key`, ...) only with an `https://` URL. Header values come back as `••••••••`, and the mask keeps the saved value |
+| `webhook` | `url` (https only), `payload`, `timeoutSeconds`. Its `secret` is made by the server and returned once, in the answer's `secrets.steps.<name>`, then shown as `••••••••`; `rotate: true` makes a new one, and the old one keeps signing for 24 hours |
+| `script` | `function` (registered by a hook file with `automationStep`), `input` |
+| `mail` | `to`, `subject`, `body`; needs SMTP on |
+| `cleanup` | `collection`, `filter`, `olderThanDays`, `field`, `maxRows` |
+| `sql` | `statement`; owners only, only with the SQL console on, run under the console's policy |
+
+Texts in a step's `config` may use what earlier steps gave (`{{ steps.<name>.count }}`, and
+`{{ item }}` in a step with `forEach`); a filter and an SQL statement may not. A job with an `sql`
+step is an owner's, like a job of type `sql`.
+
+`POST /api/cron-preview` checks a job without saving it: its schedule in words, the next runs
+and, for a cleanup, how many records match now. `GET /api/jobs/runs?kind=cron&job=<id>` is its
+history; a run's `meta` is `{steps: [{name, type, ...counts}], stoppedAt?}`.
 
 ## Cron jobs made before 2.7
 
