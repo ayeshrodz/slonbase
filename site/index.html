@@ -362,11 +362,18 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .code { background: var(--code-bg); color: var(--code-ink); border-radius: 12px; border: 1px solid var(--code-line); box-shadow: var(--shadow-2); overflow: hidden; }
 .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 8px 0; background: var(--code-bar); border-bottom: 1px solid var(--code-line); overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tabs .tl { display: contents; }
+.tabs .tl { display: flex; align-items: center; gap: 2px; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tabs .tl::-webkit-scrollbar { display: none; }
 .tabs button[role="tab"] { flex: none; border: 0; background: transparent; color: var(--code-dim); font: 500 12.5px var(--mono); padding: 9px 13px; border-radius: var(--r-ctl-sm) var(--r-ctl-sm) 0 0; cursor: pointer; white-space: nowrap; }
 .tabs button[role="tab"][aria-selected="true"] { color: var(--code-ink); background: var(--code-bg); box-shadow: inset 0 2px 0 var(--accent); }
 .tabs .copy { flex: none; position: sticky; right: 0; margin: 0 0 6px auto; border: 1px solid var(--code-line); background: var(--code-bar); color: var(--code-dim); font: 600 11px var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 5px 10px; border-radius: var(--r-sm); cursor: pointer; box-shadow: -12px 0 12px var(--code-bar); z-index: 1; }
 .tabs .copy:hover { color: var(--code-ink); border-color: var(--accent); }
+/* controls with a shadow of their own keep it, with the focus ring added */
+.tabs .copy:focus-visible { box-shadow: -12px 0 12px var(--code-bar), 0 0 0 3px var(--accent-ring); }
+.tabs button[role="tab"]:focus-visible { box-shadow: inset 0 0 0 2px var(--accent-ring); }
+.tabs button[role="tab"][aria-selected="true"]:focus-visible { box-shadow: inset 0 2px 0 var(--accent), inset 0 0 0 2px var(--accent-ring); }
+.shot-tabs button:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
+.shot-tabs button[aria-selected="true"]:focus-visible { box-shadow: 0 0 0 1px var(--line-2), 0 0 0 4px var(--accent-ring); }
 .code pre { margin: 0; padding: 20px 22px; font-size: 13.5px; line-height: 1.7; overflow-x: auto; }
 .code [role="tabpanel"][hidden] { display: none; }
 .k { color: var(--syn-keyword); } .s { color: var(--syn-string); } .f { color: var(--syn-function); } .n { color: var(--syn-number); } .cm { color: var(--syn-comment); font-style: italic; }
@@ -916,7 +923,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     </div>
     <div class="install reveal">
       <div class="code">
-        <div class="tabs fade-x"><div role="tablist" aria-label="Installation" class="tl">
+        <div class="tabs"><div role="tablist" aria-label="Installation" class="tl fade-x">
           <button role="tab" aria-selected="true" aria-controls="in-linux" id="t-linux">Linux</button>
           <button role="tab" aria-selected="false" aria-controls="in-docker" id="t-docker">Docker</button>
           <button role="tab" aria-selected="false" aria-controls="in-apt" id="t-apt">Debian / Ubuntu</button>

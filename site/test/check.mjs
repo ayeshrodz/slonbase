@@ -67,7 +67,13 @@ for (const size of SIZES) {
     for (const pg of PAGES) {
       const page = await context.newPage();
       const errors = [];
-      page.on("console", (m) => { if (m.type() === "error" && !/api\.github\.com|ERR_FAILED/.test(m.text())) errors.push(m.text()); });
+      // (the blocked requests to GitHub's API are expected; any other failure is reported)
+      page.on("console", (m) => {
+        if (m.type() !== "error") return;
+        if (/^https:\/\/api\.github\.com\//.test(m.location().url || "")) return;
+        errors.push(m.text());
+      });
+      page.on("requestfailed", (r) => { if (!/^https:\/\/api\.github\.com\//.test(r.url())) errors.push(`request failed: ${r.url()} ${r.failure()?.errorText || ""}`); });
       page.on("pageerror", (e) => errors.push(String(e)));
       await page.goto(base + pg.path, { waitUntil: "networkidle" });
       const where = `${pg.name} ${name} ${theme}`;
@@ -102,12 +108,17 @@ for (const size of SIZES) {
       // fingers need 44 by 44 (WCAG 2.5.5); links inside running text are exempt
       if (options.hasTouch) {
         const small = await page.evaluate(() => {
+          // a link inside a sentence: its paragraph, list item or cell holds other text besides it
+          const inRunningText = (a) => {
+            const block = a.closest("p, li, td, dd, figcaption");
+            return !!block && block.textContent.replace(/\s+/g, " ").trim().length > a.textContent.replace(/\s+/g, " ").trim().length + 2;
+          };
           const out = [];
           for (const el of document.querySelectorAll('a[href], button, [role="tab"], summary, input, select, textarea')) {
             const r = el.getBoundingClientRect();
             const style = getComputedStyle(el);
             if (!r.width || !r.height || style.visibility === "hidden" || el.closest("[hidden], .sr, .skip")) continue;
-            if (el.tagName === "A" && el.closest("p, li, td, figcaption, .under, .sub, .fineprint, .content")) continue;
+            if (el.tagName === "A" && inRunningText(el)) continue;
             if (r.width < 44 - 0.5 || r.height < 44 - 0.5) out.push(`${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") || el.textContent).trim().slice(0, 30)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
           }
           return out;

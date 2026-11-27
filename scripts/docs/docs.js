@@ -48,26 +48,30 @@
   var menu = document.querySelector(".menu-btn");
   menu.setAttribute("aria-expanded", "false");
   menu.setAttribute("aria-controls", "sidebar");
-  function setMenu(open) {
+  // (focus goes back to Menu when the menu is dismissed: Esc, the scrim; a click on another
+  // control, such as Search, leaves the focus where that control put it)
+  function setMenu(open, restoreFocus) {
     var was = document.body.classList.contains("nav-open");
     document.body.classList.toggle("nav-open", open);
     menu.setAttribute("aria-expanded", open ? "true" : "false");
     if (open && !was) {
       var current = document.querySelector(".sidebar a.on") || document.querySelector(".sidebar a");
       if (current) current.focus();
-    } else if (!open && was) {
+    } else if (!open && was && restoreFocus) {
       menu.focus();
     }
   }
   menu.addEventListener("click", function (e) {
     e.stopPropagation();
-    setMenu(!document.body.classList.contains("nav-open"));
+    setMenu(!document.body.classList.contains("nav-open"), true);
   });
   document.addEventListener("click", function (e) {
-    if (document.body.classList.contains("nav-open") && !e.target.closest(".sidebar")) setMenu(false);
+    if (document.body.classList.contains("nav-open") && !e.target.closest(".sidebar")) {
+      setMenu(false, !e.target.closest("a, button, input"));
+    }
   });
   document.addEventListener("keydown", function (e) {
-    if (e.key === "Escape" && document.body.classList.contains("nav-open")) setMenu(false);
+    if (e.key === "Escape" && document.body.classList.contains("nav-open")) setMenu(false, true);
   });
 
   // the outline marks the section being read

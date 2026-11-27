@@ -435,6 +435,9 @@ kbd {
   background: var(--surface);
   box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgba(20, 20, 30, 0.05);
 }
+.sidebar a.on:focus-visible {
+  box-shadow: 0 0 0 3px var(--accent-ring), 0 0 0 1px var(--line);
+}
 .sidebar a.on::before {
   content: "";
   position: absolute;
@@ -1174,6 +1177,13 @@ kbd {
   }
   .outline a {
     padding-block: 8px;
+  }
+  /* a link that is a whole list item, and the page's edit link */
+  .content li > a:only-child,
+  .doc-foot a {
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
   }
   .code-bar {
     height: 52px;
