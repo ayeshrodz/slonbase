@@ -8,14 +8,25 @@
   // code and tables that scroll sideways can be reached from the keyboard
   document.querySelectorAll(".code pre, .table").forEach(function (el) { el.setAttribute("tabindex", "0"); });
 
-  // theme (shared with the project page)
-  document.getElementById("theme").addEventListener("click", function () {
+  // theme (shared with the project page); the browser's bar follows it
+  var themeBtn = document.getElementById("theme");
+  function themeChanged() {
+    var dark = root.dataset.theme === "dark";
+    themeBtn.setAttribute("aria-pressed", dark ? "true" : "false");
+    document.querySelectorAll('meta[name="theme-color"]').forEach(function (m) {
+      m.setAttribute("content", getComputedStyle(root).getPropertyValue("--canvas").trim());
+      m.removeAttribute("media");
+    });
+  }
+  themeBtn.addEventListener("click", function () {
     var next = root.dataset.theme === "dark" ? "light" : "dark";
     root.dataset.theme = next;
     try {
       localStorage.setItem("theme", next);
     } catch (e) {}
+    themeChanged();
   });
+  themeChanged();
 
   // copy buttons on code blocks
   document.querySelectorAll(".code .copy").forEach(function (button) {
@@ -33,13 +44,34 @@
   });
 
   // the menu on small screens
+  // (a scrim behind it; a click outside or Esc closes it and gives the focus back to the button)
   var menu = document.querySelector(".menu-btn");
+  menu.setAttribute("aria-expanded", "false");
+  menu.setAttribute("aria-controls", "sidebar");
+  // (focus goes back to Menu when the menu is dismissed: Esc, the scrim; a click on another
+  // control, such as Search, leaves the focus where that control put it)
+  function setMenu(open, restoreFocus) {
+    var was = document.body.classList.contains("nav-open");
+    document.body.classList.toggle("nav-open", open);
+    menu.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open && !was) {
+      var current = document.querySelector(".sidebar a.on") || document.querySelector(".sidebar a");
+      if (current) current.focus();
+    } else if (!open && was && restoreFocus) {
+      menu.focus();
+    }
+  }
   menu.addEventListener("click", function (e) {
     e.stopPropagation();
-    document.body.classList.toggle("nav-open");
+    setMenu(!document.body.classList.contains("nav-open"), true);
   });
   document.addEventListener("click", function (e) {
-    if (!e.target.closest(".sidebar")) document.body.classList.remove("nav-open");
+    if (document.body.classList.contains("nav-open") && !e.target.closest(".sidebar")) {
+      setMenu(false, !e.target.closest("a, button, input"));
+    }
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && document.body.classList.contains("nav-open")) setMenu(false, true);
   });
 
   // the outline marks the section being read

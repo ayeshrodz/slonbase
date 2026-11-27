@@ -113,6 +113,7 @@ jobs:
       - name: Add the project's page
         run: |
           cp -r site/. site-out/
+          rm -rf site-out/test   # the page's checks, not part of the site
           mkdir -p site-out/assets
           cp -r docs/assets/. site-out/assets/
           mkdir -p site-out/assets/fonts
