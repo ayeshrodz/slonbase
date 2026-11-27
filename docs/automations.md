@@ -177,9 +177,11 @@ give it, and can send you a test.
   for seven days (the key is the caller's own; used again with other addresses or data, it is
   refused with `422`). One caller can queue 100 emails a minute.
 
-A schedule that sends email (either kind of step) may not run more often than every five
-minutes; this checks the schedule only, not runs started by hand or by a record change, nor how
-many emails a step sends once for each item. Each step run sends to at most ten addresses.
+A schedule that sends email (either kind of step) is refused when its next 24 runs, worked out
+as it is saved, include two less than five minutes apart. This is a check of the schedule, not a
+sending limit: an unusual expression can still bring two runs closer later on, and it doesn't
+apply to runs started by hand or by a record change, nor to how many emails a step sends once
+for each item. Each step run sends to at most ten addresses.
 
 ## When a step fails
 
