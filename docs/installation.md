@@ -262,8 +262,8 @@ By default it listens on `127.0.0.1:8090` and keeps its config (`slonbase.toml`)
 
 **Experimental.** The archive is built for Apple silicon (M1 and later) and is **not signed or
 notarized** (that needs a paid Apple developer account), so you check it yourself, as below. On an
-Intel Mac, use [Docker](#docker) or [build from source](#from-source). Every release from 2.7.0
-carries the archive.
+Intel Mac, use [Docker](#docker) or [build from source](#from-source). Releases from 2.7.0 carry
+the archive when its build succeeds: check the release's assets before you download.
 
 You need a PostgreSQL 14 or newer first. With [Homebrew](https://brew.sh/):
 
@@ -298,7 +298,8 @@ user name. The config (`slonbase.toml`) and the data are kept in the current dir
 
 ### Running it in the background on macOS
 
-Finish the setup wizard first, so that `slonbase.toml` exists. Then a launchd agent starts
+Finish the setup wizard first, so that `slonbase.toml` exists, and stop the `slonbase serve`
+you started for it (Ctrl+C), so the address is free. Then a launchd agent starts
 slonbase when you log in and restarts it if it stops. Save this as
 `~/Library/LaunchAgents/slonbase.plist`, with `/Users/you/slonbase` replaced by the folder that
 holds `slonbase` and `slonbase.toml`:
@@ -336,7 +337,8 @@ seconds later.
 
 **Experimental.** The archive is built for x64 Windows (10, 11 and Server 2019 or newer; Windows
 on Arm runs it through its emulation) and is **not signed**, so Windows may ask before it runs it,
-and you check the download yourself, as below. Every release from 2.7.0 carries the archive.
+and you check the download yourself, as below. Releases from 2.7.0 carry the archive when
+its build succeeds: check the release's assets before you download.
 
 You need a PostgreSQL 14 or newer first, for example from
 [postgresql.org](https://www.postgresql.org/download/windows/) or
@@ -382,7 +384,8 @@ In the setup wizard use the database URL
 
 `slonbase.exe` is a console program, so it runs as a service through a service wrapper such as
 [NSSM](https://nssm.cc/) (`winget install NSSM.NSSM`). Finish the setup wizard first, so that
-`slonbase.toml` exists, then, in an administrator PowerShell, with `C:\slonbase` the folder that
+`slonbase.toml` exists, and stop the `slonbase.exe serve` you started for it (Ctrl+C), so the
+address is free. Then, in an administrator PowerShell, with `C:\slonbase` the folder that
 holds `slonbase.exe` and `slonbase.toml`:
 
 ```powershell
@@ -390,11 +393,13 @@ nssm install slonbase C:\slonbase\slonbase.exe serve
 nssm set slonbase AppDirectory C:\slonbase
 nssm set slonbase AppStdout C:\slonbase\slonbase.log
 nssm set slonbase AppStderr C:\slonbase\slonbase.log
+nssm set slonbase AppStopMethodConsole 10000          # wait up to 10 s after Ctrl+C
 nssm set slonbase DependOnService postgresql-x64-16   # the name of your PostgreSQL service
 nssm start slonbase
 ```
 
-NSSM stops it with Ctrl+C, so slonbase finishes the requests in flight before it exits. The
+NSSM stops it with Ctrl+C. slonbase then stops accepting connections and gives open requests
+up to five seconds to finish; the 10 seconds above let it do that before NSSM ends the process. The
 service runs as LocalSystem unless you choose an account (`nssm set slonbase ObjectName`); that
 account needs to read and write the folder. `sc.exe create` alone does not work, because it
 expects a program written as a service.
@@ -580,8 +585,8 @@ spare server, say) rather than on the one people depend on, and back up first as
   configuration is kept.
 - **Docker:** use the candidate's tag (`ghcr.io/ayeshrodz/slonbase:2.8.0-rc.1`, or
   `SLONBASE_VERSION=2.8.0-rc.1` with Compose).
-- **Binary:** replace the file with the one from the candidate's archive and restart; candidates have
-  [macOS](#macos) and [Windows](#windows) archives too.
+- **Binary:** replace the file with the one from the candidate's archive and restart; candidates can have
+  [macOS](#macos) and [Windows](#windows) archives too (see the candidate's assets).
 
 Afterwards, `sudo apt upgrade` or `sudo dnf upgrade` moves an installation from the repositories
 on to the release when it comes out (the package's version, `2.8.0~rc.1`, sorts before
