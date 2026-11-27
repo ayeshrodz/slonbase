@@ -482,6 +482,11 @@ for upgrades in place from the first release (0.1.0) and from the previous one: 
 old release with data, starts the new build on it, and checks the data, files, settings, old
 passwords and tokens, rules, realtime and backups (`compat/upgrade/run.sh`).
 
+**To 2.7.1:** if several instances share one database, stop all of them before you start the new
+version: 2.7.1 adds one migration (it stores what each instance reports on Health), and rolling
+upgrades aren't supported (see [several instances](deployment.md#several-instances)). A single
+instance needs nothing more than the steps above.
+
 **To 2.7:** stop every instance before starting the new version (2.7 stores settings and job
 schedules in a form 2.6 doesn't read, so the two must not run side by side). Nothing else needs
 doing: what worked on 2.6 works the same way on 2.7.
