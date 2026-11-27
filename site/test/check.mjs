@@ -55,8 +55,40 @@ const server = http.createServer((req, res) => {
 await new Promise((ok) => server.listen(0, "127.0.0.1", ok));
 const base = `http://127.0.0.1:${server.address().port}`;
 
+// A link inside a sentence is exempt from the tap-target size: its paragraph, list item or cell
+// holds words besides the text of its links. A row of links alone ("One Two", "A · B") is not a
+// sentence, so each of those links is measured. (Runs in the page: no outside references.)
+function inRunningText(a) {
+  const block = a.closest("p, li, td, dd, figcaption");
+  if (!block) return false;
+  const copy = block.cloneNode(true);
+  copy.querySelectorAll("a, button").forEach((link) => link.remove());
+  return /[\p{L}\p{N}]{2}/u.test(copy.textContent);
+}
+
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const failures = [];
+
+// the exemption itself: links in a sentence are exempt, links standing alone or side by side are not
+{
+  const page = await browser.newPage();
+  await page.setContent(`
+    <p id="s"><a href="/a">a link</a> inside a sentence.</p>
+    <ul><li id="one"><a href="/one">One</a></li>
+        <li id="two"><a href="/one">One</a> <a href="/two">Two</a></li>
+        <li id="sep"><a href="/one">One</a> · <a href="/two">Two</a>,</li>
+        <li id="desc"><a href="/x">Quick install</a>: one command</li></ul>
+    <table><tr><td id="cell"><a href="/c">Only a link</a></td></tr></table>`);
+  const got = await page.evaluate((src) => {
+    const f = new Function(`return ${src}`)();
+    return Object.fromEntries(["s", "one", "two", "sep", "desc", "cell"].map((id) => [id, f(document.querySelector(`#${id} a`))]));
+  }, inRunningText.toString());
+  const want = { s: true, one: false, two: false, sep: false, desc: true, cell: false };
+  for (const [id, v] of Object.entries(want)) {
+    if (got[id] !== v) failures.push(`self-test: the link in #${id} should ${v ? "" : "not "}count as running text`);
+  }
+  await page.close();
+}
 for (const size of SIZES) {
   for (const theme of ["light", "dark"]) {
     const { name, ...options } = size;
@@ -107,12 +139,8 @@ for (const size of SIZES) {
 
       // fingers need 44 by 44 (WCAG 2.5.5); links inside running text are exempt
       if (options.hasTouch) {
-        const small = await page.evaluate(() => {
-          // a link inside a sentence: its paragraph, list item or cell holds other text besides it
-          const inRunningText = (a) => {
-            const block = a.closest("p, li, td, dd, figcaption");
-            return !!block && block.textContent.replace(/\s+/g, " ").trim().length > a.textContent.replace(/\s+/g, " ").trim().length + 2;
-          };
+        const small = await page.evaluate((runningTextSource) => {
+          const inRunningText = new Function(`return ${runningTextSource}`)();
           const out = [];
           for (const el of document.querySelectorAll('a[href], button, [role="tab"], summary, input, select, textarea')) {
             const r = el.getBoundingClientRect();
@@ -122,7 +150,7 @@ for (const size of SIZES) {
             if (r.width < 44 - 0.5 || r.height < 44 - 0.5) out.push(`${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") || el.textContent).trim().slice(0, 30)}" ${Math.round(r.width)}x${Math.round(r.height)}`);
           }
           return out;
-        });
+        }, inRunningText.toString());
         for (const s of small) failures.push(`${where}: small tap target: ${s}`);
       }
 
