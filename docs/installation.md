@@ -465,7 +465,9 @@ The apt and dnf repositories are signed with the key published at
 ## Upgrading
 
 Back up first (a slonbase backup, a database dump, or both; see
-[deployment](deployment.md#backups)). Then:
+[deployment](deployment.md#backups)). If several instances share one database, stop all of them
+before the steps below and start them together afterwards: a migration runs at the first start,
+and rolling upgrades aren't supported (the notes for 2.7.1 and 2.7 below say why). Then:
 
 - **Compose:** `docker compose pull && docker compose up -d` (or set `SLONBASE_VERSION`).
 - **Docker:** run the new tag with the same volume and environment.
