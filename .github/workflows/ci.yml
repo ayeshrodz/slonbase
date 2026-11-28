@@ -35,7 +35,7 @@ jobs:
       # the installer people pipe into a root shell
       - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh scripts/installer-test/run.sh
       # the other scripts (bash), warnings and errors
-      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh site/test/run.sh
+      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh bench/compare.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh site/test/run.sh
       # the workflows themselves (expressions, permissions, shell in `run:`)
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       # the third-party license list (written at packaging time, from Cargo.lock) can be generated
@@ -51,6 +51,8 @@ jobs:
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
       # the site, the docs and the 404 page carry the dashboard's current tokens, and no loose colours
       - run: node scripts/build-tokens.mjs --check
+      # the benchmark tables in the README and the docs match the newest published comparison
+      - run: node scripts/bench-figures.mjs --check
 
   # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
   msrv:

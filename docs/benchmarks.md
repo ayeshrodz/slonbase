@@ -10,6 +10,7 @@ slonbase 2.2.0, PocketBase 0.40.6 and PostgREST 16.5, each at its defaults (Post
 of 16), PostgreSQL 16, on a 4-vCPU cloud VM: the server and PostgreSQL pinned to 3 CPUs, the load
 generator to the fourth. 32 clients, medians of three 10-second runs after a warm-up.
 
+<!-- bench:summary -->
 | Scenario | slonbase 2.2 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |
 |---|--:|--:|--:|--:|
 | Health check | 44,316 | 32,270 | 36,267 | 2.1 / 6.4 / 2.2 |
@@ -18,8 +19,9 @@ generator to the fourth. 32 clients, medians of three 10-second runs after a war
 | List 30, filtered | 7,100 | 105 | 3,315 | 8.2 / 439 / 15.4 |
 | List 30, expand a relation | 3,906 | 1,065 | n/a | 12.6 / 93.3 / n/a |
 | Create a record | 7,424 | 4,051 | 3,828 | 8.4 / 45.5 / 16.2 |
+<!-- bench:end -->
 
-slonbase was ahead in every scenario measured, from 1.2 times PocketBase's throughput on sign-in
+slonbase was ahead in every scenario measured, from 1.1 times PocketBase's throughput on sign-in
 (which bcrypt bounds) to 68 times on filtered lists, where PostgreSQL uses the index on the
 filtered column.
 
@@ -29,10 +31,12 @@ scenario (creating records came out a little faster); the table and how it was m
 
 ## Footprint
 
+<!-- bench:footprint -->
 | | slonbase 2.2.0 | PocketBase 0.40.6 | PostgREST 16.5 |
 |---|--:|--:|--:|
 | Binary on disk | 21.3 MB | 32.0 MB | 19.6 MB |
 | Resident memory, idle | 40 MB | 41 MB | 15 MB |
+<!-- bench:end -->
 
 PostgREST is the leanest, and it does the least: no sign-in, files, realtime or dashboard.
 slonbase and PostgREST keep their data in a PostgreSQL server whose memory isn't counted;
