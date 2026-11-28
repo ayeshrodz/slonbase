@@ -106,7 +106,7 @@ root, as the [platform setups](platforms.md) do. Its health check
 
 ## PostgreSQL
 
-- **Version:** 14 or newer. CI runs the tests on every supported version, 14 to 18.
+- **Version:** 14 or newer. CI runs the tests on every supported version, 14 to 18, before every release and every night.
 - **Role:** slonbase needs a role that can create schemas in its database (`CREATE` on the
   database), such as the database owner. It doesn't need to be a PostgreSQL superuser, and
   shouldn't be one: view collections' queries and the SQL console run with its privileges (see

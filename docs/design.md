@@ -1279,7 +1279,9 @@ project's, in one transaction each.
 - Integration tests against real PostgreSQL (`SLONBASE_TEST_DATABASE_URL`). Each test creates and
   drops its own database. They cover the full wizard flow, reconnecting to an existing install,
   env-configured databases, concurrent migrations, and refusing foreign or newer schemas.
-- CI runs them against every supported PostgreSQL version, 14 (the oldest) to 18.
+- CI runs them against every supported PostgreSQL version, 14 (the oldest) to 18: a pull request
+  on the oldest and the newest, and a release, the nightly run and a run started by hand on all
+  five.
 - S3 tests run against an S3-compatible server when `SLONBASE_TEST_S3_ENDPOINT` is set (MinIO in
   CI): the client (pagination, batch deletes, bad credentials), and files through the API with S3
   enabled in the settings (serving from a second instance, thumbnails, replacement and delete
