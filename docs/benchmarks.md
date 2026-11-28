@@ -21,9 +21,9 @@ slonbase 2.2.0, PocketBase 0.40.6 and PostgREST 16.5, each at its defaults (Post
 | Create a record | 7,424 | 4,051 | 3,828 | 8.4 / 45.5 / 16.2 |
 <!-- bench:end -->
 
-slonbase was ahead in every scenario measured, from 1.1 times PocketBase's throughput on sign-in
-(which bcrypt bounds) to 68 times on filtered lists, where PostgreSQL uses the index on the
-filtered column.
+<!-- bench:claims -->
+slonbase was ahead of PocketBase in every scenario measured, from 1.1× (sign-in, which bcrypt bounds) to 68× (filtered lists). Against PostgREST, it was ahead in every scenario measured, from 1.2× (the health check) to 3.8× (single-record reads).
+<!-- bench:end -->
 
 2.7.0 against 2.6.2 on the same workloads differs by less than the runs' own spread in every
 scenario (creating records came out a little faster); the table and how it was measured are in
@@ -38,15 +38,13 @@ scenario (creating records came out a little faster); the table and how it was m
 | Resident memory, idle | 40 MB | 41 MB | 15 MB |
 <!-- bench:end -->
 
-PostgREST is the leanest, and it does the least: no sign-in, files, realtime or dashboard.
-slonbase and PostgREST keep their data in a PostgreSQL server whose memory isn't counted;
-PocketBase's SQLite runs inside its process.
+<!-- bench:lightest -->
+PostgREST is the leanest, and it does the least: no sign-in, files, realtime or dashboard. slonbase and PostgREST keep their data in a PostgreSQL server whose memory isn't counted; PocketBase's SQLite runs inside its process.
+<!-- bench:end -->
 
 ## How to read them
 
-- **Durability:** PostgreSQL waits for each commit to reach disk by default. PocketBase's SQLite
-  in WAL mode does not, so with PostgreSQL's `synchronous_commit = off` (the same trade-off)
-  slonbase creates 8,722 records a second.
+- **Durability:** <!-- bench:durability -->PostgreSQL waits for each commit to reach disk by default. PocketBase's SQLite in WAL mode does not, so with PostgreSQL's `synchronous_commit = off` (the same trade-off) slonbase creates 8,722 records a second.<!-- bench:end -->
 - **Caveats:** one machine, loopback networking, and the database on the same CPUs as the
   server. A production setup with PostgreSQL on its own machine adds a network round trip to each
   slonbase query but gives the database cores of its own. Results on other hardware will differ;

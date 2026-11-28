@@ -26,12 +26,9 @@ yourself. It has no sign-in or user management, no file storage, no realtime and
 
 ## Speed
 
-Measured on the same machine, the same data and the same HTTP workloads, with PostgREST serving
-the tables slonbase created ([benchmarks](benchmarks.md)): slonbase answered about 2.1 times as
-many list requests per second (7,814 against 3,733), 3.8 times as many single-record reads and 1.9
-times as many creates. PostgREST is much lighter in memory (a 15 MB process against about 40 MB)
-and smaller to download, since it does much less. PostgREST was run at its defaults with a pool
-of 16; a tuned PostgREST may do better.
+<!-- bench:postgrest -->
+Measured on the same machine, the same data and the same HTTP workloads, with PostgREST serving the tables slonbase created ([benchmarks](benchmarks.md)): slonbase answered 2.1× as many list requests per second (7,814 against 3,733), 3.8× as many single-record reads and 1.9× as many creates. PostgREST is much lighter in memory (a 15 MB process against 40 MB) and smaller to download, since it does much less. PostgREST was run at its defaults with a pool of 16; a tuned PostgREST may do better.
+<!-- bench:end -->
 
 ## Which to choose
 

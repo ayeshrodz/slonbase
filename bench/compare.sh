@@ -6,7 +6,8 @@
 #   ADMIN_DATABASE_URL='postgres://postgres:...@127.0.0.1:5432/postgres' bench/compare.sh
 #
 # ADMIN_DATABASE_URL  a role that may create databases (two are made, bench_slonbase and
-#                     bench_postgrest, and dropped first if they exist)
+#                     bench_postgrest, and dropped first if they exist) and may use the role
+#                     PostgREST answers as, anon (or create it: CREATEROLE)
 # SLONBASE_BIN        a slonbase binary (default: built with cargo build --release)
 # POCKETBASE_VERSION  default 0.40.6; checked against the release's checksums.txt
 # POSTGREST_VERSION   default 16.5; POSTGREST_SHA256 checks the download (its checksum is
@@ -34,6 +35,18 @@ command -v "${HEY_BIN:-hey}" > /dev/null || missing+=("hey (go install github.co
 [ ${#missing[@]} -eq 0 ] || fail "missing: ${missing[*]}"
 [ "$(nproc)" -ge 4 ] || fail "needs at least 4 CPUs (3 for the servers and PostgreSQL, 1 for the load)"
 psql "$ADMIN_DATABASE_URL" -qAtc 'select 1' > /dev/null || fail "can't connect with ADMIN_DATABASE_URL"
+# what the role may do: make the two databases, and answer PostgREST's requests as anon
+IFS='|' read -r db_role can_super can_db can_role anon_ok < <(psql "$ADMIN_DATABASE_URL" -qAtc "
+  select current_user, rolsuper, rolcreatedb, rolcreaterole,
+         coalesce((select pg_has_role(current_user, 'anon', 'MEMBER') from pg_roles where rolname = 'anon'), false)
+  from pg_roles where rolname = current_user")
+as_postgres="sudo -u postgres psql -c"
+if [ "$can_super" != t ] && [ "$can_db" != t ]; then
+  fail "the role $db_role can't create databases: $as_postgres 'ALTER ROLE \"$db_role\" CREATEDB'"
+fi
+if [ "$can_super" != t ] && [ "$anon_ok" != t ] && [ "$can_role" != t ]; then
+  fail "PostgREST answers as the role anon, which $db_role can't use or create: $as_postgres 'CREATE ROLE anon NOLOGIN' -c 'GRANT anon TO \"$db_role\"' (or give $db_role CREATEROLE)"
+fi
 gov=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 if [ -r "$gov" ] && [ "$(cat "$gov")" != performance ]; then
   echo "note: the CPU governor is '$(cat "$gov")'; 'performance' gives steadier numbers (see bench/README.md)" >&2
@@ -95,8 +108,24 @@ db_url() {
 for db in bench_slonbase bench_postgrest; do
   psql "$ADMIN_DATABASE_URL" -qc "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db" > /dev/null
 done
-# PostgreSQL runs on the servers' CPUs too, when it is on this machine
+# PostgreSQL runs on the servers' CPUs too, when it is on this machine. Pinning its processes
+# needs root unless they are this user's, so it is checked here: new connections inherit the
+# main process's CPUs, so pinning that one (with sudo, once) is enough
 PG_PIDS="$(pgrep -d ' ' -x postgres || true)"
+pinned=""
+if [ -n "$PG_PIDS" ]; then
+  server_cpus="${SERVER_CPUS:-0-2}"
+  for pid in $PG_PIDS; do taskset -a -cp "$server_cpus" "$pid" > /dev/null 2>&1 || true; done
+  want="$(taskset -c "$server_cpus" sh -c 'taskset -cp $$' | sed 's/.*: //')"
+  main_pid="$(pgrep -o -x postgres)"
+  have="$(taskset -cp "$main_pid" | sed 's/.*: //')"
+  if [ "$have" != "$want" ]; then
+    fail "PostgreSQL runs on CPUs $have, not the servers' $want, and this user can't move it. Pin it once (connections made later follow):
+  for p in \$(pgrep -x postgres); do sudo taskset -a -cp $server_cpus \"\$p\" > /dev/null; done
+and run this again; a PostgreSQL restart undoes it."
+  fi
+  pinned=1
+fi
 export PG_PIDS SLONBASE_BIN
 
 say "Running (3 servers, about $(( ${BENCH_RUNS:-3} * 10 * 11 * 3 / 60 + 3 )) minutes)"
@@ -126,7 +155,14 @@ for n in slonbase pocketbase postgrest; do cp "results/$n.json" "results/$n.raw.
   echo "$( . /etc/os-release && echo "$PRETTY_NAME"), Linux $(uname -r)"
   echo "PostgreSQL $(psql "$ADMIN_DATABASE_URL" -qAtc 'show server_version')"
   [ -r "$gov" ] && echo "CPU governor: $(cat "$gov")"
-  echo "servers and PostgreSQL on CPUs ${SERVER_CPUS:-0-2}, the load generator on ${LOAD_CPUS:-3}"
+  turbo=/sys/devices/system/cpu/intel_pstate/no_turbo boost=/sys/devices/system/cpu/cpufreq/boost
+  if [ -r "$turbo" ]; then echo "turbo boost: $([ "$(cat "$turbo")" = 1 ] && echo off || echo on)"
+  elif [ -r "$boost" ]; then echo "turbo boost: $([ "$(cat "$boost")" = 0 ] && echo off || echo on)"; fi
+  if [ -n "$pinned" ]; then
+    echo "servers and PostgreSQL on CPUs ${SERVER_CPUS:-0-2}, the load generator on ${LOAD_CPUS:-3}"
+  else
+    echo "servers on CPUs ${SERVER_CPUS:-0-2}, the load generator on ${LOAD_CPUS:-3}; PostgreSQL on another machine"
+  fi
   echo "${BENCH_RUNS:-3} runs of ${BENCH_DURATION:-10s} per scenario, after a ${BENCH_WARMUP:-2s} warm-up"
 } > "$out/machine.txt"
 node report.mjs "$out" > "$out/REPORT.md"
@@ -135,5 +171,5 @@ cat >&2 <<EOF
 
 Done: bench/published/$version
 Send that folder back (or commit it on a branch): with it, node scripts/bench-figures.mjs
-updates the tables in README.md and docs/benchmarks.md.
+updates the tables and figures in the README, the docs and the project page.
 EOF
