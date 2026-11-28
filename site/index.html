@@ -596,9 +596,9 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
             </div>
             <button class="copy" data-copy-active>Copy</button>
           </div>
-<pre role="tabpanel" id="in-linux" aria-labelledby="t-linux"><span class="cm"># Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,</span>
+<pre role="tabpanel" id="in-linux" aria-labelledby="t-linux"><span data-region="cmd-linux"><!-- @site:cmd-linux --><span class="cm"># Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,</span>
 <span class="cm"># installs slonbase and creates your first superuser</span>
-curl -fsSL https://slonbase.com/install.sh | sudo sh</pre>
+curl -fsSL https://slonbase.com/install.sh | sudo sh<!-- @site:end --></span></pre>
 <pre role="tabpanel" id="in-docker" aria-labelledby="t-docker" hidden><span data-region="cmd-docker"><!-- @site:cmd-docker -->mkdir slonbase &amp;&amp; cd slonbase
 curl -fsSLO https://raw.githubusercontent.com/ayeshrodz/slonbase/main/compose.yaml
 echo &quot;POSTGRES_PASSWORD=$(openssl rand -hex 24)&quot; &gt; .env

@@ -88,9 +88,29 @@ export function commands(rel, { candidate = false } = {}) {
   const base = `${DOWNLOAD}/${tag}`;
   const lines = (...l) => l.filter((x) => x !== null).join("\n");
   const out = {};
+  const missing = (what) => cm(`# ${tag} has no ${what}: see ${SITE}/docs/installation/ for the other ways`);
+  const clone = `git clone --branch ${tag} --depth 1 https://github.com/${REPO}`;
+  const deb = `slonbase_${v}_amd64.deb`;
+  const rpm = `slonbase-${v}-1.x86_64.rpm`;
+
+  // the one-command install: the repository's package, or a candidate's own package file
+  out.linux = candidate
+    ? (has(deb) && has(rpm)
+      ? lines(
+        cm(`# ${tag}, a release candidate: download its package (Debian/Ubuntu shown; on Fedora/RHEL`),
+        cm(`# use ${rpm}), and the installer sets everything up with it instead of the repository's`),
+        escape(`curl -fsSLO ${base}/${deb}`),
+        escape(`curl -fsSL ${SITE}/install.sh | sudo SLONBASE_PACKAGE="$PWD/${deb}" sh`),
+      )
+      : missing("Linux packages"))
+    : lines(
+      cm("# Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,"),
+      cm("# installs slonbase and creates your first superuser"),
+      escape(`curl -fsSL ${SITE}/install.sh | sudo sh`),
+    );
 
   const tgz = `slonbase-${v}-linux-amd64.tar.gz`;
-  out.bin = lines(
+  out.bin = !has(tgz) ? missing("Linux archive") : lines(
     candidate ? cm(`# ${tag}: a release candidate, to try on a copy of your installation`) : null,
     escape(`curl -fsSLO ${base}/${tgz}`),
     sums ? escape(`curl -fsSLO ${base}/SHA256SUMS && grep linux-amd64.tar.gz SHA256SUMS | sha256sum -c`) : null,
@@ -110,7 +130,7 @@ export function commands(rel, { candidate = false } = {}) {
     )
     : lines(
       cm(`# ${tag} has no macOS archive: use Docker, or build from source (Rust 1.89+)`),
-      escape("git clone https://github.com/ayeshrodz/slonbase && cd slonbase"),
+      escape(`${clone} && cd slonbase`),
       escape("cargo build --release --locked && ./target/release/slonbase serve"),
       cm(`# ${SITE}/docs/installation/#macos`),
     );
@@ -129,7 +149,7 @@ export function commands(rel, { candidate = false } = {}) {
     )
     : lines(
       cm(`# ${tag} has no Windows archive: use Docker, or build from source (Rust 1.89+)`),
-      escape("git clone https://github.com/ayeshrodz/slonbase; cd slonbase"),
+      escape(`${clone}; cd slonbase`),
       escape("cargo build --release --locked; .\\target\\release\\slonbase.exe serve"),
       cm(`# ${SITE}/docs/installation/#windows`),
     );
@@ -145,14 +165,12 @@ export function commands(rel, { candidate = false } = {}) {
 
   // packages: the repositories carry releases only; a candidate is installed from its file
   if (candidate) {
-    const deb = `slonbase_${v}_amd64.deb`;
-    const rpm = `slonbase-${v}-1.x86_64.rpm`;
-    out.apt = lines(
+    out.apt = !has(deb) ? missing("Debian package") : lines(
       cm("# candidates aren't in the apt repository: install the package file over your version"),
       escape(`curl -fsSLO ${base}/${deb}`),
       escape(`sudo apt install ./${deb}`),
     );
-    out.dnf = lines(
+    out.dnf = !has(rpm) ? missing("RPM package") : lines(
       cm("# candidates aren't in the dnf repository: install the package file over your version"),
       escape(`curl -fsSLO ${base}/${rpm}`),
       escape(`sudo dnf install ./${rpm}`),
@@ -212,7 +230,7 @@ export function regions({ stable, preview }) {
 
   const sc = commands(stable);
   const pc = preview ? commands(preview, { candidate: true }) : null;
-  for (const tab of ["bin", "mac", "win", "docker", "apt", "dnf"]) {
+  for (const tab of ["linux", "bin", "mac", "win", "docker", "apt", "dnf"]) {
     r[`cmd-${tab}`] = pc
       ? `<span data-channel="stable">${sc[tab]}</span><span data-channel="preview" hidden>${pc[tab]}</span>`
       : sc[tab];

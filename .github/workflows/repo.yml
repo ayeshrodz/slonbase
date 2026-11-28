@@ -25,6 +25,7 @@ on:
       - docs/**
       - ui/app/fonts/**
       - scripts/build-docs.mjs
+      - scripts/build-site.mjs
       - scripts/docs/**
       - scripts/build-repo.sh
       - .github/workflows/repo.yml

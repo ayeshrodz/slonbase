@@ -15,10 +15,10 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { REPO, pick, regions, softwareFacts, notes, version, compare } from "../site/release.js";
+import { REPO, pick, regions, softwareFacts, notes, version, compare, commands } from "../site/release.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const REGIONS = ["pill", "release", "channel", "cmd-bin", "cmd-mac", "cmd-win", "cmd-docker", "cmd-apt", "cmd-dnf"];
+const REGIONS = ["pill", "release", "channel", "cmd-linux", "cmd-bin", "cmd-mac", "cmd-win", "cmd-docker", "cmd-apt", "cmd-dnf"];
 
 /** The release Cargo.toml names, as the API would describe it, from its CHANGELOG section. */
 export function localRelease() {
@@ -76,7 +76,7 @@ function test() {
     tag_name: tag, draft: false, prerelease: tag.includes("-rc."), published_at: "2026-11-27T12:00:00Z",
     html_url: `https://github.com/${REPO}/releases/tag/${tag}`,
     body: "**A lead.** A summary.\n\n### Added\n\n- **One.** x\n- **Two.** y\n- **Three.** z\n",
-    assets: ["SHA256SUMS", `slonbase-${tag.slice(1)}-linux-amd64.tar.gz`, `slonbase-${tag.slice(1)}-macos-arm64.tar.gz`].map((name) => ({ name })),
+    assets: ["SHA256SUMS", `slonbase-${tag.slice(1)}-linux-amd64.tar.gz`, `slonbase-${tag.slice(1)}-macos-arm64.tar.gz`, `slonbase_${tag.slice(1)}_amd64.deb`, `slonbase-${tag.slice(1)}-1.x86_64.rpm`].map((name) => ({ name })),
     ...extra,
   });
   const cases = [
@@ -109,6 +109,11 @@ function test() {
   check(/"softwareVersion":"2.7.1"/.test(two) && /"operatingSystem":"Linux, macOS"/.test(two), "structured data: version and systems");
   check(fill(two, pick([rel("v2.7.1")])) === one, "filling again gives the same page");
   check(!/<script>[^]*?<\/script>/.test(regions(pick([rel("v2.7.1", { body: "**<script>x</script>.** <img onerror=x>" })])).pill), "release text is escaped");
+  const cand = commands(rel("v2.8.0-rc.1"), { candidate: true });
+  check(cand.linux.includes("SLONBASE_PACKAGE=&quot;$PWD/slonbase_2.8.0-rc.1_amd64.deb&quot;") && cand.linux.includes("releases/download/v2.8.0-rc.1/slonbase_2.8.0-rc.1_amd64.deb"), "a candidate's Linux command installs its own package");
+  const bare = commands(rel("v2.8.0-rc.1", { assets: [{ name: "SHA256SUMS" }] }), { candidate: true });
+  check(["linux", "bin", "apt", "dnf"].every((t) => !bare[t].includes("curl -fsSLO")) && bare.bin.includes("has no Linux archive"), "a candidate without Linux files gets no download of them");
+  check(bare.win.includes("git clone --branch v2.8.0-rc.1 --depth 1") && bare.mac.includes("git clone --branch v2.8.0-rc.1"), "the source fallback builds the release's own tag");
   const local = localRelease();
   check(version(local.tag_name) !== null && notes(local.body).lead.length > 0, `offline: ${local.tag_name} from Cargo.toml and CHANGELOG.md`);
   if (failed) {

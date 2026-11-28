@@ -105,6 +105,7 @@ const failures = [];
   await page.click('[data-channel-pick="preview"]');
   if (!(await shown()).includes("v9.1.0-rc.1")) failures.push("preview page: Preview doesn't switch the binary tab to the candidate");
   if (!(await page.evaluate(() => document.querySelector("#in-apt").innerText)).includes("./slonbase_9.1.0-rc.1_amd64.deb")) failures.push("preview page: Preview doesn't give the candidate's package file");
+  if (!(await page.evaluate(() => document.querySelector("#in-linux").innerText)).includes("SLONBASE_PACKAGE")) failures.push("preview page: Preview doesn't switch the Linux tab to the candidate's package");
   if (!(await page.locator(".release.preview").count())) failures.push("preview page: no Preview card");
   await context.close();
 
