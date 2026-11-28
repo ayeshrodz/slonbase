@@ -53,10 +53,16 @@ async fn jobs_history_backups_and_crons() {
     let Some(tdb) = TestDb::create().await else {
         return;
     };
+    // the daily jobs run at hours far from now, so the scheduler never runs one by itself while
+    // the test counts the runs it started (a fixed 02:00 failed a CI run that reached it at 02:00)
+    let hour = |ahead: u32| (chrono::Timelike::hour(&chrono::Utc::now()) + ahead) % 24;
+    let (report_hour, backup_hour) = (hour(11), hour(12));
     let mut extensions = slonbase::Extensions::default();
     extensions
         .hooks
-        .cron("report", "0 2 * * *", |_| async { Ok(()) })
+        .cron("report", &format!("0 {report_hour} * * *"), |_| async {
+            Ok(())
+        })
         .unwrap();
     extensions
         .hooks
@@ -101,7 +107,12 @@ async fn jobs_history_backups_and_crons() {
     assert_eq!(list[0]["auto"], false);
 
     // the cron jobs: when they run next, in words, and how they last went
-    settings(&app, &token, json!({ "backups": { "cron": "0 3 * * *" } })).await;
+    settings(
+        &app,
+        &token,
+        json!({ "backups": { "cron": format!("0 {backup_hour} * * *") } }),
+    )
+    .await;
     for id in ["report", "flaky", "__pbAutoBackup__"] {
         let (status, res) = admin(&app, &token, "POST", &format!("/api/crons/{id}"), None).await;
         assert_eq!(status, StatusCode::NO_CONTENT, "{id}: {res}");
@@ -121,9 +132,15 @@ async fn jobs_history_backups_and_crons() {
             .clone()
     };
     let backup = job("__pbAutoBackup__");
-    assert_eq!(backup["description"], "every day at 03:00");
+    assert_eq!(
+        backup["description"],
+        format!("every day at {backup_hour:02}:00")
+    );
     assert!(
-        backup["next"].as_str().unwrap().ends_with("03:00:00.000Z"),
+        backup["next"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("{backup_hour:02}:00:00.000Z")),
         "{backup}"
     );
     assert_eq!(backup["lastRun"]["job"], "auto");
@@ -135,7 +152,10 @@ async fn jobs_history_backups_and_crons() {
             .starts_with("auto_backup_")
     );
     assert_eq!(job("report")["lastRun"]["status"], "ok");
-    assert_eq!(job("report")["description"], "every day at 02:00");
+    assert_eq!(
+        job("report")["description"],
+        format!("every day at {report_hour:02}:00")
+    );
     let flaky = job("flaky");
     assert_eq!(flaky["lastRun"]["status"], "error");
     assert!(
