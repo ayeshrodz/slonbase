@@ -1,0 +1,35 @@
+{"name":"health","concurrency":32,"rps":12343.0726,"p50":2.60,"p90":4.50,"p99":5.80,"ok":123526,"failed":0}
+{"name":"view one record","concurrency":32,"rps":1823.1974,"p50":17.50,"p90":20.70,"p99":29.90,"ok":18268,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":637.2636,"p50":1.50,"p90":2.00,"p99":2.70,"ok":6376,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1349.3124,"p50":23.50,"p90":27.40,"p99":31.80,"ok":13524,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1235.0582,"p50":25.70,"p90":29.90,"p99":35.00,"ok":12386,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":1214.4139,"p50":26.20,"p90":30.10,"p99":34.50,"ok":12176,"failed":0}
+{"name":"create record","concurrency":32,"rps":1440.0713,"p50":22.10,"p90":25.20,"p99":28.10,"ok":14434,"failed":0}
+{"name":"health","concurrency":32,"rps":12294.7550,"p50":2.60,"p90":4.50,"p99":6.10,"ok":123046,"failed":0}
+{"name":"view one record","concurrency":32,"rps":1881.4101,"p50":17.20,"p90":21.10,"p99":27.00,"ok":18851,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":669.1047,"p50":1.40,"p90":1.80,"p99":2.30,"ok":6694,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1376.5208,"p50":23.00,"p90":26.70,"p99":30.70,"ok":13803,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1253.4584,"p50":25.30,"p90":29.50,"p99":35.40,"ok":12566,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":1215.1018,"p50":26.20,"p90":30.20,"p99":35.00,"ok":12180,"failed":0}
+{"name":"create record","concurrency":32,"rps":1436.0326,"p50":22.20,"p90":25.50,"p99":29.70,"ok":14392,"failed":0}
+{"name":"health","concurrency":32,"rps":12286.1748,"p50":2.60,"p90":4.50,"p99":6.20,"ok":122968,"failed":0}
+{"name":"view one record","concurrency":32,"rps":1847.5806,"p50":17.50,"p90":20.90,"p99":26.60,"ok":18511,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":658.4240,"p50":1.40,"p90":1.90,"p99":2.70,"ok":6588,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1371.4476,"p50":23.00,"p90":26.90,"p99":32.60,"ok":13746,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1256.4754,"p50":25.30,"p90":29.30,"p99":33.50,"ok":12598,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":1214.3273,"p50":26.20,"p90":30.30,"p99":35.50,"ok":12178,"failed":0}
+{"name":"create record","concurrency":32,"rps":1441.6792,"p50":22.10,"p90":25.40,"p99":29.60,"ok":14454,"failed":0}
+{"name":"health","concurrency":32,"rps":12377.3629,"p50":2.50,"p90":4.50,"p99":5.80,"ok":123871,"failed":0}
+{"name":"view one record","concurrency":32,"rps":1940.8076,"p50":16.40,"p90":22.00,"p99":29.00,"ok":19449,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":644.2033,"p50":1.50,"p90":1.90,"p99":2.70,"ok":6445,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1380.2463,"p50":23.00,"p90":26.70,"p99":31.00,"ok":13839,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1255.1391,"p50":25.30,"p90":29.20,"p99":33.30,"ok":12584,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":1213.1888,"p50":26.20,"p90":30.20,"p99":34.20,"ok":12164,"failed":0}
+{"name":"create record","concurrency":32,"rps":1430.3590,"p50":22.10,"p90":25.50,"p99":30.80,"ok":14340,"failed":0}
+{"name":"health","concurrency":32,"rps":12325.4516,"p50":2.60,"p90":4.50,"p99":5.80,"ok":123348,"failed":0}
+{"name":"view one record","concurrency":32,"rps":1808.3403,"p50":17.90,"p90":22.70,"p99":29.90,"ok":18123,"failed":0}
+{"name":"view one record (1 client)","concurrency":1,"rps":642.9401,"p50":1.50,"p90":1.90,"p99":2.60,"ok":6433,"failed":0}
+{"name":"list 30","concurrency":32,"rps":1304.8401,"p50":24.00,"p90":29.30,"p99":36.50,"ok":13091,"failed":0}
+{"name":"list 30, sorted","concurrency":32,"rps":1134.9605,"p50":27.10,"p90":34.50,"p99":49.80,"ok":11384,"failed":0}
+{"name":"list 30, filtered","concurrency":32,"rps":1214.2077,"p50":26.10,"p90":30.40,"p99":35.60,"ok":12173,"failed":0}
+{"name":"create record","concurrency":32,"rps":1436.2647,"p50":22.20,"p90":25.30,"p99":28.80,"ok":14398,"failed":0}

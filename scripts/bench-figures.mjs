@@ -268,7 +268,7 @@ function render(text, t) {
   if (t.faqJson) {
     text = text.replace(/<script type="application\/ld\+json">(\{[^<]*?"@type":\s*"FAQPage"[^<]*?)<\/script>/, (whole, json) => {
       const data = JSON.parse(json);
-      for (const q of data.mainEntity) q.acceptedAnswer.text = q.acceptedAnswer.text.replace(/In the public benchmark[^.]*\.(\d[^.]*\.)?/, t.faqJson);
+      for (const q of data.mainEntity) q.acceptedAnswer.text = q.acceptedAnswer.text.replace(/In the public benchmark.*?as PostgREST\./, t.faqJson);
       return `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, "\\u003c")}</script>`;
     });
   }
@@ -291,6 +291,10 @@ if (main) {
     const text = fs.readFileSync(file, "utf8");
     if (!text.includes("<!-- bench:")) throw new Error(`${rel} has no bench region`);
     const next = render(text, t);
+    // a region belongs in the page's markup, never inside its structured data
+    for (const [, body] of next.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)) {
+      if (body.includes("<!-- bench:")) throw new Error(`${rel}: a bench region is inside a <script>`);
+    }
     if (next === text) continue;
     if (check) stale.push(rel);
     else fs.writeFileSync(file, next);
