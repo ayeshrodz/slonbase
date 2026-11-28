@@ -1,0 +1,4 @@
+a 4-vCPU cloud VM
+PostgreSQL 16
+servers and PostgreSQL on CPUs 0-2, the load generator on 3
+3 runs of 10s per scenario, after a warm-up

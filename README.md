@@ -267,6 +267,7 @@ The guides are also on the documentation site, with search:
 Compared with PocketBase and PostgREST, on the same machine, the same data and the same HTTP
 workloads, with default settings ([method and full results](bench/README.md)):
 
+<!-- bench:summary-async -->
 | Scenario | slonbase 2.2 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |
 |---|--:|--:|--:|--:|
 | Health check | 44,316 | 32,270 | 36,267 | 2.1 / 6.4 / 2.2 |
@@ -275,9 +276,10 @@ workloads, with default settings ([method and full results](bench/README.md)):
 | List 30, filtered | 7,100 | 105 | 3,315 | 8.2 / 439 / 15.4 |
 | List 30, expand a relation | 3,906 | 1,065 | n/a | 12.6 / 93.3 / n/a |
 | Create a record | 7,424 (8,722 with async commit) | 4,051 | 3,828 | 8.4 / 45.5 / 16.2 |
+<!-- bench:end -->
 
 32 clients, medians of three 10-second runs on a 4-vCPU VM. slonbase is ahead in every scenario
-measured, from 1.2 times PocketBase's throughput (sign-in, which bcrypt bounds) to 68 times (filtered
+measured, from 1.1 times PocketBase's throughput (sign-in, which bcrypt bounds) to 68 times (filtered
 lists, where PostgreSQL uses the index). PostgREST is a leaner program that does much less (no sign-in,
 files, realtime or dashboard): a 15 MB process against slonbase's 40 MB. Writes are ahead of PocketBase
 with PostgreSQL's default durability, and further ahead when PostgreSQL makes the same trade-off as

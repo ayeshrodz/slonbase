@@ -230,6 +230,47 @@ every module. Through 100 ms of latency, a repeat visit shows the sign-in form i
 over HTTP/1.1, which fetches 6 files at a time, takes about as long as before, and behind an
 HTTP/2 proxy the preloads come in parallel.
 
+## Running the comparison
+
+One command runs all three on your machine and writes a folder ready to publish. Expect about 40
+minutes with the default 3 runs of 10 s.
+
+**The machine.** A quiet Linux machine with 4 or more cores (3 for the servers and PostgreSQL, 1
+for the load) and nothing else busy. Use a local PostgreSQL 16 with its default settings,
+reachable by a role that may create databases. For steadier numbers, set the CPU governor to
+`performance` (`sudo cpupower frequency-set -g performance`, if your machine has it) and close
+browsers and builds.
+
+**What it needs.** Node 22, `psql`, `curl`, `unzip`, `xz`, `taskset` (util-linux), Rust (to
+build slonbase) and [hey](https://github.com/rakyll/hey) (`go install
+github.com/rakyll/hey@latest`, then put `~/go/bin` on your `PATH`).
+
+```sh
+ADMIN_DATABASE_URL='postgres://postgres:<password>@127.0.0.1:5432/postgres' bench/compare.sh
+```
+
+It checks the above and builds slonbase (`--release`), or uses `SLONBASE_BIN`. It downloads
+PocketBase (checked against the release's `checksums.txt`) and PostgREST (its checksum is printed;
+set `POSTGREST_SHA256` to enforce one) into `bench/.tools`. It then makes two empty databases and
+runs the three servers in turn, pinning PostgreSQL's processes to the servers' cores. When it is
+done, `bench/published/<slonbase version>/` holds:
+- the three results and their raw runs;
+- `REPORT.md`, the full table;
+- `machine.txt`, the CPU, memory, OS, PostgreSQL version and governor.
+
+A published folder holds one comparison only, so the script stops before running when
+`bench/published/<slonbase version>/` already exists; `BENCH_REPLACE=1` replaces it (the old
+folder is removed when the new results are written). `scripts/bench-figures.mjs` takes the version,
+the machine and the run settings above the tables from that `machine.txt`.
+
+`POCKETBASE_VERSION` and `POSTGREST_VERSION` choose other releases (defaults 0.40.6 and 16.5, the
+last ones measured). `BENCH_RUNS`, `BENCH_DURATION`, `SERVER_CPUS` and `LOAD_CPUS` work as in
+`run.sh`.
+
+**Publishing it.** Commit the folder. Then `node scripts/bench-figures.mjs` rewrites the tables in
+the README and `docs/benchmarks.md` from the newest folder that has all three servers (CI fails
+when they are out of date), so no figure is typed by hand.
+
 ## Running them
 
 ```sh
