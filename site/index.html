@@ -284,7 +284,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .window-bar .url::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); animation: pulse 2.4s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .45; } }
 .window video, .window img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; background: var(--canvas); }
-.stage::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -40px; height: 80px; background: radial-gradient(50% 100% at 50% 0%, var(--glow), transparent 70%); filter: blur(24px); z-index: -1; }
+.stage::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -40px; height: 80px; background: radial-gradient(50% 100% at 50% 0%, var(--glow), transparent 70%); filter: blur(24px); z-index: -1; pointer-events: none; }
 /* the hero animation: drawn at 1280x800 (640x800 on a phone) and scaled to the window */
 .anim { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: var(--canvas); }
 .anim.narrow { aspect-ratio: 640 / 800; }
@@ -367,11 +367,12 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .anim.narrow .wires { display: none; }
 .wires path { fill: none; stroke: var(--line-2); stroke-width: 3; stroke-dasharray: 6 9; }
 .sc.on .wires path { animation: flow 1s linear infinite; }
-.pg { position: absolute; left: 50%; top: 600px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.anim.paused, .anim.paused * { animation-play-state: paused !important; }
+.anim .pg { position: absolute; left: 50%; top: 600px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .anim.narrow .pg { top: 560px; }
-.pg svg { fill: var(--accent-soft); stroke: var(--pg); stroke-width: 2.5; }
-.pg b { font-size: 24px; }
-.pg span { font-size: 17px; color: var(--muted); }
+.anim .pg svg { fill: var(--accent-soft); stroke: var(--pg); stroke-width: 2.5; }
+.anim .pg b { font-size: 24px; }
+.anim .pg span { font-size: 17px; color: var(--muted); }
 /* 5 · the end */
 .sc-end { flex-direction: column; text-align: center; gap: 22px; }
 .end-mark img { width: 84px; height: 84px; }
@@ -1395,7 +1396,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   var saveData = navigator.connection && navigator.connection.saveData;
   if (video && !reduce && !saveData && !matchMedia("(max-width: 760px)").matches && "IntersectionObserver" in window) {
     new IntersectionObserver(function (entries) {
-      entries.forEach(function (e) { if (e.isIntersecting) { var p = video.play(); if (p && p.catch) p.catch(function () {}); } else video.pause(); });
+      entries.forEach(function (e) { if (e.isIntersecting && e.intersectionRatio >= 0.5) { var p = video.play(); if (p && p.catch) p.catch(function () {}); } else video.pause(); });
     }, { threshold: 0.5 }).observe(video);
   }
 
@@ -1416,11 +1417,11 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     fit();
     if ("ResizeObserver" in window) new ResizeObserver(fit).observe(anim);
     else addEventListener("resize", fit);
-    var cur = -1, timer = null, typing = [], visible = false, paused = false;
+    var cur = -1, timer = null, typing = [], visible = false, paused = false, left = 0, since = 0;
     var typeIn = function (el, ms) {
       var text = el.dataset.text, n = 0;
       el.textContent = "";
-      var t = setInterval(function () { el.textContent = text.slice(0, ++n); if (n >= text.length) clearInterval(t); }, ms / text.length);
+      var t = setInterval(function () { if (timer === null) return; el.textContent = text.slice(0, ++n); if (n >= text.length) clearInterval(t); }, ms / text.length);
       typing.push(t);
     };
     var show = function (k, still) {
@@ -1431,9 +1432,20 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       document.getElementById("anim-url").textContent = urls[k];
       scenes[k].querySelectorAll(".type").forEach(function (el) { if (still) el.textContent = el.dataset.text; else typeIn(el, k === 0 ? 1500 : 500); });
     };
-    var next = function () { show((cur + 1) % scenes.length); timer = setTimeout(next, LENGTH[cur]); };
-    var run = function () { if (timer || paused || !visible || document.hidden) return; next(); };
-    var stop = function () { clearTimeout(timer); timer = null; };
+    // a pause holds the scene where it is (its motion, its typing and the time it has left)
+    var wait = function (ms) { left = ms; since = Date.now(); timer = setTimeout(next, ms); };
+    var next = function () { show((cur + 1) % scenes.length); wait(LENGTH[cur]); };
+    var run = function () {
+      if (timer || paused || !visible || document.hidden) return;
+      anim.classList.remove("paused");
+      if (cur < 0) next(); else wait(left);
+    };
+    var stop = function () {
+      anim.classList.add("paused");
+      if (!timer) return;
+      clearTimeout(timer); timer = null;
+      left = Math.max(0, left - (Date.now() - since));
+    };
     var toggle = document.getElementById("anim-toggle");
     if (reduce || saveData) {
       show(scenes.length - 1, true);

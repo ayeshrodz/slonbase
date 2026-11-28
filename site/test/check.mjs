@@ -181,6 +181,21 @@ for (const size of SIZES) {
       });
       if (dupes.length && theme === "light" && name === SIZES[0].name) failures.push(`${pg.name}: duplicate ids: ${dupes.join(", ")}`);
 
+      // every button and link can be clicked: nothing (a glow, an overlay) lies on top of it
+      const covered = await page.evaluate(() => {
+        const out = [];
+        for (const el of document.querySelectorAll("button, a[href]")) {
+          if (!el.getClientRects().length || el.closest("[hidden]") || getComputedStyle(el).visibility === "hidden") continue;
+          el.scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+          const r = el.getBoundingClientRect();
+          const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          if (hit && !el.contains(hit) && !hit.contains(el)) out.push(`${el.tagName.toLowerCase()} "${(el.getAttribute("aria-label") || el.textContent).trim().slice(0, 30)}" under ${hit.tagName.toLowerCase()}${hit.className && typeof hit.className === "string" ? "." + hit.className.trim().split(/\s+/).join(".") : ""}`);
+        }
+        scrollTo({ top: 0, behavior: "instant" });
+        return out;
+      });
+      for (const c of covered) failures.push(`${where}: ${c}`);
+
       // nothing wider than the screen
       const wide = await page.evaluate(() => {
         const w = document.documentElement.clientWidth;

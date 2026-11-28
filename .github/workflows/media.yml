@@ -54,9 +54,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN: ${{ github.run_id }}
+          ATTEMPT: ${{ github.run_attempt }}
         run: |
           if git diff --quiet -- docs/assets; then echo "the media didn't change"; exit 0; fi
-          branch="media/$RUN"
+          # (a re-run gets its own branch: an earlier attempt's push may already be there)
+          branch="media/$RUN-$ATTEMPT"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"

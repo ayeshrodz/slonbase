@@ -63,10 +63,17 @@ await browser.close();
 
 // WebP copies for the site (the PNGs stay for README.md and the docs)
 const { execFileSync } = await import("node:child_process");
+// (every screen needs its copy: a missing one fails the run, after the others are made)
+const failed = [];
 for (const f of fs.readdirSync(out).filter((f) => f.endsWith(".png"))) {
   try {
     execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-i", path.join(out, f), "-c:v", "libwebp", "-quality", "82", path.join(out, f.replace(/\.png$/, ".webp"))]);
   } catch (e) {
-    console.warn("no webp for", f, e.message);
+    console.error("no webp for", f, e.message);
+    failed.push(f);
   }
+}
+if (failed.length) {
+  console.error(`WebP conversion failed for ${failed.length} screenshot(s)`);
+  process.exitCode = 1;
 }
