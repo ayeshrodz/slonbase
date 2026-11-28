@@ -258,6 +258,11 @@ done, `bench/published/<slonbase version>/` holds:
 - `REPORT.md`, the full table;
 - `machine.txt`, the CPU, memory, OS, PostgreSQL version and governor.
 
+A published folder holds one comparison only, so the script stops before running when
+`bench/published/<slonbase version>/` already exists; `BENCH_REPLACE=1` replaces it (the old
+folder is removed when the new results are written). `scripts/bench-figures.mjs` takes the version,
+the machine and the run settings above the tables from that `machine.txt`.
+
 `POCKETBASE_VERSION` and `POSTGREST_VERSION` choose other releases (defaults 0.40.6 and 16.5, the
 last ones measured). `BENCH_RUNS`, `BENCH_DURATION`, `SERVER_CPUS` and `LOAD_CPUS` work as in
 `run.sh`.

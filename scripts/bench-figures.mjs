@@ -32,8 +32,10 @@ export function newest(dir = PUBLISHED) {
     const main = ["slonbase.json", `slonbase-${compact}.json`].find((f) => fs.existsSync(at(f)));
     if (!main || !fs.existsSync(at("pocketbase.json")) || !fs.existsSync(at("postgrest.json"))) continue;
     const load = (f) => JSON.parse(fs.readFileSync(at(f), "utf8"));
+    if (!fs.existsSync(at("machine.txt"))) throw new Error(`bench/published/${v} has no machine.txt`);
+    const machine = fs.readFileSync(at("machine.txt"), "utf8").split("\n").map((l) => l.trim()).filter(Boolean);
     const asyncFile = ["slonbase-async.json", `slonbase-${compact}-async.json`].find((f) => fs.existsSync(at(f)));
-    return { version: v, slonbase: load(main), pocketbase: load("pocketbase.json"), postgrest: load("postgrest.json"), async: asyncFile ? load(asyncFile) : null };
+    return { version: v, slonbase: load(main), pocketbase: load("pocketbase.json"), postgrest: load("postgrest.json"), machine, async: asyncFile ? load(asyncFile) : null };
   }
   throw new Error(`no folder in ${dir} has slonbase, pocketbase.json and postgrest.json`);
 }
@@ -74,6 +76,7 @@ export function figures(data = newest()) {
     vsPostgREST: { low: low(vsPg), high: high(vsPg) },
     list: { x: ratio(s["list 30"], p["list 30"]), p99: p["list 30"].p99 / s["list 30"].p99 },
     filtered: { x: ratio(s["list 30, filtered"], p["list 30, filtered"]) },
+    machine: data.machine,
     footprint: { slonbase: data.slonbase.footprint, pocketbase: data.pocketbase.footprint, postgrest: data.postgrest.footprint },
     times,
   };
@@ -92,7 +95,16 @@ export function tables(f = figures()) {
   const footprint = `| | slonbase ${f.version} | PocketBase ${n.pocketbase} | PostgREST ${n.postgrest} |\n|---|--:|--:|--:|\n` +
     `| Binary on disk | ${mb(fp.slonbase.binaryBytes)} | ${mb(fp.pocketbase.binaryBytes)} | ${mb(fp.postgrest.binaryBytes)} |\n` +
     `| Resident memory, idle | ${mbKb(fp.slonbase.idleRssKb)} | ${mbKb(fp.pocketbase.idleRssKb)} | ${mbKb(fp.postgrest.idleRssKb)} |`;
+  // how the comparison was run, from its machine.txt and its results
+  const line = (re, what) => f.machine.find((l) => re.test(l)) ?? (() => { throw new Error(`machine.txt of ${f.version} has no ${what}`); })();
+  const seen = {};
+  for (const [k] of SUMMARY) seen[f.s[k].concurrency] = (seen[f.s[k].concurrency] ?? 0) + 1;
+  const clients = Object.keys(seen).reduce((m, c) => (seen[c] > seen[m] ? c : m));
+  const setup = `slonbase ${f.version}, PocketBase ${n.pocketbase} and PostgREST ${n.postgrest}, each at its defaults (PostgREST with a pool of 16), ` +
+    `${line(/^PostgreSQL /, "PostgreSQL version")}, on ${f.machine[0]}: the ${line(/^servers /, "CPU pinning")}. ` +
+    `${clients} clients, medians of ${line(/ runs of /, "run settings")}.`;
   return {
+    "setup": setup,
     "summary": `${head}\n${rows(false)}`,
     "summary-async": `${head}\n${rows(true)}`,
     "footprint": footprint,

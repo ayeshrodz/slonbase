@@ -6,9 +6,9 @@ tables are in the repository's [`bench/`](https://github.com/ayeshrodz/slonbase/
 
 ## Results
 
-slonbase 2.2.0, PocketBase 0.40.6 and PostgREST 16.5, each at its defaults (PostgREST with a pool
-of 16), PostgreSQL 16, on a 4-vCPU cloud VM: the server and PostgreSQL pinned to 3 CPUs, the load
-generator to the fourth. 32 clients, medians of three 10-second runs after a warm-up.
+<!-- bench:setup -->
+slonbase 2.2.0, PocketBase 0.40.6 and PostgREST 16.5, each at its defaults (PostgREST with a pool of 16), PostgreSQL 16, on a 4-vCPU cloud VM: the servers and PostgreSQL on CPUs 0-2, the load generator on 3. 32 clients, medians of 3 runs of 10s per scenario, after a warm-up.
+<!-- bench:end -->
 
 <!-- bench:summary -->
 | Scenario | slonbase 2.2 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |

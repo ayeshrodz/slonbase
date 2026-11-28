@@ -51,8 +51,8 @@ for (const x of s.scenarios) {
   const lat = (k) => servers.map((r) => (r ? ms(r[k]) : "n/a")).join(" / ");
   row.push(lat("p50"), lat("p99"));
   lines.push(`| ${row.join(" | ")} |`);
-  const failed = [x, y, q, z].filter(Boolean).reduce((n, r) => n + r.failed, 0);
-  if (failed) lines.push(`|  ↳ failed requests: slonbase ${x.failed}${y ? `, PocketBase ${y.failed}` : ""}${q ? `, PostgREST ${q.failed}` : ""}${z ? `, async ${z.failed}` : ""} |${" |".repeat(head.length - 1)}`);
+  const failed = [x, y, q, z, w].filter(Boolean).reduce((n, r) => n + r.failed, 0);
+  if (failed) lines.push(`|  ↳ failed requests: slonbase ${x.failed}${y ? `, PocketBase ${y.failed}` : ""}${q ? `, PostgREST ${q.failed}` : ""}${z ? `, async ${z.failed}` : ""}${w ? `, previous ${w.failed}` : ""} |${" |".repeat(head.length - 1)}`);
 }
 const others = [p, g].filter(Boolean).map(label).join(" and ");
 console.log(`${label(s)}${others ? ` against ${others}` : ""}: median of ${s.runs} runs of ${s.duration} per scenario, ${s.cpus} CPUs (± is half the spread between runs)\n`);

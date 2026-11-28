@@ -11,6 +11,7 @@
 # POCKETBASE_VERSION  default 0.40.6; checked against the release's checksums.txt
 # POSTGREST_VERSION   default 16.5; POSTGREST_SHA256 checks the download (its checksum is
 #                     printed either way, to compare with the release page)
+# BENCH_REPLACE       1 replaces an existing bench/published/<version>/ (otherwise the run stops)
 # BENCH_RUNS, BENCH_DURATION, SERVER_CPUS, LOAD_CPUS: as in run.sh (3 runs of 10s; the servers
 #                     and PostgreSQL on CPUs 0-2, the load on 3)
 set -euo pipefail
@@ -46,6 +47,11 @@ if [ -z "${SLONBASE_BIN:-}" ]; then
 fi
 version="$("$SLONBASE_BIN" --version | awk '{print $2}')"
 echo "slonbase $version: $SLONBASE_BIN" >&2
+# a published folder holds the results of one comparison, so a folder already there (from an
+# earlier run, or results published by hand) is replaced only when BENCH_REPLACE=1 says so
+if [ -e "published/$version" ] && [ "${BENCH_REPLACE:-}" != 1 ]; then
+  fail "bench/published/$version already exists; move it away, or set BENCH_REPLACE=1 to replace it"
+fi
 
 say "PocketBase $pb_version"
 mkdir -p "$tools"
@@ -109,6 +115,7 @@ run postgrest DATABASE_URL="$(db_url bench_postgrest)"
 
 say "Publishing to bench/published/$version"
 out="published/$version"
+rm -rf "$out"
 mkdir -p "$out"
 for n in slonbase pocketbase postgrest; do cp "results/$n.json" "results/$n.raw.jsonl" "$out/"; done
 {
