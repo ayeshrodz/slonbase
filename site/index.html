@@ -1252,7 +1252,7 @@ slonbase serve</pre>
     };
 
     var current = "single", vert = false, flows = [], arrivals = [], halos = {}, total = 6, clock = 0, last = 0;
-    var reduce = matchMedia("(prefers-reduced-motion: reduce)").matches, paused = false, seen = false, raf = 0;
+    var motion = matchMedia("(prefers-reduced-motion: reduce)"), reduce = motion.matches, paused = false, seen = false, raf = 0;
 
     function layout(sc) {
       var W = vert ? 360 : 900, pos = {}, n = sc.tiers.length, H = vert ? 70 + (n - 1) * 156 + 100 : 424;
@@ -1352,7 +1352,7 @@ slonbase serve</pre>
       });
       var glow = {};
       arrivals.forEach(function (a) { var d = ((t - a.at) % total + total) % total; if (d < 0.5) glow[a.node] = Math.max(glow[a.node] || 0, 1 - d / 0.5); });
-      Object.keys(halos).forEach(function (id) { halos[id].setAttribute("opacity", ((glow[id] || 0) * 0.85).toFixed(2)); });
+      Object.keys(halos).forEach(function (id) { halos[id].style.opacity = ((glow[id] || 0) * 0.85).toFixed(2); });
     }
 
     function tick(now) {
@@ -1370,7 +1370,14 @@ slonbase serve</pre>
       if (v !== vert) { vert = v; build(current); }
     }
     vert = wrap.clientWidth < 600;
-    if (reduce) pauseBtn.hidden = true;
+    pauseBtn.hidden = reduce;
+    // follow the preference when it changes while the page is open: a still frame when reduced, playing again when not
+    function motionChanged() {
+      reduce = motion.matches;
+      pauseBtn.hidden = reduce;
+      if (reduce) { if (raf) { cancelAnimationFrame(raf); raf = 0; } frame(1.4); } else run();
+    }
+    if (motion.addEventListener) motion.addEventListener("change", motionChanged); else if (motion.addListener) motion.addListener(motionChanged);
     pauseBtn.addEventListener("click", function () {
       paused = !paused;
       pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
