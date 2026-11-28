@@ -53,6 +53,8 @@ jobs:
       - run: node scripts/build-tokens.mjs --check
       # the benchmark tables in the README and the docs match the newest published comparison
       - run: node scripts/bench-figures.mjs --check
+      # which releases the project page shows (a newer candidate too) and the commands it gives
+      - run: node scripts/build-site.mjs --test
 
   # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
   msrv:

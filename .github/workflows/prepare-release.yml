@@ -92,7 +92,7 @@ jobs:
               *-*) echo "- This is a candidate: make a correction under \`## [Unreleased]\` too (the release takes its notes from there and drops the candidates' sections)." ;;
             esac
             echo "- Keep a one-sentence summary as the section's first paragraph: the docs home page shows it next to the version (\"New in $VERSION\")."
-            echo "- For the home page's highlight (\`site/index.html\`, \`pill-title\`, \`rel-summary\` and \`rel-items\`), edit it on this branch if this release deserves new wording; the version and date are already updated."
+            echo "- The home page's release pill, card and install commands are filled from the published release when the site is deployed: its bold lead, first paragraph and \`### Added\` headlines are what they show."
             echo "- CI was started on this branch by the workflow; its checks show below."
           } > body.md
           if gh pr create --base "$BASE" --head "release/v$VERSION" --title "Release $VERSION" --body-file body.md; then
