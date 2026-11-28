@@ -212,8 +212,15 @@ h2 { font-size: clamp(30px, 4.2vw, 46px); font-weight: 650; margin-top: 14px; }
 .sub { color: var(--muted); font-size: 18px; max-width: 680px; margin: 18px 0 0; }
 .center .sub { margin-inline: auto; }
 section { padding: 104px 0; position: relative; }
-section.alt { background: var(--surface); border-block: 1px solid var(--line); }
-:root[data-theme="dark"] section.alt { background: color-mix(in srgb, var(--surface), var(--canvas) 55%); }
+/* a faint page texture behind everything: a dot grid fading out from the top, and two soft washes of the accent and PostgreSQL colours */
+body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none; background:
+  radial-gradient(60% 50% at 8% 0%, color-mix(in srgb, var(--accent), transparent 90%), transparent 70%),
+  radial-gradient(55% 45% at 100% 100%, color-mix(in srgb, var(--pg), transparent 92%), transparent 70%),
+  radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink), transparent 91%) 1px, transparent 1.4px) 0 0 / 28px 28px;
+  -webkit-mask-image: linear-gradient(black, rgb(0 0 0 / .45)); mask-image: linear-gradient(black, rgb(0 0 0 / .45)); }
+/* alternate sections are a lighter band over the page, in both themes */
+section.alt { background: color-mix(in srgb, var(--surface), transparent 12%); border-block: 1px solid var(--line); }
+:root[data-theme="dark"] section.alt { background: color-mix(in srgb, color-mix(in srgb, var(--surface), var(--ink) 5%), transparent 12%); }
 
 /* buttons: flat, hairline, like the dashboard's */
 .btn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 18px; border-radius: var(--r-ctl-lg); font: var(--w-medium) 15px var(--font); border: 1px solid var(--line-2); background: var(--control); color: var(--ink); cursor: pointer; transition: background-color var(--t-fast), border-color var(--t-fast); }
@@ -264,7 +271,7 @@ h1 { font-size: clamp(40px, 7vw, 76px); font-weight: 700; letter-spacing: -.035e
 h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .lede { font-size: clamp(17px, 2vw, 20px); color: var(--muted); max-width: 680px; margin: 22px auto 0; }
 .ctas { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 32px; }
-.install-line { margin: 28px auto 0; max-width: 640px; display: flex; align-items: center; gap: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; border: 1px solid var(--code-line); box-shadow: var(--shadow-2); overflow: hidden; text-align: left; }
+.install-line { margin: 28px auto 0; max-width: 680px; display: flex; align-items: center; gap: 0; background: var(--code-bg); color: var(--code-ink); border-radius: 10px; border: 1px solid var(--code-line); box-shadow: var(--shadow-2); overflow: hidden; text-align: left; }
 .install-line code { flex: 1; background: none; border: 0; border-radius: 0; font-size: 14px; padding: 14px 16px; white-space: nowrap; overflow-x: auto; color: inherit; scrollbar-width: none; }
 .install-line .p { color: var(--accent); user-select: none; }
 .install-line .caret { display: inline-block; width: 8px; height: 1.1em; vertical-align: -3px; background: var(--accent); margin-left: 2px; animation: blink 1s steps(1) infinite; }
@@ -272,7 +279,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 .install-line button { align-self: stretch; display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 104px; padding: 0 20px; border: 0; border-left: 1px solid var(--code-line); background: color-mix(in srgb, var(--accent), var(--code-bg) 62%); color: var(--primary-ink); font: 600 12.5px var(--mono); letter-spacing: .06em; cursor: pointer; text-transform: uppercase; transition: background .15s; }
 .install-line button::before { content: ""; width: 14px; height: 14px; background: currentColor; -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='9' y='9' width='11' height='11' rx='2'/%3E%3Cpath d='M5 15V6a2 2 0 0 1 2-2h9'/%3E%3C/svg%3E") center / contain no-repeat; }
 .install-line button:hover { background: color-mix(in srgb, var(--accent), var(--code-bg) 40%); }
-.under { color: var(--muted); font-size: 13.5px; margin: 12px 0 0; }
+.under { color: var(--muted); font-size: 14px; max-width: 640px; margin: 14px auto 0; }
 
 /* the dashboard in an app window */
 .stage { position: relative; margin: 64px auto 0; max-width: 1080px; perspective: 1600px; }
@@ -285,108 +292,7 @@ h1 .pg { background: linear-gradient(100deg, var(--accent) 0%, var(--pg) 100%); 
 @keyframes pulse { 50% { opacity: .45; } }
 .window video, .window img { display: block; width: 100%; height: auto; aspect-ratio: 1280 / 800; background: var(--canvas); }
 .stage::after { content: ""; position: absolute; left: 6%; right: 6%; bottom: -40px; height: 80px; background: radial-gradient(50% 100% at 50% 0%, var(--glow), transparent 70%); filter: blur(24px); z-index: -1; pointer-events: none; }
-/* the hero animation: drawn at 1280x800 (640x800 on a phone) and scaled to the window */
-.anim { position: relative; aspect-ratio: 1280 / 800; overflow: hidden; background: var(--canvas); }
-.anim.narrow { aspect-ratio: 640 / 800; }
-.anim-stage { position: absolute; left: 0; top: 0; width: 1280px; height: 800px; transform-origin: 0 0; font: 400 24px/1.45 var(--font); color: var(--ink); }
-.anim.narrow .anim-stage { width: 640px; }
-.sc { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 40px; padding: 56px; opacity: 0; visibility: hidden; transition: opacity .5s var(--ease-out), visibility 0s .5s; }
-.sc.on { opacity: 1; visibility: visible; transition: opacity .5s var(--ease-out); }
-.anim.narrow .sc { flex-direction: column; gap: 28px; padding: 40px 32px; }
-/* parts that arrive one after another (--at), at once in a still frame */
-.sc .tl.out, .sc .tl.ok, .sc .frow, .sc .save, .sc .toast, .sc .resp, .sc .client, .sc .ev:not(.old), .sc .node em, .sc .end-s { opacity: 0; }
-.sc.on .tl.out, .sc.on .tl.ok { animation: rise .4s var(--ease-out) forwards; animation-delay: calc(1.6s + var(--at) * .42s); }
-.sc.on .frow { animation: rise .35s var(--ease-out) forwards; animation-delay: calc(.6s + var(--at) * .38s); }
-.sc.on .save { animation: rise .35s var(--ease-out) 2.3s forwards; }
-.sc.on .toast { animation: rise .4s var(--ease-out) 2.9s forwards; }
-.sc.on .resp { animation: rise .4s var(--ease-out) 1.1s forwards; }
-.sc.on .client { animation: rise .4s var(--ease-out) .5s forwards; }
-.sc.on .ev:not(.old) { animation: drop .5s var(--ease-out) 1.8s forwards; }
-.sc.on .node em { animation: rise .3s var(--ease-out) forwards; animation-delay: calc(1.2s + var(--n) * .15s); }
-.sc.on .end-s { animation: rise .5s var(--ease-out) .5s forwards; }
-.sc.still * { animation-duration: 0s !important; animation-delay: 0s !important; }
-@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-@keyframes drop { from { opacity: 0; transform: translateY(-14px); background: var(--accent-soft); } to { opacity: 1; transform: none; } }
-/* 1 · install */
-.term { width: 1040px; max-width: 100%; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--code-line); border-radius: 16px; padding: 36px 40px; font: 400 24px/1.75 var(--mono); box-shadow: var(--shadow-3); }
-.anim.narrow .term { font-size: 21px; padding: 28px; }
-.term .pr { color: var(--accent); }
-.term .out { color: var(--code-dim); }
-.term .ok b { color: var(--accent); }
-/* 2 · a collection in the dashboard */
-.dash { display: flex; width: 1100px; max-width: 100%; height: 600px; background: var(--surface); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-3); }
-.dash .side { width: 250px; flex: none; background: var(--sidebar); border-right: 1px solid var(--line); padding: 22px 16px; font-size: 19px; }
-.anim.narrow .dash .side { display: none; }
-.logo-row { display: flex; align-items: center; gap: 10px; font-weight: 600; margin-bottom: 20px; }
-.logo-row img { width: 28px; height: 28px; }
-.logo-row b { font-weight: 400; color: var(--muted); }
-.nav-i { padding: 7px 10px; border-radius: 8px; color: var(--ink-3); }
-.nav-i.on { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
-.nav-cap { margin: 18px 10px 6px; font: 600 14px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
-.nav-i.col::before { content: "▤ "; color: var(--muted); }
-.sc.on .new-col { animation: rise .4s var(--ease-out) 3s both; color: var(--accent-strong); }
-.panel { flex: 1; padding: 30px 34px; display: flex; flex-direction: column; gap: 12px; }
-.ph { display: flex; align-items: center; gap: 12px; }
-.ph-t { font: 600 30px var(--font); font-stretch: 85%; }
-.chip-k { font: 600 15px var(--mono); border: 1px solid var(--line-2); border-radius: 6px; padding: 2px 9px; color: var(--muted); }
-.field.name { color: var(--muted); font-size: 18px; display: flex; flex-direction: column; gap: 6px; }
-.field .in { border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 14px; color: var(--ink); font: 500 22px var(--mono); min-height: 52px; box-shadow: 0 0 0 3px var(--accent-ring); }
-.frow { display: flex; align-items: center; gap: 14px; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; background: var(--surface-2); font-weight: 500; }
-.frow i { margin-left: auto; font: 400 17px var(--mono); color: var(--muted); }
-.ft { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 8px; background: var(--accent-soft); color: var(--accent-strong); font: 600 16px var(--mono); }
-.save { align-self: flex-start; margin-top: 6px; background: var(--primary); color: var(--primary-ink); border-radius: 10px; padding: 10px 20px; font-weight: 500; }
-.toast { align-self: flex-start; font-size: 19px; color: var(--ink-2); background: var(--ok-soft); border: 1px solid color-mix(in srgb, var(--ok), transparent 70%); border-radius: 10px; padding: 8px 14px; }
-/* 3 · the API, and another app live */
-.code-card { width: 640px; max-width: 100%; background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--code-line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-3); }
-.cc-h { background: var(--code-bar); border-bottom: 1px solid var(--code-line); padding: 12px 22px; font: 500 17px var(--mono); color: var(--code-dim); }
-.code-card pre { margin: 0; padding: 22px 26px; font: 400 21px/1.6 var(--mono); }
-.anim.narrow .code-card pre { font-size: 18px; padding: 16px 20px; }
-.resp { border-top: 1px dashed var(--code-line); display: flex; gap: 14px; align-items: flex-start; padding-left: 26px; }
-.resp .st { margin-top: 24px; font: 600 15px var(--mono); color: var(--code-bg); background: var(--syn-string); border-radius: 6px; padding: 2px 8px; }
-.resp pre { padding-left: 0 !important; color: var(--code-dim); }
-.client { width: 480px; max-width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 22px; box-shadow: var(--shadow-2); display: flex; flex-direction: column; gap: 12px; }
-.anim.narrow .client { width: 100%; }
-.cl-h { font-size: 18px; color: var(--muted); display: flex; align-items: center; gap: 10px; }
-.cl-h code { font: 500 16px var(--mono); background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 1px 6px; }
-.dot-live { width: 11px; height: 11px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); flex: none; }
-.ev { display: flex; align-items: center; gap: 12px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-weight: 500; }
-.ev i { white-space: nowrap; margin-left: auto; font: 400 15px var(--mono); color: var(--muted); }
-.ev-a { font: 600 14px var(--mono); text-transform: uppercase; letter-spacing: .06em; padding: 3px 8px; border-radius: 6px; background: var(--ok-soft); color: color-mix(in srgb, var(--ok), var(--ink) 35%); }
-.ev-a.up { background: var(--info-soft); color: color-mix(in srgb, var(--info), var(--ink) 35%); }
-/* 4 · several instances, one database */
-.sc-scale { flex-direction: column; justify-content: flex-start; padding-top: 70px; gap: 0; }
-.lb { font: 600 17px var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); border: 1px dashed var(--line-2); border-radius: 10px; padding: 8px 18px; margin-bottom: 44px; }
-.nodes { display: flex; gap: 60px; z-index: 1; }
-.anim.narrow .nodes { gap: 14px; }
-.node { width: 300px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 20px 22px; display: flex; flex-direction: column; gap: 4px; box-shadow: var(--shadow-2); }
-.anim.narrow .node { width: 176px; padding: 14px; }
-.node b { font-size: 24px; }
-.node span { font: 400 16px var(--mono); color: var(--muted); }
-.node em { font: 600 15px var(--mono); font-style: normal; color: color-mix(in srgb, var(--ok), var(--ink) 35%); background: var(--ok-soft); border-radius: 6px; padding: 3px 8px; align-self: flex-start; margin-top: 8px; }
-.wires { position: absolute; inset: 0; width: 100%; height: 100%; }
-.anim.narrow .wires { display: none; }
-.wires path { fill: none; stroke: var(--line-2); stroke-width: 3; stroke-dasharray: 6 9; }
-.sc.on .wires path { animation: flow 1s linear infinite; }
-.anim.paused, .anim.paused * { animation-play-state: paused !important; }
-.anim .pg { position: absolute; left: 50%; top: 600px; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.anim.narrow .pg { top: 560px; }
-.anim .pg svg { fill: var(--accent-soft); stroke: var(--pg); stroke-width: 2.5; }
-.anim .pg b { font-size: 24px; }
-.anim .pg span { font-size: 17px; color: var(--muted); }
-/* 5 · the end */
-.sc-end { flex-direction: column; text-align: center; gap: 22px; }
-.end-mark img { width: 84px; height: 84px; }
-.end-t { font: 650 72px/1.05 var(--font); letter-spacing: -.03em; }
-.anim.narrow .end-t { font-size: 54px; }
-.end-s { max-width: 760px; color: var(--muted); font-size: 24px; }
-.anim-dots { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; gap: 8px; }
-.anim-dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--line-2); transition: background .3s, width .3s; }
-.anim-dots i.on { width: 20px; border-radius: 4px; background: var(--accent); }
-@media (prefers-reduced-motion: reduce) { .sc, .sc * { transition: none !important; animation: none !important; opacity: 1 !important; } }
-.tour-video { max-width: 1080px; margin: 48px auto 56px; }
-.tour-video .window { transform: none; }
 .video-note { text-align: center; color: var(--muted); font-size: 13.5px; margin: 26px 0 0; }
-.video-note button { font: inherit; color: color-mix(in srgb, var(--accent), var(--ink) 38%); background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 0; }
 
 /* the numbers */
 .stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-1); margin: 72px 0 0; overflow: hidden; }
@@ -539,9 +445,50 @@ table.cmp { width: 100%; border-collapse: collapse; min-width: 720px; font-size:
 }
 
 /* scale diagram */
-.topo { max-width: 860px; margin: 0 auto; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: var(--shadow-1); padding: 18px 18px 8px; }
-.topo img { display: block; width: 100%; height: auto; }
-.topo figcaption { color: var(--muted); font-size: 15px; padding: 14px 6px 10px; text-align: center; }
+/* the deployment layouts: drawn in the page's colours, with requests travelling along the lines */
+.topo { max-width: 980px; margin: 0 auto; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--shadow-1); padding: 18px 18px 8px; overflow: hidden; position: relative; }
+.fleet { position: relative; border-radius: 10px; background: radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--ink), transparent 90%) 1px, transparent 1.3px) 0 0 / 22px 22px; }
+.fleet::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: radial-gradient(75% 85% at 50% 50%, transparent 40%, var(--surface) 100%); }
+.fleet svg { position: relative; z-index: 1; display: block; width: 100%; height: auto; overflow: visible; animation: scene-in .45s var(--ease-out) both; }
+@keyframes scene-in { from { opacity: 0; transform: translateY(8px); } }
+.fleet .zone { fill: color-mix(in srgb, var(--accent), transparent 95%); stroke: color-mix(in srgb, var(--accent), transparent 62%); stroke-width: 1.2; stroke-dasharray: 5 6; }
+.fleet .zlabel { font: 600 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; fill: color-mix(in srgb, var(--accent), var(--ink) 35%); }
+.fleet .track { fill: none; stroke: var(--line-2); stroke-width: 2.2; stroke-linecap: round; }
+.fleet .track.direct { stroke-dasharray: 2 7; stroke-width: 2.6; }
+.fleet .track.faint { stroke-dasharray: 2 6; opacity: .75; }
+.fleet .tag-bg { fill: var(--surface); stroke: var(--line-2); stroke-width: 1; }
+.fleet .tag { font: 500 10px var(--mono); fill: var(--muted); text-anchor: middle; }
+.fleet .node { --tone: var(--accent); }
+.fleet .card { fill: var(--surface); stroke: var(--line-2); stroke-width: 1.3; }
+.fleet .card.tone { stroke: color-mix(in srgb, var(--tone), var(--line-2) 55%); }
+.fleet .rule { stroke: var(--line); stroke-width: 1.2; fill: none; }
+.fleet .pill { fill: var(--surface-2); stroke: var(--line); stroke-width: 1; }
+.fleet .bar { fill: var(--line-2); }
+.fleet .bar.accent { fill: var(--tone); }
+.fleet .bar.soft { fill: color-mix(in srgb, var(--tone), transparent 78%); }
+.fleet .line { fill: none; stroke: var(--tone); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.fleet .fill-tone { fill: color-mix(in srgb, var(--tone), transparent 82%); stroke: var(--tone); stroke-width: 1.6; }
+.fleet .ring { fill: none; stroke: color-mix(in srgb, var(--tone), transparent 35%); stroke-width: 1.6; }
+.fleet .led { fill: var(--ok); }
+.fleet .dot { fill: var(--tone); }
+.fleet .nl { font: 600 12px var(--font); fill: var(--ink); text-anchor: middle; }
+.fleet .ns { font: 400 10.5px var(--font); fill: var(--muted); text-anchor: middle; }
+.fleet .halo { fill: none; stroke: var(--tone); stroke-width: 2.5; opacity: 0; }
+.fleet .pk { --pk: var(--accent); }
+.fleet .pk.res { --pk: var(--pg); }
+.fleet .pk.ev { --pk: var(--warn); }
+.fleet .pk-halo { fill: var(--pk); opacity: .24; }
+.fleet .pk-dot { fill: var(--pk); stroke: var(--surface); stroke-width: 1.6; }
+.fleet-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 16px; padding: 12px 4px 0; }
+.fleet-legend { margin: 0; display: flex; flex-wrap: wrap; gap: 4px 16px; color: var(--muted); font-size: 12.5px; }
+.fleet-legend span { display: inline-flex; align-items: center; gap: 7px; }
+.fleet-legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--pk); box-shadow: 0 0 0 3px color-mix(in srgb, var(--pk), transparent 76%); }
+.fleet-legend .k-req { --pk: var(--accent); } .fleet-legend .k-res { --pk: var(--pg); } .fleet-legend .k-ev { --pk: var(--warn); }
+.fleet-pause { font: inherit; font-size: 12.5px; color: color-mix(in srgb, var(--accent), var(--ink) 38%); background: none; border: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; padding: 0; border-radius: 4px; }
+.fleet-pause:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
+.topo figcaption { color: var(--muted); font-size: 15px; padding: 10px 6px 14px; text-align: center; }
+@media (pointer: coarse) { .fleet-pause { min-height: 44px; min-width: 44px; } }
+@media (max-width: 620px) { .topo { padding: 12px 8px 4px; } }
 .diagram svg { width: 100%; height: auto; color: var(--ink); font: 500 13px var(--font); }
 .diagram svg text { fill: currentColor; } .diagram svg .t2 { fill: var(--muted); font-size: 11.5px; }
 .diagram .flow { stroke-dasharray: 4 6; animation: flow 1.4s linear infinite; }
@@ -549,16 +496,17 @@ table.cmp { width: 100%; border-collapse: collapse; min-width: 720px; font-size:
 
 /* install */
 .install { margin-top: 48px; max-width: 860px; margin-inline: auto; }
-/* every platform's commands, right under the one-liner */
-.hero-install { max-width: 760px; margin-top: 22px; text-align: left; scroll-margin-top: 80px; }
-.install-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
-.install-title { margin: 0; font: 600 12px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+/* every platform's commands, as wide as the page's column; the nav's Install link lands on its section */
+#install { scroll-margin-top: 56px; }
+.install-all { max-width: none; margin-top: 40px; }
+.install-head { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+.install-head:not(:has(.channel)) { display: none; }
 .channel { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--canvas-2); }
 .channel button { border: 0; background: transparent; color: var(--muted); font: var(--w-semibold) var(--text-sm) var(--font); padding: 5px 12px; border-radius: var(--r-ctl-sm); cursor: pointer; }
 .channel button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line-2); }
 :root[data-theme="dark"] .channel button[aria-pressed="true"] { background: var(--control-hover); }
 .channel button:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring); }
-.hero-install .code pre { min-height: 132px; }
+.install-all .code pre { min-height: 150px; }
 .install-note { color: var(--muted); font-size: 15px; text-align: center; margin: 22px 0 0; }
 .releases { margin-top: 48px; display: grid; gap: 16px; }
 .release { display: grid; grid-template-columns: 1fr 1.2fr; gap: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; box-shadow: var(--shadow-1); }
@@ -677,135 +625,19 @@ footer { margin-top: 0; padding: 56px 0 40px; border-top: 1px solid var(--line);
         <code id="quick"><span class="p" aria-hidden="true">$ </span><span class="sr">curl -fsSL https://slonbase.com/install.sh | sudo sh</span><span id="typed" aria-hidden="true" data-text="curl -fsSL https://slonbase.com/install.sh | sudo sh">curl -fsSL https://slonbase.com/install.sh | sudo sh</span><span class="caret" aria-hidden="true"></span></code>
         <button type="button" data-copy-text="curl -fsSL https://slonbase.com/install.sh | sudo sh" aria-label="Copy the install command">Copy</button>
       </div>
-      <p class="under">On Debian, Ubuntu, Fedora and RHEL, it installs PostgreSQL if needed and sets everything up. Docker, packages, macOS, Windows and more:</p>
-      <div class="install hero-install" id="install">
-        <div class="install-head">
-          <p class="install-title">Every way to install it</p>
-          <div data-region="channel"><!-- @site:channel --><!-- @site:end --></div>
-        </div>
-        <div class="code">
-          <div class="tabs"><div role="tablist" aria-label="Installation" class="tl fade-x">
-            <button role="tab" aria-selected="true" aria-controls="in-linux" id="t-linux">Linux</button>
-            <button role="tab" aria-selected="false" aria-controls="in-docker" id="t-docker">Docker</button>
-            <button role="tab" aria-selected="false" aria-controls="in-apt" id="t-apt">Debian / Ubuntu</button>
-            <button role="tab" aria-selected="false" aria-controls="in-dnf" id="t-dnf">Fedora / RHEL</button>
-            <button role="tab" aria-selected="false" aria-controls="in-bin" id="t-bin">Binary</button>
-            <button role="tab" aria-selected="false" aria-controls="in-mac" id="t-mac">macOS</button>
-            <button role="tab" aria-selected="false" aria-controls="in-win" id="t-win">Windows</button>
-            <button role="tab" aria-selected="false" aria-controls="in-pb" id="t-pb">From PocketBase</button>
-            </div>
-            <button class="copy" data-copy-active>Copy</button>
-          </div>
-<pre role="tabpanel" id="in-linux" aria-labelledby="t-linux"><span data-region="cmd-linux"><!-- @site:cmd-linux --><span class="cm"># Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,</span>
-<span class="cm"># installs slonbase and creates your first superuser</span>
-curl -fsSL https://slonbase.com/install.sh | sudo sh<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-docker" aria-labelledby="t-docker" hidden><span data-region="cmd-docker"><!-- @site:cmd-docker -->mkdir slonbase &amp;&amp; cd slonbase
-curl -fsSLO https://raw.githubusercontent.com/ayeshrodz/slonbase/main/compose.yaml
-echo &quot;POSTGRES_PASSWORD=$(openssl rand -hex 24)&quot; &gt; .env
-docker compose up -d
-docker compose logs slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-apt" aria-labelledby="t-apt" hidden><span data-region="cmd-apt"><!-- @site:cmd-apt -->curl -fsSL https://slonbase.com/slonbase.gpg | sudo tee /usr/share/keyrings/slonbase.gpg &gt; /dev/null
-curl -fsSL https://slonbase.com/slonbase.list | sudo tee /etc/apt/sources.list.d/slonbase.list
-sudo apt update &amp;&amp; sudo apt install slonbase
-sudo journalctl -u slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden><span data-region="cmd-dnf"><!-- @site:cmd-dnf -->sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://slonbase.com/slonbase.repo
-sudo dnf install slonbase
-sudo journalctl -u slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span data-region="cmd-bin"><!-- @site:cmd-bin -->curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/slonbase-2.7.1-linux-amd64.tar.gz
-curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/SHA256SUMS &amp;&amp; grep linux-amd64.tar.gz SHA256SUMS | sha256sum -c
-tar xzf slonbase-2.7.1-linux-amd64.tar.gz
-./slonbase serve    <span class="cm"># prints the setup link</span><!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-mac" aria-labelledby="t-mac" hidden><span data-region="cmd-mac"><!-- @site:cmd-mac --><span class="cm"># macOS on Apple silicon (experimental, not signed): check the download, see the guide</span>
-curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/slonbase-2.7.1-macos-arm64.tar.gz
-curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/SHA256SUMS
-grep macos-arm64.tar.gz SHA256SUMS | shasum -a 256 -c
-tar xzf slonbase-2.7.1-macos-arm64.tar.gz
-./slonbase serve<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-win" aria-labelledby="t-win" hidden><span data-region="cmd-win"><!-- @site:cmd-win --><span class="cm"># Windows x64 (experimental, not signed): check the download, see the guide</span>
-$base = &quot;https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1&quot;
-Invoke-WebRequest &quot;$base/slonbase-2.7.1-windows-amd64.zip&quot; -OutFile slonbase.zip
-Invoke-WebRequest &quot;$base/SHA256SUMS&quot; -OutFile SHA256SUMS
-Select-String windows-amd64.zip SHA256SUMS
-(Get-FileHash slonbase.zip -Algorithm SHA256).Hash
-Expand-Archive slonbase.zip -DestinationPath slonbase
-.\slonbase\slonbase.exe serve<!-- @site:end --></span></pre>
-<pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
-slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
-slonbase import-pocketbase ./pb_data
-cp pb_hooks/*.pb.js slonbase_hooks/   <span class="cm"># your hooks keep working</span>
-slonbase serve</pre>
-        </div>
-      </div>
+      <p class="under">That script is for Linux (Debian, Ubuntu, Fedora, RHEL): it installs PostgreSQL if needed and sets everything up. slonbase runs on any system: for Docker, macOS, Windows or a plain binary, see <a href="#install">every way to install it</a>.</p>
     </div>
 
     <div class="stage reveal">
       <div class="window" id="window">
-        <div class="window-bar"><i></i><i></i><i></i><span class="url" id="anim-url">slonbase.example.com</span></div>
-        <div class="anim" id="anim" role="img" aria-label="An animation: slonbase is installed with one command, a posts collection is created in the dashboard, an app creates a post through the API, a second app receives it live, and three slonbase servers on one PostgreSQL database all see it.">
-          <div class="anim-stage" aria-hidden="true">
-            <div class="sc sc-term">
-              <div class="term">
-                <div class="tl"><span class="pr">$</span> <span class="type" data-text="curl -fsSL https://slonbase.com/install.sh | sudo sh"></span></div>
-                <div class="tl out" style="--at:1">→ PostgreSQL 16 is ready, role and database created</div>
-                <div class="tl out" style="--at:2">→ slonbase installed from the signed repository</div>
-                <div class="tl out" style="--at:3">→ first superuser created</div>
-                <div class="tl ok" style="--at:4"><b>slonbase</b> is listening on :8090</div>
-                <div class="tl out" style="--at:5">  dashboard: https://slonbase.example.com/_/</div>
-              </div>
-            </div>
-            <div class="sc sc-dash">
-              <div class="dash">
-                <div class="side"><div class="logo-row"><img src="assets/logo.svg" alt=""><span>slon<b>base</b></span></div><div class="nav-i on">Data</div><div class="nav-i">Automations</div><div class="nav-i">Logs</div><div class="nav-i">SQL</div><div class="nav-i">Health</div><div class="nav-cap">Collections</div><div class="nav-i col">users</div><div class="nav-i col new-col">posts</div></div>
-                <div class="panel">
-                  <div class="ph"><span class="ph-t">New collection</span><span class="chip-k">base</span></div>
-                  <div class="field name">Name <span class="in"><span class="type" data-text="posts"></span></span></div>
-                  <div class="frow" style="--at:1"><span class="ft">T</span> title <i>text · required</i></div>
-                  <div class="frow" style="--at:2"><span class="ft">¶</span> body <i>editor</i></div>
-                  <div class="frow" style="--at:3"><span class="ft">◉</span> published <i>bool</i></div>
-                  <div class="frow" style="--at:4"><span class="ft">→</span> author <i>relation · users</i></div>
-                  <div class="save">Create collection</div>
-                  <div class="toast">Table <b>slonbase.posts</b> created</div>
-                </div>
-              </div>
-            </div>
-            <div class="sc sc-api">
-              <div class="code-card">
-                <div class="cc-h">app.js</div>
-<pre><span class="k">await</span> pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class="f">create</span>({
-  title: <span class="s">"Hello, PostgreSQL"</span>,
-  published: <span class="k">true</span>,
-});</pre>
-                <div class="resp"><span class="st">200</span><pre>{ <span class="n">"id"</span>: <span class="s">"r8k2m4q9x1v7c3p"</span>,
-  <span class="n">"title"</span>: <span class="s">"Hello, PostgreSQL"</span>,
-  <span class="n">"created"</span>: <span class="s">"2026-11-28 09:41:07Z"</span> }</pre></div>
-              </div>
-              <div class="client">
-                <div class="cl-h"><span class="dot-live"></span> Another app, subscribed to <code>posts/*</code></div>
-                <div class="ev"><span class="ev-a">create</span> Hello, PostgreSQL <i>just now</i></div>
-                <div class="ev old"><span class="ev-a up">update</span> Release notes <i>2 min ago</i></div>
-              </div>
-            </div>
-            <div class="sc sc-scale">
-              <div class="lb">Any load balancer</div>
-              <div class="nodes">
-                <div class="node" style="--n:0"><b>slonbase</b><span>instance 1</span><em>posts/create</em></div>
-                <div class="node" style="--n:1"><b>slonbase</b><span>instance 2</span><em>posts/create</em></div>
-                <div class="node" style="--n:2"><b>slonbase</b><span>instance 3</span><em>posts/create</em></div>
-              </div>
-              <svg class="wires" viewBox="0 0 1280 800"><path d="M280 298 C280 470 640 430 640 596"/><path d="M640 298 L640 596"/><path d="M1000 298 C1000 470 640 430 640 596"/></svg>
-              <div class="pg"><svg viewBox="0 0 64 64" width="56" height="56"><ellipse cx="32" cy="14" rx="22" ry="8"/><path d="M10 14v34c0 4.4 9.8 8 22 8s22-3.6 22-8V14"/><path d="M10 31c0 4.4 9.8 8 22 8s22-3.6 22-8"/></svg><b>PostgreSQL</b><span>one database, shared by all</span></div>
-            </div>
-            <div class="sc sc-end">
-              <div class="end-mark"><img src="assets/logo.svg" alt=""></div>
-              <div class="end-t">One binary.<br>Real PostgreSQL tables.</div>
-              <div class="end-s">REST and realtime API · auth with roles · files · hooks · automations · a dashboard for every project</div>
-            </div>
-          </div>
-          <div class="anim-dots" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-        </div>
+        <div class="window-bar"><i></i><i></i><i></i><span class="url">localhost:8090/_/</span></div>
+        <video id="tour-video" muted loop playsinline preload="none" controls poster="assets/tour-poster.jpg" aria-label="A recorded tour of the slonbase dashboard: records, schema, automations, the SQL console, projects and settings">
+          <source src="assets/tour.webm" type="video/webm">
+          <source src="assets/tour.mp4" type="video/mp4">
+        </video>
       </div>
     </div>
-    <p class="video-note">What it does, in 20 seconds. <button type="button" id="anim-toggle" aria-pressed="false">Pause</button> · <a href="#tour">Watch the real dashboard</a></p>
+    <p class="video-note">A tour of the real dashboard, recorded from a running installation.</p>
 
     <div class="stats reveal"><!-- bench:site-stats --><div class="stat" data-label="Lists"><b><span data-count="4.4">4.4</span>×</b><span>the requests per second of PocketBase on a list of 30, at 7.8× lower p99 latency</span></div><div class="stat" data-label="Filtered"><b><span data-count="36">36</span>×</b><span>on a filtered list, where PostgreSQL plans the query and uses your index</span></div><div class="stat" data-label="Footprint"><b><span data-count="26">26</span><small>MB</small></b><span>one static binary with the dashboard built in; 41 MB of memory when idle</span></div><!-- bench:end --><div class="stat" data-label="Realtime"><b>Any<small>source</small></b><span>of change reaches subscribers: the API, SQL, or another program</span></div></div>
   </div>
@@ -874,16 +706,6 @@ slonbase serve</pre>
       <div class="eyebrow">The dashboard</div>
       <h2>A dashboard you'll enjoy.</h2>
       <p class="sub">Live grids, a schema editor, API rules, logs, an SQL console and a command center for every project. It follows your light or dark theme, takes your accent colour and your logo, and ⌘K jumps anywhere.</p>
-    </div>
-    <div class="tour-video reveal">
-      <div class="window">
-        <div class="window-bar"><i></i><i></i><i></i><span class="url">localhost:8090/_/</span></div>
-        <video id="tour-video" muted loop playsinline preload="none" controls poster="assets/tour-poster.jpg" aria-label="A recorded tour of the slonbase dashboard: records, schema, the SQL console, projects and settings">
-          <source src="assets/tour.webm" type="video/webm">
-          <source src="assets/tour.mp4" type="video/mp4">
-        </video>
-      </div>
-      <p class="video-note">A tour of the real dashboard, recorded from a running installation.</p>
     </div>
     <div class="shots reveal">
       <div class="shot-tabs fade-x" role="tablist" aria-label="Dashboard screens">
@@ -1107,7 +929,13 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       <button role="tab" aria-selected="false" aria-controls="topo-panel" data-topo="projects">Projects across servers</button>
     </div>
     <figure class="topo reveal" role="tabpanel" id="topo-panel" aria-label="Deployment layout">
-      <img id="topo-img" src="assets/topology-single-light.svg" width="760" height="260" alt="One slonbase instance on one PostgreSQL server">
+      <div class="fleet" id="fleet" role="img" aria-label="One slonbase instance on one PostgreSQL server">
+        <svg id="fleet-svg" viewBox="0 0 900 424" focusable="false" aria-hidden="true"></svg>
+      </div>
+      <div class="fleet-bar">
+        <p class="fleet-legend" id="fleet-legend" aria-hidden="true"></p>
+        <button type="button" class="fleet-pause" id="fleet-pause" aria-pressed="false">Pause</button>
+      </div>
       <figcaption id="topo-cap"></figcaption>
     </figure>
     <div class="grid" style="margin-top:36px">
@@ -1168,14 +996,71 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   </div>
 </section>
 
-<section id="deploy" class="alt">
+<section id="install" class="alt">
   <div class="wrap">
     <div class="center reveal">
-      <div class="eyebrow">Get started</div>
-      <h2>More ways to run it.</h2>
-      <p class="sub">slonbase connects to any PostgreSQL 14+ server, yours or a managed one. The <a href="docs/installation/">installation guide</a> starts from a bare server, and the <a href="docs/deployment/">production guide</a> covers the reverse proxy, backups and monitoring. <a href="#install">The install commands are at the top.</a></p>
+      <div class="eyebrow">Install</div>
+      <h2>Every way to install it.</h2>
+      <p class="sub">slonbase connects to any PostgreSQL 14+ server, yours or a managed one. The <a href="docs/installation/">installation guide</a> starts from a bare server, and the <a href="docs/deployment/">production guide</a> covers the reverse proxy, backups and monitoring.</p>
     </div>
-    <div class="install reveal">
+    <div class="install install-all reveal">
+        <div class="install-head">
+          <div data-region="channel"><!-- @site:channel --><!-- @site:end --></div>
+        </div>
+        <div class="code">
+          <div class="tabs"><div role="tablist" aria-label="Installation" class="tl fade-x">
+            <button role="tab" aria-selected="true" aria-controls="in-linux" id="t-linux">Linux</button>
+            <button role="tab" aria-selected="false" aria-controls="in-docker" id="t-docker">Docker</button>
+            <button role="tab" aria-selected="false" aria-controls="in-apt" id="t-apt">Debian / Ubuntu</button>
+            <button role="tab" aria-selected="false" aria-controls="in-dnf" id="t-dnf">Fedora / RHEL</button>
+            <button role="tab" aria-selected="false" aria-controls="in-bin" id="t-bin">Binary</button>
+            <button role="tab" aria-selected="false" aria-controls="in-mac" id="t-mac">macOS</button>
+            <button role="tab" aria-selected="false" aria-controls="in-win" id="t-win">Windows</button>
+            <button role="tab" aria-selected="false" aria-controls="in-pb" id="t-pb">From PocketBase</button>
+            </div>
+            <button class="copy" data-copy-active>Copy</button>
+          </div>
+<pre role="tabpanel" id="in-linux" aria-labelledby="t-linux"><span data-region="cmd-linux"><!-- @site:cmd-linux --><span class="cm"># Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,</span>
+<span class="cm"># installs slonbase and creates your first superuser</span>
+curl -fsSL https://slonbase.com/install.sh | sudo sh<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-docker" aria-labelledby="t-docker" hidden><span data-region="cmd-docker"><!-- @site:cmd-docker -->mkdir slonbase &amp;&amp; cd slonbase
+curl -fsSLO https://raw.githubusercontent.com/ayeshrodz/slonbase/main/compose.yaml
+echo &quot;POSTGRES_PASSWORD=$(openssl rand -hex 24)&quot; &gt; .env
+docker compose up -d
+docker compose logs slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-apt" aria-labelledby="t-apt" hidden><span data-region="cmd-apt"><!-- @site:cmd-apt -->curl -fsSL https://slonbase.com/slonbase.gpg | sudo tee /usr/share/keyrings/slonbase.gpg &gt; /dev/null
+curl -fsSL https://slonbase.com/slonbase.list | sudo tee /etc/apt/sources.list.d/slonbase.list
+sudo apt update &amp;&amp; sudo apt install slonbase
+sudo journalctl -u slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-dnf" aria-labelledby="t-dnf" hidden><span data-region="cmd-dnf"><!-- @site:cmd-dnf -->sudo curl -fsSL -o /etc/yum.repos.d/slonbase.repo https://slonbase.com/slonbase.repo
+sudo dnf install slonbase
+sudo journalctl -u slonbase | grep &quot;setup?token&quot;<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-bin" aria-labelledby="t-bin" hidden><span data-region="cmd-bin"><!-- @site:cmd-bin -->curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/slonbase-2.7.1-linux-amd64.tar.gz
+curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/SHA256SUMS &amp;&amp; grep linux-amd64.tar.gz SHA256SUMS | sha256sum -c
+tar xzf slonbase-2.7.1-linux-amd64.tar.gz
+./slonbase serve    <span class="cm"># prints the setup link</span><!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-mac" aria-labelledby="t-mac" hidden><span data-region="cmd-mac"><!-- @site:cmd-mac --><span class="cm"># macOS on Apple silicon (experimental, not signed): check the download, see the guide</span>
+curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/slonbase-2.7.1-macos-arm64.tar.gz
+curl -fsSLO https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1/SHA256SUMS
+grep macos-arm64.tar.gz SHA256SUMS | shasum -a 256 -c
+tar xzf slonbase-2.7.1-macos-arm64.tar.gz
+./slonbase serve<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-win" aria-labelledby="t-win" hidden><span data-region="cmd-win"><!-- @site:cmd-win --><span class="cm"># Windows x64 (experimental, not signed): check the download, see the guide</span>
+$base = &quot;https://github.com/ayeshrodz/slonbase/releases/download/v2.7.1&quot;
+Invoke-WebRequest &quot;$base/slonbase-2.7.1-windows-amd64.zip&quot; -OutFile slonbase.zip
+Invoke-WebRequest &quot;$base/SHA256SUMS&quot; -OutFile SHA256SUMS
+Select-String windows-amd64.zip SHA256SUMS
+(Get-FileHash slonbase.zip -Algorithm SHA256).Hash
+Expand-Archive slonbase.zip -DestinationPath slonbase
+.\slonbase\slonbase.exe serve<!-- @site:end --></span></pre>
+<pre role="tabpanel" id="in-pb" aria-labelledby="t-pb" hidden><span class="cm"># collections, records, password hashes, files and settings, from pb_data or a backup zip</span>
+slonbase setup --database-url "postgres://..." --email you@example.com --password '...'
+slonbase import-pocketbase ./pb_data
+cp pb_hooks/*.pb.js slonbase_hooks/   <span class="cm"># your hooks keep working</span>
+slonbase serve</pre>
+        </div>
+      </div>
+    <div class="reveal">
       <p class="install-note">Or deploy with one click on <a href="https://render.com/deploy?repo=https://github.com/ayeshrodz/slonbase">Render</a>, or with the setups for <a href="docs/platforms/">Fly.io and others</a>. Packages update with <code>apt upgrade</code> and <code>dnf upgrade</code> (<a href="packages/">repository details</a>).</p>
     </div>
     <div class="story reveal" style="margin-top:72px">
@@ -1216,8 +1101,8 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
         <a href="https://github.com/ayeshrodz/slonbase/issues">Report an issue</a>
       </div>
       <div>
-        <h4>Author</h4>
-        <a href="https://ayesh.dev/">ayesh.dev</a>
+        <h4>Maintainer</h4>
+        <a href="https://ayesh.dev/">Ayesh Rodrigo</a>
         <a id="story-link-2" href="https://ayesh.dev/projects/slonbase-pocketbase-api-on-postgresql/">The story of slonbase</a>
         <a href="https://github.com/ayeshrodz">@ayeshrodz on GitHub</a>
       </div>
@@ -1245,7 +1130,6 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
     try { localStorage.setItem("theme", next); } catch (e) {}
     themeChanged();
     showShot(current);
-    if (typeof showTopo === "function") showTopo(topoCur);
   });
   themeChanged();
 
@@ -1293,22 +1177,230 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
   });
   showShot(current);
 
-  // the deployment layouts: diagrams in the page's theme
-  var TOPO = {
-    single: ["One slonbase instance and one PostgreSQL server: about 3 connections idle, 18 under load. This is where to start.", 760, 260, "One slonbase instance on one PostgreSQL server"],
-    fleet: ["Any number of instances behind any load balancer, no affinity. They share state through PostgreSQL; files go to S3 or a shared volume.", 760, 390, "Several slonbase instances behind a load balancer on one PostgreSQL server"],
-    pooler: ["Behind PgBouncer in transaction mode, with a direct connection for LISTEN (database.listen_url): six instances and four projects used 83 connections instead of exhausting 100.", 760, 365, "Several slonbase instances behind PgBouncer, with listeners connected directly"],
-    projects: ["Projects are isolated installations. A project can connect a database on another PostgreSQL server, from one instance or many.", 760, 350, "One slonbase serving a main database and projects on two PostgreSQL servers"]
+  // the deployment layouts: a drawn scene per layout (devices, a load balancer, slonbase
+  // instances, a pooler, PostgreSQL), in the page's colours, with requests, answers and realtime
+  // events travelling along the lines. Columns on a wide screen, rows on a phone; paused off
+  // screen, in a hidden tab and by its button; one still frame without motion.
+  var FLEET = (function () {
+    var wrap = document.getElementById("fleet");
+    if (!wrap) return null;
+    var svg = document.getElementById("fleet-svg"), legend = document.getElementById("fleet-legend");
+    var pauseBtn = document.getElementById("fleet-pause");
+    var SIZE = { web: [100, 74], mobile: [48, 80], lb: [76, 80], slon: [100, 72], pool: [84, 66], db: [78, 88], files: [80, 70] };
+    var HOP = 0.55;
+
+    var ART = {
+      web: '<rect class="card tone" x="-50" y="-37" width="100" height="74" rx="9"/><path class="rule" d="M-50 -23H50"/>' +
+        '<circle cx="-40" cy="-30" r="2.4" fill="var(--light-close)"/><circle cx="-32" cy="-30" r="2.4" fill="var(--light-min)"/><circle cx="-24" cy="-30" r="2.4" fill="var(--light-max)"/>' +
+        '<rect class="pill" x="-12" y="-34" width="52" height="8" rx="4"/>' +
+        '<rect class="bar accent" x="-40" y="-13" width="38" height="6" rx="3"/><rect class="bar" x="-40" y="-2" width="56" height="5" rx="2.5"/><rect class="bar" x="-40" y="9" width="44" height="5" rx="2.5"/>' +
+        '<rect class="bar soft" x="12" y="-14" width="28" height="26" rx="6"/><path class="line" d="M16 6l6-6 5 4 6-8" style="stroke-width:1.8"/>',
+      mobile: '<rect class="card tone" x="-24" y="-40" width="48" height="80" rx="11"/><rect class="pill" x="-8" y="-35" width="16" height="4.5" rx="2.2"/>' +
+        '<rect class="bar accent" x="-16" y="-24" width="14" height="14" rx="4"/><rect class="bar soft" x="2" y="-24" width="14" height="14" rx="4"/>' +
+        '<rect class="bar soft" x="-16" y="-6" width="14" height="14" rx="4"/><rect class="bar accent" x="2" y="-6" width="14" height="14" rx="4" style="opacity:.6"/>' +
+        '<rect class="bar" x="-16" y="12" width="32" height="5" rx="2.5"/><rect class="bar" x="-8" y="32" width="16" height="3" rx="1.5"/>',
+      lb: '<path class="card tone" d="M0 -40L35 -20V20L0 40L-35 20V-20Z" stroke-linejoin="round"/>' +
+        '<path class="line" d="M-18 0H-4M-4 0C5 0 6 -15 17 -15M-4 0H17M-4 0C5 0 6 15 17 15"/>' +
+        '<circle class="dot" cx="19" cy="-15" r="3.4"/><circle class="dot" cx="19" cy="0" r="3.4"/><circle class="dot" cx="19" cy="15" r="3.4"/><circle class="bar accent" cx="-19" cy="0" r="3.4"/>',
+      slon: '<rect class="card tone" x="-50" y="-36" width="100" height="72" rx="10"/><path class="rule" d="M-50 -20H50"/>' +
+        '<circle class="led" cx="38" cy="-28" r="2.8"/><circle class="bar" cx="29" cy="-28" r="2.8"/><circle class="bar" cx="20" cy="-28" r="2.8"/>' +
+        '<image href="assets/logo.svg" x="-42" y="-13" width="34" height="34"/>' +
+        '<rect class="bar accent" x="2" y="-10" width="38" height="6" rx="3"/><rect class="bar" x="2" y="2" width="30" height="5" rx="2.5"/><rect class="bar" x="2" y="13" width="36" height="5" rx="2.5"/>',
+      pool: '<path class="card tone" d="M-40 -28H40L11 6V28H-11V6Z" stroke-linejoin="round"/>' +
+        '<circle class="dot" cx="-22" cy="-17" r="3.2"/><circle class="dot" cx="-8" cy="-19" r="3.2"/><circle class="dot" cx="8" cy="-17" r="3.2"/><circle class="dot" cx="22" cy="-19" r="3.2"/>' +
+        '<circle class="dot" cx="-4" cy="-4" r="3"/><circle class="dot" cx="5" cy="-5" r="3"/><circle class="dot" cx="0" cy="14" r="3"/>',
+      db: '<path class="card tone" d="M-39 -30V30C-39 46 39 46 39 30V-30Z"/><path class="ring" d="M-39 -6C-39 10 39 10 39 -6"/><path class="ring" d="M-39 16C-39 32 39 32 39 16"/>' +
+        '<ellipse class="card tone" cx="0" cy="-30" rx="39" ry="14"/><ellipse class="fill-tone" cx="0" cy="-30" rx="29" ry="8" style="stroke:none"/>',
+      files: '<path class="card tone" d="M-36 -22L-28 28C-26 38 26 38 28 28L36 -22Z" stroke-linejoin="round"/>' +
+        '<ellipse class="card tone" cx="0" cy="-22" rx="36" ry="10"/><path class="ring" d="M-32 0C-20 8 20 8 32 0"/><rect class="bar accent" x="-10" y="12" width="20" height="5" rx="2.5"/>'
+    };
+
+    var C = function (id, k, l, s, tone) { return { id: id, k: k, l: l, s: s, tone: tone }; };
+    var SCENES = {
+      single: {
+        label: "One slonbase instance, used by a web app and a mobile app, on one PostgreSQL server",
+        tiers: [[C("web", "web", "Web app", "browser"), C("mob", "mobile", "Mobile app", "iOS, Android")], [C("app", "slon", "slonbase", "one binary")], [C("db", "db", "PostgreSQL", "your tables")]],
+        links: [["web", "app"], ["mob", "app"], ["app", "db"]],
+        flows: [{ at: 0, path: ["web", "app", "db"], back: true }, { at: 2.6, path: ["mob", "app", "db"], back: true }]
+      },
+      fleet: {
+        label: "Web, mobile and admin clients reach several slonbase instances through a load balancer; the instances share one PostgreSQL server and an S3 bucket",
+        tiers: [[C("c1", "web", "Web app", "browser"), C("c2", "mobile", "Mobile app", "iOS, Android"), C("c3", "web", "Admin", "dashboard")], [C("lb", "lb", "Load balancer", "any, no affinity")],
+          [C("i1", "slon", "slonbase", "instance 1"), C("i2", "slon", "slonbase", "instance 2"), C("i3", "slon", "slonbase", "instance 3")], [C("db", "db", "PostgreSQL", "shared state"), C("files", "files", "S3 or volume", "shared files")]],
+        zones: [{ tier: 2, label: "Any number of instances" }],
+        links: [["c1", "lb"], ["c2", "lb"], ["c3", "lb"], ["lb", "i1"], ["lb", "i2"], ["lb", "i3"], ["i1", "db"], ["i2", "db"], ["i3", "db"], ["i1", "files", "faint"], ["i2", "files", "faint"], ["i3", "files", "faint"]],
+        flows: [{ at: 0, path: ["c1", "lb", "i1", "db"], back: true }, { at: 0.9, path: ["c2", "lb", "i2", "db"], back: true }, { at: 1.8, path: ["c3", "lb", "i3", "db"], back: true },
+          { at: 4.6, kind: "ev", path: ["db", "i1", "lb", "c1"] }, { at: 4.6, kind: "ev", path: ["db", "i2", "lb", "c2"] }, { at: 4.6, kind: "ev", path: ["db", "i3", "lb", "c3"] }]
+      },
+      pooler: {
+        label: "Instances behind a load balancer reach PostgreSQL through PgBouncer, with a direct connection for LISTEN",
+        tiers: [[C("c1", "web", "Web app", "browser"), C("c2", "mobile", "Mobile app", "iOS, Android")], [C("lb", "lb", "Load balancer", "any, no affinity")],
+          [C("i1", "slon", "slonbase", "instance 1"), C("i2", "slon", "slonbase", "instance 2"), C("i3", "slon", "slonbase", "instance 3")], [C("pool", "pool", "PgBouncer", "transaction mode")], [C("db", "db", "PostgreSQL", "max_connections")]],
+        zones: [{ tier: 2, label: "Instances" }],
+        links: [["c1", "lb"], ["c2", "lb"], ["lb", "i1"], ["lb", "i2"], ["lb", "i3"], ["i1", "pool"], ["i2", "pool"], ["i3", "pool"], ["pool", "db"],
+          ["i1", "db", "direct", -1, "LISTEN, direct"], ["i3", "db", "direct", 1]],
+        flows: [{ at: 0, path: ["c1", "lb", "i1", "pool", "db"], back: true }, { at: 1.4, path: ["c2", "lb", "i2", "pool", "db"], back: true }, { at: 4.4, kind: "ev", path: ["db", "i1", "lb", "c1"] }]
+      },
+      projects: {
+        label: "One slonbase serves a main app and two projects, each on its own PostgreSQL server",
+        tiers: [[C("c1", "web", "Main app", "main", "var(--accent)"), C("c2", "web", "Shop", "project", "var(--pg)"), C("c3", "mobile", "Blog", "project", "var(--warn)")], [C("app", "slon", "slonbase", "one installation")],
+          [C("d1", "db", "main", "PostgreSQL 1", "var(--accent)"), C("d2", "db", "shop", "PostgreSQL 2", "var(--pg)"), C("d3", "db", "blog", "PostgreSQL 3", "var(--warn)")]],
+        zones: [{ tier: 2, label: "Separate PostgreSQL servers" }],
+        links: [["c1", "app"], ["c2", "app"], ["c3", "app"], ["app", "d1"], ["app", "d2"], ["app", "d3"]],
+        flows: [{ at: 0, path: ["c1", "app", "d1"], back: true, tone: "var(--accent)" }, { at: 0.9, path: ["c2", "app", "d2"], back: true, tone: "var(--pg)" }, { at: 1.8, path: ["c3", "app", "d3"], back: true, tone: "var(--warn)" }]
+      }
+    };
+
+    var current = "single", vert = false, flows = [], arrivals = [], halos = {}, total = 6, clock = 0, last = 0;
+    var motion = matchMedia("(prefers-reduced-motion: reduce)"), reduce = motion.matches, paused = false, seen = false, raf = 0;
+
+    function layout(sc) {
+      var W = vert ? 360 : 900, pos = {}, n = sc.tiers.length, H = vert ? 70 + (n - 1) * 156 + 100 : 424;
+      sc.tiers.forEach(function (tier, i) {
+        tier.forEach(function (nd, k) {
+          var m = tier.length, off = (k - (m - 1) / 2);
+          var x = vert ? W / 2 + off * 120 : 76 + i * (W - 152) / (n - 1);
+          var y = vert ? 62 + i * 156 : H / 2 - 12 + off * 128;
+          pos[nd.id] = { x: x, y: y, w: SIZE[nd.k][0], h: SIZE[nd.k][1], nd: nd };
+        });
+      });
+      return { W: W, H: H, pos: pos };
+    }
+    function endpoint(p, end) {
+      if (vert) return end === "out" ? [p.x, p.y + p.h / 2 + 36] : [p.x, p.y - p.h / 2 - 5];
+      return end === "out" ? [p.x + p.w / 2 + 6, p.y] : [p.x - p.w / 2 - 6, p.y];
+    }
+    function curve(a, b, bow) {
+      var d = vert ? (b[1] - a[1]) * 0.5 : (b[0] - a[0]) * 0.5, o = (bow || 0) * (vert ? 70 : 96);
+      return vert ? "M" + a + "C" + [a[0] + o, a[1] + d] + " " + [b[0] + o, b[1] - d] + " " + b
+                  : "M" + a + "C" + [a[0] + d, a[1] + o] + " " + [b[0] - d, b[1] + o] + " " + b;
+    }
+    function ease(f) { return 0.5 - Math.cos(Math.PI * f) / 2; }
+
+    function build(name) {
+      var sc = SCENES[name], L = layout(sc), html = "", links = {}, ids = [];
+      current = name;
+      svg.setAttribute("viewBox", "0 0 " + L.W + " " + L.H);
+      html += '<defs><filter id="fl-shadow" x="-30%" y="-30%" width="160%" height="170%"><feDropShadow dx="0" dy="5" stdDeviation="5" flood-color="#000" flood-opacity=".14"/></filter></defs>';
+      (sc.zones || []).forEach(function (z) {
+        var row = sc.tiers[z.tier], x1 = 1e9, x2 = -1e9, y1 = 1e9, y2 = -1e9, lines = [], cur = "";
+        row.forEach(function (nd) { var p = L.pos[nd.id]; x1 = Math.min(x1, p.x - p.w / 2); x2 = Math.max(x2, p.x + p.w / 2); y1 = Math.min(y1, p.y - p.h / 2); y2 = Math.max(y2, p.y + p.h / 2 + 36); });
+        // the label wraps to the zone's width (10px capitals in the mono face, about 7px each)
+        z.label.split(" ").forEach(function (w) { var next = cur ? cur + " " + w : w; if (cur && next.length * 7.1 > x2 - x1 + 16) { lines.push(cur); cur = w; } else cur = next; });
+        lines.push(cur);
+        var top = y1 - 22 - lines.length * 12;
+        html += '<rect class="zone" x="' + (x1 - 20) + '" y="' + top + '" width="' + (x2 - x1 + 40) + '" height="' + (y2 + 14 - top) + '" rx="16"/><text class="zlabel" x="' + (x1 - 8) + '" y="' + (top + 16) + '">' +
+          lines.map(function (l, i) { return '<tspan x="' + (x1 - 8) + '" dy="' + (i ? 12 : 0) + '">' + l + "</tspan>"; }).join("") + '</text>';
+      });
+      sc.links.forEach(function (lk, i) {
+        var a = L.pos[lk[0]], b = L.pos[lk[1]], id = "lk" + i, kind = lk[2] || "";
+        links[lk[0] + ">" + lk[1]] = id;
+        html += '<path id="' + id + '" class="track ' + kind + '" d="' + curve(endpoint(a, "out"), endpoint(b, "in"), lk[3]) + '"/>';
+        ids.push(id);
+      });
+      sc.tiers.forEach(function (tier) {
+        tier.forEach(function (nd) {
+          var p = L.pos[nd.id], dy = p.h / 2;
+          html += '<g class="node" transform="translate(' + p.x + " " + p.y + ')"' + (nd.tone ? ' style="--tone:' + nd.tone + '"' : "") + '>' +
+            '<rect class="halo" id="h-' + nd.id + '" x="' + (-p.w / 2 - 7) + '" y="' + (-p.h / 2 - 7) + '" width="' + (p.w + 14) + '" height="' + (p.h + 14) + '" rx="16"/>' +
+            '<g filter="url(#fl-shadow)">' + ART[nd.k] + '</g><text class="nl" y="' + (dy + 17) + '">' + nd.l + '</text><text class="ns" y="' + (dy + 31) + '">' + nd.s + '</text></g>';
+        });
+      });
+      html += '<g id="fl-labels"></g><g id="fl-packets"></g>';
+      svg.innerHTML = html;
+      svg.style.animation = "none"; void svg.getBoundingClientRect(); svg.style.animation = "";
+      wrap.setAttribute("aria-label", sc.label);
+
+      // the lines' labels
+      var lab = svg.querySelector("#fl-labels");
+      sc.links.forEach(function (lk, i) {
+        if (!lk[4]) return;
+        var el = svg.querySelector("#lk" + i), pt = el.getPointAtLength(el.getTotalLength() * 0.5);
+        lab.insertAdjacentHTML("beforeend", '<g transform="translate(' + pt.x + " " + pt.y + ')"><rect class="tag-bg" x="-' + (lk[4].length * 3.1 + 7) + '" y="-9" width="' + (lk[4].length * 6.2 + 14) + '" height="18" rx="9"/><text class="tag" y="3.6">' + lk[4] + '</text></g>');
+      });
+
+      // the journeys: one packet per flow, hop by hop along the lines
+      var layer = svg.querySelector("#fl-packets"), kinds = {};
+      flows = []; arrivals = []; halos = {}; total = 0;
+      sc.tiers.forEach(function (t) { t.forEach(function (nd) { halos[nd.id] = svg.querySelector("#h-" + nd.id); }); });
+      sc.flows.forEach(function (f) {
+        var hops = [], kind = f.kind || "req", p = f.path, i;
+        function hop(a, b, kd) {
+          var fwd = links[a + ">" + b], id = fwd || links[b + ">" + a], el = svg.querySelector("#" + id);
+          return { el: el, len: el.getTotalLength(), rev: !fwd, kind: kd, to: b };
+        }
+        for (i = 0; i < p.length - 1; i++) hops.push(hop(p[i], p[i + 1], kind));
+        if (f.back) for (i = p.length - 1; i > 0; i--) hops.push(hop(p[i], p[i - 1], "res"));
+        hops.forEach(function (h, k) { arrivals.push({ node: h.to, at: f.at + (k + 1) * HOP }); kinds[h.kind] = true; });
+        layer.insertAdjacentHTML("beforeend", '<g class="pk" style="' + (f.tone ? "--pk:" + f.tone : "") + '"><circle class="pk-halo" r="11"/><circle class="pk-dot" r="4.8"/></g>');
+        flows.push({ at: f.at, hops: hops, el: layer.lastElementChild, tone: !!f.tone });
+        total = Math.max(total, f.at + hops.length * HOP);
+      });
+      total = Math.ceil((total + 0.9) * 10) / 10;
+      legend.innerHTML = (kinds.req ? '<span><i class="k-req"></i>request</span>' : "") + (kinds.res ? '<span><i class="k-res"></i>answer</span>' : "") + (kinds.ev ? '<span><i class="k-ev"></i>realtime event</span>' : "");
+      frame(reduce ? 1.4 : clock);
+    }
+
+    function frame(t) {
+      flows.forEach(function (f) {
+        var rel = ((t - f.at) % total + total) % total, k = Math.floor(rel / HOP), h = f.hops[k];
+        if (!h) { f.el.setAttribute("opacity", "0"); return; }
+        var fr = ease((rel - k * HOP) / HOP), pt = h.el.getPointAtLength(h.len * (h.rev ? 1 - fr : fr));
+        f.el.setAttribute("transform", "translate(" + pt.x + " " + pt.y + ")");
+        f.el.setAttribute("opacity", Math.min(1, Math.min(fr, 1 - fr) * 8 + 0.35));
+        if (!f.tone) f.el.setAttribute("class", "pk " + h.kind);
+      });
+      var glow = {};
+      arrivals.forEach(function (a) { var d = ((t - a.at) % total + total) % total; if (d < 0.5) glow[a.node] = Math.max(glow[a.node] || 0, 1 - d / 0.5); });
+      Object.keys(halos).forEach(function (id) { halos[id].style.opacity = ((glow[id] || 0) * 0.85).toFixed(2); });
+    }
+
+    function tick(now) {
+      raf = 0;
+      if (!seen || paused || document.hidden || reduce) return;
+      clock = (clock + Math.min(0.1, (now - last) / 1000)) % total; last = now;
+      frame(clock);
+      raf = requestAnimationFrame(tick);
+    }
+    function run() { if (!raf && seen && !paused && !document.hidden && !reduce) { last = performance.now(); raf = requestAnimationFrame(tick); } }
+
+    function show(name) { build(name); run(); }
+    function orient() {
+      var v = wrap.clientWidth < 600;
+      if (v !== vert) { vert = v; build(current); }
+    }
+    vert = wrap.clientWidth < 600;
+    pauseBtn.hidden = reduce;
+    // follow the preference when it changes while the page is open: a still frame when reduced, playing again when not
+    function motionChanged() {
+      reduce = motion.matches;
+      pauseBtn.hidden = reduce;
+      if (reduce) { if (raf) { cancelAnimationFrame(raf); raf = 0; } frame(1.4); } else run();
+    }
+    if (motion.addEventListener) motion.addEventListener("change", motionChanged); else if (motion.addListener) motion.addListener(motionChanged);
+    pauseBtn.addEventListener("click", function () {
+      paused = !paused;
+      pauseBtn.setAttribute("aria-pressed", paused ? "true" : "false");
+      pauseBtn.textContent = paused ? "Play" : "Pause";
+      if (!paused) run();
+    });
+    if ("ResizeObserver" in window) new ResizeObserver(orient).observe(wrap); else addEventListener("resize", orient);
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (e) { seen = e[0].isIntersecting; if (seen) run(); }, { threshold: 0.15 }).observe(wrap);
+    } else seen = true;
+    document.addEventListener("visibilitychange", function () { if (!document.hidden) run(); });
+    return { show: show, current: function () { return current; } };
+  })();
+  var TOPO_CAP = {
+    single: "One slonbase instance and one PostgreSQL server: about 3 connections idle, 18 under load. This is where to start.",
+    fleet: "Any number of instances behind any load balancer, no affinity. They share state through PostgreSQL; files go to S3 or a shared volume.",
+    pooler: "Behind PgBouncer in transaction mode, with a direct connection for LISTEN (database.listen_url): six instances and four projects used 83 connections instead of exhausting 100.",
+    projects: "Projects are isolated installations. A project can connect a database on another PostgreSQL server, from one instance or many."
   };
-  var topoCur = "single";
-  var topoImg = document.getElementById("topo-img");
   var topoCap = document.getElementById("topo-cap");
   function showTopo(name) {
-    topoCur = name;
-    var t = TOPO[name], theme = root.dataset.theme === "dark" ? "dark" : "light";
-    topoImg.src = "assets/topology-" + name + "-" + theme + ".svg";
-    topoImg.width = t[1]; topoImg.height = t[2]; topoImg.alt = t[3];
-    topoCap.textContent = t[0];
+    topoCap.textContent = TOPO_CAP[name];
+    if (FLEET) FLEET.show(name);
   }
   document.querySelectorAll("[data-topo]").forEach(function (b) {
     b.addEventListener("click", function () {
@@ -1316,7 +1408,7 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       showTopo(b.dataset.topo);
     });
   });
-  showTopo(topoCur);
+  showTopo("single");
 
   document.querySelectorAll(".code pre, pre.mini, .install-line code, .table-wrap").forEach(function (el) { el.setAttribute("tabindex", "0"); });
 
@@ -1399,73 +1491,6 @@ pb.<span class="f">collection</span>(<span class="s">"posts"</span>).<span class
       entries.forEach(function (e) { if (e.isIntersecting && e.intersectionRatio >= 0.5) { var p = video.play(); if (p && p.catch) p.catch(function () {}); } else video.pause(); });
     }, { threshold: 0.5 }).observe(video);
   }
-
-  // the hero animation: five scenes on a timeline, drawn at 1280x800 and scaled to the window;
-  // paused off screen, in a hidden tab and by its button; the last scene, still, without motion
-  var anim = document.getElementById("anim");
-  if (anim) {
-    var stage = anim.querySelector(".anim-stage");
-    var scenes = Array.prototype.slice.call(anim.querySelectorAll(".sc"));
-    var dots = Array.prototype.slice.call(anim.querySelectorAll(".anim-dots i"));
-    var urls = ["slonbase.example.com", "slonbase.example.com/_/#/data", "slonbase.example.com/api/collections/posts/records", "3 instances · 1 PostgreSQL", "slonbase.com"];
-    var LENGTH = [4600, 4200, 4400, 3600, 3400];
-    var fit = function () {
-      var narrow = anim.clientWidth < 560;
-      anim.classList.toggle("narrow", narrow);
-      stage.style.transform = "scale(" + anim.clientWidth / (narrow ? 640 : 1280) + ")";
-    };
-    fit();
-    if ("ResizeObserver" in window) new ResizeObserver(fit).observe(anim);
-    else addEventListener("resize", fit);
-    var cur = -1, timer = null, typing = [], visible = false, paused = false, left = 0, since = 0;
-    var typeIn = function (el, ms) {
-      var text = el.dataset.text, n = 0;
-      el.textContent = "";
-      var t = setInterval(function () { if (timer === null) return; el.textContent = text.slice(0, ++n); if (n >= text.length) clearInterval(t); }, ms / text.length);
-      typing.push(t);
-    };
-    var show = function (k, still) {
-      typing.forEach(clearInterval); typing = [];
-      cur = k;
-      scenes.forEach(function (sc, n) { sc.classList.toggle("on", n === k); sc.classList.toggle("still", !!still); });
-      dots.forEach(function (d, n) { d.classList.toggle("on", n === k); });
-      document.getElementById("anim-url").textContent = urls[k];
-      scenes[k].querySelectorAll(".type").forEach(function (el) { if (still) el.textContent = el.dataset.text; else typeIn(el, k === 0 ? 1500 : 500); });
-    };
-    // a pause holds the scene where it is (its motion, its typing and the time it has left)
-    var wait = function (ms) { left = ms; since = Date.now(); timer = setTimeout(next, ms); };
-    var next = function () { show((cur + 1) % scenes.length); wait(LENGTH[cur]); };
-    var run = function () {
-      if (timer || paused || !visible || document.hidden) return;
-      anim.classList.remove("paused");
-      if (cur < 0) next(); else wait(left);
-    };
-    var stop = function () {
-      anim.classList.add("paused");
-      if (!timer) return;
-      clearTimeout(timer); timer = null;
-      left = Math.max(0, left - (Date.now() - since));
-    };
-    var toggle = document.getElementById("anim-toggle");
-    if (reduce || saveData) {
-      show(scenes.length - 1, true);
-      toggle.hidden = true;
-    } else {
-      show(0, true);
-      cur = -1;
-      if ("IntersectionObserver" in window) {
-        new IntersectionObserver(function (entries) { visible = entries[0].isIntersecting; if (visible) run(); else stop(); }, { threshold: 0.3 }).observe(anim);
-      } else { visible = true; run(); }
-      document.addEventListener("visibilitychange", function () { if (document.hidden) stop(); else run(); });
-      toggle.addEventListener("click", function () {
-        paused = !paused;
-        toggle.setAttribute("aria-pressed", paused ? "true" : "false");
-        toggle.textContent = paused ? "Play" : "Pause";
-        if (paused) stop(); else run();
-      });
-    }
-  }
-
 
   // the window flattens as it scrolls into place
   var win = document.getElementById("window");

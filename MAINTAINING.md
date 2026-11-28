@@ -206,8 +206,9 @@ candidates, and a new minor's line is added with the previous line's end date.
 
 ## Checklist: repository settings
 
-Settings, General: allow squash merging only, default message "pull request title and
-description", automatically delete head branches, allow auto-merge.
+Settings, General: allow squash merging only, default commit message "pull request title" (the
+description of a pull request, and the message of a single commit, then stay out of the commit
+that lands on `main`), automatically delete head branches, allow auto-merge.
 Settings, Rules, Rulesets: the `main` ruleset above (its one required status check is `CI passed`,
 from GitHub Actions), and a tag ruleset for `v*`.
 Settings, Actions, General: workflow permissions read-only by default; require approval for
