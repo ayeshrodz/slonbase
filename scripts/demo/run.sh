@@ -4,7 +4,10 @@
 #
 #   DATABASE_URL='postgres://...an empty database with CREATEDB and CREATEROLE...' scripts/demo/run.sh
 #
-# SLONBASE_BIN (default target/debug/slonbase), DEMO_PORT (8222), OUT (default scripts/demo/out).
+# SLONBASE_BIN (default target/debug/slonbase), DEMO_PORT (8222), OUT (default scripts/demo/out),
+# CHROMIUM_PATH (a Chromium instead of Playwright's own). PUBLISH=1 copies the results where the
+# site and README use them (docs/assets): the screenshots (PNG and WebP), the tour and its poster,
+# and the README's animated demo.webp.
 # Needs Node 22, `npm ci` in ui/test (Playwright's Chromium) and ffmpeg.
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -38,3 +41,14 @@ ffmpeg -y -loglevel error -i "$raw" -vf "fps=30,scale=1280:800:flags=lanczos" -c
 ffmpeg -y -loglevel error -i "$raw" -vf "fps=30,scale=1280:800:flags=lanczos" -c:v libvpx-vp9 -b:v 0 -crf 36 -row-mt 1 -pix_fmt yuv420p -an "$out/tour.webm"
 ffmpeg -y -loglevel error -ss 3 -i "$out/tour.mp4" -frames:v 1 -q:v 3 "$out/tour-poster.jpg"
 ls -la "$out"/tour.* "$out/tour-poster.jpg"
+
+# the README's animation: the tour's first 20 seconds, small
+ffmpeg -y -loglevel error -t 16 -i "$out/tour.mp4" -vf "fps=8,scale=720:-1:flags=lanczos" -c:v libwebp -loop 0 -quality 55 -compression_level 6 "$out/demo.webp"
+
+if [ -n "${PUBLISH:-}" ]; then
+  assets="../../docs/assets"
+  mkdir -p "$assets/screenshots"
+  [ -n "${SKIP_SCREENSHOTS:-}" ] || cp "$out"/screenshots/*.png "$out"/screenshots/*.webp "$assets/screenshots/"
+  cp "$out/tour.mp4" "$out/tour.webm" "$out/tour-poster.jpg" "$out/demo.webp" "$assets/"
+  echo "published to docs/assets"
+fi

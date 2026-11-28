@@ -72,8 +72,11 @@ the image from source only when its inputs change.
 
 The screenshots in `docs/assets/screenshots/` and the tour video on the page come from
 `scripts/demo/run.sh` (it seeds a demo installation, takes the screenshots and records and encodes
-the tour; see the script's header for what it needs). The benchmark behind the page's numbers is in
-`bench/`.
+the tour; see the script's header for what it needs; `PUBLISH=1` copies them into `docs/assets`).
+After a release that changes how the dashboard looks, run the **Media** workflow (Actions, Media,
+Run workflow): it records them from main and opens a pull request to review. The page's opening
+animation is HTML and CSS in `site/index.html` (`#anim`), so it needs no recording. The benchmark
+behind the page's numbers is in `bench/`.
 
 The documentation site is built from `docs/*.md` and `CHANGELOG.md` by
 `scripts/build-docs.mjs` (Node, no dependencies). To preview it, build it next to the page and
