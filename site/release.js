@@ -94,14 +94,16 @@ export function commands(rel, { candidate = false } = {}) {
   const rpm = `slonbase-${v}-1.x86_64.rpm`;
 
   // the one-command install: the repository's package, or a candidate's own package file
+  // (one command per package the candidate has: Debian/Ubuntu's, else Fedora/RHEL's)
+  const viaInstaller = (file, note) => lines(
+    cm(`# ${tag}, a release candidate: download its package${note}, and the installer`),
+    cm("# sets everything up with it instead of the repository's"),
+    escape(`curl -fsSLO ${base}/${file}`),
+    escape(`curl -fsSL ${SITE}/install.sh | sudo SLONBASE_PACKAGE="$PWD/${file}" sh`),
+  );
   out.linux = candidate
-    ? (has(deb) && has(rpm)
-      ? lines(
-        cm(`# ${tag}, a release candidate: download its package (Debian/Ubuntu shown; on Fedora/RHEL`),
-        cm(`# use ${rpm}), and the installer sets everything up with it instead of the repository's`),
-        escape(`curl -fsSLO ${base}/${deb}`),
-        escape(`curl -fsSL ${SITE}/install.sh | sudo SLONBASE_PACKAGE="$PWD/${deb}" sh`),
-      )
+    ? (has(deb) ? viaInstaller(deb, has(rpm) ? ` (Debian/Ubuntu shown; on Fedora/RHEL use ${rpm})` : " (Debian/Ubuntu)")
+      : has(rpm) ? viaInstaller(rpm, " (Fedora/RHEL)")
       : missing("Linux packages"))
     : lines(
       cm("# Debian, Ubuntu, Fedora, RHEL: installs PostgreSQL if needed, creates its role and database,"),

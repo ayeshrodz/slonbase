@@ -114,6 +114,9 @@ function test() {
   const bare = commands(rel("v2.8.0-rc.1", { assets: [{ name: "SHA256SUMS" }] }), { candidate: true });
   check(["linux", "bin", "apt", "dnf"].every((t) => !bare[t].includes("curl -fsSLO")) && bare.bin.includes("has no Linux archive"), "a candidate without Linux files gets no download of them");
   check(bare.win.includes("git clone --branch v2.8.0-rc.1 --depth 1") && bare.mac.includes("git clone --branch v2.8.0-rc.1"), "the source fallback builds the release's own tag");
+  const debOnly = commands(rel("v2.8.0-rc.1", { assets: [{ name: "SHA256SUMS" }, { name: "slonbase_2.8.0-rc.1_amd64.deb" }] }), { candidate: true });
+  const rpmOnly = commands(rel("v2.8.0-rc.1", { assets: [{ name: "SHA256SUMS" }, { name: "slonbase-2.8.0-rc.1-1.x86_64.rpm" }] }), { candidate: true });
+  check(debOnly.linux.includes("SLONBASE_PACKAGE=&quot;$PWD/slonbase_2.8.0-rc.1_amd64.deb") && !debOnly.linux.includes(".rpm") && rpmOnly.linux.includes("SLONBASE_PACKAGE=&quot;$PWD/slonbase-2.8.0-rc.1-1.x86_64.rpm"), "a candidate with one Linux package gets that one");
   const local = localRelease();
   check(version(local.tag_name) !== null && notes(local.body).lead.length > 0, `offline: ${local.tag_name} from Cargo.toml and CHANGELOG.md`);
   if (failed) {
