@@ -232,21 +232,47 @@ HTTP/2 proxy the preloads come in parallel.
 
 ## Running the comparison
 
-One command runs all three on your machine and writes a folder ready to publish. Expect about 40
-minutes with the default 3 runs of 10 s.
+One command runs all three on your machine and writes a folder ready to publish. Expect about 20
+minutes with the default 3 runs of 10 s, and about 30 with `BENCH_RUNS=5`.
 
-**The machine.** A quiet Linux machine with 4 or more cores (3 for the servers and PostgreSQL, 1
-for the load) and nothing else busy. Use a local PostgreSQL 16 with its default settings,
-reachable by a role that may create databases. For steadier numbers, set the CPU governor to
-`performance` (`sudo cpupower frequency-set -g performance`, if your machine has it) and close
-browsers and builds.
+**The machine.** A quiet x86-64 Linux machine with 4 or more cores (3 for the servers and
+PostgreSQL, 1 for the load) and nothing else busy, on mains power. Use a local PostgreSQL with its
+default settings. For steadier numbers:
+- set the CPU governor to `performance` (`sudo cpupower frequency-set -g performance`);
+- on a laptop, turn turbo boost off for the run (`echo 1 | sudo tee
+  /sys/devices/system/cpu/intel_pstate/no_turbo` on Intel, `echo 0 | sudo tee
+  /sys/devices/system/cpu/cpufreq/boost` elsewhere). A clock that rises and falls with the
+  temperature can make runs of the same scenario differ twofold;
+- close browsers and builds.
 
-**What it needs.** Node 22, `psql`, `curl`, `unzip`, `xz`, `taskset` (util-linux), Rust (to
-build slonbase) and [hey](https://github.com/rakyll/hey) (`go install
-github.com/rakyll/hey@latest`, then put `~/go/bin` on your `PATH`).
+**The database role.** A role that may create databases and may act as `anon`, the role PostgREST
+answers as. Creating one for the run keeps your own databases out of it:
 
 ```sh
-ADMIN_DATABASE_URL='postgres://postgres:<password>@127.0.0.1:5432/postgres' bench/compare.sh
+sudo -u postgres psql -c "CREATE ROLE bench LOGIN CREATEDB PASSWORD 'bench'" \
+  -c "CREATE ROLE anon NOLOGIN" -c "GRANT anon TO bench"
+```
+
+(a role with `CREATEROLE`, or a superuser, needs neither of the last two).
+
+**PostgreSQL on the servers' cores.** The servers and PostgreSQL share CPUs 0-2 while the load runs
+on CPU 3. PostgreSQL's processes belong to its own user, so pin them once with `sudo` (connections
+opened later follow; restarting PostgreSQL undoes it). The script stops before running when they
+aren't pinned:
+
+```sh
+for p in $(pgrep -x postgres); do sudo taskset -a -cp 0-2 "$p" > /dev/null; done
+```
+
+**What it needs.** Node 22, `psql`, `curl`, `unzip`, `xz`, `taskset` (util-linux), Rust (to
+build slonbase, or `SLONBASE_BIN` naming an installed one) and [hey](https://github.com/rakyll/hey)
+(`go install github.com/rakyll/hey@latest`, then put `~/go/bin` on your `PATH`).
+
+```sh
+ADMIN_DATABASE_URL='postgres://bench:bench@127.0.0.1:5432/postgres' bench/compare.sh
+# with slonbase installed from a package, and five runs per scenario:
+BENCH_RUNS=5 SLONBASE_BIN="$(command -v slonbase)" \
+  ADMIN_DATABASE_URL='postgres://bench:bench@127.0.0.1:5432/postgres' bench/compare.sh
 ```
 
 It checks the above and builds slonbase (`--release`), or uses `SLONBASE_BIN`. It downloads
@@ -256,7 +282,7 @@ runs the three servers in turn, pinning PostgreSQL's processes to the servers' c
 done, `bench/published/<slonbase version>/` holds:
 - the three results and their raw runs;
 - `REPORT.md`, the full table;
-- `machine.txt`, the CPU, memory, OS, PostgreSQL version and governor.
+- `machine.txt`, the CPU, memory, OS, PostgreSQL version, governor, turbo boost and pinning.
 
 A published folder holds one comparison only, so the script stops before running when
 `bench/published/<slonbase version>/` already exists; `BENCH_REPLACE=1` replaces it (the old
@@ -267,9 +293,13 @@ the machine and the run settings above the tables from that `machine.txt`.
 last ones measured). `BENCH_RUNS`, `BENCH_DURATION`, `SERVER_CPUS` and `LOAD_CPUS` work as in
 `run.sh`.
 
-**Publishing it.** Commit the folder. Then `node scripts/bench-figures.mjs` rewrites the tables in
-the README and `docs/benchmarks.md` from the newest folder that has all three servers (CI fails
-when they are out of date), so no figure is typed by hand.
+Afterwards, drop what the run made: `DROP DATABASE bench_slonbase`, `DROP DATABASE bench_postgrest`,
+then the `anon` and `bench` roles.
+
+**Publishing it.** Commit the folder. Then `node scripts/bench-figures.mjs` rewrites, from the
+newest folder that has all three servers, the tables and the sentences that state what they show
+in the README, `docs/benchmarks.md` and `docs/slonbase-vs-postgrest.md`, and the project page's
+figures, chart and FAQ answer (CI fails when any is out of date), so no figure is typed by hand.
 
 ## Running them
 

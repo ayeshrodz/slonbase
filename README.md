@@ -268,22 +268,22 @@ Compared with PocketBase and PostgREST, on the same machine, the same data and t
 workloads, with default settings ([method and full results](bench/README.md)):
 
 <!-- bench:summary-async -->
-| Scenario | slonbase 2.2 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |
+| Scenario | slonbase 2.7 req/s | PocketBase 0.40.6 req/s | PostgREST 16.5 req/s | p99 ms (slonbase / PocketBase / PostgREST) |
 |---|--:|--:|--:|--:|
-| Health check | 44,316 | 32,270 | 36,267 | 2.1 / 6.4 / 2.2 |
-| View one record | 19,965 | 11,484 | 5,197 | 3.7 / 23.4 / 14.4 |
-| List 30 records | 7,814 | 1,610 | 3,733 | 7.8 / 67.1 / 13.7 |
-| List 30, filtered | 7,100 | 105 | 3,315 | 8.2 / 439 / 15.4 |
-| List 30, expand a relation | 3,906 | 1,065 | n/a | 12.6 / 93.3 / n/a |
-| Create a record | 7,424 (8,722 with async commit) | 4,051 | 3,828 | 8.4 / 45.5 / 16.2 |
+| Health check | 13,003 | 11,570 | 12,325 | 5.3 / 10.7 / 5.8 |
+| View one record | 6,217 | 4,835 | 1,848 | 9.9 / 41.7 / 29.0 |
+| List 30 records | 2,254 | 513 | 1,371 | 23.8 / 185 / 31.8 |
+| List 30, filtered | 2,067 | 57.4 | 1,214 | 25.6 / 820 / 35.0 |
+| List 30, expand a relation | 1,209 | 372 | n/a | 38.2 / 254 / n/a |
+| Create a record | 2,575 | 2,457 | 1,436 | 18.5 / 58.7 / 29.6 |
 <!-- bench:end -->
 
-32 clients, medians of three 10-second runs on a 4-vCPU VM. slonbase is ahead in every scenario
-measured, from 1.1 times PocketBase's throughput (sign-in, which bcrypt bounds) to 68 times (filtered
-lists, where PostgreSQL uses the index). PostgREST is a leaner program that does much less (no sign-in,
-files, realtime or dashboard): a 15 MB process against slonbase's 40 MB. Writes are ahead of PocketBase
-with PostgreSQL's default durability, and further ahead when PostgreSQL makes the same trade-off as
-SQLite's default (`synchronous_commit = off`; see [why](docs/deployment.md#postgresql)). Lists are
+<!-- bench:notes -->
+32 clients, medians of 5 runs of 10s on one machine (11th Gen Intel Core i5-1135G7 @ 2.40GHz, 8 CPUs, 15 GB). slonbase was ahead of PocketBase in 7 of 10 scenarios, up to 36× (filtered lists); level on creating records and sign-in, which bcrypt bounds; behind on single-record reads from one client (0.5×). PostgREST is a leaner program that does much less (no sign-in, files, realtime or dashboard): a 14 MB process against slonbase's 41 MB.
+<!-- bench:end -->
+
+Writes use PostgreSQL's default durability; `synchronous_commit = off` makes the same trade-off as
+SQLite's default and is faster (see [why](docs/deployment.md#postgresql)). Lists are
 gzipped, a sixth of the bytes, which this loopback benchmark counts as CPU only. The numbers come from
 one machine and will differ on yours: the [bench README](bench/README.md) has the caveats and the commands to repeat them.
 
