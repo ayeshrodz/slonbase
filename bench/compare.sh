@@ -115,12 +115,11 @@ run postgrest DATABASE_URL="$(db_url bench_postgrest)"
 
 say "Publishing to bench/published/$version"
 out="published/$version"
-# (checked again: the folder may have appeared while the servers ran)
-if [ -e "$out" ] && [ "${BENCH_REPLACE:-}" != 1 ]; then
-  fail "bench/published/$version already exists; move it away, or set BENCH_REPLACE=1 to replace it"
-fi
-rm -rf "$out"
-mkdir -p "$out"
+# (the folder is removed only when asked; a plain mkdir fails on one that appeared while the
+# servers ran, so another run's results are never deleted)
+if [ "${BENCH_REPLACE:-}" = 1 ]; then rm -rf "$out"; fi
+mkdir -p published
+mkdir "$out" 2> /dev/null || fail "bench/published/$version already exists; move it away, or set BENCH_REPLACE=1 to replace it"
 for n in slonbase pocketbase postgrest; do cp "results/$n.json" "results/$n.raw.jsonl" "$out/"; done
 {
   echo "$(lscpu | sed -n 's/^Model name:[[:space:]]*//p' | head -1), $(nproc) CPUs, $(awk '/MemTotal/ {printf "%.0f GB", $2 / 1048576}' /proc/meminfo)"
