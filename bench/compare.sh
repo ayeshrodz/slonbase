@@ -115,6 +115,10 @@ run postgrest DATABASE_URL="$(db_url bench_postgrest)"
 
 say "Publishing to bench/published/$version"
 out="published/$version"
+# (checked again: the folder may have appeared while the servers ran)
+if [ -e "$out" ] && [ "${BENCH_REPLACE:-}" != 1 ]; then
+  fail "bench/published/$version already exists; move it away, or set BENCH_REPLACE=1 to replace it"
+fi
 rm -rf "$out"
 mkdir -p "$out"
 for n in slonbase pocketbase postgrest; do cp "results/$n.json" "results/$n.raw.jsonl" "$out/"; done
