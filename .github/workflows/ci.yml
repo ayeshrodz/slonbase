@@ -3,11 +3,23 @@ name: CI
 # Pull requests are tested as pull requests, and main once more after the merge (the Release
 # workflow waits for that run). A branch push isn't tested on its own: with a pull request open
 # it would run twice, and GitHub counts the cancelled duplicate as a failed required check.
+#
+# How much runs depends on the change (job `plan`, scripts/ci-plan.sh):
+# - documentation, the project page, benchmarks and the other workflows: the checks in `lint`
+#   and `site`, a few minutes;
+# - code: the build and every test on the oldest and the newest PostgreSQL;
+# - everything, on all five PostgreSQL versions: a release (a version with no tag yet, which is
+#   what the Release workflow publishes), the nightly run, a run started by hand (Actions, CI,
+#   Run workflow: also how to run it on a branch before a release), and a change to CI itself,
+#   the dependencies or the migrations.
+# The one check a pull request needs is `CI passed`, which fails when a job that ran failed.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "47 3 * * *"
 
 permissions:
   contents: read
@@ -23,19 +35,57 @@ env:
   SLONBASE_REQUIRE_TEST_DATABASE: "1"
 
 jobs:
+  # what this change needs (see the comment at the top)
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      full: ${{ steps.plan.outputs.full }}
+      code: ${{ steps.plan.outputs.code }}
+      web: ${{ steps.plan.outputs.web }}
+      postgres: ${{ steps.plan.outputs.postgres }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # the commit and its parents: a pull request's merge commit, or a push's previous tip
+          fetch-depth: 2
+      - id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          files=""
+          case "$EVENT" in
+            pull_request) files=$(git diff --name-only --no-renames HEAD^1 HEAD || true) ;;
+            push) files=$(git diff --name-only --no-renames "$BEFORE" HEAD || true) ;;
+          esac
+          # a version with no tag is a release, the way the Release workflow decides it
+          release=0
+          if [ "$EVENT" = push ]; then
+            version=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[0].version')
+            git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null || release=1
+          fi
+          printf '%s\n' "$files" | CI_EVENT="$EVENT" CI_RELEASE="$release" scripts/ci-plan.sh | tee -a "$GITHUB_OUTPUT"
+      - name: Check the rules
+        run: scripts/ci-plan.sh --test
+
   lint:
+    needs: plan
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # (the Rust steps are for a change to code; the rest of the checks below always run)
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: needs.plan.outputs.code == 'true'
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        if: needs.plan.outputs.code == 'true'
       - run: cargo fmt --all --check
+        if: needs.plan.outputs.code == 'true'
       # the installer people pipe into a root shell
       - run: shellcheck -s sh site/install.sh packaging/scripts/*.sh scripts/package.sh scripts/check-dist.sh scripts/installer-test/run.sh
       # the other scripts (bash), warnings and errors
-      - run: shellcheck --severity=warning bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh bench/compare.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh site/test/run.sh
+      - run: shellcheck --severity=warning scripts/ci-plan.sh bench/run.sh compat/run.sh compat/*/run.sh scripts/build-repo.sh scripts/release-notes.sh scripts/demo/run.sh bench/compare.sh scripts/fleet-test/run.sh soak/run.sh ui/test/run.sh site/test/run.sh
       # the workflows themselves (expressions, permissions, shell in `run:`)
       - run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       # the third-party license list (written at packaging time, from Cargo.lock) can be generated
@@ -47,6 +97,7 @@ jobs:
       # preparing a release, a release candidate and the release after it changes what it should
       - run: python3 scripts/test-prepare-release.py
       - run: cargo clippy --all-targets --locked -- -D warnings
+        if: needs.plan.outputs.code == 'true'
       # the documentation site builds, and its links between pages and headings all resolve
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
       # the site, the docs and the 404 page carry the dashboard's current tokens, and no loose colours
@@ -59,6 +110,8 @@ jobs:
   # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
   msrv:
     name: minimum Rust version
+    needs: plan
+    if: needs.plan.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,6 +125,10 @@ jobs:
 
   # known vulnerabilities in dependencies (RustSec); releases wait for CI, so this blocks them too
   audit:
+    needs: plan
+    # advisories come out on their own schedule, so this runs with everything: before a release
+    # and every night
+    if: needs.plan.outputs.full == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,12 +139,15 @@ jobs:
 
   test:
     name: test (PostgreSQL ${{ matrix.postgres }})
+    needs: plan
+    if: needs.plan.outputs.code == 'true'
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
-        # every major version the docs promise: 14 (the oldest) up to the newest
-        postgres: ["14", "15", "16", "17", "18"]
+        # every major version the docs promise, 14 (the oldest) up to the newest, when everything
+        # runs; otherwise the two ends, which is where versions differ
+        postgres: ${{ fromJSON(needs.plan.outputs.postgres) }}
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}-alpine
@@ -131,10 +191,18 @@ jobs:
           exit 1
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-      - run: cargo test --locked
+      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+        with:
+          tool: cargo-nextest
+      # the tests run in parallel across the test programs too (.config/nextest.toml)
+      - run: cargo nextest run --locked
+      # (nextest doesn't run documentation examples)
+      - run: cargo test --doc --locked
 
   # the debug binary, built once for the jobs below that run it
   build:
+    needs: plan
+    if: needs.plan.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -324,6 +392,8 @@ jobs:
   # nothing wider than the screen, tap targets of 44px, no axe violations, no console errors
   site:
     name: site (layout and accessibility)
+    needs: plan
+    if: needs.plan.outputs.web == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -540,3 +610,21 @@ jobs:
       - run: compat/upgrade/run.sh ${{ matrix.from }}
         env:
           GH_TOKEN: ${{ github.token }}
+
+  # the one check a pull request needs: every job that ran passed. A job that was skipped wasn't
+  # needed for this change (see `plan`), which a required check named after the job can't say
+  passed:
+    name: CI passed
+    if: ${{ always() }}
+    needs: [plan, lint, msrv, audit, build, test, installer, compat, differential, site, dashboard, import, fleet, upgrade]
+    runs-on: ubuntu-24.04
+    steps:
+      - env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.value.result)\t\(.key)"' | sort
+          echo "$NEEDS" | jq -e '[.plan.result, .lint.result] | all(. == "success")' > /dev/null || { echo "::error::plan or lint didn't pass"; exit 1; }
+          if echo "$NEEDS" | jq -e 'any(.[]; .result == "failure" or .result == "cancelled")' > /dev/null; then
+            echo "::error::a job failed"
+            exit 1
+          fi

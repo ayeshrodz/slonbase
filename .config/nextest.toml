@@ -1,0 +1,11 @@
+# How `cargo nextest run` (what CI and a quick local run use) behaves; `cargo test` still works.
+#
+# The tests are CPU-bound and each makes a database of its own, so they run in parallel across
+# the test programs too: about twice as fast on a 4-CPU CI runner as `cargo test`, which runs the
+# programs one after another. 8 threads on 4 CPUs was the fastest of 4, 8 and 16 measured.
+[profile.default]
+test-threads = 8
+# one run shows every failing test, not only the first
+fail-fast = false
+# a test that hangs is stopped after five minutes, not when the job's own limit is reached
+slow-timeout = { period = "60s", terminate-after = 5 }

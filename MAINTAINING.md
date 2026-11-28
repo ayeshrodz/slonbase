@@ -8,7 +8,8 @@ For the maintainer. A contributor doesn't need anything on this page (see
 Every change, the maintainer's and an agent's included, arrives by pull request and merges only
 when CI passes (squash merge, branch deleted afterwards). `main` is protected by a ruleset:
 
-- pull request required, with the CI checks passing and conversations resolved;
+- pull request required, with the one check `CI passed` and conversations resolved (see "How much
+  CI runs" below for why it is one check and not one per job);
 - no force pushes, no deletion, linear history;
 - code owner review for the paths in `.github/CODEOWNERS` once there is a second maintainer
   (while the maintainer is the only one, the required number of approving reviews is 0, because
@@ -21,6 +22,28 @@ when CI passes (squash merge, branch deleted afterwards). `main` is protected by
   workflow creates the tag with the workflow token, which a ruleset can't exempt).
 
 The checklist at the end of this page lists the steps for setting this up on GitHub.
+
+### How much CI runs
+
+A change waits only for the checks that can fail because of it. Job `plan` in
+`.github/workflows/ci.yml` reads the changed files (`scripts/ci-plan.sh`, which has its own
+tests: `scripts/ci-plan.sh --test`) and picks one of three:
+
+| Change | Runs | About |
+|---|---|---|
+| Only documentation, the project page, benchmarks, the other workflows or the root Markdown files | `lint` (shellcheck, actionlint, the docs build, the token and figure checks) and `site` | 3 minutes |
+| Code: anything not listed above, including a file nobody classified | everything except `audit`, with the tests on PostgreSQL 14 and 18 | 5 minutes |
+| A release (a version in `Cargo.toml` with no tag yet), the nightly run, a run started by hand, or a change to CI itself, `Cargo.toml`, `Cargo.lock`, `migrations/` | everything, on PostgreSQL 14, 15, 16, 17 and 18, and `audit` | 6 minutes |
+
+The tests run with `cargo nextest` (`.config/nextest.toml`), in parallel across the test programs,
+which is about twice as fast on a CI runner as `cargo test`; documentation examples run with
+`cargo test --doc`. A skipped job isn't a failure: the job `CI passed` (the only required check)
+fails when a job that ran failed, or when `plan` or `lint` didn't pass. Adding a job to
+`ci.yml` means adding it to the `needs` of `CI passed` too.
+
+To run everything on a branch (before a release, or for a change you want checked on every
+PostgreSQL): Actions, CI, Run workflow. A release always gets everything, because the Release
+workflow only publishes after CI passes on the `main` commit that bumps the version.
 
 ## Releasing
 
@@ -185,7 +208,8 @@ candidates, and a new minor's line is added with the previous line's end date.
 
 Settings, General: allow squash merging only, default message "pull request title and
 description", automatically delete head branches, allow auto-merge.
-Settings, Rules, Rulesets: the `main` ruleset above, and a tag ruleset for `v*`.
+Settings, Rules, Rulesets: the `main` ruleset above (its one required status check is `CI passed`,
+from GitHub Actions), and a tag ruleset for `v*`.
 Settings, Actions, General: workflow permissions read-only by default; require approval for
 workflows from outside collaborators; only allow actions from GitHub and the ones listed.
 Settings, Environments: `release` (the tag and package publication, with the maintainer as
