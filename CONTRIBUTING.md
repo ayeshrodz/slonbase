@@ -46,7 +46,7 @@ build step. See [ui/README.md](ui/README.md).
   ```sh
   cargo fmt --all --check
   cargo clippy --all-targets --locked -- -D warnings
-  cargo test         # or `cargo nextest run` (cargo install cargo-nextest), about twice as fast
+  cargo test         # or: cargo nextest run && cargo test --doc  (cargo install cargo-nextest; about twice as fast)
   cargo audit        # known vulnerabilities in dependencies (cargo install cargo-audit)
   node scripts/build-docs.mjs /tmp/docs        # when you change docs/: links and headings
   DATABASE_URL='postgres://...' ui/test/run.sh  # when you change the dashboard (ui/); see the script
