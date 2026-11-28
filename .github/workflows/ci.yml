@@ -51,6 +51,8 @@ jobs:
       - run: node scripts/build-docs.mjs "$RUNNER_TEMP/docs"
       # the site, the docs and the 404 page carry the dashboard's current tokens, and no loose colours
       - run: node scripts/build-tokens.mjs --check
+      # which releases the project page shows (a newer candidate too) and the commands it gives
+      - run: node scripts/build-site.mjs --test
 
   # the oldest Rust the project says it supports (`rust-version` in Cargo.toml) builds it
   msrv:
