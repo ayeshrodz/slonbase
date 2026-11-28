@@ -36,7 +36,7 @@ const OVERLAY = `
   if (document.body) mount(); else addEventListener("DOMContentLoaded", mount);
 })();`;
 
-const browser = await chromium.launch({ args: ["--font-render-hinting=none"] });
+const browser = await chromium.launch({ args: ["--font-render-hinting=none"], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) });
 const ctx = await browser.newContext({
   viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 1,
@@ -62,64 +62,81 @@ async function type(locator, text, delay = 45) {
   await click(locator, 150);
   await page.keyboard.type(text, { delay });
 }
+// a control that is on screen is clicked like a person would; one that isn't (a closed group of
+// the sidebar) is reached by its address, so the tour doesn't stop on a layout change
+async function open(locator, hash, pause = 1500) {
+  const first = locator.first();
+  if (await first.isVisible().catch(() => false)) await click(first, pause);
+  else { await page.goto(`${base}/_/${hash}`); await wait(pause); }
+}
 
-// the tour
+// sign in
 await page.goto(base + "/_/");
 await page.evaluate(() => localStorage.setItem("slonbase.theme", "light"));
 await page.reload();
 await page.waitForSelector("input[type=password]");
-await wait(1400);
+await wait(1200);
 await type(page.locator("input[type=email]"), email);
 await type(page.locator("input[type=password]"), password, 35);
 await wait(300);
 await click(page.locator("button[type=submit]"), 1800);
 await page.waitForSelector(".sidebar");
-await wait(1800);
+await wait(1400);
 
-// records: filter, a record in the drawer, a record arriving live
-await click(page.locator(".sidebar a[href='#/data/tasks'], .sidebar a:has-text('tasks')").first(), 1500);
+// Data: every collection, then one of them
+await open(page.locator(".sidebar a[href='#/data']"), "#/data", 2000);
+await open(page.locator("main").getByText("tasks", { exact: true }), "#/data/tasks/records", 1600);
+
+// records: filter, a record in the drawer, a record arriving live from another program
 const filter = page.locator("input[placeholder^='Filter']").first();
-await type(filter, "status = 'in progress' && priority >= 3", 38);
+await type(filter, "status = 'in progress' && priority >= 3", 36);
 await page.keyboard.press("Enter");
-await wait(1700);
-await filter.fill(""); await page.keyboard.press("Enter"); await wait(900);
-await click(page.locator("tbody tr[data-row]").nth(2), 1600);
-await page.keyboard.press("Escape"); await wait(600);
-// from "another program": a task created through the API shows up in the grid
+await wait(1600);
+await filter.fill(""); await page.keyboard.press("Enter"); await wait(800);
+await click(page.locator("tbody tr[data-row]").nth(2), 1500);
+await page.keyboard.press("Escape"); await wait(500);
 const login = await (await fetch(base + "/api/collections/_superusers/auth-with-password", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identity: email, password }) })).json();
 await fetch(base + "/api/collections/tasks/records", { method: "POST", headers: { "content-type": "application/json", authorization: login.token }, body: JSON.stringify({ title: "Launch slonbase.com", status: "in progress", priority: 4, estimate: 3, labels: ["feature"] }) });
 await wait(2200);
 
-// schema, rules, API
-for (const [name, pause] of [["Schema", 1700], ["API rules", 1700], ["API", 1900]]) {
-  await click(page.getByRole("tab", { name: new RegExp("^" + name) }).first(), pause);
+// automations: the list, one opened in its panel (steps that pass data on), then a template
+await open(page.locator(".sidebar a[href='#/automations']"), "#/automations", 1800);
+const auto = page.locator("tr", { hasText: "Remind assignees of stale reviews" }).getByRole("button", { name: "Edit" }).first();
+if (await auto.isVisible().catch(() => false)) {
+  await click(auto, 1800);
+  await page.mouse.wheel(0, 420); await wait(1500);
+  await page.keyboard.press("Escape"); await wait(600);
 }
-await page.mouse.wheel(0, 380); await wait(1100);
+await open(page.locator("a[href='#/automations/templates']"), "#/automations/templates", 1300);
+const tpl = page.locator("tr", { hasText: "Task reminder" }).getByRole("button", { name: "Edit" }).first();
+if (await tpl.isVisible().catch(() => false)) {
+  await click(tpl, 2200);
+  await page.mouse.wheel(0, 300); await wait(900);
+  await page.keyboard.press("Escape"); await wait(600);
+}
 
 // the SQL console
-await click(page.locator(".sidebar a[href='#/sql']"), 1200);
+await open(page.locator(".sidebar a[href='#/sql']"), "#/sql", 1100);
 const editor = page.locator("textarea, [contenteditable=true]").first();
 await click(editor, 200);
 await page.keyboard.press("Control+A");
-await page.keyboard.type("select status, count(*) as tasks, round(avg(priority)::numeric, 1) as avg_priority\nfrom slonbase.tasks\ngroup by status\norder by tasks desc;", { delay: 22 });
+await page.keyboard.type("select status, count(*) as tasks, round(avg(priority)::numeric, 1) as avg_priority\nfrom slonbase.tasks\ngroup by status\norder by tasks desc;", { delay: 20 });
 await page.keyboard.press("Control+Enter");
-await wait(2200);
+await wait(2000);
 
-// logs, the command center
-await click(page.locator(".sidebar a[href='#/logs']"), 2000);
-await click(page.locator(".sidebar a[href='#/projects']"), 3000);
+// Health, the command center
+await open(page.locator(".sidebar a[href='#/health']"), "#/health", 2200);
+await open(page.locator(".sidebar a[href='#/projects']"), "#/projects", 2600);
 
-// settings: accents and dark mode
-await click(page.locator(".sidebar a[href='#/settings']"), 1400);
+// settings: accents and dark mode, then the overview in the dark
+await open(page.locator(".sidebar a[href='#/settings']"), "#/settings", 1300);
 for (const name of ["Indigo", "Rose", "Sage"]) {
-  await click(page.locator(".accent-card", { hasText: name }).first(), 900);
+  const card = page.locator(".accent-card", { hasText: name }).first();
+  if (await card.isVisible().catch(() => false)) await click(card, 800);
 }
-await click(page.locator(".mode-card", { hasText: "Dark" }).first(), 1800);
-
-// the email designer, then the overview in the dark
-await click(page.locator("a[href='#/settings/mail']").first(), 1500);
-await page.mouse.wheel(0, 700); await wait(1500);
-await click(page.locator(".sidebar a[href='#/']").first(), 2400);
+const dark = page.locator(".mode-card", { hasText: "Dark" }).first();
+if (await dark.isVisible().catch(() => false)) await click(dark, 1600);
+await open(page.locator(".sidebar a[href='#/']"), "#/", 2400);
 
 const video = page.video();
 await ctx.close();

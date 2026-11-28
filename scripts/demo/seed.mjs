@@ -56,4 +56,40 @@ for (let i = 0; i < 64; i++) {
   taskIds.push(r.id);
 }
 for (let i = 0; i < 40; i++) await T("POST", "/api/collections/comments/records", { task: taskIds[i % taskIds.length], author: userIds[i % 6], body: ["Looks good to me.", "Can we ship this on Friday?", "Blocked on the design review.", "Added a test for the edge case."][i % 4] });
+// 2.7: an email template, automations (on a schedule, and when a record changes) and their runs
+// (a failure here is reported and the rest of the demo goes on)
+try {
+  await T("PATCH", "/api/collections/tasks", { fields: [...tasks.fields, { name: "reminded", type: "bool" }] });
+  // mail on, so email steps can be saved (nothing is sent: the demo never runs them)
+  await T("PATCH", "/api/settings", { smtp: { enabled: true, host: "127.0.0.1", port: 2525 }, meta: { senderName: "Acme tasks", senderAddress: "tasks@example.com" } });
+  const tpl = await T("POST", "/api/templates", {
+    name: "Task reminder", description: "Sent when a task has waited too long",
+    subject: "{{ item.title }} is waiting for you",
+    body: "<h1>Hi {{ item.expand.assignee.name }},</h1><p><strong>{{ item.title }}</strong> has been in review for a week.</p><p>Could you take a look today?</p>",
+    sample: { item: { title: "Bulk edit tasks", expand: { assignee: { name: "Lena" } } } },
+  });
+  await T("POST", "/api/templates", { name: "Welcome", description: "Sent to every new user", subject: "Welcome to the team, {{ item.name }}", body: "<p>Hi {{ item.name }}, your account is ready.</p>", sample: { item: { name: "Maya" } } });
+  const reminders = await T("POST", "/api/automations", {
+    name: "Remind assignees of stale reviews", expression: "0 8 * * 1-5", type: "steps", enabled: true, retries: 2, retryDelaySeconds: 60,
+    config: { steps: [
+      { name: "stale", type: "query", config: { collection: "tasks", filter: "status = 'review' && reminded = false", sort: "-updated", limit: 100 } },
+      { name: "any", type: "condition", config: { expression: "steps.stale.count > 0" } },
+      { name: "remind", type: "email", forEach: "steps.stale.rows", config: { template: tpl.id, to: "{{ item.expand.assignee.email }}", data: {} } },
+      { name: "mark", type: "write", forEach: "steps.stale.rows", config: { action: "update", collection: "tasks", id: "{{ item.id }}", data: { reminded: true } } },
+    ] },
+  });
+  await T("POST", "/api/automations", {
+    name: "Comment on finished tasks", type: "steps", enabled: true,
+    trigger: { type: "record", collection: "tasks", actions: ["update"], condition: 'trigger.record.status == "done" and "status" in trigger.changed' },
+    config: { steps: [
+      { name: "note", type: "write", config: { action: "create", collection: "comments", data: { task: "{{ trigger.record.id }}", body: "Marked done: {{ trigger.record.title }}" } } },
+    ] },
+  });
+  await T("POST", "/api/automations", { name: "Clean up tasks done a year ago", expression: "30 3 * * 0", type: "cleanup", enabled: true, config: { collection: "tasks", filter: "status = 'done'", olderThanDays: 365, field: "updated", maxRows: 1000 } });
+  // runs for the history: finishing tasks starts the record-triggered automation
+  void reminders;
+  for (const id of taskIds.slice(0, 3)) await T("PATCH", `/api/collections/tasks/records/${id}`, { status: "done" });
+} catch (e) {
+  console.warn("automations not seeded:", e.message);
+}
 console.log("seeded");
