@@ -36,8 +36,24 @@ const SIZES = [
   { name: "laptop-1280", viewport: { width: 1280, height: 800 } },
   { name: "desktop-1440", viewport: { width: 1440, height: 900 } },
 ];
+// the project page as it is when a release candidate is newer than the release: the deploy would
+// fill it this way (scripts/build-site.mjs), here from fixed releases
+const { fill } = await import(path.join(here, "../../scripts/build-site.mjs"));
+const { pick } = await import(path.join(here, "../../site/release.js"));
+{
+  const rel = (tag) => ({
+    tag_name: tag, draft: false, prerelease: tag.includes("-rc."), published_at: "2026-12-01T12:00:00Z",
+    html_url: `https://github.com/ayeshrodz/slonbase/releases/tag/${tag}`,
+    body: "**A lead.** A summary of the release.\n\n### Added\n\n- **One thing.** x\n- **Another.** y\n- **A third.** z\n",
+    assets: [],
+  });
+  const page = fs.readFileSync(path.join(dir, "index.html"), "utf8");
+  fs.writeFileSync(path.join(dir, "preview.html"), fill(page, pick([rel("v9.1.0-rc.1"), rel("v9.0.0")])));
+}
+
 const PAGES = [
   { name: "home", path: "/" },
+  { name: "home-with-preview", path: "/preview.html" },
   { name: "docs-installation", path: "/docs/installation/" },
   { name: "not-found", path: "/404.html" },
 ];
@@ -68,6 +84,51 @@ function inRunningText(a) {
 
 const browser = await chromium.launch(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {});
 const failures = [];
+
+// the install box opens on the visitor's system, and Preview switches every command to the candidate
+{
+  for (const [ua, tab] of [["Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)", "t-mac"], ["Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "t-win"], ["Mozilla/5.0 (X11; Linux x86_64)", "t-linux"]]) {
+    const context = await browser.newContext({ userAgent: ua });
+    await context.route(/api\.github\.com/, (route) => route.abort());
+    const page = await context.newPage();
+    await page.goto(base + "/", { waitUntil: "networkidle" });
+    const selected = await page.evaluate(() => document.querySelector('#install [role="tab"][aria-selected="true"]')?.id);
+    if (selected !== tab) failures.push(`install box: on "${ua}" it opens ${selected}, not ${tab}`);
+    await context.close();
+  }
+  const context = await browser.newContext();
+  await context.route(/api\.github\.com/, (route) => route.abort());
+  const page = await context.newPage();
+  await page.goto(base + "/preview.html", { waitUntil: "networkidle" });
+  const shown = () => page.evaluate(() => document.querySelector("#in-bin").innerText);
+  if (!(await shown()).includes("v9.0.0")) failures.push("preview page: the binary tab doesn't start on the release");
+  await page.click('[data-channel-pick="preview"]');
+  if (!(await shown()).includes("v9.1.0-rc.1")) failures.push("preview page: Preview doesn't switch the binary tab to the candidate");
+  if (!(await page.evaluate(() => document.querySelector("#in-apt").innerText)).includes("./slonbase_9.1.0-rc.1_amd64.deb")) failures.push("preview page: Preview doesn't give the candidate's package file");
+  if (!(await page.locator(".release.preview").count())) failures.push("preview page: no Preview card");
+  await context.close();
+
+  // between deploys the page asks GitHub itself, with the same rules; it keeps what it has on failure
+  const api = (body, status = 200) => async (route) => {
+    if (/\/releases\?/.test(route.request().url())) await route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) });
+    else await route.abort();
+  };
+  const rel = (tag) => ({ tag_name: tag, draft: false, prerelease: tag.includes("-rc."), published_at: "2027-01-05T12:00:00Z", html_url: `https://github.com/ayeshrodz/slonbase/releases/tag/${tag}`, body: "**Fresh.** From the API.", assets: [] });
+  for (const [name, handler, want] of [
+    ["a newer candidate", api([rel("v9.3.0-rc.1"), rel("v9.2.0")]), "Preview v9.3.0-rc.1"],
+    ["an API error", api({ message: "rate limited" }, 403), null],
+  ]) {
+    const ctx = await browser.newContext();
+    await ctx.route(/api\.github\.com/, handler);
+    const pg = await ctx.newPage();
+    const before = (await (await fetch(base + "/")).text()).match(/<a class="pill"[^>]*>([\s\S]*?)<\/a>/)[1].replace(/<!--[\s\S]*?-->/g, "");
+    await pg.goto(base + "/", { waitUntil: "networkidle" });
+    const pill = await pg.evaluate(() => document.getElementById("release-pill").innerHTML);
+    if (want && !pill.includes(want)) failures.push(`runtime refresh, ${name}: the pill doesn't show ${want}`);
+    if (!want && pill.replace(/<!--[\s\S]*?-->/g, "") !== before) failures.push(`runtime refresh, ${name}: the pill changed`);
+    await ctx.close();
+  }
+}
 
 // the exemption itself: links in a sentence are exempt, links standing alone or side by side are not
 {

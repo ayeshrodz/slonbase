@@ -78,7 +78,7 @@ PocketBase's SQLite runs inside its process.
   combined condition, while PocketBase's query takes about 0.3 s per request under this load.
 - **Against PostgREST,** slonbase is 2.1 times as fast on lists (3,733), 3.8 times on single
   records (5,197) and 1.9 times on creates (3,828). PostgREST is the leanest of the three
-  (a 15 MB resident process, a 4.5 MB download) and does the least: no sign-in, files, realtime or
+  (a 15 MB resident process, a 4.3 MB download) and does the least: no sign-in, files, realtime or
   dashboard. Its lists are built inside PostgreSQL, on the same 3 CPUs the server uses, which is part of
   why it doesn't pull ahead here; on a machine where the database has cores of its own the gap may
   differ. See [PostgREST](#postgrest) for how it was set up.

@@ -18,5 +18,7 @@ mkdir -p "$site/assets/fonts"
 cp -r "$repo/docs/assets/." "$site/assets/"
 cp "$repo/ui/app/fonts/"* "$site/assets/fonts/"
 node "$repo/scripts/build-docs.mjs" "$site/docs" >/dev/null
+# the release regions as the deploy fills them (offline: from Cargo.toml and CHANGELOG.md)
+node "$repo/scripts/build-site.mjs" "$site/index.html" --offline >/dev/null
 
 node "$here/check.mjs" "$site"
