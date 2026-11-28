@@ -69,8 +69,14 @@ case "$target" in
     # table loses slonbase's realtime trigger (PostgREST has no realtime) and gets an id default
     psql "$DATABASE_URL" -q -v ON_ERROR_STOP=1 <<'SQL' > /dev/null
 DO $$ BEGIN IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN CREATE ROLE anon NOLOGIN; END IF; END $$;
--- PostgREST logs in as this role and switches to anon, so this role must be a member of it
-DO $$ BEGIN IF NOT pg_has_role(current_user, 'anon', 'MEMBER') THEN EXECUTE format('GRANT anon TO %I', current_user); END IF; END $$;
+-- PostgREST logs in as this role and switches to anon, so this role must be allowed to (since
+-- PostgreSQL 16 that is the SET option, which creating anon with CREATEROLE doesn't give)
+DO $$ BEGIN
+  IF current_setting('server_version_num')::int >= 160000 THEN
+    IF NOT pg_has_role(current_user, 'anon', 'SET') THEN EXECUTE format('GRANT anon TO %I WITH SET TRUE', current_user); END IF;
+  ELSIF NOT pg_has_role(current_user, 'anon', 'MEMBER') THEN EXECUTE format('GRANT anon TO %I', current_user);
+  END IF;
+END $$;
 GRANT USAGE ON SCHEMA slonbase TO anon;
 GRANT SELECT, INSERT ON ALL TABLES IN SCHEMA slonbase TO anon;
 DROP TRIGGER _slonbase_realtime ON slonbase.writes;

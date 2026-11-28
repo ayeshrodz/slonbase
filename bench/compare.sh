@@ -35,17 +35,26 @@ command -v "${HEY_BIN:-hey}" > /dev/null || missing+=("hey (go install github.co
 [ ${#missing[@]} -eq 0 ] || fail "missing: ${missing[*]}"
 [ "$(nproc)" -ge 4 ] || fail "needs at least 4 CPUs (3 for the servers and PostgreSQL, 1 for the load)"
 psql "$ADMIN_DATABASE_URL" -qAtc 'select 1' > /dev/null || fail "can't connect with ADMIN_DATABASE_URL"
-# what the role may do: make the two databases, and answer PostgREST's requests as anon
-IFS='|' read -r db_role can_super can_db can_role anon_ok < <(psql "$ADMIN_DATABASE_URL" -qAtc "
+# what the role may do: make the two databases, and answer PostgREST's requests as anon. PostgREST
+# switches to anon (SET ROLE), which PostgreSQL 16 and later grant apart from membership; when anon
+# exists, the role needs that, or the admin option to grant it to itself (run.sh does); when it
+# doesn't, CREATEROLE, as creating it gives that admin option
+IFS='|' read -r db_role can_super can_db can_role anon_exists anon_ok < <(psql "$ADMIN_DATABASE_URL" -qAtc "
   select current_user, rolsuper, rolcreatedb, rolcreaterole,
-         coalesce((select pg_has_role(current_user, 'anon', 'MEMBER') from pg_roles where rolname = 'anon'), false)
+         exists (select from pg_roles where rolname = 'anon'),
+         coalesce((select pg_has_role(current_user, 'anon', case when current_setting('server_version_num')::int >= 160000 then 'SET' else 'MEMBER' end)
+                          or pg_has_role(current_user, 'anon', 'MEMBER WITH ADMIN OPTION')
+                   from pg_roles where rolname = 'anon'), false)
   from pg_roles where rolname = current_user")
 as_postgres="sudo -u postgres psql -c"
 if [ "$can_super" != t ] && [ "$can_db" != t ]; then
   fail "the role $db_role can't create databases: $as_postgres 'ALTER ROLE \"$db_role\" CREATEDB'"
 fi
-if [ "$can_super" != t ] && [ "$anon_ok" != t ] && [ "$can_role" != t ]; then
-  fail "PostgREST answers as the role anon, which $db_role can't use or create: $as_postgres 'CREATE ROLE anon NOLOGIN' -c 'GRANT anon TO \"$db_role\"' (or give $db_role CREATEROLE)"
+if [ "$can_super" != t ] && [ "$anon_exists" = t ] && [ "$anon_ok" != t ]; then
+  fail "PostgREST answers as the role anon, which $db_role can't switch to: $as_postgres 'GRANT anon TO \"$db_role\"'"
+fi
+if [ "$can_super" != t ] && [ "$anon_exists" != t ] && [ "$can_role" != t ]; then
+  fail "PostgREST answers as the role anon, which doesn't exist and $db_role can't create: $as_postgres 'CREATE ROLE anon NOLOGIN' -c 'GRANT anon TO \"$db_role\"' (or give $db_role CREATEROLE)"
 fi
 gov=/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor
 if [ -r "$gov" ] && [ "$(cat "$gov")" != performance ]; then
@@ -109,16 +118,20 @@ for db in bench_slonbase bench_postgrest; do
   psql "$ADMIN_DATABASE_URL" -qc "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db" > /dev/null
 done
 # PostgreSQL runs on the servers' CPUs too, when it is on this machine. Pinning its processes
-# needs root unless they are this user's, so it is checked here: new connections inherit the
-# main process's CPUs, so pinning that one (with sudo, once) is enough
+# needs root unless they are this user's, so it is checked here, for every one of them (new
+# connections inherit the main process's CPUs)
 PG_PIDS="$(pgrep -d ' ' -x postgres || true)"
 pinned=""
 if [ -n "$PG_PIDS" ]; then
   server_cpus="${SERVER_CPUS:-0-2}"
   for pid in $PG_PIDS; do taskset -a -cp "$server_cpus" "$pid" > /dev/null 2>&1 || true; done
   want="$(taskset -c "$server_cpus" sh -c 'taskset -cp $$' | sed 's/.*: //')"
-  main_pid="$(pgrep -o -x postgres)"
-  have="$(taskset -cp "$main_pid" | sed 's/.*: //')"
+  have="$want"
+  for pid in $PG_PIDS; do
+    # (a process that has since exited doesn't count)
+    cpus="$(taskset -cp "$pid" 2> /dev/null | sed 's/.*: //')" || continue
+    if [ -n "$cpus" ] && [ "$cpus" != "$want" ]; then have="$cpus"; fi
+  done
   if [ "$have" != "$want" ]; then
     fail "PostgreSQL runs on CPUs $have, not the servers' $want, and this user can't move it. Pin it once (connections made later follow):
   for p in \$(pgrep -x postgres); do sudo taskset -a -cp $server_cpus \"\$p\" > /dev/null; done

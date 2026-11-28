@@ -189,7 +189,9 @@ export function prose(f = figures()) {
       `slonbase answered ${x(g("list 30"))} as many list requests per second (${rps(f.s["list 30"].rps)} against ${rps(f.g["list 30"].rps)}), ` +
       `${x(g("view one record"))} as many single-record reads and ${x(g("create record"))} as many creates` +
       (pg.behind.length ? `, and fewer on ${words(pg.behind.map((r) => say(r.k)))}` : "") +
-      `. PostgREST is much lighter in memory (a ${idle("postgrest")} process against ${idle("slonbase")}) and smaller to download, since it does much less. ` +
+      `. PostgREST is much lighter in memory (a ${idle("postgrest")} process against ${idle("slonbase")})` +
+      (fp.postgrest.binaryBytes < fp.slonbase.binaryBytes ? ` and has a smaller binary (${mb(fp.postgrest.binaryBytes)} against ${mb(fp.slonbase.binaryBytes)})` : "") +
+      ", since it does much less. " +
       "PostgREST was run at its defaults with a pool of 16; a tuned PostgREST may do better.",
     "faq": `In the public benchmark it served ${x(f.list.x)} as many list requests per second as PocketBase and ${x(g("list 30"))} as many as PostgREST.`,
   };
@@ -223,8 +225,11 @@ export function site(f = figures()) {
       .map(([c, v]) => `<div class="track"><i class="${c}" style="--w:${pct(v, max)};--d:${d}"></i></div>`).join("")}</div>`;
   };
   let d = 0;
+  const clients = Number(clientsOf(f));
   const rows = CHART.filter(([k]) => f.s[k] && f.p[k]).map(([k, label]) => {
     const s = f.s[k], p = f.p[k], g = f.g[k];
+    // a scenario run at another concurrency than the header's says so (one client is in its label)
+    if (s.concurrency !== clients && s.concurrency !== 1) label += `, ${s.concurrency} clients`;
     return `<div class="bar-row"><div class="label">${label}<small>${rps(s.rps)} · PocketBase ${rps(p.rps)} · PostgREST ${g ? rps(g.rps) : "n/a"}</small></div>` +
       `${bars([s.rps, p.rps, g ? g.rps : null], d++)}<div class="x">${x(s.rps / p.rps)}<small>vs PocketBase</small></div></div>`;
   });
